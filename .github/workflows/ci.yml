@@ -1,0 +1,53 @@
+# CI for iChirp: README reference check, ChirpKit package tests, and an unsigned iOS Simulator build of the app.
+# Nothing here signs, archives or touches the Apple Developer account. The real-model test stays skipped
+# (it runs only with CHIRP_MODEL_TESTS=1), so CI never downloads models.
+name: CI
+
+on:
+  push:
+    branches: [main, "ichirp/**"]
+    paths-ignore: ["docs/**"]
+  pull_request:
+    paths-ignore: ["docs/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # runner label unverified; use the newest macOS image with Xcode 26
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select the newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Module README references
+        run: scripts/check_readme_references.sh
+
+      - name: ChirpKit package tests
+        run: swift test --package-path ChirpKit
+
+      - name: Generate iChirp.xcodeproj
+        run: scripts/gen.sh
+
+      - name: Build app for iOS Simulator (unsigned)
+        run: |
+          xcodebuild build \
+            -project iChirp.xcodeproj \
+            -scheme iChirp \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/xcode \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
