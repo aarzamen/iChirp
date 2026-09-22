@@ -39,6 +39,14 @@ target rate. `durationMs(of:)` is a separate, best-effort probe of the
 source's own `AVURLAsset` duration (returns `0` if the asset's duration
 isn't numeric) — it does not read from the normalized output.
 
+**`normalize` honors task cancellation.** The reader loop checks
+`Task.isCancelled` on every iteration (once per decoded `CMSampleBuffer`, so
+a long import can't keep decoding/writing after the caller gives up). On
+cancellation it calls `reader.cancelReading()`, deletes the partial
+`outputURL` so no truncated WAV is left behind, and throws
+`CancellationError()` — not `AudioNormalizationError` — so callers can tell a
+user-initiated cancel apart from a real decode failure.
+
 **`AVAssetReaderAudioMixOutput`, not `AVAssetReaderTrackOutput`.** The mix
 output is what actually performs the sample-rate/channel-count conversion to
 the requested `audioSettings`, and it's what lets a multi-track/video

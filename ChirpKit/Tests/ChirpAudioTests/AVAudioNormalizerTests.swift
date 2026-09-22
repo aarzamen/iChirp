@@ -124,6 +124,96 @@ final class AVAudioNormalizerTests: XCTestCase {
 
         XCTAssertEqual(Double(durationMs), expected, accuracy: max(expected * 0.01, 1))
     }
+
+    // MARK: - Cancellation
+
+    /// A long (>= 30 s) input gives the reader loop many `CMSampleBuffer` iterations to decode,
+    /// so cancelling the wrapping `Task` genuinely exercises the per-iteration
+    /// `Task.isCancelled` check in the loop rather than only whatever happens before the loop
+    /// starts (asset/track loading, opening the reader and output file).
+    func testCancellationStopsReaderAndRemovesPartialOutput() async throws {
+        let source = try ToneFixture.makeLongTone(duration: 35, inDirectory: tmpDir)
+        let output = outputURL("cancelled")
+        let normalizer = AVAudioNormalizer()
+
+        let task = Task {
+            try await normalizer.normalize(sourceURL: source, outputURL: output)
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected normalize(sourceURL:outputURL:) to throw after the task was cancelled")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: output.path),
+            "A cancelled normalize() must not leave a partial output WAV behind")
+    }
+}
+
+// MARK: - Long tone fixture (cancellation test)
+
+/// Synthesizes a long mono sine tone straight to a WAV file with `AVAudioFile`, writing in small
+/// chunks. Only used by the cancellation test, which needs an input with enough decode work
+/// (many `CMSampleBuffer`s) that a cancelled `Task` reliably gets caught mid-loop rather than
+/// completing before cancellation is ever observed. Never committed to disk.
+private enum ToneFixture {
+    enum FixtureError: Error {
+        case couldNotCreateBuffer
+    }
+
+    static func makeLongTone(
+        duration: Double,
+        frequency: Double = 440,
+        sampleRate: Double = 16_000,
+        inDirectory directory: URL
+    ) throws -> URL {
+        let url = directory.appendingPathComponent("long-tone-\(UUID().uuidString).wav")
+        let fileSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
+        let file = try AVAudioFile(
+            forWriting: url, settings: fileSettings, commonFormat: .pcmFormatFloat32, interleaved: false)
+
+        guard
+            let format = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32, sampleRate: sampleRate, channels: 1, interleaved: false)
+        else {
+            throw FixtureError.couldNotCreateBuffer
+        }
+
+        let chunkFrameCount = 4_096
+        var framesRemaining = Int((duration * sampleRate).rounded())
+        var frameOffset = 0
+        while framesRemaining > 0 {
+            let framesToWrite = min(chunkFrameCount, framesRemaining)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(framesToWrite)),
+                let channelData = buffer.floatChannelData
+            else {
+                throw FixtureError.couldNotCreateBuffer
+            }
+            buffer.frameLength = AVAudioFrameCount(framesToWrite)
+            for frame in 0..<framesToWrite {
+                let phase = 2.0 * Double.pi * frequency * Double(frameOffset + frame) / sampleRate
+                channelData[0][frame] = Float(sin(phase)) * 0.2
+            }
+            try file.write(from: buffer)
+            framesRemaining -= framesToWrite
+            frameOffset += framesToWrite
+        }
+
+        return url
+    }
 }
 
 // MARK: - clip.mov fixture

@@ -99,6 +99,11 @@ public struct AVAudioNormalizer: AudioNormalizing {
 
         var sampleCount = 0
         while let sampleBuffer = output.copyNextSampleBuffer() {
+            if Task.isCancelled {
+                reader.cancelReading()
+                try? FileManager.default.removeItem(at: outputURL)
+                throw CancellationError()
+            }
             guard let pcmBuffer = Self.pcmBuffer(from: sampleBuffer, format: file.processingFormat) else {
                 continue
             }
