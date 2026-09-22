@@ -7,7 +7,7 @@ import Foundation
 /// that may run concurrently with a job must use the field-level methods, never fetch → change → `update`.
 public protocol TranscriptionStoring: Sendable {
     func insert(_ transcription: Transcription) async throws
-    /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite) from the stored row, in
+    /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite, privacyClass) from the stored row, in
     /// one transaction. Returns the merged row, or nil when the row no longer exists (deleted while the job ran). It
     /// never inserts, so a deleted row is never resurrected.
     func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription?

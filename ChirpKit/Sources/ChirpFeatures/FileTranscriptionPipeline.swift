@@ -315,7 +315,7 @@ public actor FileTranscriptionPipeline {
 
         try Self.checkSpeechRouting(privacyRouting, speech: speech.descriptor, privacyClass: row.privacyClass, id: id)
         guard case .ready = await speech.assetStatus() else {
-            throw SpeechEngineError.modelNotDownloaded(speech.descriptor.displayName)
+            throw SpeechEngineError.modelNotDownloaded(speech.descriptor.id)
         }
 
         guard let relativePath = row.mediaRelativePath else { throw PipelineError.sourceFileMissing }

@@ -73,9 +73,12 @@ import ──► processing ──► completed
               └─(app killed)─► interrupted  (set at next launch by markStaleProcessingAsInterrupted; Retry)
 ```
 
-- `savePreservingUserMetadata` writes pipeline output in one transaction while keeping `titleOverride` and
-  `isFavorite` that the user changed while the job ran (port of upstream's method of the same name). It never
-  inserts: a row deleted during its job stays deleted.
+- `savePreservingUserMetadata` writes pipeline output in one transaction while keeping `titleOverride`,
+  `isFavorite` and `privacyClass` that the user changed while the job ran (port of upstream's method of the same
+  name). It never inserts: a row deleted during its job stays deleted.
+- Rows written by a newer build still read: list reads decode row by row and skip (and log, id only) a row that
+  can't decode, and an unknown raw value reads as a safe fallback (`status` → `interrupted`, `privacyClass` →
+  `clinical`, `sourceType` → `file`). Writing such a row back keeps the newer build's raw value.
 - Every other write that can race a job is field-level and atomic (`updateTitleOverride`, `updateFavorite`,
   `transitionStatus(from:to:)`): one transaction reads the current row and changes only those fields, so a rename,
   a star or a failure mark can never overwrite a transcript that landed meanwhile. Retry moves only `failed`,

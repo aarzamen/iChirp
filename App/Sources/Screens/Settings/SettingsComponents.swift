@@ -191,7 +191,10 @@ struct ModelAssetRow: View {
         case .ready(let bytes):
             return "On device · \(Formatting.size(bytes: bytes)) · \(runsOn)"
         case .failed(let message):
-            return "Download failed: \(message)"
+            // The row shows the sentence only; the "Model action failed" alert carries the full text, whose
+            // " Details: …" suffix (error code, host, phase, attempts) is for diagnosis, not for the settings list.
+            let sentence = message.components(separatedBy: " Details: ").first ?? message
+            return "Download failed: \(sentence)"
         }
     }
 

@@ -68,8 +68,9 @@ public enum SpeechEngineError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .modelNotDownloaded(let name):
-            return "The \(name) model has not been downloaded yet."
+        case .modelNotDownloaded(let engineID):
+            // Carries the engine id (contract), so the sentence names it as a detail rather than as a model name.
+            return "A model this needs hasn't been downloaded yet (\(engineID)). Download it in Settings."
         case .emptyTranscript:
             return "No speech was recognized in this recording."
         case .cancelled:
