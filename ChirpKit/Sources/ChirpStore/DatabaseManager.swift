@@ -1,7 +1,8 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Database/DatabaseManager.swift @ bbae9e0e
 // Changes: trimmed to the "v1-transcriptions" migration iChirp M1 needs plus M1.5's "v2-audio-track-ordinal" (upstream
 // "v0.29-transcription-audio-track": one nullable integer column) and M2's "v4-dictation-text" (upstream "v0.1" custom
-// words, "v0.2-text-snippets" and v0.6's snippet `action`, in one migration; "v3" belongs to the M4 lane); kept the
+// words, "v0.2-text-snippets" and v0.6's snippet `action`, in one migration; "v3" belongs to the M4 lane) and M3's
+// "v5-meetings" (user notes, partial audio, audio removed; upstream's meeting columns, trimmed); kept the
 // WAL-via-DatabasePool / foreign-keys-on / 5s-busy-timeout configuration and the inline
 // DatabaseMigrator pattern (migrations are never edited after install; add a new one instead). M5 adds "v6-documents"
 // (link and document provenance columns, new in iChirp; "v5" belongs to the M3 meetings lane).
@@ -120,6 +121,17 @@ public final class DatabaseManager: Sendable {
             }
             try db.execute(
                 sql: #"CREATE UNIQUE INDEX idx_text_snippets_trigger ON text_snippets("trigger" COLLATE NOCASE)"#)
+        }
+
+        // M3 meetings (plan 012, spec/contracts/meeting-session-v1.md): the Notes tab, the "Partial audio" badge of a
+        // recovered meeting, and when retention removed the audio. Additive; earlier rows read NULL / false / NULL.
+        // Named v5 because the parallel M5 lane registers "v6-documents".
+        migrator.registerMigration("v5-meetings") { db in
+            try db.alter(table: "transcriptions") { t in
+                t.add(column: "userNotes", .text)
+                t.add(column: "isPartialAudio", .boolean).notNull().defaults(to: false)
+                t.add(column: "audioRemovedAt", .datetime)
+            }
         }
 
         // M5 ingest (plan 014; spec/contracts/document-items-v1.md): where a link or document came from, and a PDF's

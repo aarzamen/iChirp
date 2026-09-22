@@ -7,9 +7,9 @@ import Foundation
 /// that may run concurrently with a job must use the field-level methods, never fetch → change → `update`.
 public protocol TranscriptionStoring: Sendable {
     func insert(_ transcription: Transcription) async throws
-    /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite, privacyClass) from the stored row, in
-    /// one transaction. Returns the merged row, or nil when the row no longer exists (deleted while the job ran). It
-    /// never inserts, so a deleted row is never resurrected.
+    /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite, privacyClass, and since M3
+    /// userNotes) from the stored row, in one transaction. Returns the merged row, or nil when the row no longer
+    /// exists (deleted while the job ran). It never inserts, so a deleted row is never resurrected.
     func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription?
     /// Replaces every column of an existing row. Only for rows nothing else can be writing; prefer the field-level
     /// methods below.
@@ -37,4 +37,42 @@ public protocol TranscriptionStoring: Sendable {
     func markStaleProcessingAsInterrupted() async throws -> Int
     /// Emits on every change, newest first.
     func observeAll() -> AsyncStream<[Transcription]>
+
+    // M3 meetings. Each is a field-level write; the protocol extension below gives conformers without their own
+    // version a fetch → change → update fallback (fine for fakes; real stores implement them atomically).
+
+    /// Atomically sets only `userNotes` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
+    func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription?
+    /// Atomically renames one speaker: its `speakers` label and the `speakerLabel` of each of its transcript segments.
+    /// Returns the updated row, or nil when the row or the speaker does not exist (nothing written).
+    func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription?
+    /// Retention: atomically clears `mediaRelativePath` and sets `audioRemovedAt`, only on a `.completed` row. Returns
+    /// the updated row, or nil when the row is gone or not completed (nothing written). Does not touch files.
+    func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription?
+}
+
+extension TranscriptionStoring {
+    public func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
+        guard var row = try await fetch(id: id) else { return nil }
+        row.userNotes = userNotes
+        row.updatedAt = Date()
+        try await update(row)
+        return row
+    }
+
+    public func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
+        guard var row = try await fetch(id: id), row.renameSpeaker(speakerId, to: label) else { return nil }
+        row.updatedAt = Date()
+        try await update(row)
+        return row
+    }
+
+    public func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
+        guard var row = try await fetch(id: id), row.status == .completed else { return nil }
+        row.mediaRelativePath = nil
+        row.audioRemovedAt = date
+        row.updatedAt = Date()
+        try await update(row)
+        return row
+    }
 }

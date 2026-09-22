@@ -36,7 +36,7 @@ Application Support/iChirp/
 - New stored properties on `Transcription` are optional or defaulted, so old rows decode.
 - Field names match upstream MacParakeet where they overlap, so ported code needs no renaming.
 
-## `transcriptions` (migrations `v1-transcriptions`, `v2-audio-track-ordinal`, `v6-documents`)
+## `transcriptions` (migrations `v1-transcriptions`, `v2-audio-track-ordinal`, `v5-meetings`, `v6-documents`)
 
 One row per imported file, dictation, meeting, link or document. The Swift type is `ChirpCore.Transcription`.
 
@@ -64,6 +64,9 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 | `derivedTitle`, `derivedSnippet` | text, nullable | Computed from the transcript text |
 | `isFavorite` | bool | Star in Library and Transcript |
 | `privacyClass` | text enum | `general` · `personal` (default) · `clinical` ([`12-privacy.md`](12-privacy.md)) |
+| `userNotes` | text, nullable | M3 (`v5-meetings`): the Notes tab; typed while a meeting records (kept in `recording.lock` until Stop) or later. A user field, like `titleOverride` |
+| `isPartialAudio` | bool, default false | M3: a meeting recovered after the app was killed while recording; the Library shows "Partial audio" |
+| `audioRemovedAt` | date, nullable | M3: when the meeting-audio retention setting deleted the audio (`mediaRelativePath` is nil since) ([contract](contracts/meeting-session-v1.md)) |
 | `sourceURL` | text, nullable | M5 (`v6-documents`): the pasted or shared link of a podcast, media or YouTube item |
 | `sourceTitle` | text, nullable | M5: the title the source published (episode, video, document metadata); wins over `derivedTitle` |
 | `documentFormat` | text enum, nullable | M5: `pdf` · `txt` · `md` · `rtf` · `html` · `docx`; nil for audio items |
@@ -82,13 +85,13 @@ import ──► processing ──► completed
 ```
 
 - `savePreservingUserMetadata` writes pipeline output in one transaction while keeping `titleOverride`,
-  `isFavorite` and `privacyClass` that the user changed while the job ran (port of upstream's method of the same
+  `isFavorite`, `privacyClass` and (M3) `userNotes` that the user changed while the job ran (port of upstream's method of the same
   name). It never inserts: a row deleted during its job stays deleted.
 - Rows written by a newer build still read: list reads decode row by row and skip (and log, id only) a row that
   can't decode, and an unknown raw value reads as a safe fallback (`status` → `interrupted`, `privacyClass` →
   `clinical`, `sourceType` → `file`). Writing such a row back keeps the newer build's raw value.
 - Every other write that can race a job is field-level and atomic (`updateTitleOverride`, `updateFavorite`,
-  `transitionStatus(from:to:)`): one transaction reads the current row and changes only those fields, so a rename,
+  `transitionStatus(from:to:)`, and M3's `updateUserNotes`, `renameSpeaker`, `markAudioRemoved`): one transaction reads the current row and changes only those fields, so a rename,
   a star or a failure mark can never overwrite a transcript that landed meanwhile. Retry moves only `failed`,
   `cancelled` or `interrupted` rows back to `processing`.
 - Deleting a transcript is a user action with a confirmation, and removes its `media/<id>/` folder too.

@@ -115,6 +115,10 @@ struct TranscriptionRow: View {
             }
             statusOrMeta
                 .padding(.top, style == .full ? 5 : 2)
+            if item.isPartialAudio {
+                StatusChip.partialAudio()  // M3: a meeting recovered after the app was killed while recording
+                    .padding(.top, 5)
+            }
         }
     }
 

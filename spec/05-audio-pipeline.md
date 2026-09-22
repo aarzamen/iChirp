@@ -1,7 +1,7 @@
 # 05 - Audio Pipeline
 
 > Status: ACTIVE — M1 file decoding and storage, the M1.5 continued-processing section and the M2 dictation capture
-> section govern code now; the M3 meeting section is PROPOSAL and is refined by its executor plan.
+> section govern code now; the M3 meeting section describes what plan 012 built (device checks pending).
 
 ## M1: decoding imported files (ChirpAudio)
 
@@ -104,18 +104,33 @@ Built in plan 011 (`ChirpAudio/Capture/`, README "Capture (M2)").
   `LiveActivityIntent` that returns only after the final pass, so iOS keeps the app running for it. No App Group,
   no entitlement: the widget extension only draws what the app sends.
 
-## M3: meeting recording (PROPOSAL)
+## M3: meeting recording (built; device checks pending)
 
-- iPhone apps cannot capture other apps' audio (no ScreenCaptureKit equivalent), so a meeting is the built-in mic
-  (optionally with voice isolation). Upstream's dual-stream mic + system design and its echo cancellation do not
-  apply.
-- Crash safety (port of upstream ADR-019): a `recording.lock` file with the session state, and audio that stays
-  readable up to the last second if the app is killed. Upstream writes fragmented AAC `.m4a` with 1 s fragments; the
-  platform research recommends segmented CAF/WAV chunks on iOS. Decide in M3 by a kill-the-app test on the device.
-- Live chunks: Silero VAD-guided chunking (2–10 s, cut on speech end) with fixed 5 s / 1 s-overlap fallback, each
-  chunk a `.meetingLiveChunk` job; backpressure drops the oldest pending chunk beyond 120.
-- After stop: final pass as a `.meetingFinalize` job, then diarization and segmenting, then notes.
-- Start from the foreground; a Live Activity shows state with Pause/Resume.
+Plan 012, contract [meeting-session-v1](contracts/meeting-session-v1.md).
+
+- iPhone apps cannot capture other apps' audio (no ScreenCaptureKit equivalent), so a meeting is the built-in mic.
+  Upstream's dual-stream mic + system design and its echo cancellation do not apply.
+- **Crash safety** (port of upstream ADR-019): `recording.lock` (schema 1, states `recording` /
+  `awaitingTranscription`, owned by the app launch that wrote it) is written before the first buffer, and the audio
+  is `meeting.caf`, 16 kHz mono 16-bit PCM, which a kill leaves readable to its last buffer with no repair. Decided
+  by a kill-9 harness on the Mac ([research note](../docs/research/2026-09-22-meeting-crash-format.md)): fragmented
+  AAC lost the last fragment, a WAV read as 0 s; the device kill test is in the M3 QA list.
+- **Recording** starts only in the foreground (iOS rule); `UIBackgroundModes: audio` keeps it going locked or in
+  another app. Pause drops audio but keeps the microphone subscribed (so iOS keeps the app alive); mute writes
+  silence. A call or Siri interrupts; it resumes by itself when iOS says so, or waits for Resume.
+- **Live text** (display-only): Silero VAD on the CPU cuts 2–10 s chunks on speech end when its model is on disk
+  (Settings → Meetings, about 2 MB), otherwise fixed 5 s chunks with 1 s overlap; after 3 VAD errors it falls back
+  to fixed. Silent chunks (RMS ≤ 0.00025) are skipped. Each chunk is a `.meetingLiveChunk` job
+  (`transcribe(fileAt:)` on a temporary WAV in `chunks/`); backpressure drops the oldest pending chunk beyond 120
+  and the screen says the live text is behind.
+- **Stop:** the lock moves to `awaitingTranscription`, the `.processing` row is inserted with the notes, and one
+  `.meetingFinalize` job transcribes and then diarizes (background slot; dictation stays responsive). Meetings run
+  only the custom-word step of the text pipeline. The lock is deleted only after the completed row is saved.
+- **Recovery** at launch: meetings left by an earlier launch are offered (Recover / Discard with confirmation /
+  Later); a meeting killed while recording is marked "Partial audio".
+- **Retention:** keep meeting audio forever (default) or delete it after 7, 30 or 90 days; never a locked or
+  unfinished session; the transcript and notes stay.
+- A Live Activity shows the timer with Pause/Resume and Stop & save.
 
 ## What never changes
 

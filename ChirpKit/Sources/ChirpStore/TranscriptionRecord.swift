@@ -39,6 +39,10 @@ struct TranscriptionRecord: Codable, Equatable, Sendable {
     var derivedSnippet: String?
     var isFavorite: Bool
     var privacyClass: String
+    /// Added by migration `v5-meetings` (M3); NULL / false / NULL on every earlier row.
+    var userNotes: String?
+    var isPartialAudio: Bool
+    var audioRemovedAt: Date?
     // Added by migration `v6-documents` (M5); NULL on every earlier row. `documentPages` is JSON TEXT.
     var sourceURL: String?
     var sourceTitle: String?
@@ -81,6 +85,9 @@ extension TranscriptionRecord {
         derivedSnippet = transcription.derivedSnippet
         isFavorite = transcription.isFavorite
         privacyClass = transcription.privacyClass.rawValue
+        userNotes = transcription.userNotes
+        isPartialAudio = transcription.isPartialAudio
+        audioRemovedAt = transcription.audioRemovedAt
         sourceURL = transcription.sourceURL
         sourceTitle = transcription.sourceTitle
         documentFormat = transcription.documentFormat?.rawValue
@@ -134,6 +141,9 @@ extension TranscriptionRecord {
         transcription.derivedTitle = derivedTitle
         transcription.derivedSnippet = derivedSnippet
         transcription.isFavorite = isFavorite
+        transcription.userNotes = userNotes
+        transcription.isPartialAudio = isPartialAudio
+        transcription.audioRemovedAt = audioRemovedAt
         transcription.sourceURL = sourceURL
         transcription.sourceTitle = sourceTitle
         // An unknown format (a newer build wrote it) reads as nil; writing the row back keeps the stored value.

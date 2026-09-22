@@ -59,6 +59,9 @@ struct LibraryScreen: View {
             .frame(minHeight: 44)
             searchField
             chips
+            if !environment.pendingMeetingRecoveries.isEmpty {
+                MeetingRecoveryBanner()  // M3: meetings a killed launch left behind
+            }
         }
         .padding(.horizontal, 24)
         .padding(.top, 8)

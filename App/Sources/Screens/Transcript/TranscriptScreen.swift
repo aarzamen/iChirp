@@ -17,6 +17,7 @@ struct TranscriptScreen: View {
     @State private var player: AudioPlayerModel
     @State private var hasLoaded = false
     @State private var placeholder: Placeholder?
+    @State private var isShowingNotes = false  // M3
     @State private var shareItem: ShareItem?
     @State private var actionError: String?
     @State private var isRenaming = false
@@ -61,6 +62,9 @@ struct TranscriptScreen: View {
         }
         .onDisappear { player.stop() }
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
+        .sheet(isPresented: $isShowingNotes, onDismiss: { Task { await model.load() } }) {
+            TranscriptNotesSheet(id: id, store: environment.store)  // M3: notes and speaker names
+        }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
                 .presentationDetents([.medium, .large])
@@ -161,7 +165,7 @@ struct TranscriptScreen: View {
     private var tabs: some View {
         HStack(spacing: 24) {
             tabButton("Transcript", selected: true) {}
-            tabButton("Notes", selected: false) { placeholder = .notes }
+            tabButton("Notes", selected: false) { isShowingNotes = true }
             tabButton("Ask", selected: false) { placeholder = .ask }
             Spacer(minLength: 0)
         }

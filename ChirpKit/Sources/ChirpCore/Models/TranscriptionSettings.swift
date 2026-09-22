@@ -25,6 +25,9 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
     /// M2: the Dictating screen's "Polish after" toggle, remembered between dictations. On runs the deterministic
     /// Clean pipeline (custom words, snippets, filler removal) on the copied text even when `cleanupMode` is Raw.
     public var dictationPolishAfter: Bool = true
+    /// M3: delete the audio of completed meetings older than this many days; nil keeps it forever (the default).
+    /// Transcripts and notes are never deleted by it, nor a meeting still recording or not yet transcribed.
+    public var meetingAudioRetentionDays: Int?
 
     public init() {}
 
@@ -48,6 +51,9 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
         }
         if let value = try? container.decodeIfPresent(Bool.self, forKey: .dictationPolishAfter) {
             dictationPolishAfter = value
+        }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: .meetingAudioRetentionDays) {
+            meetingAudioRetentionDays = value
         }
     }
 }

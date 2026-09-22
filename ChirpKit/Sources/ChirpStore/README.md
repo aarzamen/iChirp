@@ -21,9 +21,10 @@ ChirpStore depends on ChirpText.
   of truth for the schema: `v1-transcriptions`, then `v2-audio-track-ordinal` (M1.5: one nullable integer column,
   `audioTrackOrdinal`; NULL is automatic track selection, so every earlier row reads unchanged), then
   `v3-language-models` (M4), then `v4-dictation-text` (M2: the `custom_words` and `text_snippets` tables with
-  upstream's columns and unique `COLLATE NOCASE` indexes on `word` and `"trigger"`), then `v6-documents` (M5: four
-  nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`, `documentPages` JSON;
-  `v5-meetings` belongs to the parallel M3 lane and merges in before it).
+  upstream's columns and unique `COLLATE NOCASE` indexes on `word` and `"trigger"`), then `v5-meetings` (M3: three
+  additive `transcriptions` columns, `userNotes`, `isPartialAudio` NOT NULL DEFAULT 0 and `audioRemovedAt`), then
+  `v6-documents` (M5: four nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`,
+  `documentPages` JSON).
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
@@ -34,7 +35,9 @@ ChirpStore depends on ChirpText.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
   insert/update/fetch/fetchAll/delete, `savePreservingUserMetadata`, the
   field-level `updateTitleOverride` / `updateFavorite` / `updatePrivacyClass` /
-  `transitionStatus`,
+  `transitionStatus`, and M3's `updateUserNotes` / `renameSpeaker` (the roster label and every segment label of
+  that speaker, one transaction) / `markAudioRemoved` (completed rows only); `savePreservingUserMetadata` keeps the
+  stored `userNotes`,
   and `observeAll()` bridging a GRDB `ValueObservation` to an `AsyncStream`.
   `decodeRows` is the one row-by-row decoder behind both list reads.
 - `LanguageModelSchema.swift` — the M4 tables created by migration

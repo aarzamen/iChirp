@@ -176,6 +176,67 @@ Background (Step 8 research note)
       locked (Console `dictation_done`) and how long it took. Record the result in
       `docs/research/2026-09-22-m2-background-final-pass.md`.
 
+## M3 checklist (meetings)
+
+> Preconditions: the iPhone 17 Pro runs the `m3/meetings` build (Settings → About shows its commit; install with
+> `scripts/run_device.sh`); the speech model and the speaker model are downloaded; Console.app streams the phone with
+> the filter `subsystem:com.aarzamen.ichirp`. Talk to yourself or play a podcast out loud: never record a real
+> clinical conversation or anyone who has not agreed, while testing.
+
+Recording and the Meeting screen
+- [ ] Capture → Record Meeting → **Start**. The Meeting screen shows "Recording", "Microphone · saving on this
+      iPhone", a timer counting up and a green "Mic" level that moves when you speak.
+- [ ] Type a few lines in Notes. Switch to Live transcript: text appears a few seconds after you speak (it is a
+      preview). Settings → Meetings → download the Voice activity model, then start a new meeting: the header says
+      "Live text cuts at pauses" and paragraphs break where you pause.
+- [ ] **Pause**: "Paused · nothing is recorded", the timer stops. Say something, **Resume**, keep talking. After Stop,
+      the transcript does not contain what you said while paused.
+- [ ] **Mute**: "Muted · silence is recorded"; the timer keeps running; the words said while muted are not in the
+      transcript.
+- [ ] **Stop & save**: "Transcribing" with a real percentage, then the transcript opens by itself with speakers
+      ("Speaker 1", "Speaker 2") and a working player. Its Notes tab shows the notes you typed.
+- [ ] Notes tab → Speakers → Rename "Speaker 1" to a name: every paragraph of that speaker shows the name.
+- [ ] Chevron (Hide recording) while recording: Capture shows "Meeting in progress · Recording · mm:ss · Return";
+      Return brings the Meeting screen back and it is still recording.
+- [ ] More options → Discard meeting… → Discard: the screen closes, nothing is in the Library.
+
+Screen locked and a 60-minute meeting (done criterion)
+- [ ] Start a meeting, lock the phone, leave it for **60 minutes** with speech playing. The Lock Screen shows the
+      meeting Live Activity (Recording, time, Pause, Stop & save). Unlock: the timer shows about 60:00.
+- [ ] Stop & save from the Lock Screen's Live Activity: it shows "Transcribing", then "Saved". Note how long the final
+      pass took (Console `meeting_finalized`) and whether it finished while locked. The transcript has speakers.
+- [ ] Settings app → Storage: the meeting took roughly 115 MB per hour.
+
+Interruptions (the recording must never be lost)
+- [ ] During a meeting, call the phone and decline: "Interrupted", then recording resumes (or **Resume** appears). The
+      audio before and after the call is in the transcript.
+- [ ] Answer a call for a minute, hang up, Resume, Stop & save: nothing before the call is missing.
+- [ ] Put AirPods in mid-meeting and take them out again: recording continues each time.
+- [ ] Press the Action Button during a meeting: the Dictating screen takes over; dictate and Done; Capture shows the
+      meeting still recording; Return; Stop & save works.
+
+Crash recovery (done criterion; also confirms the Step 1 format decision)
+- [ ] Start a meeting, talk for about 3 minutes, type a note. At about 2:30 kill the app:
+      `xcrun devicectl device process terminate --device <17 Pro> --pid <pid>` (pid from
+      `xcrun devicectl device info processes --device <17 Pro> | grep iChirp`), or Xcode's Stop button.
+- [ ] Open Parakeet: the "Recover meetings" sheet lists the meeting with "Partial audio" and about 2:30 saved.
+- [ ] Recover: the Library shows the meeting with "Partial audio"; its transcript covers everything up to the kill,
+      its notes are there, playback runs to the kill point. Record the saved length and the last words in
+      `docs/research/2026-09-22-meeting-crash-format.md`.
+- [ ] Repeat, but tap **Later**: the Library shows "1 meeting to recover · Review". Review → Discard… → Discard: the
+      meeting is gone.
+- [ ] Stop & save, then kill the app while it says "Transcribing": reopen → the sheet offers it (not partial);
+      Recover finishes it.
+- [ ] Without the speech model (Settings → Speech → Delete), record and Stop & save: "Not transcribed · The recording
+      is saved…" with Retry; download the model, Retry in the Library: it completes.
+
+Storage and retention
+- [ ] With less than 1 GB free, start a meeting: a "Storage is low: about N minutes of audio fit" notice. With less
+      than 200 MB free, the meeting does not start and says why.
+- [ ] Settings → Meetings → Keep meeting audio → 7 days. A meeting older than 7 days loses its audio at the next
+      launch (the transcript and notes stay; the player has no audio). A meeting still recording or not transcribed is
+      never touched. Set it back to Forever.
+
 ## M5 checklist (links and documents)
 
 > Preconditions: the iPhone 17 Pro runs the `m5/ingest` build (Settings → About shows its commit); the speech model
