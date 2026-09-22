@@ -1,0 +1,1263 @@
+diff --git a/Package.swift b/Package.swift
+index 276ceb9e..384b08ff 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -89,6 +89,7 @@ let appTestDependencies: [Target.Dependency] = [
+     "MacParakeet",
+     "MacParakeetCore",
+     "MacParakeetViewModels",
++    "MacParakeetMobileUI",
+     "MacParakeetObjCShims",
+ ] + streamingMarkdownTargetDependencies + (enableMLXLocalLLM ? [
+     "MacParakeetLocalLLM"
+@@ -114,13 +115,16 @@ let package = Package(
+     platforms: [
+         // Note: SPM doesn't support patch-level versions for macOS 14, but the app
+         // documents macOS 14.2+ and enforces it at runtime.
+-        .macOS(.v14)
++        .macOS(.v14),
++        .iOS(.v17)
+     ],
+     products: [
+         .executable(name: "MacParakeet", targets: ["MacParakeet"]),
+         .executable(name: "macparakeet-cli", targets: ["CLI"]),
++        .executable(name: "MacParakeetMobile", targets: ["MacParakeetMobile"]),
+         .library(name: "MacParakeetCore", targets: ["MacParakeetCore"]),
+-        .library(name: "MacParakeetViewModels", targets: ["MacParakeetViewModels"])
++        .library(name: "MacParakeetViewModels", targets: ["MacParakeetViewModels"]),
++        .library(name: "MacParakeetMobileUI", targets: ["MacParakeetMobileUI"])
+     ],
+     dependencies: packageDependencies,
+     targets: [
+@@ -176,6 +180,25 @@ let package = Package(
+             dependencies: ["MacParakeetCore"],
+             path: "Sources/MacParakeetViewModels"
+         ),
++        // Mobile UI library (iOS 17+)
++        .target(
++            name: "MacParakeetMobileUI",
++            dependencies: [
++                "MacParakeetCore",
++                "MacParakeetViewModels",
++            ] + streamingMarkdownTargetDependencies,
++            path: "Sources/MacParakeetMobileUI"
++        ),
++        // Mobile iOS App executable target
++        .executableTarget(
++            name: "MacParakeetMobile",
++            dependencies: [
++                "MacParakeetCore",
++                "MacParakeetViewModels",
++                "MacParakeetMobileUI"
++            ] + streamingMarkdownTargetDependencies,
++            path: "Sources/MacParakeetMobile"
++        ),
+         // Tests
+         .testTarget(
+             name: "MacParakeetTests",
+diff --git a/Sources/MacParakeet/Views/Components/DesignSystem.swift b/Sources/MacParakeet/Views/Components/DesignSystem.swift
+index ea9fc0d2..3239d3d7 100644
+--- a/Sources/MacParakeet/Views/Components/DesignSystem.swift
++++ b/Sources/MacParakeet/Views/Components/DesignSystem.swift
+@@ -127,7 +127,11 @@ enum DesignSystem {
+         static let meetingPillBadgeBackground = Color.black.opacity(0.8)
+ 
+         // Sidebar
++        #if os(macOS)
+         static let contentBackground = Color(nsColor: .textBackgroundColor)
++        #else
++        static let contentBackground = Color(uiColor: .systemBackground)
++        #endif
+     }
+ 
+     // MARK: - Spacing
+@@ -242,10 +246,18 @@ struct ShadowStyle {
+ extension Color {
+     /// Creates a color that adapts to light/dark mode.
+     init(light: Color, dark: Color) {
++        #if os(macOS)
+         self.init(nsColor: NSColor(name: nil) { appearance in
+             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+             return isDark ? NSColor(dark) : NSColor(light)
+         })
++        #elseif os(iOS)
++        self.init(uiColor: UIColor { traitCollection in
++            traitCollection.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
++        })
++        #else
++        self = light
++        #endif
+     }
+ }
+ 
+diff --git a/Sources/MacParakeetCore/AppNotifications.swift b/Sources/MacParakeetCore/AppNotifications.swift
+index 6441c268..ae9e7a0f 100644
+--- a/Sources/MacParakeetCore/AppNotifications.swift
++++ b/Sources/MacParakeetCore/AppNotifications.swift
+@@ -51,4 +51,8 @@ public extension Notification.Name {
+     static let macParakeetDictationPreviewTextSizeDidChange = Notification.Name("macparakeet.dictationPreviewTextSizeDidChange")
+     /// Posted after a cancelled dictation is transcribed and saved to History.
+     static let macParakeetDictationHistoryDidChange = Notification.Name("macparakeet.dictationHistoryDidChange")
++    /// Posted by App Intents or Action Button to trigger mobile dictation.
++    static let macParakeetStartMobileDictation = Notification.Name("macparakeet.startMobileDictation")
++    /// Posted by App Intents or Action Button to trigger mobile meeting recording.
++    static let macParakeetStartMobileMeeting = Notification.Name("macparakeet.startMobileMeeting")
+ }
+diff --git a/Sources/MacParakeetCore/Audio/AudioDeviceManager.swift b/Sources/MacParakeetCore/Audio/AudioDeviceManager.swift
+index cc93b4c3..3b510951 100644
+--- a/Sources/MacParakeetCore/Audio/AudioDeviceManager.swift
++++ b/Sources/MacParakeetCore/Audio/AudioDeviceManager.swift
+@@ -1,8 +1,10 @@
+ import AVFoundation
+-import CoreAudio
+ import Foundation
+ import OSLog
+ 
++#if os(macOS)
++import CoreAudio
++
+ /// Provides CoreAudio device enumeration and selection for audio input.
+ ///
+ /// Used by ``AudioRecorder`` to detect and fall back from broken input devices
+@@ -395,3 +397,54 @@ public enum AudioDeviceManager {
+         return bufferList.contains { $0.mNumberChannels > 0 }
+     }
+ }
++#else
++import Foundation
++
++public enum AudioDeviceManager {
++    public struct InputDevice: Sendable, CustomStringConvertible {
++        public let id: AudioDeviceID
++        public let uid: String
++        public let name: String
++        public let transportType: UInt32
++
++        public init(
++            id: AudioDeviceID,
++            uid: String,
++            name: String,
++            transportType: UInt32
++        ) {
++            self.id = id
++            self.uid = uid
++            self.name = name
++            self.transportType = transportType
++        }
++
++        public var isBuiltIn: Bool { true }
++        public var isBluetooth: Bool { false }
++        public var transportLabel: String { "built-in" }
++        public var description: String { "\(name) (id=\(id), uid=\(uid), transport=\(transportLabel))" }
++    }
++
++    public static func inputDevices() -> [InputDevice] { [] }
++    public static func normalizedUID(_ uid: String?) -> String? {
++        let trimmed = uid?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++        return trimmed.isEmpty ? nil : trimmed
++    }
++    public static func builtInMicrophone() -> AudioDeviceID? { nil }
++    public static func defaultInputDevice() -> AudioDeviceID? { nil }
++    public static func defaultInputDeviceInfo() -> InputDevice? { nil }
++    public static func inputDeviceID(forUID uid: String) -> AudioDeviceID? { nil }
++    public static func setInputDevice(_ deviceID: AudioDeviceID, on engine: AVAudioEngine) -> Bool { true }
++    public static func currentInputDevice(of engine: AVAudioEngine) -> AudioDeviceID? { nil }
++    public static func deviceUID(_ deviceID: AudioDeviceID) -> String? { nil }
++    public static func deviceID(forUID uid: String) -> AudioDeviceID? { nil }
++    public static func deviceName(_ deviceID: AudioDeviceID) -> String? { nil }
++    public static func transportType(_ deviceID: AudioDeviceID) -> UInt32 { kAudioDeviceTransportTypeBuiltIn }
++    public static func isBluetoothTransportType(_ transport: UInt32) -> Bool { false }
++    public static func bluetoothInputState(_ deviceID: AudioDeviceID) -> Bool? { nil }
++    public static func isBluetoothInput(_ deviceID: AudioDeviceID) -> Bool { false }
++    public static func deviceInfo(_ deviceID: AudioDeviceID) -> InputDevice? { nil }
++    public static func subDeviceTransport(_ deviceID: AudioDeviceID) -> UInt32? { nil }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Audio/AudioProcessor.swift b/Sources/MacParakeetCore/Audio/AudioProcessor.swift
+index 9c15bad0..f2285465 100644
+--- a/Sources/MacParakeetCore/Audio/AudioProcessor.swift
++++ b/Sources/MacParakeetCore/Audio/AudioProcessor.swift
+@@ -22,8 +22,13 @@ public actor AudioProcessor: AudioProcessorProtocol {
+     /// Allocates an unstarted shared stream so the recorder API stays valid;
+     /// no Core Audio engine starts until `startCapture()` runs.
+     public init() {
++        #if os(iOS)
++        let platform = IOSMicrophoneEnginePlatform()
++        #else
++        let platform = AVAudioEngineMicrophonePlatform()
++        #endif
+         let stream = SharedMicrophoneStream(
+-            platform: AVAudioEngineMicrophonePlatform()
++            platform: platform
+         )
+         self.recorder = AudioRecorder(sharedStream: stream)
+         self.converter = AudioFileConverter()
+diff --git a/Sources/MacParakeetCore/Audio/MeetingAudioCaptureService.swift b/Sources/MacParakeetCore/Audio/MeetingAudioCaptureService.swift
+index c3aa17c8..bafeba07 100644
+--- a/Sources/MacParakeetCore/Audio/MeetingAudioCaptureService.swift
++++ b/Sources/MacParakeetCore/Audio/MeetingAudioCaptureService.swift
+@@ -53,7 +53,9 @@ extension MeetingSystemAudioCapturing {
+     }
+ }
+ 
++#if os(macOS)
+ extension SystemAudioStream: MeetingSystemAudioCapturing {}
++#endif
+ 
+ public actor MeetingAudioCaptureService {
+     public typealias EventHandler = @Sendable (MeetingAudioCaptureEvent) -> Void
+@@ -149,10 +151,14 @@ public actor MeetingAudioCaptureService {
+         self.diagnosticSink = { AudioCaptureDiagnostics.append($0) }
+         self.micHealthObserver = MeetingMicHealthTelemetryObserver()
+         self.systemAudioCaptureFactory = {
++            #if os(macOS)
+             guard #available(macOS 14.2, *) else {
+                 throw MeetingAudioError.unsupportedPlatform
+             }
+             return SystemAudioStream()
++            #else
++            throw MeetingAudioError.unsupportedPlatform
++            #endif
+         }
+     }
+ 
+diff --git a/Sources/MacParakeetCore/Audio/MicrophoneEnginePlatform.swift b/Sources/MacParakeetCore/Audio/MicrophoneEnginePlatform.swift
+index 675e142f..8510e2ed 100644
+--- a/Sources/MacParakeetCore/Audio/MicrophoneEnginePlatform.swift
++++ b/Sources/MacParakeetCore/Audio/MicrophoneEnginePlatform.swift
+@@ -1,5 +1,7 @@
+ import AVFoundation
++#if os(macOS)
+ import CoreAudio
++#endif
+ import Foundation
+ import os
+ 
+@@ -69,6 +71,12 @@ public extension MicrophoneEnginePlatform {
+     func setUnexpectedStopHandler(_ handler: (@Sendable () -> Void)?) {}
+ }
+ 
++public enum MicrophoneStartupReadinessResult: Equatable, Sendable {
++    case ready
++    case timedOut
++    case cancelled
++}
++
+ /// The tap is installed during idle preparation, but the callback requested by
+ /// the eventual capture may be a newer closure. Keep that callback replaceable
+ /// without reinstalling the tap; snapshot its target under the lock and invoke
+@@ -299,7 +307,7 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
+     func waitForUsableBuffer(
+         timeout: TimeInterval,
+         isCancelled: @escaping @Sendable () -> Bool
+-    ) -> AVAudioEngineMicrophonePlatform.StartupReadinessResult {
++    ) -> MicrophoneStartupReadinessResult {
+         guard timeout > 0 else {
+             if isCancelled() { return .cancelled }
+             return hasReceivedUsableBuffer() ? .ready : .timedOut
+@@ -476,6 +484,7 @@ struct DefaultInputChangeBurstCoalescer {
+ ///   walks the resolved attempt list (selected → implicit systemDefault →
+ ///   builtIn) and recreates the engine on every failed attempt before trying
+ ///   the next — the same fallback shape `MicrophoneCapture` uses today.
++#if os(macOS)
+ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @unchecked Sendable {
+     public typealias DeviceAttemptsBuilder = @Sendable () -> [MeetingInputDeviceAttempt]
+     public typealias InputDeviceSetter = @Sendable (AudioDeviceID, AVAudioEngine) -> Bool
+@@ -488,11 +497,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
+         ) throws -> Void
+     typealias LifecycleDiagnosticsFactory =
+         @Sendable (AudioEngineLifecycleSnapshot.Operation, Bool, AVAudioFrameCount) -> AudioEngineLifecycleDiagnostics
+-    enum StartupReadinessResult: Equatable {
+-        case ready
+-        case timedOut
+-        case cancelled
+-    }
++    typealias StartupReadinessResult = MicrophoneStartupReadinessResult
+ 
+     private let logger = Logger(
+         subsystem: "com.macparakeet.core",
+@@ -2352,6 +2357,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
+         }
+     }
+ }
++#endif
+ 
+ public enum AVAudioEngineMicrophonePlatformError: Error, Equatable, LocalizedError {
+     case deviceSetFailed(MeetingInputDeviceAttempt)
+@@ -2378,3 +2384,5 @@ public enum AVAudioEngineMicrophonePlatformError: Error, Equatable, LocalizedErr
+         }
+     }
+ }
++
++
+diff --git a/Sources/MacParakeetCore/Audio/SystemAudioStream.swift b/Sources/MacParakeetCore/Audio/SystemAudioStream.swift
+index 2660de03..88073bd3 100644
+--- a/Sources/MacParakeetCore/Audio/SystemAudioStream.swift
++++ b/Sources/MacParakeetCore/Audio/SystemAudioStream.swift
+@@ -1,3 +1,4 @@
++#if os(macOS)
+ import AVFoundation
+ import CoreMedia
+ import Darwin
+@@ -677,3 +678,4 @@ extension SystemAudioStream {
+     }
+ }
+ #endif
++#endif
+diff --git a/Sources/MacParakeetCore/Database/TranscriptionRepository.swift b/Sources/MacParakeetCore/Database/TranscriptionRepository.swift
+index b6ce804d..815309d3 100644
+--- a/Sources/MacParakeetCore/Database/TranscriptionRepository.swift
++++ b/Sources/MacParakeetCore/Database/TranscriptionRepository.swift
+@@ -214,8 +214,12 @@ public final class TranscriptionRepository: TranscriptionRepositoryProtocol, @un
+         self.notifyShareStopQueued = {
+             // Synthetic in-memory libraries must not wake a running app's outbox.
+             guard !isInMemory else { return }
++            #if os(macOS)
+             DistributedNotificationCenter.default().postNotificationName(
+                 .macParakeetShareStopQueued, object: nil, userInfo: nil, deliverImmediately: true)
++            #else
++            NotificationCenter.default.post(name: .macParakeetShareStopQueued, object: nil)
++            #endif
+         }
+     }
+ 
+diff --git a/Sources/MacParakeetCore/MeetingDetection/AudioProcessActivityCollector.swift b/Sources/MacParakeetCore/MeetingDetection/AudioProcessActivityCollector.swift
+index 9d6be603..b4716061 100644
+--- a/Sources/MacParakeetCore/MeetingDetection/AudioProcessActivityCollector.swift
++++ b/Sources/MacParakeetCore/MeetingDetection/AudioProcessActivityCollector.swift
+@@ -1,3 +1,4 @@
++#if os(macOS)
+ import CoreAudio
+ import Foundation
+ import OSLog
+@@ -244,3 +245,28 @@ public final class AudioProcessActivityCollector: @unchecked Sendable {
+         )
+     }
+ }
++#else
++import Foundation
++
++public final class AudioProcessActivityCollector: @unchecked Sendable {
++    public typealias SnapshotHandler = @Sendable (ProcessAudioSnapshot) -> Void
++
++    public init(
++        selfProcessID: Int32 = getpid(),
++        selfBundleID: String? = Bundle.main.bundleIdentifier
++    ) {}
++
++    public func start(handler: @escaping SnapshotHandler) {}
++    public func stop() {}
++    public func snapshot() -> ProcessAudioSnapshot {
++        ProcessAudioSnapshot(processes: [])
++    }
++    public static func currentSnapshot(
++        selfProcessID: Int32 = getpid(),
++        selfBundleID: String? = Bundle.main.bundleIdentifier
++    ) -> ProcessAudioSnapshot {
++        ProcessAudioSnapshot(processes: [])
++    }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/MeetingDetection/CameraActivityCollector.swift b/Sources/MacParakeetCore/MeetingDetection/CameraActivityCollector.swift
+index 07f01b98..bb536b1d 100644
+--- a/Sources/MacParakeetCore/MeetingDetection/CameraActivityCollector.swift
++++ b/Sources/MacParakeetCore/MeetingDetection/CameraActivityCollector.swift
+@@ -1,3 +1,4 @@
++#if os(macOS)
+ import CoreMediaIO
+ import Foundation
+ import OSLog
+@@ -223,3 +224,18 @@ public final class CameraActivityCollector: @unchecked Sendable {
+         )
+     }
+ }
++#else
++import Foundation
++
++public final class CameraActivityCollector: @unchecked Sendable {
++    public typealias StateHandler = @Sendable (Bool) -> Void
++
++    public init() {}
++    public func start(handler: @escaping StateHandler) {}
++    public func stop() {}
++    public func cameraRunning() -> Bool { false }
++    public static func currentCameraRunning() -> Bool { false }
++    public static func cameraRunning(deviceStates: [Bool]) -> Bool { false }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/ExportService.swift b/Sources/MacParakeetCore/Services/ExportService.swift
+index 4b7e3a1b..ffe609ca 100644
+--- a/Sources/MacParakeetCore/Services/ExportService.swift
++++ b/Sources/MacParakeetCore/Services/ExportService.swift
+@@ -1,4 +1,9 @@
++#if canImport(AppKit)
+ import AppKit
++#endif
++#if canImport(UIKit)
++import UIKit
++#endif
+ import Foundation
+ 
+ public protocol ExportServiceProtocol: Sendable {
+@@ -240,6 +245,7 @@ public final class ExportService: ExportServiceProtocol, Sendable {
+     /// when called from SwiftUI button actions on MainActor.
+     /// Must be called on MainActor (uses NSTextStorage, NSLayoutManager, NSGraphicsContext).
+     @MainActor public func exportToPDF(transcription: Transcription, url: URL) throws {
++        #if os(macOS)
+         let attrString = try buildRichTranscript(transcription: transcription)
+ 
+         // US Letter with 1-inch margins
+@@ -307,10 +313,23 @@ public final class ExportService: ExportServiceProtocol, Sendable {
+ 
+             yOffset += textHeight
+         }
++        #elseif os(iOS)
++        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792))
++        let data = renderer.pdfData { ctx in
++            ctx.beginPage()
++            let text = preferredText(transcription: transcription)
++            let attributes: [NSAttributedString.Key: Any] = [
++                .font: UIFont.systemFont(ofSize: 12)
++            ]
++            (text as NSString).draw(in: CGRect(x: 72, y: 72, width: 468, height: 648), withAttributes: attributes)
++        }
++        try data.write(to: url, options: .atomic)
++        #endif
+     }
+ 
+     /// Export transcription as DOCX file
+     @MainActor public func exportToDocx(transcription: Transcription, url: URL) throws {
++        #if os(macOS)
+         let attrString = try buildRichTranscript(transcription: transcription)
+         let range = NSRange(location: 0, length: attrString.length)
+         
+@@ -319,6 +338,10 @@ public final class ExportService: ExportServiceProtocol, Sendable {
+             documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML]
+         )
+         try data.write(to: url, options: .atomic)
++        #else
++        let text = preferredText(transcription: transcription)
++        try text.write(to: url, atomically: true, encoding: .utf8)
++        #endif
+     }
+ 
+     /// Format word timestamps as SRT subtitle string
+@@ -635,6 +658,7 @@ public final class ExportService: ExportServiceProtocol, Sendable {
+ 
+     // MARK: - Rich Text (AppKit)
+ 
++    #if os(macOS)
+     /// Concrete text colors for exported PDF/DOCX documents.
+     ///
+     /// Exported files are standalone artifacts rendered on a white page, so they
+@@ -754,6 +778,7 @@ public final class ExportService: ExportServiceProtocol, Sendable {
+ 
+         return result
+     }
++    #endif
+ 
+     func pdfPageTextTransform(pageHeight: CGFloat, margin: CGFloat) -> CGAffineTransform {
+         CGAffineTransform(translationX: margin, y: pageHeight - margin)
+diff --git a/Sources/MacParakeetCore/Services/LLM/LocalCLIExecutor.swift b/Sources/MacParakeetCore/Services/LLM/LocalCLIExecutor.swift
+index 78699a82..6f63faf8 100644
+--- a/Sources/MacParakeetCore/Services/LLM/LocalCLIExecutor.swift
++++ b/Sources/MacParakeetCore/Services/LLM/LocalCLIExecutor.swift
+@@ -153,6 +153,7 @@ public final class LocalCLIConfigStore: @unchecked Sendable {
+     }
+ }
+ 
++#if os(macOS)
+ // MARK: - Executor
+ 
+ public final class LocalCLIExecutor: Sendable {
+@@ -1188,3 +1189,22 @@ public final class LocalCLIExecutor: Sendable {
+         return components.isEmpty ? nil : components.joined(separator: ":")
+     }
+ }
++#else
++public final class LocalCLIExecutor: Sendable {
++    public init() {}
++
++    public func execute(
++        systemPrompt: String,
++        userPrompt: String,
++        config: LocalCLIConfig
++    ) async throws -> String {
++        throw LocalCLIError.executionFailed("Local CLI execution is not supported on iOS.")
++    }
++
++    public func testConnection(config: LocalCLIConfig) async throws {
++        throw LocalCLIError.executionFailed("Local CLI execution is not supported on iOS.")
++    }
++}
++#endif
++
++
+diff --git a/Sources/MacParakeetCore/Services/PasteShortcutKeyResolver.swift b/Sources/MacParakeetCore/Services/PasteShortcutKeyResolver.swift
+index d24f94b0..cb153e18 100644
+--- a/Sources/MacParakeetCore/Services/PasteShortcutKeyResolver.swift
++++ b/Sources/MacParakeetCore/Services/PasteShortcutKeyResolver.swift
+@@ -1,3 +1,4 @@
++#if os(macOS)
+ import Carbon
+ import Foundation
+ import OSLog
+@@ -60,34 +61,20 @@ struct PasteShortcutKeyResolver {
+             }
+         }
+ 
+-        logger.error("Failed to resolve virtual keycode for character '\(String(character), privacy: .public)'; falling back to QWERTY keycode \(fallbackKeyCode, privacy: .public)")
++        logger.error("Failed to resolve dynamic virtual keycode for character \(String(character), privacy: .public); falling back to QWERTY keycode \(fallbackKeyCode, privacy: .public)")
+         return fallbackKeyCode
+     }
+ 
+-    private static func qwertyFallbackKeyCode(for character: Character) -> CGKeyCode {
+-        switch String(character).lowercased() {
+-        case "c": return 0x08
+-        case "v": return 0x09
+-        default: return 0x09
+-        }
+-    }
+-
+     private static func liveKeyboardLayout() -> KeyboardLayoutLookupResult {
+-        guard let layoutSourceRef = TISCopyCurrentKeyboardLayoutInputSource() else {
++        guard let inputSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
+             return .missingInputSource
+         }
+-        let layoutSource = layoutSourceRef.takeRetainedValue()
+ 
+-        guard let layoutDataRef = TISGetInputSourceProperty(layoutSource, kTISPropertyUnicodeKeyLayoutData) else {
++        guard let layoutProperty = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData) else {
+             return .missingLayoutData
+         }
+ 
+-        let layoutData = Unmanaged<CFData>.fromOpaque(layoutDataRef).takeUnretainedValue()
+-        guard CFDataGetBytePtr(layoutData) != nil else {
+-            return .inaccessibleLayoutBytes
+-        }
+-
+-        return .data(layoutData)
++        return .data(unsafeBitCast(layoutProperty, to: CFData.self))
+     }
+ 
+     private static func translatedCharacter(
+@@ -100,28 +87,40 @@ struct PasteShortcutKeyResolver {
+             return nil
+         }
+ 
+-        let keyboardLayout = UnsafeRawPointer(layoutBytes).assumingMemoryBound(to: UCKeyboardLayout.self)
++        let layout = layoutBytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { $0 }
+         var deadKeyState: UInt32 = 0
+-        var length = 0
+-        var chars = [UniChar](repeating: 0, count: 4)
++        var actualStringLength: Int = 0
++        var unicodeString: [UniChar] = [0, 0, 0, 0]
+ 
+         let status = UCKeyTranslate(
+-            keyboardLayout,
++            layout,
+             keyCode,
+             UInt16(kUCKeyActionDown),
+             modifierKeyState,
+             keyboardType,
+-            UInt32(kUCKeyTranslateNoDeadKeysMask),
++            UInt32(kUCKeyTranslateNoDeadKeysBit),
+             &deadKeyState,
+-            chars.count,
+-            &length,
+-            &chars
++            4,
++            &actualStringLength,
++            &unicodeString
+         )
+ 
+-        guard status == noErr, length > 0 else {
++        guard status == noErr, actualStringLength > 0 else {
+             return nil
+         }
+ 
+-        return chars[0]
++        return unicodeString[0]
++    }
++
++    private static func qwertyFallbackKeyCode(for character: Character) -> CGKeyCode {
++        switch character.lowercased() {
++        case "c":
++            return 8
++        case "v":
++            return 9
++        default:
++            return 9
++        }
+     }
+ }
++#endif
+diff --git a/Sources/MacParakeetCore/Services/System/AccessibilityService.swift b/Sources/MacParakeetCore/Services/System/AccessibilityService.swift
+index 31942c64..bb53eb16 100644
+--- a/Sources/MacParakeetCore/Services/System/AccessibilityService.swift
++++ b/Sources/MacParakeetCore/Services/System/AccessibilityService.swift
+@@ -1,4 +1,6 @@
++#if os(macOS)
+ import ApplicationServices
++#endif
+ import Foundation
+ 
+ public protocol AccessibilityServiceProtocol: Sendable {
+@@ -45,6 +47,7 @@ public enum AccessibilityServiceError: Error, LocalizedError, Equatable {
+     }
+ }
+ 
++#if os(macOS)
+ protocol AccessibilityBackend: Sendable {
+     func isTrusted() -> Bool
+     func focusedElement() -> AXUIElement?
+@@ -221,3 +224,15 @@ public final class AccessibilityService: AccessibilityServiceProtocol, @unchecke
+         return text
+     }
+ }
++#else
++public final class AccessibilityService: AccessibilityServiceProtocol, Sendable {
++    public init() {}
++    public func getSelectedTextWithSource(maxCharacters: Int?) throws -> (String, AccessibilitySelectionSource) {
++        throw AccessibilityServiceError.unsupportedElement
++    }
++    public func getSelectedText(maxCharacters: Int?) throws -> String {
++        throw AccessibilityServiceError.unsupportedElement
++    }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/System/ClipboardService.swift b/Sources/MacParakeetCore/Services/System/ClipboardService.swift
+index e0ebdfb5..c33d7edc 100644
+--- a/Sources/MacParakeetCore/Services/System/ClipboardService.swift
++++ b/Sources/MacParakeetCore/Services/System/ClipboardService.swift
+@@ -1,5 +1,9 @@
++#if os(macOS)
+ import AppKit
+ import Carbon
++#elseif os(iOS)
++import UIKit
++#endif
+ import Foundation
+ import OSLog
+ 
+@@ -34,6 +38,7 @@ public enum ClipboardServiceError: LocalizedError {
+     }
+ }
+ 
++#if os(macOS)
+ protocol ClipboardEventPosting {
+     @MainActor
+     func simulatePaste(using pasteShortcutKeyResolver: PasteShortcutKeyResolver) throws
+@@ -376,5 +381,39 @@ public final class ClipboardService: ClipboardServiceProtocol {
+             pasteboard.writeObjects(items)
+         }
+     }
++}
++#else
++@MainActor
++public final class ClipboardService: ClipboardServiceProtocol {
++    private let logger = Logger(subsystem: "com.macparakeet.core", category: "ClipboardService")
++
++    public init() {}
++
++    public func pasteText(_ text: String) async throws {
++        _ = await copyToClipboard(text)
++    }
++
++    public func pasteText(_ text: String, restoresClipboard: Bool) async throws {
++        _ = await copyToClipboard(text)
++    }
++
++    @discardableResult
++    public func pasteTextWithAction(_ text: String, postPasteAction: KeyAction?) async throws -> Bool {
++        _ = await copyToClipboard(text)
++        return false
++    }
++
++    @discardableResult
++    public func pasteTextWithAction(_ text: String, postPasteAction: KeyAction?, restoresClipboard: Bool) async throws -> Bool {
++        _ = await copyToClipboard(text)
++        return false
++    }
+ 
++    @discardableResult
++    public func copyToClipboard(_ text: String) async -> Bool {
++        UIPasteboard.general.string = text
++        return true
++    }
+ }
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/System/FocusedAppContextService.swift b/Sources/MacParakeetCore/Services/System/FocusedAppContextService.swift
+index 92236931..c17291d5 100644
+--- a/Sources/MacParakeetCore/Services/System/FocusedAppContextService.swift
++++ b/Sources/MacParakeetCore/Services/System/FocusedAppContextService.swift
+@@ -1,4 +1,6 @@
++#if os(macOS)
+ import AppKit
++#endif
+ import Foundation
+ 
+ public protocol FocusedAppContextProviding: Sendable {
+@@ -11,6 +13,7 @@ public struct FocusedAppContextService: FocusedAppContextProviding {
+ 
+     @MainActor
+     public func currentContext() -> AppPromptContext? {
++        #if os(macOS)
+         guard let app = NSWorkspace.shared.frontmostApplication else {
+             return nil
+         }
+@@ -19,5 +22,9 @@ public struct FocusedAppContextService: FocusedAppContextProviding {
+             bundleIdentifier: app.bundleIdentifier,
+             displayName: app.localizedName
+         )
++        #else
++        return nil
++        #endif
+     }
+ }
++
+diff --git a/Sources/MacParakeetCore/Services/System/FrontmostApplicationProvider.swift b/Sources/MacParakeetCore/Services/System/FrontmostApplicationProvider.swift
+index 9763f720..ff350980 100644
+--- a/Sources/MacParakeetCore/Services/System/FrontmostApplicationProvider.swift
++++ b/Sources/MacParakeetCore/Services/System/FrontmostApplicationProvider.swift
+@@ -1,4 +1,6 @@
++#if os(macOS)
+ import AppKit
++#endif
+ import Foundation
+ 
+ public protocol FrontmostApplicationProviding: Sendable {
+@@ -11,6 +13,7 @@ public struct NSWorkspaceFrontmostApplicationProvider: FrontmostApplicationProvi
+ 
+     @MainActor
+     public func currentFrontmostApplication() -> MeetingStartContext.FrontmostApplication? {
++        #if os(macOS)
+         guard let app = NSWorkspace.shared.frontmostApplication else {
+             return nil
+         }
+@@ -23,5 +26,9 @@ public struct NSWorkspaceFrontmostApplicationProvider: FrontmostApplicationProvi
+             return nil
+         }
+         return frontmost
++        #else
++        return nil
++        #endif
+     }
+ }
++
+diff --git a/Sources/MacParakeetCore/Services/System/LaunchAtLoginService.swift b/Sources/MacParakeetCore/Services/System/LaunchAtLoginService.swift
+index 02f061ef..76fc4746 100644
+--- a/Sources/MacParakeetCore/Services/System/LaunchAtLoginService.swift
++++ b/Sources/MacParakeetCore/Services/System/LaunchAtLoginService.swift
+@@ -1,5 +1,7 @@
+ import Foundation
++#if os(macOS)
+ import ServiceManagement
++#endif
+ 
+ public enum LaunchAtLoginStatus: Equatable, Sendable {
+     case enabled
+@@ -61,6 +63,7 @@ public protocol LaunchAtLoginControlling {
+     func setEnabled(_ enabled: Bool) throws -> LaunchAtLoginStatus
+ }
+ 
++#if os(macOS)
+ public final class LaunchAtLoginService: LaunchAtLoginControlling {
+     private let bundle: Bundle
+     private let serviceProvider: () -> SMAppService
+@@ -145,3 +148,15 @@ public final class LaunchAtLoginService: LaunchAtLoginControlling {
+         }
+     }
+ }
++#else
++public final class LaunchAtLoginService: LaunchAtLoginControlling {
++    public init() {}
++    public func currentStatus() -> LaunchAtLoginStatus {
++        .unsupported
++    }
++    public func setEnabled(_ enabled: Bool) throws -> LaunchAtLoginStatus {
++        throw LaunchAtLoginError.unsupportedEnvironment
++    }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/System/PermissionService.swift b/Sources/MacParakeetCore/Services/System/PermissionService.swift
+index 91c722aa..30943cc5 100644
+--- a/Sources/MacParakeetCore/Services/System/PermissionService.swift
++++ b/Sources/MacParakeetCore/Services/System/PermissionService.swift
+@@ -1,7 +1,11 @@
+ import AVFoundation
++#if os(macOS)
+ import ApplicationServices
+ import AppKit
+ import CoreGraphics
++#elseif os(iOS)
++import UIKit
++#endif
+ import Foundation
+ 
+ public protocol PermissionServiceProtocol: Sendable {
+@@ -38,34 +42,64 @@ public final class PermissionService: PermissionServiceProtocol, Sendable {
+     }
+ 
+     public func checkScreenRecordingPermission() -> Bool {
++        #if os(macOS)
+         CGPreflightScreenCaptureAccess()
++        #else
++        false
++        #endif
+     }
+ 
+     public func requestScreenRecordingPermission() -> Bool {
++        #if os(macOS)
+         CGRequestScreenCaptureAccess()
++        #else
++        false
++        #endif
+     }
+ 
+     public func openMicrophoneSettings() {
++        #if os(macOS)
+         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else {
+             return
+         }
+         NSWorkspace.shared.open(url)
++        #elseif os(iOS)
++        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
++        DispatchQueue.main.async {
++            UIApplication.shared.open(url)
++        }
++        #endif
+     }
+ 
+     public func openScreenRecordingSettings() {
++        #if os(macOS)
+         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+             return
+         }
+         NSWorkspace.shared.open(url)
++        #elseif os(iOS)
++        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
++        DispatchQueue.main.async {
++            UIApplication.shared.open(url)
++        }
++        #endif
+     }
+ 
+     public func checkAccessibilityPermission() -> Bool {
+-        // AXIsProcessTrusted() checks if the app has Accessibility permission
++        #if os(macOS)
+         return AXIsProcessTrusted()
++        #else
++        return true
++        #endif
+     }
+ 
+     public func requestAccessibilityPermission(prompt: Bool = true) -> Bool {
++        #if os(macOS)
+         let options: CFDictionary = ["AXTrustedCheckOptionPrompt": prompt] as CFDictionary
+         return AXIsProcessTrustedWithOptions(options)
++        #else
++        return true
++        #endif
+     }
+ }
++
+diff --git a/Sources/MacParakeetCore/Services/System/SelectionCaptureService.swift b/Sources/MacParakeetCore/Services/System/SelectionCaptureService.swift
+index 3c31fa96..1b2cfed3 100644
+--- a/Sources/MacParakeetCore/Services/System/SelectionCaptureService.swift
++++ b/Sources/MacParakeetCore/Services/System/SelectionCaptureService.swift
+@@ -1,11 +1,75 @@
++#if os(macOS)
+ import AppKit
+ import ApplicationServices
+ import Carbon
++#endif
+ import Foundation
+ import OSLog
+ 
+ // MARK: - Result Types
+ 
++#if os(macOS)
++/// `@unchecked Sendable` wrapper around an `AXUIElement` reference.
++public struct AXFocusedElement: @unchecked Sendable {
++    public let element: AXUIElement
++
++    public init(_ element: AXUIElement) {
++        self.element = element
++    }
++}
++
++/// Snapshot of the pasteboard items captured before a clipboard hijack.
++public struct PasteboardSnapshot: @unchecked Sendable {
++    public let items: [NSPasteboardItem]?
++    public let originalChangeCount: Int
++    public let temporaryChangeCount: Int?
++
++    public init(
++        items: [NSPasteboardItem]?,
++        originalChangeCount: Int,
++        temporaryChangeCount: Int? = nil
++    ) {
++        self.items = items
++        self.originalChangeCount = originalChangeCount
++        self.temporaryChangeCount = temporaryChangeCount
++    }
++
++    /// Empty placeholder — useful for tests and the `.empty` no-op path.
++    public static let none = PasteboardSnapshot(items: nil, originalChangeCount: 0)
++
++    public func withTemporaryChangeCount(_ changeCount: Int) -> PasteboardSnapshot {
++        PasteboardSnapshot(
++            items: items,
++            originalChangeCount: originalChangeCount,
++            temporaryChangeCount: changeCount
++        )
++    }
++}
++#else
++public struct AXFocusedElement: @unchecked Sendable {
++    public init() {}
++}
++
++public struct PasteboardSnapshot: @unchecked Sendable {
++    public static let none = PasteboardSnapshot()
++    public init() {}
++    public func withTemporaryChangeCount(_ changeCount: Int) -> PasteboardSnapshot { self }
++}
++#endif
++
++/// The app that owned the selection when the Transform was triggered.
++public struct SelectionCaptureTarget: Sendable, Equatable {
++    public let processIdentifier: pid_t
++    public let bundleIdentifier: String
++    public let localizedName: String?
++
++    public init(processIdentifier: pid_t, bundleIdentifier: String, localizedName: String? = nil) {
++        self.processIdentifier = processIdentifier
++        self.bundleIdentifier = bundleIdentifier
++        self.localizedName = localizedName
++    }
++}
++
+ /// Source of a successful selection read. Used by `TransformExecutor` to pick
+ /// the right replacement path: an `.ax` capture can attempt an AX-write first,
+ /// while a `.clipboard` capture must paste-back via Cmd+V.
+@@ -73,63 +137,8 @@ public enum SelectionCaptureError: Error, LocalizedError, Sendable {
+     }
+ }
+ 
+-/// `@unchecked Sendable` wrapper around an `AXUIElement` reference. `AXUIElement`
+-/// is a CFType that the AX framework treats as thread-safe for the read/write
+-/// calls the spike uses (`AXUIElementCopyAttributeValue` /
+-/// `AXUIElementSetAttributeValue`). Wrapping it lets the result type cross
+-/// actor boundaries without further annotation.
+-public struct AXFocusedElement: @unchecked Sendable {
+-    public let element: AXUIElement
+-
+-    public init(_ element: AXUIElement) {
+-        self.element = element
+-    }
+-}
+-
+-/// The app that owned the selection when the Transform was triggered.
+-public struct SelectionCaptureTarget: Sendable, Equatable {
+-    public let processIdentifier: pid_t
+-    public let bundleIdentifier: String
+-    public let localizedName: String?
+-
+-    public init(processIdentifier: pid_t, bundleIdentifier: String, localizedName: String? = nil) {
+-        self.processIdentifier = processIdentifier
+-        self.bundleIdentifier = bundleIdentifier
+-        self.localizedName = localizedName
+-    }
+-}
+-
+-/// Snapshot of the pasteboard items captured before a clipboard hijack. Held
+-/// opaquely so callers don't have to know about AppKit types. `@unchecked
+-/// Sendable` because `NSPasteboardItem` is not Sendable but our usage is
+-/// effectively immutable after capture.
+-public struct PasteboardSnapshot: @unchecked Sendable {
+-    public let items: [NSPasteboardItem]?
+-    public let originalChangeCount: Int
+-    public let temporaryChangeCount: Int?
+-
+-    public init(
+-        items: [NSPasteboardItem]?,
+-        originalChangeCount: Int,
+-        temporaryChangeCount: Int? = nil
+-    ) {
+-        self.items = items
+-        self.originalChangeCount = originalChangeCount
+-        self.temporaryChangeCount = temporaryChangeCount
+-    }
+-
+-    /// Empty placeholder — useful for tests and the `.empty` no-op path.
+-    public static let none = PasteboardSnapshot(items: nil, originalChangeCount: 0)
+-
+-    public func withTemporaryChangeCount(_ changeCount: Int) -> PasteboardSnapshot {
+-        PasteboardSnapshot(
+-            items: items,
+-            originalChangeCount: originalChangeCount,
+-            temporaryChangeCount: changeCount
+-        )
+-    }
+-}
+ 
++#if os(macOS)
+ // MARK: - Backend Protocol (for testability)
+ 
+ /// Minimal protocol the capture service depends on. Production wires up a
+@@ -440,3 +449,13 @@ struct SystemSelectionCaptureBackend: SelectionCaptureBackend, @unchecked Sendab
+         pasteboard.writeObjects(items)
+     }
+ }
++#else
++public actor SelectionCaptureService {
++    public init() {}
++    public func captureSelection() async -> SelectionCaptureResult {
++        .empty
++    }
++    func restoreClipboardCaptureIfCurrent(_ result: SelectionCaptureResult) async {}
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/System/SelectionReplacementService.swift b/Sources/MacParakeetCore/Services/System/SelectionReplacementService.swift
+index 0e997dff..2a925a0a 100644
+--- a/Sources/MacParakeetCore/Services/System/SelectionReplacementService.swift
++++ b/Sources/MacParakeetCore/Services/System/SelectionReplacementService.swift
+@@ -1,9 +1,12 @@
++#if os(macOS)
+ import AppKit
+ import ApplicationServices
+ import Carbon
++#endif
+ import Foundation
+ import OSLog
+ 
++
+ // MARK: - Public Types
+ 
+ public enum SelectionReplacementPath: String, Sendable, Equatable {
+@@ -50,6 +53,7 @@ public enum SelectionReplacementError: Error, LocalizedError, Sendable {
+     }
+ }
+ 
++#if os(macOS)
+ // MARK: - Backend Protocol
+ 
+ protocol SelectionReplacementBackend: Sendable {
+@@ -425,3 +429,16 @@ struct SystemSelectionReplacementBackend: SelectionReplacementBackend, @unchecke
+         pasteboard.writeObjects(items)
+     }
+ }
++#else
++public actor SelectionReplacementService {
++    public init() {}
++    public func replace(
++        with newText: String,
++        in context: SelectionCaptureResult,
++        mode: SelectionReplacementMode = .replaceSelection
++    ) async throws -> SelectionReplacementPath {
++        throw SelectionReplacementError.allPathsFailed
++    }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/System/StreamingCursorInserter.swift b/Sources/MacParakeetCore/Services/System/StreamingCursorInserter.swift
+index 6a6ee0e1..7ceac3a9 100644
+--- a/Sources/MacParakeetCore/Services/System/StreamingCursorInserter.swift
++++ b/Sources/MacParakeetCore/Services/System/StreamingCursorInserter.swift
+@@ -1,9 +1,22 @@
++#if os(macOS)
+ import AppKit
+ import Carbon
+ import CoreGraphics
++#endif
+ import Foundation
+ import OSLog
+ 
++public enum StreamingCursorError: Error, Equatable {
++    case eventSourceUnavailable
++    case eventCreationFailed
++    case partialInsert
++}
++
++public protocol StreamingCursorInserting: Sendable {
++    func insert(_ text: String) async throws
++}
++
++#if os(macOS)
+ /// Marks Unicode HID events posted by streaming insertion so hotkey taps ignore them.
+ public enum StreamingCursorEventMarker {
+     public static let userData: Int64 = 0x4D50_5343
+@@ -17,15 +30,6 @@ public enum StreamingCursorEventMarker {
+     }
+ }
+ 
+-public enum StreamingCursorError: Error, Equatable {
+-    case eventSourceUnavailable
+-    case eventCreationFailed
+-    case partialInsert
+-}
+-
+-public protocol StreamingCursorInserting: Sendable {
+-    func insert(_ text: String) async throws
+-}
+ 
+ protocol StreamingCursorEventPosting: Sendable {
+     func typeUnicode(_ text: String) throws
+@@ -353,3 +357,11 @@ public enum StreamingCursorInputSource {
+         return CFBooleanGetValue(flag)
+     }
+ }
++#else
++public final class StreamingCursorInserter: StreamingCursorInserting {
++    public init() {}
++    public func insert(_ text: String) async throws {}
++    public static func allowsStreaming() -> Bool { false }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/VoiceControl/NativeVoiceControlAdapter.swift b/Sources/MacParakeetCore/Services/VoiceControl/NativeVoiceControlAdapter.swift
+index 124dba0c..e91f41d3 100644
+--- a/Sources/MacParakeetCore/Services/VoiceControl/NativeVoiceControlAdapter.swift
++++ b/Sources/MacParakeetCore/Services/VoiceControl/NativeVoiceControlAdapter.swift
+@@ -1,5 +1,7 @@
++#if os(macOS)
+ import AppKit
+ import ApplicationServices
++#endif
+ import Foundation
+ 
+ public enum NativeVoiceControlError: Error, LocalizedError, Sendable, Equatable {
+@@ -18,6 +20,7 @@ public enum NativeVoiceControlError: Error, LocalizedError, Sendable, Equatable
+     }
+ }
+ 
++#if os(macOS)
+ /// Actual AX handles never leave this actor. An ID belongs to exactly one snapshot.
+ /// Synchronous AX IPC uses a short messaging timeout and never runs on MainActor.
+ public actor NativeVoiceControlAdapter: VoiceControlAdapter {
+@@ -1023,3 +1026,19 @@ struct LiveAXTreeSource: AXTreeSource {
+             text: role == kAXStaticTextRole ? (at(8) as? String) : nil)
+     }
+ }
++#else
++public actor NativeVoiceControlAdapter: VoiceControlAdapter {
++    public init() {}
++    public func observe() async throws -> VoiceControlSnapshot {
++        throw NativeVoiceControlError.unsupported
++    }
++    public func execute(
++        action: VoiceControlAction,
++        snapshot: VoiceControlSnapshot,
++        authority: ActionAuthority
++    ) async throws -> VoiceControlReceipt {
++        throw NativeVoiceControlError.unsupported
++    }
++}
++#endif
++
+diff --git a/Sources/MacParakeetCore/Services/VoiceControl/ScreenTextSource.swift b/Sources/MacParakeetCore/Services/VoiceControl/ScreenTextSource.swift
+index d2536b76..f1b4225f 100644
+--- a/Sources/MacParakeetCore/Services/VoiceControl/ScreenTextSource.swift
++++ b/Sources/MacParakeetCore/Services/VoiceControl/ScreenTextSource.swift
+@@ -28,6 +28,7 @@ public actor VisionScreenTextReader: ScreenTextReading {
+ 
+     public init() {}
+ 
++#if os(macOS)
+     public static var hasScreenRecordingAccess: Bool { CGPreflightScreenCaptureAccess() }
+     public static func requestScreenRecordingAccess() -> Bool { CGRequestScreenCaptureAccess() }
+ 
+@@ -43,6 +44,14 @@ public actor VisionScreenTextReader: ScreenTextReading {
+         lastThumbnail = thumbnail; lastWindow = window; lastBlocks = blocks
+         return blocks
+     }
++#else
++    public static var hasScreenRecordingAccess: Bool { false }
++    public static func requestScreenRecordingAccess() -> Bool { false }
++
++    public func read(window: CGRect) async -> [ScreenTextBlock] {
++        return []
++    }
++#endif
+ 
+     private static func recognize(_ image: CGImage, window: CGRect) -> [ScreenTextBlock] {
+         let request = VNRecognizeTextRequest()
+diff --git a/Sources/MacParakeetCore/Services/VoiceControl/VoiceControlAppActivation.swift b/Sources/MacParakeetCore/Services/VoiceControl/VoiceControlAppActivation.swift
+index 13929215..c1632b96 100644
+--- a/Sources/MacParakeetCore/Services/VoiceControl/VoiceControlAppActivation.swift
++++ b/Sources/MacParakeetCore/Services/VoiceControl/VoiceControlAppActivation.swift
+@@ -1,3 +1,4 @@
++#if os(macOS)
+ import AppKit
+ import Foundation
+ 
+@@ -62,3 +63,5 @@ public enum VoiceControlAppActivation {
+         }
+     }
+ }
++#endif
++
+diff --git a/Sources/MacParakeetViewModels/DictationHistoryViewModel.swift b/Sources/MacParakeetViewModels/DictationHistoryViewModel.swift
+index e21e3bdb..a7233f96 100644
+--- a/Sources/MacParakeetViewModels/DictationHistoryViewModel.swift
++++ b/Sources/MacParakeetViewModels/DictationHistoryViewModel.swift
+@@ -1,4 +1,6 @@
++#if canImport(AppKit)
+ import AppKit
++#endif
+ import AVFoundation
+ import Foundation
+ import MacParakeetCore
+@@ -343,11 +345,13 @@ public final class DictationHistoryViewModel {
+         guard let audioPath = dictation.audioPath,
+               FileManager.default.fileExists(atPath: audioPath) else { return }
+         let sourceURL = URL(fileURLWithPath: audioPath)
++        #if os(macOS)
+         let panel = NSSavePanel()
+         panel.nameFieldStringValue = sourceURL.lastPathComponent
+         panel.allowedContentTypes = [.audio]
+         guard panel.runModal() == .OK, let destination = panel.url else { return }
+         try? FileManager.default.copyItem(at: sourceURL, to: destination)
++        #endif
+     }
+ 
+     public func copyToClipboard(_ dictation: Dictation) {
+@@ -355,8 +359,7 @@ public final class DictationHistoryViewModel {
+         // — copying a row showing raw text should copy raw text, not the
+         // suppressed cleaned version.
+         let text = dictation.displayText
+-        NSPasteboard.general.clearContents()
+-        NSPasteboard.general.setString(text, forType: .string)
++        PlatformPasteboard.copy(text)
+         Telemetry.send(.copyToClipboard(source: .history))
+ 
+         copiedResetTask?.cancel()
+diff --git a/Sources/MacParakeetViewModels/SettingsViewModel.swift b/Sources/MacParakeetViewModels/SettingsViewModel.swift
+index d3655b73..b37f920a 100644
+--- a/Sources/MacParakeetViewModels/SettingsViewModel.swift
++++ b/Sources/MacParakeetViewModels/SettingsViewModel.swift
+@@ -1,4 +1,6 @@
++#if canImport(AppKit)
+ import AppKit
++#endif
+ import Foundation
+ import MacParakeetCore
+ import OSLog
+@@ -951,7 +953,7 @@ public final class SettingsViewModel {
+         },
+         permissionPollingInterval: Duration = .seconds(2),
+         calendarService: CalendarServicing = CalendarService.shared,
+-        openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }
++        openURL: @escaping (URL) -> Bool = { PlatformWorkspace.open($0) }
+     ) {
+         AutoSaveService.migrateLegacyMeetingSettingsIfNeeded(defaults: defaults)
+         self.defaults = defaults
