@@ -14,6 +14,7 @@ Application Support/iChirp/
     ├── source.<ext>              the imported file, copied in; kept for playback
     ├── dictation.wav             M2: a dictation's recording (16 kHz mono Float32); kept unless the person turned
     │                             off "Keep dictation audio"
+    ├── download.part(.json)      M5: an unfinished link download and its resume record; gone once it completes
     └── normalized-16k.wav        temporary decode for the engine; deleted when the job finishes
 ```
 
@@ -35,7 +36,7 @@ Application Support/iChirp/
 - New stored properties on `Transcription` are optional or defaulted, so old rows decode.
 - Field names match upstream MacParakeet where they overlap, so ported code needs no renaming.
 
-## `transcriptions` (migrations `v1-transcriptions`, `v2-audio-track-ordinal`)
+## `transcriptions` (migrations `v1-transcriptions`, `v2-audio-track-ordinal`, `v6-documents`)
 
 One row per imported file, dictation, meeting, link or document. The Swift type is `ChirpCore.Transcription`.
 
@@ -63,9 +64,13 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 | `derivedTitle`, `derivedSnippet` | text, nullable | Computed from the transcript text |
 | `isFavorite` | bool | Star in Library and Transcript |
 | `privacyClass` | text enum | `general` · `personal` (default) · `clinical` ([`12-privacy.md`](12-privacy.md)) |
+| `sourceURL` | text, nullable | M5 (`v6-documents`): the pasted or shared link of a podcast, media or YouTube item |
+| `sourceTitle` | text, nullable | M5: the title the source published (episode, video, document metadata); wins over `derivedTitle` |
+| `documentFormat` | text enum, nullable | M5: `pdf` · `txt` · `md` · `rtf` · `html` · `docx`; nil for audio items |
+| `documentPages` | JSON, nullable | M5: a PDF's `[DocumentPage]`: `number`, `text`, `method` (`textLayer` · `ocr` · `empty`) |
 
-Derived values (not stored): `displayTitle` = `titleOverride` ?? non-empty `derivedTitle` ?? file name without its
-extension; `displayText` = non-empty `cleanTranscript` ?? `rawTranscript` ?? "".
+Derived values (not stored): `displayTitle` = `titleOverride` ?? non-empty `sourceTitle` ?? non-empty `derivedTitle`
+?? file name without its extension; `displayText` = non-empty `cleanTranscript` ?? `rawTranscript` ?? "".
 
 ### Status lifecycle
 
@@ -107,7 +112,7 @@ dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processin
 |---|---|---|
 | M3 | meeting columns (`userNotes`, audio retention) | Meeting notes and retention |
 | M4 | `prompts`, `prompt_versions`, `deliverables`, `llm_runs` | Templates, generated documents, a metadata-only run ledger (never content) |
-| M5 | source metadata columns | Link, podcast and document provenance |
+| M5 | **Built:** `v6-documents` (`sourceURL`, `sourceTitle`, `documentFormat`, `documentPages`) | Link, podcast and document provenance ([contract](contracts/document-items-v1.md)) |
 | M6 | `embeddings` (or a vector index) | Semantic search, after benchmarking against plain text search |
 
 Keep YAGNI: a table appears only with the feature that reads it.

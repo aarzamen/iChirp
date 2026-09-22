@@ -3,7 +3,8 @@
 // "v0.29-transcription-audio-track": one nullable integer column) and M2's "v4-dictation-text" (upstream "v0.1" custom
 // words, "v0.2-text-snippets" and v0.6's snippet `action`, in one migration; "v3" belongs to the M4 lane); kept the
 // WAL-via-DatabasePool / foreign-keys-on / 5s-busy-timeout configuration and the inline
-// DatabaseMigrator pattern (migrations are never edited after install; add a new one instead).
+// DatabaseMigrator pattern (migrations are never edited after install; add a new one instead). M5 adds "v6-documents"
+// (link and document provenance columns, new in iChirp; "v5" belongs to the M3 meetings lane).
 
 import Foundation
 import GRDB
@@ -119,6 +120,19 @@ public final class DatabaseManager: Sendable {
             }
             try db.execute(
                 sql: #"CREATE UNIQUE INDEX idx_text_snippets_trigger ON text_snippets("trigger" COLLATE NOCASE)"#)
+        }
+
+        // M5 ingest (plan 014; spec/contracts/document-items-v1.md): where a link or document came from, and a PDF's
+        // per-page text. Additive and nullable: every earlier row reads nil. Named v6 because the parallel M3 lane
+        // registers "v5-meetings".
+        migrator.registerMigration("v6-documents") { db in
+            try db.alter(table: "transcriptions") { t in
+                t.add(column: "sourceURL", .text)
+                t.add(column: "sourceTitle", .text)
+                t.add(column: "documentFormat", .text)
+                // JSON TEXT: [DocumentPage] (number, text, method).
+                t.add(column: "documentPages", .text)
+            }
         }
 
         return migrator

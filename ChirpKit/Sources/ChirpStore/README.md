@@ -21,7 +21,9 @@ ChirpStore depends on ChirpText.
   of truth for the schema: `v1-transcriptions`, then `v2-audio-track-ordinal` (M1.5: one nullable integer column,
   `audioTrackOrdinal`; NULL is automatic track selection, so every earlier row reads unchanged), then
   `v3-language-models` (M4), then `v4-dictation-text` (M2: the `custom_words` and `text_snippets` tables with
-  upstream's columns and unique `COLLATE NOCASE` indexes on `word` and `"trigger"`).
+  upstream's columns and unique `COLLATE NOCASE` indexes on `word` and `"trigger"`), then `v6-documents` (M5: four
+  nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`, `documentPages` JSON;
+  `v5-meetings` belongs to the parallel M3 lane and merges in before it).
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
@@ -84,7 +86,8 @@ values this build does not know. Two rules keep the Library usable:
 - *Unknown enum values read as safe fallbacks* (`TranscriptionRecord.toTranscription()`):
   an unknown `status` reads as `.interrupted` (terminal, rendered, offers
   Retry), an unknown `privacyClass` as `.clinical` (the most protective class,
-  so routing stays on-device), an unknown `sourceType` as `.file`.
+  so routing stays on-device), an unknown `sourceType` as `.file`, an unknown `documentFormat` as nil (kept on
+  write) and an unknown `DocumentPage.Method` as `textLayer`.
 - *Anything else that cannot be decoded skips the row.* `fetchAll()` and
   `observeAll()` fetch raw `Row`s and decode each one on its own
   (`decodeRows`): a bad JSON column, a date or a NULL this build cannot read

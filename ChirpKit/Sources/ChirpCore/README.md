@@ -13,7 +13,11 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 
 - `Models/Transcript.swift`: word, speaker, diarization and transcript segment value types, ported from
   MacParakeet without the correction-only fields.
-- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`.
+- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`. M5 adds
+  `sourceURL`, `sourceTitle` (wins over the derived title), `documentFormat` and `documentPages`
+  ([contract](../../../spec/contracts/document-items-v1.md)).
+- `Models/Document.swift`: M5 `DocumentFormat` (pdf, txt, md, rtf, html, docx; from a file extension) and
+  `DocumentPage` (page number, text, `textLayer` / `ocr` / `empty`), plus `Transcription.isDocument`.
 - `Models/PrivacyClass.swift`: `general` / `personal` (default) / `clinical` sensitivity classes, ordered by
   `strictness`, with `stricter(_:)`.
 - `Models/LanguageModelProvider.swift`: `LanguageModelProviderKind` (stable engine ids),
