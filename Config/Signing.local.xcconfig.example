@@ -1,0 +1,4 @@
+// Copy this file to Signing.local.xcconfig (gitignored) and fill in your own
+// team ID to enable device builds. Config/Shared.xcconfig includes it
+// optionally (#include?), so its absence is fine for simulator-only builds.
+DEVELOPMENT_TEAM = XM6E4PUXTU
