@@ -95,6 +95,7 @@ Password-protected, damaged and text-free PDFs fail with a message and Retry.
 |---|---|
 | PDF with text | `PDFDocument.string` or per-page `string` |
 | Scanned PDF pages | Render the page to an image, then Vision `RecognizeDocumentsRequest` (iOS 26; paragraphs, tables, lists) |
-| TXT, Markdown | Read as UTF-8 text (swift-markdown only if structure is needed) |
-| RTF, HTML | `NSAttributedString` (these types are supported on iOS) |
-| DOCX | Unzip (ZIPFoundation) and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only |
+| TXT, Markdown | Read as UTF-8 text (BOM-marked UTF-16 and Windows-1252 also read; binary refused); a Markdown heading is the title. **Built** |
+| RTF | `NSAttributedString` (supported on iOS). **Built** |
+| HTML | **Built with a small converter instead of `NSAttributedString`**: its HTML import must run on the main thread and loads WebKit. Blocks, list items and cells keep their structure; scripts, styles and markup are dropped; `<title>` is the title |
+| DOCX | Unzip and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only. **Built on Foundation** (`ZipArchiveReader`: central directory, `NSData` raw-DEFLATE inflate, CRC-32) instead of ZIPFoundation, so no new dependency |

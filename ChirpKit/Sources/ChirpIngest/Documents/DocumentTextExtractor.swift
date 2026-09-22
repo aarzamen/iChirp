@@ -75,13 +75,34 @@ public struct DocumentTextExtractor: DocumentTextExtracting {
         defer {
             if accessing { url.stopAccessingSecurityScopedResource() }
         }
-        switch format {
-        case .pdf:
+        if format == .pdf {
             return try await pdf.extract(from: url, progress: progress)
-        case .plainText, .markdown, .rtf, .html, .docx:
-            throw DocumentExtractionError.unsupportedFormat(url.pathExtension)
         }
+        progress(0, 1)
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch {
+            throw DocumentExtractionError.unreadable(format)
+        }
+        guard data.count <= Self.maximumTextDocumentBytes else {
+            throw DocumentExtractionError.malformed(format, "it is too large to read (over 100 MB).")
+        }
+        try Task.checkCancellation()
+        let document: ExtractedDocument
+        switch format {
+        case .plainText, .markdown: document = try PlainTextReader.read(data, format: format)
+        case .html: document = try HTMLTextReader.read(data)
+        case .rtf: document = try RichTextReader.read(data)
+        case .docx: document = try DOCXReader.read(data)
+        case .pdf: throw DocumentExtractionError.unsupportedFormat("pdf")
+        }
+        progress(1, 1)
+        return document
     }
+
+    /// Text documents above this size are refused rather than read into memory.
+    static let maximumTextDocumentBytes = 100 * 1_024 * 1_024
 
     /// Collapses runs of blank lines to one, trims trailing spaces on lines and whitespace at both ends.
     static func tidy(_ text: String) -> String {
