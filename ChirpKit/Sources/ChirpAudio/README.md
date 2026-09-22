@@ -39,10 +39,27 @@ target rate. `durationMs(of:)` is a separate, best-effort probe of the
 source's own `AVURLAsset` duration (returns `0` if the asset's duration
 isn't numeric) — it does not read from the normalized output.
 
-**`normalize` honors task cancellation.** The reader loop checks
-`Task.isCancelled` on every iteration (once per decoded `CMSampleBuffer`, so
-a long import can't keep decoding/writing after the caller gives up). On
-cancellation it calls `reader.cancelReading()`, deletes the partial
+**The decode loop never runs on Swift's cooperative pool or the caller's
+actor.** `copyNextSampleBuffer()` and `AVAudioFile.write` block their thread
+for as long as the file takes, and Swift concurrency has only about one pool
+thread per CPU core: a few long imports decoding there would stall every other
+async task in the app. So `normalize` loads the track asynchronously, then
+hands the blocking `decode(asset:track:outputURL:isCancelled:)` loop to
+`runOnDecodeQueue`, which runs it on the normalizer's own concurrent dispatch
+queue (`com.aarzamen.ichirp.audio.normalize`, QoS utility) and resumes the
+caller when it finishes. The queue does not limit how many decodes run at
+once; the caller does (`FileTranscriptionPipeline` allows two). `normalize`
+and `durationMs(of:)` are `@concurrent`, so they keep running off the
+caller's actor even if the module's default isolation changes (Xcode 26's
+"Approachable Concurrency" setting would otherwise run them on the calling
+actor).
+
+**`normalize` honors task cancellation.** A task already cancelled throws
+before any AVFoundation work. After that, `runOnDecodeQueue` turns the
+awaiting task's cancellation into the `isCancelled` check the loop reads on
+every iteration (once per decoded `CMSampleBuffer`; a dispatch thread has no
+current task, so `Task.isCancelled` would always be false there). On
+cancellation the loop calls `reader.cancelReading()`, deletes the partial
 `outputURL` so no truncated WAV is left behind, and throws
 `CancellationError()` — not `AudioNormalizationError` — so callers can tell a
 user-initiated cancel apart from a real decode failure.
