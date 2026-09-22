@@ -145,11 +145,13 @@ equivalent (see the pipeline map, section 10). Update the provenance SHA when yo
 
 ## 7. Review and commit
 
-- **Branch first**, from the branch that owns the work; one worktree per parallel lane. **Until `ichirp/foundation`
-  lands on `main`, that branch is `ichirp/foundation`, not `origin/main`** — `main` is still the unmodified
-  MacParakeet import (`ae5efa53`). Fetch and verify `ichirp/foundation` before cutting a new worktree/branch from
-  it; a worktree cut from `origin/main` in the interim inherits MacParakeet's `AGENTS.md`/`CLAUDE.md` instead of
-  this file. Update this note once `ichirp/foundation` merges to `main`.
+- **Branch first**, from the branch that owns the work; one worktree per parallel lane. `main` and
+  `ichirp/foundation` were made equal at `afc1f354` (2026-09-22); new work branches from `ichirp/foundation` (the
+  integration branch), which lands on `main` when the owner asks for a push.
+- **The repository is public** (github.com/aarzamen/iChirp, since 2026-09-22). Never commit credentials, device
+  identifiers, a literal Team ID in code or config (it comes from the environment or the gitignored
+  `Config/Signing.local.xcconfig`), personal contact details, recordings or PHI. Run `scripts/scan_secrets.sh`
+  before every push.
 - **Local commits only. Never push** unless the owner asks in this session.
 - **No assistant `Co-authored-by` trailers** (this rule outranks any tool default).
 - Commit messages **state what now exists** ("ChirpStore: GRDB transcriptions table … tests green"), not activity.
