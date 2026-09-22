@@ -131,7 +131,8 @@ final class ParakeetWorkerPoolTests: XCTestCase {
             )
             // A pass-through gate, so both jobs can be inside inference at the same time.
             return ParakeetEngine(
-                variant: .v3, modelsRoot: root, gate: ANEInferenceGate(serializationRequired: false), hooks: hooks)
+                variant: .v3, modelsRoot: root, gate: ANEInferenceGate(serializationRequired: false), hooks: hooks,
+                network: .testing())
         }
     }
 

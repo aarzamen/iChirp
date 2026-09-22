@@ -55,18 +55,20 @@ public actor ParakeetEngine: SpeechEngine {
     public init(variant: ParakeetVariant = .v3, modelsRoot: URL? = nil, gate: ANEInferenceGate = .shared) {
         let root = (modelsRoot ?? FluidAudioModelLocations.defaultModelsRoot).standardizedFileURL
         self.init(
-            variant: variant, modelsRoot: root, gate: gate, hooks: Self.liveHooks(variant: variant, modelsRoot: root))
+            variant: variant, modelsRoot: root, gate: gate, hooks: Self.liveHooks(variant: variant, modelsRoot: root),
+            network: .live)
     }
 
-    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks.
+    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks; `network` the path check and the
+    /// retry backoff.
     init(
         variant: ParakeetVariant, modelsRoot: URL, gate: ANEInferenceGate,
-        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks
+        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks, network: DownloadNetworkPolicy
     ) {
         self.variant = variant
         self.modelsRoot = modelsRoot
         self.gate = gate
-        self.lifecycle = ModelAssetLifecycle(hooks: hooks)
+        self.lifecycle = ModelAssetLifecycle(hooks: hooks, network: network)
     }
 
     public nonisolated var descriptor: EngineDescriptor {

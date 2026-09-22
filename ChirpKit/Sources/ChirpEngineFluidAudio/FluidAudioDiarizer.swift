@@ -44,14 +44,18 @@ public actor FluidAudioDiarizer: SpeakerDiarizing {
     ///   - gate: serializes Neural Engine inference where the OS requires it; share one per process.
     public init(modelsRoot: URL? = nil, gate: ANEInferenceGate = .shared) {
         let root = (modelsRoot ?? FluidAudioModelLocations.defaultModelsRoot).standardizedFileURL
-        self.init(modelsRoot: root, gate: gate, hooks: Self.liveHooks(modelsRoot: root))
+        self.init(modelsRoot: root, gate: gate, hooks: Self.liveHooks(modelsRoot: root), network: .live)
     }
 
-    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks.
-    init(modelsRoot: URL, gate: ANEInferenceGate, hooks: ModelAssetLifecycle<OfflineDiarizerModels>.Hooks) {
+    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks; `network` the path check and the
+    /// retry backoff.
+    init(
+        modelsRoot: URL, gate: ANEInferenceGate, hooks: ModelAssetLifecycle<OfflineDiarizerModels>.Hooks,
+        network: DownloadNetworkPolicy
+    ) {
         self.modelsRoot = modelsRoot
         self.gate = gate
-        self.lifecycle = ModelAssetLifecycle(hooks: hooks)
+        self.lifecycle = ModelAssetLifecycle(hooks: hooks, network: network)
     }
 
     public nonisolated var descriptor: EngineDescriptor {

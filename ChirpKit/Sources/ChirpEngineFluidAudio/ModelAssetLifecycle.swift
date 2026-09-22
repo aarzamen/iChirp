@@ -1,6 +1,10 @@
 import ChirpCore
 import FluidAudio
 import Foundation
+import OSLog
+
+/// Engine ids, attempt numbers, error types and codes only: never descriptions, paths or user content.
+private let downloadLogger = Log.logger("model-download")
 
 /// A loaded runtime checked out for one inference, stamped with the generation it was loaded for.
 /// Every `acquire()` must be paired with one `release(_:)`.
@@ -15,6 +19,9 @@ struct ModelLease<Runtime: Sendable>: Sendable {
 /// - Only `download` touches the network. `prepare` and `acquire` load strictly from local files, and throw
 ///   `SpeechEngineError.modelNotDownloaded` while files are missing, while a download is in flight, or while a
 ///   delete runs.
+/// - `download` checks the network path first (when files are missing) and fails at once without one. Transient
+///   failures (connectivity, FluidAudio's stalled or rate-limited downloads) are retried on the policy's backoff;
+///   cancellation stops it at once. A failure message keeps the error code, host, phase and attempt count.
 /// - Concurrent callers join one download and one load.
 /// - `delete` refuses while any lease is out. Otherwise it bumps the generation, cancels **and awaits** any
 ///   in-flight download and load, and only then removes files. A load that finishes for an older generation is
@@ -44,6 +51,7 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
     private struct StaleLoad: Error {}
 
     private let hooks: Hooks
+    private let network: DownloadNetworkPolicy
     private let tracker = ModelDownloadTracker()
     private var generation = 0
     private var downloadJob: Job<Void>?
@@ -52,8 +60,10 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
     private var loaded: ModelLease<Runtime>?
     private var leaseCount = 0
 
-    init(hooks: Hooks) {
+    /// - Parameter network: the pre-flight path check and retry backoff for `download`; `.live` in the app.
+    init(hooks: Hooks, network: DownloadNetworkPolicy) {
         self.hooks = hooks
+        self.network = network
     }
 
     static func inUseMessage(for displayName: String) -> String {
@@ -101,17 +111,27 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         } else {
             let id = UUID()
             let hooks = hooks
+            let network = network
             let tracker = tracker
             tracker.begin()
             let handler = tracker.progressHandler(forwardingTo: progress)
             let task = Task {
                 defer { self.clearDownloadJob(id) }
                 do {
-                    try await hooks.download(handler)
+                    try await Self.fetch(hooks: hooks, network: network, tracker: tracker, handler: handler)
                     tracker.finish(failure: nil)
                 } catch {
-                    tracker.finish(failure: SpeechEngineError.failureMessage(for: error))
-                    throw error
+                    // Cancelled (by a caller or a delete): not a failure, whatever the last attempt threw.
+                    guard !Task.isCancelled, let message = tracker.failureMessage(for: error) else {
+                        tracker.finish(failure: nil)
+                        throw DownloadRetry.isCancellation(error) ? error : CancellationError()
+                    }
+                    downloadLogger.error(
+                        "model_download_failed engine=\(hooks.engineID, privacy: .public) \(Self.diagnostics(error), privacy: .public)"
+                    )
+                    tracker.finish(failure: message)
+                    // The same text reaches the caller (Settings, the smoke result) as the tracker's `failed` status.
+                    throw SpeechEngineError.underlying(message)
                 }
             }
             job = Job(id: id, task: task)
@@ -210,6 +230,43 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
 
     func release(_ lease: ModelLease<Runtime>) {
         leaseCount -= 1
+    }
+
+    // MARK: - Network
+
+    /// The pre-flight path check, then the download hook, retried on `network.retryDelays` while the failure is
+    /// transient. Off the actor, so a slow FluidAudio call never blocks status reads. The path is only checked when
+    /// files are missing: on a complete cache FluidAudio just validates and never touches the network.
+    @concurrent
+    private static func fetch(
+        hooks: Hooks, network: DownloadNetworkPolicy, tracker: ModelDownloadTracker, handler: @escaping ProgressHandler
+    ) async throws {
+        if !hooks.modelsPresent(), case .unusable(let reason) = await network.checkPath() {
+            downloadLogger.notice("model_download_offline engine=\(hooks.engineID, privacy: .public)")
+            throw NoNetworkPath(reason: reason)
+        }
+        var retries = network.retryDelays[...]
+        while true {
+            try Task.checkCancellation()
+            tracker.beginAttempt()
+            do {
+                try await hooks.download(handler)
+                return
+            } catch {
+                guard !Task.isCancelled, !DownloadRetry.isCancellation(error), DownloadRetry.isTransient(error),
+                    let delay = retries.popFirst()
+                else { throw error }
+                downloadLogger.notice(
+                    "model_download_retry engine=\(hooks.engineID, privacy: .public) after=\(Self.diagnostics(error), privacy: .public) delay=\(delay, privacy: .public)"
+                )
+                try await network.sleep(delay)
+            }
+        }
+    }
+
+    /// Error type and code for logs, e.g. "URLError URLError -1001".
+    private static func diagnostics(_ error: any Error) -> String {
+        "error_type=\(String(describing: type(of: error))) code=\(DownloadDiagnostics.code(of: error))"
     }
 
     // MARK: - Helpers
