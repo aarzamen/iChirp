@@ -43,6 +43,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/make_sample_audio.sh [--wav]` | Regenerates the synthetic two-voice sample with macOS `say` |
 | `scripts/sync_upstream.sh <ref>` | Replaces `upstream/macparakeet/` with a newer MacParakeet ref and commits it |
 | `scripts/check_readme_references.sh` | Fails when a module README names a `.swift` file that no longer exists |
+| `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off) plus committed key/profile/.env/database files; run before merging a lane or pushing |
 | `scripts/format.sh` | swift-format in place; review the diff afterwards |
 
 Direct commands: `swift test --package-path ChirpKit --filter <Name>`; the real-model test runs only with
