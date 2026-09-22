@@ -1,13 +1,15 @@
 #if DEBUG
 import ChirpCore
+import CoreTelephony
 import Foundation
 import Network
 
 /// DEBUG-only connectivity probe for the model-download path.
 ///
 /// Launch with `-ChirpNetCheck` (e.g. `scripts/run_device.sh -- -ChirpNetCheck`). Writes `Documents/net-check.json`
-/// with the network path the phone reports and, for each endpoint the Parakeet download depends on, the HTTP status,
-/// bytes received, final URL after redirects, and the full error (domain, code, failing URL, underlying error).
+/// with the network path the phone reports, whether Settings has cellular data turned off for this app, raw TCP/TLS
+/// connects (an IP literal, so DNS is out of the picture, then the Hugging Face host), and, for each endpoint the
+/// Parakeet download depends on, the HTTP status, bytes received, final URL after redirects, and the full error.
 /// Pull it back with `xcrun devicectl device copy from … --source Documents/net-check.json`.
 enum NetworkDiagnostics {
     static let launchArgument = "-ChirpNetCheck"
@@ -42,6 +44,8 @@ enum NetworkDiagnostics {
         var finishedAt: String
         var build: String
         var path: PathInfo
+        /// `restricted` means Settings → Apps → Parakeet → Cellular Data is off.
+        var cellularData: String
         var checks: [Check]
     }
 
@@ -56,7 +60,11 @@ enum NetworkDiagnostics {
     static func runAndWrite() async -> Report {
         let log = Log.logger("net-check")
         let path = await currentPath()
+        let cellularData = await cellularDataRestriction()
         var checks: [Check] = []
+        checks.append(await connect("tcp-ip", host: "1.1.1.1", port: 443, tls: false))
+        checks.append(await connect("tcp-host", host: "huggingface.co", port: 443, tls: false))
+        checks.append(await connect("tls-host", host: "huggingface.co", port: 443, tls: true))
         checks.append(await fetch("apple", "https://www.apple.com/library/test/success.html"))
         let api = await fetchAPI("hf-api", "https://huggingface.co/api/models/\(repo)")
         checks.append(api.check)
@@ -70,6 +78,7 @@ enum NetworkDiagnostics {
             finishedAt: formatter.string(from: Date()),
             build: BuildIdentity.current.summary,
             path: path,
+            cellularData: cellularData,
             checks: checks
         )
         do {
@@ -135,6 +144,72 @@ enum NetworkDiagnostics {
         }
     }
 
+    /// Opens a raw TCP (or TLS) connection and reports the first terminal state: `ready`, `failed`, or `waiting` (the
+    /// system is holding the connection back and says why). No HTTP, so this separates transport from URLSession.
+    private static func connect(_ name: String, host: String, port: UInt16, tls: Bool) async -> Check {
+        let started = Date()
+        var check = Check(name: name, url: "\(tls ? "tls" : "tcp")://\(host):\(port)", bytes: 0, elapsedMs: 0)
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return check }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: tls ? .tls : .tcp)
+        let queue = DispatchQueue(label: "ichirp.net-check.\(name)")
+        let states = LockedStrings()
+        let outcome: String = await withCheckedContinuation { continuation in
+            let resumed = LockedFlag()
+            connection.stateUpdateHandler = { state in
+                let terminal: String?
+                switch state {
+                case .setup: states.append("setup"); terminal = nil
+                case .preparing: states.append("preparing"); terminal = nil
+                case .ready: terminal = "ready"
+                case .waiting(let error): terminal = "waiting: \(error)"
+                case .failed(let error): terminal = "failed: \(error)"
+                case .cancelled: terminal = "cancelled"
+                @unknown default: terminal = nil
+                }
+                if let terminal, resumed.setIfUnset() { continuation.resume(returning: terminal) }
+            }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + 15) {
+                if resumed.setIfUnset() {
+                    continuation.resume(returning: "no terminal state after 15 s (seen: \(states.joined))")
+                }
+            }
+        }
+        connection.cancel()
+        check.elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+        if outcome == "ready" {
+            check.statusCode = 0
+        } else {
+            check.errorDescription = outcome
+        }
+        return check
+    }
+
+    /// Settings → Apps → <app> → Cellular Data, as CoreTelephony reports it for this app.
+    private static func cellularDataRestriction() async -> String {
+        let holder = CellularDataHolder()
+        return await withCheckedContinuation { continuation in
+            let resumed = LockedFlag()
+            // The notifier fires once with the current state after it is set; the timeout covers a phone without
+            // cellular hardware or a notifier that never fires.
+            holder.data.cellularDataRestrictionDidUpdateNotifier = { state in
+                if resumed.setIfUnset() { continuation.resume(returning: describe(state)) }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                if resumed.setIfUnset() { continuation.resume(returning: describe(holder.data.restrictedState)) }
+            }
+        }
+    }
+
+    private static func describe(_ state: CTCellularDataRestrictedState) -> String {
+        switch state {
+        case .restricted: "restricted"
+        case .notRestricted: "notRestricted"
+        case .restrictedStateUnknown: "unknown"
+        @unknown default: "unknown(\(state.rawValue))"
+        }
+    }
+
     private static func currentPath() async -> PathInfo {
         await withCheckedContinuation { continuation in
             let monitor = NWPathMonitor()
@@ -170,6 +245,29 @@ enum NetworkDiagnostics {
             }
             monitor.start(queue: queue)
         }
+    }
+}
+
+/// Keeps the CTCellularData alive while its notifier and the timeout read it from other queues.
+private final class CellularDataHolder: @unchecked Sendable {
+    let data = CTCellularData()
+}
+
+/// Append-only list of connection states, written from the NWConnection queue.
+private final class LockedStrings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        values.append(value)
+    }
+
+    var joined: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return values.isEmpty ? "none" : values.joined(separator: " → ")
     }
 }
 
