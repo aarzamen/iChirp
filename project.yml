@@ -19,6 +19,9 @@ targets:
     dependencies:
       - package: ChirpKit
         products: [ChirpCore, ChirpText, ChirpExport, ChirpStore, ChirpAudio, ChirpEngineFluidAudio, ChirpFeatures, ChirpUI]
+      # M4: language models (Apple on-device, HTTP providers) and the Keychain key store. No entitlement needed.
+      - package: ChirpKit
+        products: [ChirpEngineAppleFM, ChirpEngineHTTPLLM, ChirpKeychain]
     info:
       path: App/Info.plist
       properties:
@@ -48,6 +51,14 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - $(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*
           - $(PRODUCT_BUNDLE_IDENTIFIER).download.*
+        # M4: Settings → Models can point at Ollama or LM Studio on the owner's Mac. The usage text is shown by iOS's
+        # local-network prompt; NSAllowsLocalNetworking permits plain http only to local hosts (cloud stays https,
+        # enforced by LanguageModelProviderConfiguration.validate()). No Bonjour discovery, so no NSBonjourServices.
+        NSLocalNetworkUsageDescription: >-
+          Parakeet connects to a model server on your Mac (Ollama or LM Studio) when you choose one in
+          Settings → Models.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"
@@ -67,6 +78,11 @@ targets:
     platform: iOS
     sources: [AppTests]
     dependencies: [{ target: iChirp }]
+    settings:
+      base:
+        # M4: lets a simulator run that signs the test bundle ad hoc (Xcode's default) host the real Keychain test.
+        # Not a signing setting; the unsigned CODE_SIGNING_ALLOWED=NO runs in scripts/ are unchanged.
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   iChirp:
     build: { targets: { iChirp: all, iChirpTests: [test] } }

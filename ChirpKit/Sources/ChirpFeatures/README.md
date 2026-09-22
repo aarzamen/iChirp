@@ -84,6 +84,21 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
   `.answered` or `.failed(sentence)`.
+- `LanguageModelsViewModel.swift` (M4 UI): Settings → Models and the model a run uses.
+  - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM` and `ChirpEngineHTTPLLM`
+    (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`); tests use a fake.
+  - `LanguageModelChoice` is Apple's on-device model or one provider; `ModelPlace` words where it runs ("on this
+    iPhone", "on Mac Studio", "in the cloud (Claude)").
+  - `LanguageModelProviderDraft` is the provider form: locality derived from the typed address, the trust switch only
+    for a home-network host, `apiKeyChange` (a blank key keeps the stored one), and `problem` as a sentence.
+  - `LanguageModelsViewModel` lists providers and Apple's availability, sets the default, saves and deletes through
+    the provider store (key to the Keychain first), tests a connection and lists models (typed key, else the stored
+    one), and builds a run's engine with `makeModel(for:)`, reading the key just then.
+- `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
+  category and recent documents) and `DeliverableDocumentViewModel` (one document: text, template version number,
+  `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
+- `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
+  time; answers are not stored (the ledger records each run without content).
 
 ## Wiring (app composition root)
 
