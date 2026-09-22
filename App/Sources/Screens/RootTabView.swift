@@ -41,6 +41,15 @@ struct RootTabView: View {
             selection = .capture
             environment.openIncoming(url)
         }
+        .fullScreenCover(isPresented: isDictating) {
+            // M2: the Dictating screen covers everything from the first tap (or Action Button) to Done.
+            DictatingScreen(openTab: { selection = $0 })
+                .environment(environment)
+        }
+        .onChange(of: environment.dictation.state) { _, state in
+            // A discarded dictation closes at once; its files are deleted in the background.
+            if state == .cancelled { environment.dictation.dismiss() }
+        }
         .sheet(item: pendingTrackChoice) { request in
             // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
             AudioTrackPickerSheet(
@@ -49,6 +58,15 @@ struct RootTabView: View {
                 onCancel: { environment.jobCenter.cancelAudioTrackSelection(request.id) }
             )
         }
+    }
+
+    /// Shown from the first start until Done/Close (or a Cancel). Read-only: only the coordinator ends it.
+    private var isDictating: Binding<Bool> {
+        Binding(
+            get: {
+                let state = environment.dictation.state
+                return state != .idle && state != .cancelled
+            }, set: { _ in })
     }
 
     /// The job center's pending track choice. Read-only: the sheet cannot be swiped away, and choosing or cancelling

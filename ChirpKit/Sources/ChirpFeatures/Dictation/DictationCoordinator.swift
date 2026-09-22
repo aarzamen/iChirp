@@ -95,6 +95,8 @@ public struct DictationTextRules: Sendable {
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var liveTextTask: Task<Void, Never>?
     @ObservationIgnored private var finalTask: Task<Void, Never>?
+    /// A discard still deleting the previous dictation; the next start waits for it (one recorder, one folder).
+    @ObservationIgnored private var cleanupTask: Task<Void, Never>?
     @ObservationIgnored private var recordedSamples = 0
 
     public init(
@@ -172,7 +174,11 @@ public struct DictationTextRules: Sendable {
         switch effect {
         case .startRecording:
             resetForNewDictation()
-            startTask = Task { await self.beginRecording(generation: generation) }
+            let cleanup = cleanupTask
+            startTask = Task {
+                await cleanup?.value
+                await self.beginRecording(generation: generation)
+            }
         case .stopRecordingAndTranscribe:
             let starting = startTask
             finalTask = Task {
@@ -182,14 +188,14 @@ public struct DictationTextRules: Sendable {
         case .cancelRecording:
             let starting = startTask
             startTask?.cancel()
-            Task {
+            cleanupTask = Task {
                 await starting?.value
                 await self.discardRecording()
             }
         case .cancelFinalPass:
             let running = finalTask
             running?.cancel()
-            Task {
+            cleanupTask = Task {
                 await running?.value
                 await self.discardRecording()
             }
@@ -214,13 +220,15 @@ public struct DictationTextRules: Sendable {
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
-        recording = nil
-        rowInserted = false
     }
 
     // MARK: - Start
 
     private func beginRecording(generation: Int) async {
+        // The previous dictation's discard (if any) has finished; this one starts clean.
+        recording = nil
+        rowInserted = false
+        transcriptionID = nil
         guard case .ready = await speech.assetStatus() else {
             send(.startFailed(generation: generation, message: FileTranscriptionPipeline.modelMissingMessage))
             return
@@ -273,6 +281,8 @@ public struct DictationTextRules: Sendable {
 
     private func consume(_ updates: AsyncStream<CaptureUpdate>, generation: Int) async {
         for await update in updates {
+            // A newer dictation has started: whatever this old stream still holds is not its audio.
+            guard machine.generation == generation else { return }
             switch update {
             case .samples(let samples):
                 recordedSamples += samples.count

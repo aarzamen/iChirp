@@ -16,10 +16,6 @@ struct Placeholder: Identifiable, Equatable {
 }
 
 extension Placeholder {
-    static let dictation = Placeholder(
-        id: "dictation", title: "Dictate", milestone: "M2",
-        summary: "Press the Action Button, or tap to go hands-free. Clean text lands on your clipboard.",
-        systemImage: "waveform")
     static let pasteLink = Placeholder(
         id: "paste-link", title: "Paste a link", milestone: "M5",
         summary: "Paste a YouTube, podcast or X link and Parakeet transcribes it on this iPhone.",
@@ -49,10 +45,6 @@ extension Placeholder {
         summary: "Back Tap is an iPhone Accessibility setting that runs a Shortcut. M2 adds the Parakeet shortcut "
             + "and shows how to assign it.",
         systemImage: "hand.tap")
-    static let stopMode = Placeholder(
-        id: "stop-mode", title: "Stop mode", milestone: "M2",
-        summary: "Choose whether dictation stops when you tap or when you stop speaking.",
-        systemImage: "stop.circle")
     static let cloudModels = Placeholder(
         id: "cloud-models", title: "Cloud models", milestone: "M4",
         summary: "Optionally let Ask and Transforms use a cloud model you set up. Off by default; clinical items "

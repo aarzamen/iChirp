@@ -62,6 +62,8 @@
 	<string>0</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

@@ -5,7 +5,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Tab 1 (canvas `Home.dc.html`): the header, Dictate card, Paste a link / Import audio tiles, Record Meeting, and
-/// the three most recent transcriptions. Import audio and Recent are real; the rest open "Not built yet" sheets.
+/// the three most recent transcriptions. Dictate (M2), Import audio and Recent are real; the rest open "Not built yet"
+/// sheets.
 struct CaptureScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let openTab: (AppTab) -> Void
@@ -103,7 +104,7 @@ struct CaptureScreen: View {
 
     private var dictateCard: some View {
         Button {
-            placeholder = .dictation
+            environment.dictation.start()
         } label: {
             HStack(spacing: 16) {
                 ZStack {
@@ -121,14 +122,16 @@ struct CaptureScreen: View {
                     Text("Dictate")
                         .chirpTitleFont(23)
                         .foregroundStyle(Tokens.Color.ink)
-                    // Until M2 ships, the card describes what dictation will do and says it isn't built; the canvas's
-                    // "Press the Action Button" line and green "Clean text on copy" chip would claim a live feature.
-                    Text("Hands-free dictation, clean text to your clipboard.")
+                    // Copy correction (handoff): third-party apps get no Action Button key-up, so it is "press", not
+                    // "hold". The chip is true only while "Polish after" is on.
+                    Text("Press the Action Button, or tap to go hands-free.")
                         .chirpFont(13.5)
                         .foregroundStyle(Tokens.Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    StatusChip.notBuiltYet(milestone: "M2")
-                        .padding(.top, 3)
+                    if environment.dictation.polishAfter {
+                        StatusChip.cleanTextOnCopy()
+                            .padding(.top, 3)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -140,7 +143,7 @@ struct CaptureScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Not built yet, milestone M2")
+        .accessibilityHint("Starts dictating. The text is copied when you stop.")
     }
 
     // MARK: - Tiles

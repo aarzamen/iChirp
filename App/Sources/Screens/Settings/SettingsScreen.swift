@@ -56,16 +56,32 @@ struct SettingsScreen: View {
     // MARK: - Capture (M2)
 
     private var captureGroup: some View {
-        SettingsGroup(title: "Capture") {
-            // Values are "Not built yet", not the canvas's illustrative "Action Button" / "Double tap" /
-            // "Tap to stop": nothing is actually configured until M2 (AGENTS §4 honest UI, final-review Lane C 6).
+        @Bindable var speech = environment.speechSettings
+        return SettingsGroup(
+            title: "Capture",
+            footer:
+                "With “Keep dictation audio” off, a dictation’s recording is deleted as soon as its text is saved, so "
+                + "it cannot be played back or retried."
+        ) {
             PlaceholderRow(
                 title: "Dictation trigger", value: "Not built yet", placeholder: .dictationTrigger,
                 open: { placeholder = $0 })
             PlaceholderRow(
                 title: "Back Tap", value: "Not built yet", placeholder: .backTap, open: { placeholder = $0 })
-            PlaceholderRow(
-                title: "Stop mode", value: "Not built yet", placeholder: .stopMode, open: { placeholder = $0 })
+            SettingsRow(
+                title: "Stop mode",
+                caption: "Tap Stop & copy, or press the Action Button again. Stopping when you stop speaking is not "
+                    + "built yet."
+            ) {
+                Text("Tap to stop")
+                    .chirpFont(15)
+                    .foregroundStyle(Tokens.Color.secondary)
+            }
+            SettingsRow(title: "Keep dictation audio", caption: "For playback and Retry in the Library") {
+                Toggle("Keep dictation audio", isOn: $speech.settingsValue.keepDictationAudio)
+                    .labelsHidden()
+                    .tint(Tokens.Color.success)
+            }
         }
     }
 

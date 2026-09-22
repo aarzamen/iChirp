@@ -48,6 +48,8 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - $(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*
           - $(PRODUCT_BUNDLE_IDENTIFIER).download.*
+        # M2: dictation records the microphone on this iPhone only (never uploaded).
+        NSMicrophoneUsageDescription: Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"

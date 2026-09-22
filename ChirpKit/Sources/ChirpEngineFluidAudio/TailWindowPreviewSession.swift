@@ -94,7 +94,7 @@ actor TailWindowPreviewSession: LiveSpeechSession {
             do {
                 text = try await scheduler.run(.dictation) { try await transcribe(window) }
             } catch {
-                if !(error is CancellationError) {
+                if !(error is CancellationError), (error as? SpeechEngineError) != .cancelled {
                     Log.logger("live-preview").notice(
                         "preview_pass_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
                 }

@@ -71,6 +71,7 @@ struct TextRulesScreen: View {
         .navigationTitle("Custom words & snippets")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .task { await model.load() }
         .sheet(item: $editor) { editor in
             TextRuleEditorSheet(model: model, editor: editor)

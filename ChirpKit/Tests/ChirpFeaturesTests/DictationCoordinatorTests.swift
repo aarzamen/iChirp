@@ -367,4 +367,25 @@ final class DictationCoordinatorTests: XCTestCase {
         let retried = await h.coordinator.retry(transcriptionID: orphan)
         XCTAssertEqual(retried?.status, .completed)
     }
+
+    /// Cancel, then start again at once: the new dictation waits for the discard, keeps its own recording, and the
+    /// discarded one leaves nothing.
+    func testStartingRightAfterACancelKeepsTheNewRecordingAndDiscardsTheOld() async throws {
+        let h = Harness(testCase: self)
+        await h.startRecording()
+        let oldFolder = try XCTUnwrap(h.wavURL).deletingLastPathComponent()
+        h.coordinator.cancel()
+        h.coordinator.dismiss()
+        h.coordinator.start()
+        await waitUntil { h.coordinator.state == .recording }
+        let newURL = try XCTUnwrap(h.wavURL)
+        XCTAssertNotEqual(newURL.deletingLastPathComponent(), oldFolder)
+        XCTAssertFalse(fileExists(oldFolder))
+        XCTAssertTrue(fileExists(newURL))
+        await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.state, .done)
+        let rows = try await h.store.fetchAll()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.mediaRelativePath, h.paths.relativePath(for: newURL))
+    }
 }
