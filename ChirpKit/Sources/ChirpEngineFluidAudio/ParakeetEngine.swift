@@ -55,18 +55,20 @@ public actor ParakeetEngine: SpeechEngine {
     public init(variant: ParakeetVariant = .v3, modelsRoot: URL? = nil, gate: ANEInferenceGate = .shared) {
         let root = (modelsRoot ?? FluidAudioModelLocations.defaultModelsRoot).standardizedFileURL
         self.init(
-            variant: variant, modelsRoot: root, gate: gate, hooks: Self.liveHooks(variant: variant, modelsRoot: root))
+            variant: variant, modelsRoot: root, gate: gate, hooks: Self.liveHooks(variant: variant, modelsRoot: root),
+            network: .live)
     }
 
-    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks.
+    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks; `network` the path check and the
+    /// retry backoff.
     init(
         variant: ParakeetVariant, modelsRoot: URL, gate: ANEInferenceGate,
-        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks
+        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks, network: DownloadNetworkPolicy
     ) {
         self.variant = variant
         self.modelsRoot = modelsRoot
         self.gate = gate
-        self.lifecycle = ModelAssetLifecycle(hooks: hooks)
+        self.lifecycle = ModelAssetLifecycle(hooks: hooks, network: network)
     }
 
     public nonisolated var descriptor: EngineDescriptor {
@@ -92,11 +94,20 @@ public actor ParakeetEngine: SpeechEngine {
     static func liveHooks(variant: ParakeetVariant, modelsRoot: URL) -> ModelAssetLifecycle<ParakeetRuntime>.Hooks {
         let directory = FluidAudioModelLocations.parakeetDirectory(in: modelsRoot, variant: variant)
         let version = FluidAudioModelLocations.asrVersion(for: variant)
+        let repo = FluidAudioModelLocations.asrRepo(for: variant)
+        let downloadVariant = FluidAudioModelLocations.downloadVariant(for: variant)
         return ModelAssetLifecycle<ParakeetRuntime>.Hooks(
+            engineID: engineID,
             displayName: descriptor(for: variant).displayName,
             modelsPresent: { FluidAudioModelLocations.parakeetModelsExist(in: modelsRoot, variant: variant) },
             bytesOnDisk: { FluidAudioModelLocations.byteSize(of: directory) },
             download: { handler in
+                if FluidAudioModelLocations.parakeetNeedsRepair(in: modelsRoot, variant: variant) {
+                    // A partial cache that `AsrModels.download` would skip: fetch the missing files and resume the
+                    // `.partial` ones (nothing is deleted), then let it finish as usual.
+                    try await ModelHub.download(
+                        repo, to: modelsRoot, variant: downloadVariant, progressHandler: handler)
+                }
                 _ = try await AsrModels.download(to: directory, version: version, progressHandler: handler)
                 try FluidAudioModelLocations.excludeFromBackup(directory)
             },
@@ -107,7 +118,9 @@ public actor ParakeetEngine: SpeechEngine {
 
     /// Loads from this exact directory and never downloads. `AsrModels.load` is not used because its
     /// `ModelHub.loadModels` fetches missing files and purges and re-downloads after a failed load. `loadLocal`
-    /// compiles synchronously, so it runs here on the generic executor, off every actor.
+    /// compiles synchronously, so it runs here on the generic executor, off every actor (`@concurrent`, so that
+    /// holds under any default for nonisolated async functions).
+    @concurrent
     static func loadRuntime(directory: URL, version: AsrModelVersion) async throws -> ParakeetRuntime {
         let models = try AsrModels.loadLocal(
             from: directory, version: version, encoderComputeUnits: ParakeetASRConfig.encoderComputeUnits())
@@ -125,7 +138,8 @@ public actor ParakeetEngine: SpeechEngine {
         await lifecycle.status()
     }
 
-    /// Downloads (or validates) the model via `AsrModels.download`, then excludes its folder from backups.
+    /// Downloads (or validates) the model via `AsrModels.download`, first repairing a partial cache it would skip,
+    /// then excludes its folder from backups.
     /// A second call while one is running joins it and sees only 0 and 1 as progress.
     public func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {
         try await lifecycle.download(progress: progress)
@@ -165,7 +179,9 @@ public actor ParakeetEngine: SpeechEngine {
             await lifecycle.release(lease)
             return result
         } catch {
-            checkIn(worker, for: lease)
+            // The worker is dropped, not checked in: a manager that threw (or was cancelled) part-way through may
+            // hold half-finished decoder or progress-stream state. The next job makes a fresh one on the same
+            // models. No `cleanup()`: it also clears FluidAudio's process-wide MLArray cache other jobs use.
             await lifecycle.release(lease)
             throw SpeechEngineError.mapping(error)
         }
@@ -220,7 +236,7 @@ public actor ParakeetEngine: SpeechEngine {
         return idleWorkers.popLast() ?? lease.runtime.makeWorker()
     }
 
-    /// Returns a worker to the pool unless its model generation has been deleted since.
+    /// Returns a worker that finished cleanly to the pool, unless its model generation has been deleted since.
     private func checkIn(_ worker: any ParakeetWorker, for lease: ModelLease<ParakeetRuntime>) {
         guard lease.generation == idleWorkersGeneration else { return }
         idleWorkers.append(worker)
@@ -230,6 +246,8 @@ public actor ParakeetEngine: SpeechEngine {
 
     /// FluidAudio only emits chunk progress for audio longer than one model window, and only finishes the
     /// session it opened for such audio, so the worker's stream is opened (before inference starts) only then.
+    /// `@concurrent`: opening the file to measure it stays off the engine actor.
+    @concurrent
     private static func forwardChunkProgress(
         of worker: any ParakeetWorker,
         for url: URL,

@@ -2,6 +2,27 @@ import AVFoundation
 import ChirpCore
 import XCTest
 
+@testable import ChirpEngineFluidAudio
+
+extension DownloadNetworkPolicy {
+    /// The live backoff schedule, but nothing waits and the network path is whatever the test says. `sleeps` records
+    /// each requested pause; `sleep` (optional) runs after recording, for tests that hold a retry in its backoff.
+    static func testing(
+        path: NetworkPathStatus = .usable,
+        sleeps: LockedLog<Duration>? = nil,
+        sleep: (@Sendable (Duration) async throws -> Void)? = nil
+    ) -> DownloadNetworkPolicy {
+        DownloadNetworkPolicy(
+            retryDelays: DownloadNetworkPolicy.live.retryDelays,
+            sleep: { delay in
+                sleeps?.append(delay)
+                try await sleep?(delay)
+            },
+            checkPath: { path }
+        )
+    }
+}
+
 /// A thread-safe append-only log, for recording events from `@Sendable` hooks and progress callbacks.
 final class LockedLog<Element: Sendable>: @unchecked Sendable {
     // @unchecked Sendable: `storage` is only touched while `lock` is held.

@@ -86,6 +86,112 @@ final class ModelDownloadTrackerTests: XCTestCase {
     func testCancelledDownloadIsStillCancellationNotAFailure() {
         XCTAssertEqual(SpeechEngineError.mapping(URLError(.cancelled)), .cancelled)
         XCTAssertNil(SpeechEngineError.failureMessage(for: URLError(.cancelled)))
+        XCTAssertNil(SpeechEngineError.downloadFailureMessage(for: CancellationError(), phase: "listing", attempts: 1))
+    }
+
+    // MARK: - Offline and failure details
+
+    func testTheOfflineMessageGivesTheSameAdviceAsTheConnectivityMessage() throws {
+        XCTAssertTrue(SpeechEngineError.noInternetMessage.hasPrefix("No internet connection."))
+        let connectivity = try XCTUnwrap(SpeechEngineError.failureMessage(for: URLError(.timedOut)))
+        XCTAssertTrue(connectivity.hasSuffix(SpeechEngineError.connectivityAdvice), connectivity)
+        XCTAssertTrue(SpeechEngineError.noInternetMessage.hasSuffix(SpeechEngineError.connectivityAdvice))
+        XCTAssertEqual(
+            SpeechEngineError.mapping(NoNetworkPath(reason: "x")), .underlying(SpeechEngineError.noInternetMessage))
+    }
+
+    func testURLErrorDetailsFollowTheSentence() throws {
+        let url = try XCTUnwrap(URL(string: "https://huggingface.co/api/models/FluidInference/x/tree/main"))
+        let error = URLError(.timedOut, userInfo: [NSURLErrorFailingURLErrorKey: url])
+        let sentence = try XCTUnwrap(SpeechEngineError.failureMessage(for: error))
+
+        XCTAssertEqual(
+            SpeechEngineError.downloadFailureMessage(for: error, phase: "listing", attempts: 4),
+            sentence + " Details: URLError -1001, host huggingface.co, phase listing, 4 attempts.")
+        XCTAssertEqual(
+            SpeechEngineError.downloadFailureMessage(for: URLError(.badServerResponse), phase: nil, attempts: 1),
+            URLError(.badServerResponse).localizedDescription + " Details: URLError -1011, 1 attempt.")
+    }
+
+    func testAWrappedURLErrorGivesItsCodeAndHost() throws {
+        let url = try XCTUnwrap(URL(string: "https://cdn-lfs.hf.co/repos/x"))
+        let lost = URLError(.networkConnectionLost, userInfo: [NSURLErrorFailingURLErrorKey: url])
+        let wrapped = NSError(domain: "FluidAudio.Test", code: 7, userInfo: [NSUnderlyingErrorKey: lost])
+        let message = try XCTUnwrap(
+            SpeechEngineError.downloadFailureMessage(for: wrapped, phase: "downloading 3/12 files", attempts: 2))
+        let details = " Details: URLError -1005, host cdn-lfs.hf.co, phase downloading 3/12 files, 2 attempts."
+        XCTAssertTrue(message.hasSuffix(details), message)
+    }
+
+    func testFluidAudioErrorDetailsNameTheCase() throws {
+        let cases: [(any Error, String)] = [
+            (DownloadError.stalled(path: "Encoder.mlmodelc/weights/weight.bin", window: 120), "DownloadError.stalled"),
+            (DownloadError.rateLimited(statusCode: 429, message: "slow down"), "DownloadError.rateLimited (HTTP 429)"),
+            (
+                DownloadError.downloadFailed(path: "vocab.json", underlying: NSError(domain: "HTTP", code: 404)),
+                "DownloadError.downloadFailed (HTTP 404)"
+            ),
+            (DownloadError.invalidResponse, "DownloadError.invalidResponse"),
+        ]
+        for (error, code) in cases {
+            let message = try XCTUnwrap(SpeechEngineError.downloadFailureMessage(for: error, phase: nil, attempts: 1))
+            XCTAssertTrue(message.hasSuffix(" Details: \(code), 1 attempt."), message)
+        }
+    }
+
+    func testOfflineDetailsSayNoRequestWasSent() throws {
+        let message = try XCTUnwrap(
+            SpeechEngineError.downloadFailureMessage(
+                for: NoNetworkPath(reason: "no Wi-Fi or cellular connection"), phase: nil, attempts: 0))
+        XCTAssertEqual(
+            message,
+            SpeechEngineError.noInternetMessage
+                + " Details: no network path (no Wi-Fi or cellular connection), no request sent.")
+    }
+
+    func testTheTrackerRecordsTheLastPhaseAndAttemptsUntilTheNextDownload() throws {
+        let tracker = ModelDownloadTracker()
+        tracker.begin()
+        let handler = tracker.progressHandler { _ in }
+        tracker.beginAttempt()
+        handler(progress(0, .listing))
+        tracker.beginAttempt()
+        handler(progress(0.2, .downloading(completedFiles: 3, totalFiles: 12)))
+
+        let message = try XCTUnwrap(tracker.failureMessage(for: URLError(.timedOut)))
+        XCTAssertTrue(message.hasSuffix(" Details: URLError -1001, phase downloading 3/12 files, 2 attempts."), message)
+
+        handler(progress(0.7, .compiling(modelName: "Encoder.mlmodelc")))
+        let compiling = try XCTUnwrap(tracker.failureMessage(for: URLError(.timedOut)))
+        XCTAssertTrue(compiling.contains("phase compiling Encoder.mlmodelc"), compiling)
+
+        tracker.begin()
+        let fresh = try XCTUnwrap(tracker.failureMessage(for: URLError(.timedOut)))
+        XCTAssertTrue(fresh.hasSuffix(" Details: URLError -1001, 0 attempts."), fresh)
+    }
+
+    func testTransientClassification() {
+        let transient: [any Error] = [
+            URLError(.timedOut), URLError(.networkConnectionLost), URLError(.notConnectedToInternet),
+            URLError(.cannotConnectToHost), URLError(.cannotFindHost), URLError(.dnsLookupFailed),
+            DownloadError.stalled(path: "a", window: 1), DownloadError.rateLimited(statusCode: 503, message: "busy"),
+            NSError(domain: "x", code: 1, userInfo: [NSUnderlyingErrorKey: URLError(.timedOut)]),
+        ]
+        for error in transient {
+            XCTAssertTrue(DownloadRetry.isTransient(error), "\(error)")
+        }
+        let permanent: [any Error] = [
+            URLError(.badServerResponse), URLError(.dataNotAllowed), URLError(.cancelled), CancellationError(),
+            DownloadError.invalidResponse, DownloadError.modelNotFound(path: "a"), CocoaError(.fileWriteOutOfSpace),
+            NoNetworkPath(reason: "x"),
+        ]
+        for error in permanent {
+            XCTAssertFalse(DownloadRetry.isTransient(error), "\(error)")
+        }
+        XCTAssertTrue(DownloadRetry.isCancellation(CancellationError()))
+        let wrappedCancel = NSError(domain: "x", code: 1, userInfo: [NSUnderlyingErrorKey: URLError(.cancelled)])
+        XCTAssertTrue(DownloadRetry.isCancellation(wrappedCancel))
+        XCTAssertFalse(DownloadRetry.isCancellation(URLError(.timedOut)))
     }
 }
 
