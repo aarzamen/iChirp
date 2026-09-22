@@ -252,4 +252,78 @@ final class TranscriptExporterTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "My Interview.txt")
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Hello world")
     }
+
+    /// Regression: `write()` used to run the already-extension-stripped `displayTitle` back through
+    /// `TranscriptSegmenter.sanitizedExportStem(from:)`, which calls `.deletingPathExtension` a second
+    /// time — a title that merely looks like it ends in a file extension (e.g. a version number) lost
+    /// its trailing segment: "Client Q&A v2.1" became "Client Q&A v2".
+    func testWritePreservesDottedTitleWithoutStrippingExtensionLikeSuffix() throws {
+        var transcription = Transcription(fileName: "recording.mp3")
+        transcription.status = .completed
+        transcription.titleOverride = "Client Q&A v2.1"
+        transcription.rawTranscript = "Hello world"
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chirp-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = try TranscriptExporter(cleanupMode: .raw).write(transcription, as: .txt, to: directory)
+
+        XCTAssertEqual(url.lastPathComponent, "Client Q&A v2.1.txt")
+    }
+
+    func testWriteSanitizesDisallowedCharactersInTitle() throws {
+        var transcription = Transcription(fileName: "recording.mp3")
+        transcription.status = .completed
+        transcription.titleOverride = "Notes/Ideas"
+        transcription.rawTranscript = "Hello world"
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chirp-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = try TranscriptExporter(cleanupMode: .raw).write(transcription, as: .txt, to: directory)
+
+        XCTAssertEqual(url.lastPathComponent, "Notes Ideas.txt")
+    }
+
+    // MARK: - preferredText (Raw/Clean fallback rule)
+
+    /// Pins the Raw/Clean fallback rule from `preferredText`'s doc comment: with both transcripts
+    /// present and no words, `.raw` always exports the raw transcript, never the clean one.
+    func testRawModeExportsRawTranscriptWhenBothTranscriptsPresent() throws {
+        var transcription = Transcription(fileName: "note.mp3")
+        transcription.status = .completed
+        transcription.rawTranscript = "raw text"
+        transcription.cleanTranscript = "clean text"
+
+        let txt = try TranscriptExporter(cleanupMode: .raw).render(transcription, as: .txt)
+        XCTAssertEqual(txt, "raw text")
+    }
+
+    /// Pins the Raw/Clean fallback rule: with both transcripts present and no words, `.clean` always
+    /// exports the clean transcript, never the raw one.
+    func testCleanModeExportsCleanTranscriptWhenBothTranscriptsPresent() throws {
+        var transcription = Transcription(fileName: "note.mp3")
+        transcription.status = .completed
+        transcription.rawTranscript = "raw text"
+        transcription.cleanTranscript = "clean text"
+
+        let txt = try TranscriptExporter(cleanupMode: .clean).render(transcription, as: .txt)
+        XCTAssertEqual(txt, "clean text")
+    }
+
+    /// Pins the Raw/Clean fallback rule: `.clean` with an empty `cleanTranscript` falls back to the
+    /// raw transcript rather than exporting an empty string.
+    func testCleanModeFallsBackToRawWhenCleanTranscriptIsEmpty() throws {
+        var transcription = Transcription(fileName: "note.mp3")
+        transcription.status = .completed
+        transcription.rawTranscript = "raw text"
+        transcription.cleanTranscript = ""
+
+        let txt = try TranscriptExporter(cleanupMode: .clean).render(transcription, as: .txt)
+        XCTAssertEqual(txt, "raw text")
+    }
 }

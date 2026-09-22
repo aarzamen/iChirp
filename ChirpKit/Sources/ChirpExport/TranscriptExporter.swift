@@ -71,16 +71,46 @@ public struct TranscriptExporter: Sendable {
     /// URL.
     public func write(_ transcription: Transcription, as format: ExportFormat, to directory: URL) throws -> URL {
         let content = try render(transcription, as: format)
-        let stem = TranscriptSegmenter.sanitizedExportStem(from: transcription.displayTitle)
+        let stem = Self.sanitizedExportStem(fromTitle: transcription.displayTitle)
         let url = directory.appendingPathComponent("\(stem).\(format.fileExtension)")
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
+    /// Sanitizes a display title for use as an export file stem: replaces disallowed characters
+    /// (`/:\␀`) with spaces and trims, falling back to `"transcript"` when the result is empty.
+    ///
+    /// This is deliberately **not** `TranscriptSegmenter.sanitizedExportStem(from:)` (ChirpText):
+    /// that helper expects a real file name and calls `.deletingPathExtension` to strip a trailing
+    /// extension before sanitizing. `Transcription.displayTitle` is already extension-stripped (or
+    /// has no file extension at all — it may be a user-entered title), so running it through
+    /// `.deletingPathExtension` again corrupts any title that merely *looks* like it ends in an
+    /// extension: `"Client Q&A v2.1"` would lose its `.1` and become `"Client Q&A v2"`. This helper
+    /// only replaces disallowed characters — it never touches a trailing `.something`.
+    private static func sanitizedExportStem(fromTitle title: String) -> String {
+        let disallowed = CharacterSet(charactersIn: "/:\\\0")
+        let parts = title.components(separatedBy: disallowed)
+        let normalized = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? "transcript" : normalized
+    }
+
     // MARK: - Text used when there is nothing timed to build from
 
     /// The whole-transcript text used by TXT/Markdown when there are no word timestamps to build
-    /// paragraphs from, and by JSON's `text` field.
+    /// paragraphs from, and by JSON's `text` field. When `wordTimestamps` is non-empty, TXT/Markdown
+    /// build their paragraphs from the words instead — this text is not consulted in that case, and
+    /// `cleanupMode` has no effect on the word-derived path (words are the engine's literal output
+    /// regardless of cleanup mode).
+    ///
+    /// The fallback rule matches the app's Raw/Clean product default (Raw shows the engine's literal
+    /// output; Clean shows the deterministically cleaned copy) rather than always preferring whichever
+    /// transcript happens to be non-empty:
+    /// - `.raw`: `rawTranscript`, falling back to `cleanTranscript` only if raw is absent (a
+    ///   transcription should always have a raw transcript once completed; the clean fallback covers
+    ///   an unexpected gap rather than ever being the intended path).
+    /// - `.clean`: `transcription.displayText` — the non-empty `cleanTranscript` if there is one, else
+    ///   `rawTranscript`. So `.clean` on a transcription whose `cleanTranscript` is nil or blank still
+    ///   exports the raw text, it does not produce an empty export.
     private func preferredText(_ transcription: Transcription) -> String {
         switch cleanupMode {
         case .raw:
