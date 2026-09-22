@@ -7,6 +7,7 @@ enum AppTab: Hashable {
 }
 
 struct RootTabView: View {
+    @Environment(AppEnvironment.self) private var environment
     @State private var selection: AppTab = .capture
 
     var body: some View {
@@ -34,6 +35,11 @@ struct RootTabView: View {
         }
         .tint(AppColor.accentText)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .onOpenURL { url in
+            // Share sheet → Parakeet (or Files → Open in): show Capture, where the new Recent row appears.
+            selection = .capture
+            environment.openIncoming(url)
+        }
     }
 
     /// The canvas draws outline glyphs; the tab bar would otherwise switch to the filled variants.

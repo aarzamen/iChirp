@@ -19,6 +19,11 @@ import Observation
     @ObservationIgnored private var finished: Set<UUID> = []
     @ObservationIgnored private let logger = Log.logger("jobs")
 
+    /// Called on the main actor once per file whose import attempt has settled: imported (the row exists), failed
+    /// before a row existed, or never started. The app uses it to delete iOS's temporary `Documents/Inbox` copy
+    /// (`IncomingFileInbox.removeIfInside`). Never called for a retry, which has no incoming file.
+    @ObservationIgnored public var onImportSettled: (@MainActor (URL) -> Void)?
+
     public init() {}
 
     /// Pass to `FileTranscriptionPipeline(onProgress:)`. Callable from any isolation; updates arrive on the main actor.
@@ -52,6 +57,18 @@ import Observation
 
     /// Starts import+process as one tracked Task; keeps the Task so it can be cancelled.
     public func start(fileAt url: URL, pipeline: FileTranscriptionPipeline) {
+        start(filesAt: [url], pipeline: pipeline)
+    }
+
+    /// Starts one tracked job per file, in order, for files the user handed over in one action (a multi-select
+    /// pick, or a file shared from another app). Each file is its own row and its own job.
+    public func start(filesAt urls: [URL], pipeline: FileTranscriptionPipeline) {
+        for url in urls {
+            startJob(fileAt: url, pipeline: pipeline)
+        }
+    }
+
+    private func startJob(fileAt url: URL, pipeline: FileTranscriptionPipeline) {
         let token = UUID()
         tasks[token] = Task { @MainActor [weak self] in
             let id: UUID
@@ -63,9 +80,11 @@ import Observation
                 )
                 self?.lastImportError = Self.readable(error)
                 self?.tasks[token] = nil
+                self?.onImportSettled?(url)
                 return
             }
             self?.track(id, token: token)
+            self?.onImportSettled?(url)
             await pipeline.process(id: id)
             self?.finish(id)
         }

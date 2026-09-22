@@ -1,6 +1,7 @@
 # 11 - Ingest
 
-> Status: PROPOSAL — how things get into Parakeet beyond M1's file picker. M1.5 and M5 executor plans refine this.
+> Status: PROPOSAL, except "Share sheet (M1.5)" → "Built", which is ACTIVE — how things get into Parakeet beyond M1's
+> file picker. M1.5 and M5 executor plans refine this.
 > Source research: [`docs/research/2026-09-22-ios-platform-constraints.md`](../docs/research/2026-09-22-ios-platform-constraints.md)
 > sections 6 and 7.
 
@@ -9,7 +10,7 @@
 | Input | Milestone | `sourceType` | Path into the pipeline |
 |---|---|---|---|
 | Audio/video file from Files | M1 | `file` | File picker → copy into `media/<id>/` → normalize → transcribe |
-| Share sheet (Voice Memos, Files, other apps) | M1.5 | `file` | Share extension writes to the App Group inbox → the app imports it → same pipeline |
+| Share sheet (Voice Memos, Files, other apps) | M1.5 | `file` | "Open in Parakeet": iOS copies the file into `Documents/Inbox/` and opens the app → `.onOpenURL` → the same import → same pipeline. (A share extension with an App Group inbox is gated, below.) |
 | Voice Memos | M1.5 | `file` | Through the Share sheet (no public Voice Memos API) |
 | Apple Podcasts episode link | M5 | `podcast` | iTunes lookup → episode audio URL → download → pipeline |
 | Direct media URL (`.mp3`, `.m4a`, `.mp4`, …) | M5 | `url` | Download to a file → pipeline |
@@ -30,12 +31,28 @@ M4 template (summary, meeting notes, SOAP note, …). It has no player and no SR
 
 ## Share sheet (M1.5)
 
+**Built (M1.5 Step 1): "Open in Parakeet", no extension, no account change.**
+
+- `project.yml` declares `CFBundleDocumentTypes` for `public.audio` and `public.movie` (role Viewer, handler rank
+  Alternate), so Parakeet appears in the Share sheet's app row for Voice Memos, Files and any app sharing audio or
+  video. `LSSupportsOpeningDocumentsInPlace` stays false, so iOS always hands over a copy.
+- iOS copies the file into the app's `Documents/Inbox/` and opens the app with its URL. `RootTabView.onOpenURL`
+  switches to Capture and calls `AppEnvironment.openIncoming(_:)`, which imports it exactly like a picked file
+  (after launch housekeeping; the same `TranscriptionJobCenter.start(filesAt:pipeline:)`).
+- The Inbox copy is temporary and not user data: `TranscriptionJobCenter.onImportSettled` deletes it
+  (`IncomingFileInbox.removeIfInside`) once its import settled or the track picker was dismissed. Nothing outside
+  `Documents/Inbox/` is ever deleted. The imported `media/<id>/source.<ext>` is the user's copy.
+- Not covered by "Open in": sharing a web URL (links arrive in M5), and importing without opening the app. Those are
+  the gaps the extension below would close.
+
+**Gated (plan 010 Step 5): a share extension with an App Group inbox.** Needs an explicit App ID with the App Groups
+capability, an account change the owner must approve.
+
 - One share extension (counts as one App ID). It receives audio, video and URLs through `NSItemProvider`, writes
   the file plus a small JSON manifest into the App Group container, and signals the app (salvage candidate:
   `ShareExtensionHandler.swift` and `DarwinNotificationBroadcaster.swift` in `legacy/gemini-ios/`).
 - The extension loads **no models** (share extensions have roughly 120 MB of memory).
-- App Group and background-task identifiers are derived at run time from the bundle id, because SideStore rewrites
-  them with a `.TEAMID` suffix.
+- App Group and background-task identifiers are derived at run time from the bundle id, never hard-coded.
 
 ## Podcasts and direct media (M5)
 

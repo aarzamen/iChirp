@@ -42,6 +42,9 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   temporary: nothing may depend on it, and cleanup may delete it at any time. The source file stays until the user
   deletes the transcript.
 - Deleting a transcript deletes exactly its `media/<UUID>/` folder and its row, nothing else.
+- `Documents/Inbox/` (outside the root) is where iOS copies a file another app opens in Parakeet (M1.5 "Open in").
+  That copy is temporary, never referenced by a row, and deleted once its import settles
+  (`IncomingFileInbox.removeIfInside`, which touches nothing outside that folder).
 
 ## Non-stable fields
 
@@ -61,6 +64,7 @@ recoverable step.
 - `FileTranscriptionPipelineTests.testProcessProducesCompletedTranscriptWithSpeakersAndSegments` (normalized WAV
   deleted, source kept), `testSweepDeletesOnlyOrphanedNormalizedAudio` (orphaned WAVs only).
 - `LibraryViewModelTests.testDeleteRemovesRowAndItsMediaFolder` (exactly the item's folder).
+- `IncomingFileInboxTests` (only files inside `Documents/Inbox/` are deleted; the imported copy stays).
 
 ## When this changes
 

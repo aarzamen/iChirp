@@ -24,10 +24,15 @@ pipeline's `Task`s and publishes its progress to the UI.
   - `retry(id:)` moves a `.failed` / `.cancelled` / `.interrupted` row back to `.processing` and runs `process`
     again from the stored source.
   - `sweepOrphanedTemporaryAudio()` deletes `normalized-16k.wav` files left by a killed process (call at launch).
-- `TranscriptionJobCenter.swift`: the running jobs. `start(fileAt:pipeline:)` does import and process in one tracked
-  `Task`, and `retry` and `cancel` act by transcription id. `progress[id]` feeds "Transcribing · NN%", and
-  `lastImportError` is set when a file could not even be imported (`dismissImportError()` clears it).
-  `progressHandler` is the pipeline's `onProgress`.
+- `TranscriptionJobCenter.swift`: the running jobs. `start(filesAt:pipeline:)` (and the one-file
+  `start(fileAt:pipeline:)`) does import and process per file in one tracked `Task` each, and `retry` and `cancel`
+  act by transcription id. `progress[id]` feeds "Transcribing · NN%", and `lastImportError` is set when a file could
+  not even be imported (`dismissImportError()` clears it). `progressHandler` is the pipeline's `onProgress`.
+  `onImportSettled` is called once per incoming file after its import attempt ends (imported or not); the app uses
+  it to delete iOS's temporary Inbox copy.
+- `IncomingFileInbox.swift`: the app's `Documents/Inbox/`, where iOS copies a file another app hands to Parakeet
+  (Share sheet → Parakeet, Files → Open in; M1.5). `contains(_:)` and `removeIfInside(_:)` only ever touch files
+  strictly inside that folder, never a file the user picked with the document picker.
 - `LibraryViewModel.swift`: all rows from `observeAll()`, filter chips, search, "Today" / "Yesterday" / "MMM d"
   sections, delete (row plus its `media/<id>/` folder and any `ExportTempFiles` export folder for it), favorite, and
   `loadError` / `dismissLoadError()`.
@@ -50,7 +55,8 @@ let pipeline = FileTranscriptionPipeline(
     scheduler: scheduler, settings: settings, onProgress: jobs.progressHandler)
 _ = try await store.markStaleProcessingAsInterrupted()     // at launch, then:
 await pipeline.sweepOrphanedTemporaryAudio()
-jobs.start(fileAt: pickedURL, pipeline: pipeline)          // per imported file
+jobs.onImportSettled = { url in inbox?.removeIfInside(url) } // inbox = IncomingFileInbox.appDefault()
+jobs.start(filesAt: pickedOrSharedURLs, pipeline: pipeline) // per user action
 LibraryViewModel(store: store, paths: paths)               // paths: delete removes media/<id>/ too
 ```
 

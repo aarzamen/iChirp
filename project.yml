@@ -30,6 +30,17 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         LSSupportsOpeningDocumentsInPlace: false
+        # M1.5 Step 1: Parakeet appears in the Share sheet's app row for audio and video (Voice Memos, Files).
+        # iOS copies the file into Documents/Inbox and calls .onOpenURL (RootTabView). No extension, no entitlement.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Audio
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.audio]
+          - CFBundleTypeName: Video
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.movie]
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"

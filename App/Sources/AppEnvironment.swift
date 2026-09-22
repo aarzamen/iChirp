@@ -23,6 +23,8 @@ import Observation
     let library: LibraryViewModel
     let capture: CaptureViewModel
     let speechSettings: SpeechSettingsViewModel
+    /// Where iOS copies files other apps hand to Parakeet (nil only if the Documents folder cannot be found).
+    let inbox: IncomingFileInbox?
     /// The Parakeet version the speech engine was built with.
     let runningVariant: ParakeetVariant
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
@@ -67,6 +69,10 @@ import Observation
         self.capture = CaptureViewModel(store: store)
         self.speechSettings = SpeechSettingsViewModel(
             speech: engines.speech, diarizer: engines.diarizer, settings: settings)
+        let inbox = IncomingFileInbox.appDefault()
+        self.inbox = inbox
+        // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
+        jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }
 
     /// Builds the environment in Application Support, or describes why it could not.
@@ -121,10 +127,20 @@ import Observation
     func importFiles(_ urls: [URL]) {
         Task {
             await launch()
-            for url in urls {
-                jobCenter.start(fileAt: url, pipeline: pipeline)
-            }
+            jobCenter.start(filesAt: urls, pipeline: pipeline)
         }
+    }
+
+    /// A file another app handed to Parakeet (Share sheet → Parakeet, Files → Open in). iOS has already copied it into
+    /// `Documents/Inbox/`; it is imported like a picked file and that copy is deleted once the import settles.
+    /// Parakeet declares no URL scheme, so anything but a file URL is ignored.
+    func openIncoming(_ url: URL) {
+        guard url.isFileURL else {
+            logger.notice("open_url_ignored reason=not_a_file")
+            return
+        }
+        logger.notice("open_url_file inbox=\(self.inbox?.contains(url) ?? false, privacy: .public)")
+        importFiles([url])
     }
 
     /// Re-runs a failed, cancelled or interrupted row.
