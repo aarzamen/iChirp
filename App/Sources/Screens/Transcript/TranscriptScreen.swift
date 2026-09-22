@@ -5,6 +5,7 @@ import ChirpText
 import ChirpUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// One transcript (canvas `Transcript.dc.html`): header with star and rename, Transcript / Notes / Ask tabs,
 /// player bar, speaker paragraphs with tappable timestamps, and Copy / Share / Transform.
@@ -385,7 +386,12 @@ struct TranscriptScreen: View {
     }
 
     private func copyText() {
-        UIPasteboard.general.string = model.plainText
+        // .localOnly keeps transcript text off Universal Clipboard, which would otherwise sync it to the owner's
+        // other Apple devices (Minor 5, final-review).
+        UIPasteboard.general.setItems(
+            [[UTType.plainText.identifier: model.plainText]],
+            options: [.localOnly: true]
+        )
         copied = true
         Task {
             try? await Task.sleep(for: .seconds(1.5))
