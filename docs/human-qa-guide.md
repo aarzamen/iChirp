@@ -1,6 +1,6 @@
 # Human QA Guide
 
-> Status: ACTIVE — how the owner checks a change on his iPhone before trusting it. Adapted from upstream
+> Status: ACTIVE — how the owner checks a change on their iPhone before trusting it. Adapted from upstream
 > MacParakeet's `docs/human-qa-guide.md`.
 
 ## What QA means here

@@ -26,8 +26,8 @@
 ## Why this matters
 
 The end goal is not transcripts; it is documents: meeting notes, agendas, SOAP notes, polished text. This milestone
-turns any transcript into those deliverables with the owner's choice of model (on device, his Mac over the LAN, or a
-cloud provider) while guaranteeing that clinical text never leaves the phone without his explicit per-run consent.
+turns any transcript into those deliverables with the owner's choice of model (on device, the owner's Mac over the LAN, or a
+cloud provider) while guaranteeing that clinical text never leaves the phone without their explicit per-run consent.
 
 ## Current state (expected after M1)
 

@@ -5,7 +5,7 @@
 
 ## 1. Project shape
 
-The owner's end goal, in his words:
+The owner's end goal, in their words:
 
 > "An iOS, highly polished, competent, accurate, flexible, and easy-to-use application that's used for
 > transcription of voice files, meetings, YouTube links, device files, text files, and PDFs into all manner of

@@ -95,4 +95,4 @@ A screen recording (.mov with the video track first) failed with noAudioTrack on
 ## Why this matters
 
 The git log outlives chats, plans and memory files. A seed prompt makes a change reconstructable; author's notes
-save the next debugger hours; a stated verification tells the owner exactly what he can trust.
+save the next debugger hours; a stated verification tells the owner exactly what they can trust.

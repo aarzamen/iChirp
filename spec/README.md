@@ -117,7 +117,7 @@ Each later milestone has an executor-ready plan; the [plans board](../docs/plans
 | M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | NOT STARTED | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
 | M8 | Polish: PDF/DOCX export, keyboard extension, Transforms share extension, widgets, accessibility, iPad, localization | NOT STARTED | [017](../docs/plans/2026-09-22-017-m8-polish.md) |
 
-Status words match the plans board. When a milestone lands, update this row and the board in the same commit, with
+Status words match the plans board. When a milestone lands, update this row, the board and the root `README.md` status table in the same commit, with
 the commit SHA and what was verified (package suite, simulator, device smoke).
 
 ## For coding agents

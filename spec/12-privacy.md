@@ -63,7 +63,7 @@ contract that proves no content or identifiers leave the device.
   synthetic (`say`).
 - **Logs never contain transcript text, prompts, generated documents, or user file names.** Log ids, stages,
   durations, sizes and error types.
-- Debugging with real audio happens on the owner's phone with his data; nothing from it is copied into the repo,
+- Debugging with real audio happens on the owner's phone with their own data; nothing from it is copied into the repo,
   issues, or chat transcripts.
 - Exports and shares are user actions; the app never shares automatically.
 - Clinical output from language or structure models is a draft; numbers (doses, dates, durations) are re-validated

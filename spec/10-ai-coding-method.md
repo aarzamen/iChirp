@@ -106,7 +106,7 @@ Agents choose the simplest path that preserves correctness and quality. Good dis
 - Keeping plans and docs proportional to the work.
 - Calling out out-of-scope behavior explicitly.
 - Preserving worktree changes you did not make.
-- Stopping to ask the owner for anything that touches his Apple Developer account, his phone's state, or PHI.
+- Stopping to ask the owner for anything that touches their Apple Developer account, their phone's state, or PHI.
 
 ## Anti-patterns
 

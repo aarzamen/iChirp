@@ -11,11 +11,11 @@
 
 - The owner has a **paid** Apple Developer Program membership, team **`XM6E4PUXTU`** (verified 2026-09-22; older
   notes saying "SideStore, no Apple Developer Program" are wrong, and `434HG698U6` is a certificate user ID, not a
-  team). A wildcard team provisioning profile already covers `com.aarzamen.ichirp` on his registered devices.
+  team). A wildcard team provisioning profile already covers `com.aarzamen.ichirp` on the owner's registered devices.
 - No Apple Distribution or Developer ID certificate exists, so there is no TestFlight or App Store path today, and
   GPL-3.0 would need the upstream copyright holder's permission for the App Store anyway.
 - The owner runs several phones with several builds; "which build is on this phone?" must be answerable at a glance
-  (his standing rule for every app).
+  (the owner's standing rule for every app).
 - The approved design (§4) proposed letting `run_device.sh` update provisioning automatically. The owner's signing
   guard (`APPLE_DEVELOPER_WARNING.md`, rule 2) forbids that without explicit consent. This ADR records the stricter
   rule as the decision and supersedes that line of the design.

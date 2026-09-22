@@ -7,7 +7,7 @@
 
 ## Context
 
-The owner is a physician. Some of what he records is clinical: encounters, handoffs, SOAP notes. That is PHI
+The owner is a physician. Some of what they record is clinical: encounters, handoffs, SOAP notes. That is PHI
 (protected health information) and must not reach a third-party server by accident. At the same time, the end goal
 asks for plug-and-play engines, including cloud language models and cloud decision models (Jev), which are useful
 for non-clinical work.

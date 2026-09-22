@@ -13,7 +13,7 @@ In the owner's words:
 > flexibility, being able to plug and play various different speech-to-text engines, large language models, and
 > small language models"
 
-He also named miscellaneous models: Needle (a tiny on-device model for structured extraction, tool calls and
+They also named miscellaneous models: Needle (a tiny on-device model for structured extraction, tool calls and
 embeddings), Jev (a cloud "decision" model), Laya (an open alternative to Jev) and Cactus (an on-device inference
 runtime). iChirp calls these **structure models**.
 
