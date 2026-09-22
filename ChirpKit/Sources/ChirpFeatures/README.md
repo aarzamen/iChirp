@@ -40,6 +40,10 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
 - `SettingsStore.swift`: `SettingsStoring` and `UserDefaultsSettingsStore`, a JSON blob under
   `ichirp.transcriptionSettings` that falls back to the defaults when missing or unreadable.
+- `LanguageModelProviderStore.swift`: `LanguageModelProviderStoring` and `UserDefaultsLanguageModelProviderStore`
+  (Settings → Models): provider metadata as a JSON blob under `ichirp.languageModelProviders`, each API key in the
+  injected `SecretStoring` (the Keychain) under the provider's `secretAccount`, never in `UserDefaults`. The key is
+  written before the metadata; `routingPolicy()` trusts exactly the LAN hosts the user marked trusted.
 
 ## Wiring (app composition root)
 
