@@ -26,6 +26,7 @@ public struct SeedOfLifeCover: View {
                     .rotationEffect(.degrees(rotationDegrees))
             }
         }
+        .accessibilityHidden(true)  // Decorative; the row it sits in carries its own label.
     }
 
     // MARK: Geometry

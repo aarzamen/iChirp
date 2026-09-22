@@ -37,16 +37,26 @@ public struct ParakeetMark: Shape {
 }
 
 /// A ready-to-drop-in coral Parakeet mark, filled with the evenodd rule the source path needs.
+///
+/// Decorative by default (hidden from VoiceOver), since most uses sit next to a "Parakeet"
+/// text label that already announces it. Where the mark stands alone as a logo, pass
+/// `accessibilityLabel` (e.g. `"Parakeet"`) so it's announced.
 public struct ParakeetMarkView: View {
     public var color: Color
+    public var accessibilityLabel: String?
 
-    public init(color: Color = Tokens.Color.accent) {
+    public init(color: Color = Tokens.Color.accent, accessibilityLabel: String? = nil) {
         self.color = color
+        self.accessibilityLabel = accessibilityLabel
     }
 
     public var body: some View {
-        ParakeetMark()
-            .fill(color, style: FillStyle(eoFill: true))
+        let mark = ParakeetMark().fill(color, style: FillStyle(eoFill: true))
+        if let accessibilityLabel {
+            mark.accessibilityLabel(accessibilityLabel)
+        } else {
+            mark.accessibilityHidden(true)
+        }
     }
 }
 
@@ -157,7 +167,13 @@ private enum SVGPathParser {
             case " ", ",", "\n", "\t":
                 flushNumber()
             default:
-                break
+                // A letter here is an SVG path command this parser doesn't implement (e.g. the
+                // S/Q/T/A shorthand-curve and arc commands) — fail loudly in debug builds
+                // instead of silently dropping it and producing a mangled shape. Any other
+                // stray character (unexpected whitespace variants, etc.) is ignored.
+                if char.isLetter {
+                    assertionFailure("SVGPathParser: unsupported command \"\(char)\" in \"\(data)\"")
+                }
             }
         }
         flushNumber()

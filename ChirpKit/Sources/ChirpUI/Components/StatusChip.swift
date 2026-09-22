@@ -34,10 +34,12 @@ public struct StatusChip: View {
             case .system(let name):
                 Image(systemName: name)
                     .font(.system(size: 11, weight: .semibold))
+                    .accessibilityHidden(true)  // Decorative; the label text says the same thing.
             case .dot(let color):
                 Circle()
                     .fill(color)
                     .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
             case .none:
                 EmptyView()
             }
@@ -51,6 +53,7 @@ public struct StatusChip: View {
         .background(fill)
         .clipShape(Capsule())
         .overlay(Capsule().stroke(border, lineWidth: 1))
+        .accessibilityElement(children: .combine)
     }
 }
 

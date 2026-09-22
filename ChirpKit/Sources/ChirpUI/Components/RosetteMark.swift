@@ -54,6 +54,7 @@ public struct RosetteMark: View {
             }
         }
         .aspectRatio(Self.viewBoxSize.width / Self.viewBoxSize.height, contentMode: .fit)
+        .accessibilityHidden(true)  // Decorative; the row/card it sits in carries its own label.
     }
 
     // MARK: Geometry (from the canvas's `viewBox="0 0 120 140"` SVG, verbatim coordinates)

@@ -30,6 +30,7 @@ public struct NotBuiltYetView: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Tokens.Color.accentInk)
             }
+            .accessibilityHidden(true)  // Decorative; the combined label below says it all.
 
             VStack(spacing: 8) {
                 Text(title)
@@ -57,6 +58,9 @@ public struct NotBuiltYetView: View {
         .padding(.vertical, 36)
         .frame(maxWidth: .infinity)
         .background(Tokens.Color.ground)
+        // One VoiceOver stop for the whole placeholder: title, milestone, then the summary.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(milestone), \(summary)")
     }
 }
 

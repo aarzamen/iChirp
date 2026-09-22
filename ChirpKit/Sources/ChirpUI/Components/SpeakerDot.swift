@@ -23,6 +23,7 @@ public struct SpeakerDot: View {
             Circle()
                 .fill(palette.dot)
                 .frame(width: 7, height: 7)
+                .accessibilityHidden(true)  // Decorative; the speaker's name/timestamp carry the info.
             Text(label)
                 .font(.system(size: 12.5, weight: .bold))
                 .foregroundStyle(palette.ink)
@@ -33,6 +34,10 @@ public struct SpeakerDot: View {
                     .foregroundStyle(Tokens.Color.secondary)
             }
         }
+        // One VoiceOver stop for the whole row, read as "<label>, <timestamp>" (e.g.
+        // "Senior Chief, 03:41") rather than three separate swipe stops.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(timestamp.map { "\(label), \($0)" } ?? label)
     }
 }
 
