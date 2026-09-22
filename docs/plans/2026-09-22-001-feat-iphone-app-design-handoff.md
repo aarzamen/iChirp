@@ -113,10 +113,10 @@ tiles) and fully rounded pills and circles. Type: SF Pro Rounded bold for titles
 - **States:** recording; paused/muted; interrupted (call); recovering after a crash (from `recording.lock`); stopping
   and finalizing (final pass + speakers, real progress); saved.
 - **Links:** Hide recording → Capture; Stop & save → Transcript.
-- **M1 status:** not built (**M3**).
+- **M1 status:** not built (**M3**). **M3 status:** built (plan 012); Ask during a meeting is M4.
 - **Copy corrections:**
-  - The **"Room" meter has no iOS source** (no system-audio capture). M3 decides: a second built-in-mic /
-    voice-isolation reading, or drop the meter.
+  - The **"Room" meter has no iOS source** (no system-audio capture). **M3 decision: dropped** — one built-in-mic
+    stream without voice processing, so a second meter would repeat the "Mic" level (plan 012 Step 7).
   - "Mic + room audio" → describe only the real source (e.g. "Microphone · saving locally").
   - Named speakers ("Senior Chief", "Ops", "You") need a rename flow; until then show "Speaker 1…n".
 
