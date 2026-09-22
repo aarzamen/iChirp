@@ -35,6 +35,8 @@ Each contract document includes:
 - [Speech Engine Plug-in v1](speech-engine-plugin-v1.md): the `ChirpCore` protocols every engine target implements.
 - [Transcript JSON v1](transcript-json-v1.md): the `ichirp.transcript/v1` JSON export.
 - [Media Storage Layout v1](media-storage-layout-v1.md): the on-disk layout under `Application Support/iChirp/`.
+- [Language Model Plug-in v1](language-model-plugin-v1.md): `LanguageModel`, provider configuration, secret
+  storage and the where-content-goes guarantees (M4).
 
 ## Candidate contracts (write them with their milestone)
 

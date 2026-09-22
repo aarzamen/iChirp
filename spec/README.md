@@ -99,6 +99,7 @@ section; never delete its history.
 | [ADR-008](adr/008-distribution-and-build-identity.md) | Paid-team developer installs, optional SideStore IPA, visible build identity |
 | [ADR-009](adr/009-deterministic-cleanup-raw-default.md) | Deterministic clean-up pipeline with Raw as the default |
 | [ADR-010](adr/010-plugin-license-gate.md) | License gate for plug-ins that conflict with GPL-3.0 |
+| [ADR-011](adr/011-language-model-providers-direct-ports.md) | Language models via direct ports (`ChirpEngineHTTPLLM`, `ChirpEngineAppleFM`), not AnyLanguageModel |
 
 ## Milestones
 
