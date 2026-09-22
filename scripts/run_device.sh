@@ -172,7 +172,7 @@ if [ "$MODE" = "dry-run" ]; then
   echo "  scripts/gen.sh"
   echo "  xcodebuild ${XCODEBUILD_ARGS[*]}"
   echo "  xcrun devicectl device install app --device $DEVICE_ID $APP_PATH"
-  echo "  xcrun devicectl device process launch --device $DEVICE_ID --terminate-existing $BUNDLE_ID $*"
+  echo "  xcrun devicectl device process launch --device $DEVICE_ID --terminate-existing $BUNDLE_ID${*:+ -- $*}"
   exit 0
 fi
 
@@ -212,12 +212,15 @@ then
   exit 1
 fi
 
-# 5. Launch, replacing any running instance. Extra script arguments go to the app
-#    (devicectl passes everything after the bundle id through, including "-Flag value" pairs).
+# 5. Launch, replacing any running instance. Extra script arguments go to the app after a "--" terminator:
+#    devicectl (Swift ArgumentParser) otherwise parses app flags like "-ChirpNetCheck" as its own bundled short
+#    options ("-t" needs a value) and refuses to launch.
 LAUNCH_LOG="$LOG_DIR/launch.log"
 echo "Launching $BUNDLE_ID $* ..."
+APP_ARGS=()
+if [ "$#" -gt 0 ]; then APP_ARGS=(-- "$@"); fi
 if ! xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing \
-  --json-output "$LOG_DIR/launch.json" "$BUNDLE_ID" "$@" 2>&1 | tee "$LAUNCH_LOG"; then
+  --json-output "$LOG_DIR/launch.json" "$BUNDLE_ID" ${APP_ARGS[@]+"${APP_ARGS[@]}"} 2>&1 | tee "$LAUNCH_LOG"; then
   fail_with_log "$LAUNCH_LOG" "devicectl launch"
 fi
 
