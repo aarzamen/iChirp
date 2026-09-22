@@ -71,6 +71,7 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
 | `ChirpText` | Ported text pipeline: word timing, speaker merge, segments, paragraphs, cues, clean-up, titles |
 | `ChirpStore` | GRDB database, migrations, `TranscriptionStoring` implementation |
 | `ChirpExport` | TXT, Markdown, SRT, VTT, JSON exporters |
+| `ChirpIngest` | M5: link classifier, podcast lookup, resumable media downloads, YouTube captions, document text (PDFKit, Vision OCR, RTF/HTML, DOCX). Apple frameworks only |
 | `ChirpEngineFluidAudio` | Parakeet speech engine and offline diarizer on FluidAudio, pinned **exact 0.16.1** |
 | `ChirpFeatures` | `@Observable` view models and the file-transcription pipeline; engines injected as protocols |
 | `ChirpUI` | Design tokens and shared SwiftUI components from the design canvas |

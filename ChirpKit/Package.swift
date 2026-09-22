@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "ChirpEngineAppleFM", targets: ["ChirpEngineAppleFM"]),
         .library(name: "ChirpEngineHTTPLLM", targets: ["ChirpEngineHTTPLLM"]),
         .library(name: "ChirpKeychain", targets: ["ChirpKeychain"]),
+        .library(name: "ChirpIngest", targets: ["ChirpIngest"]),
         .library(name: "ChirpFeatures", targets: ["ChirpFeatures"]),
         .library(name: "ChirpUI", targets: ["ChirpUI"]),
     ],
@@ -31,6 +32,8 @@ let package = Package(
         .target(name: "ChirpEngineAppleFM", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpEngineHTTPLLM", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpKeychain", dependencies: ["ChirpCore"], exclude: ["README.md"]),
+        // M5: links, podcasts, downloads, YouTube captions and document text. Apple frameworks only, no new dependency.
+        .target(name: "ChirpIngest", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpFeatures", dependencies: ["ChirpCore", "ChirpText", "ChirpExport"], exclude: ["README.md"]),
         .target(name: "ChirpUI", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .testTarget(name: "ChirpCoreTests", dependencies: ["ChirpCore"]),
@@ -42,6 +45,7 @@ let package = Package(
         .testTarget(name: "ChirpEngineAppleFMTests", dependencies: ["ChirpEngineAppleFM"]),
         .testTarget(name: "ChirpEngineHTTPLLMTests", dependencies: ["ChirpEngineHTTPLLM"]),
         .testTarget(name: "ChirpKeychainTests", dependencies: ["ChirpKeychain"]),
+        .testTarget(name: "ChirpIngestTests", dependencies: ["ChirpIngest"]),
         .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"]),
     ],
     swiftLanguageModes: [.v6]
