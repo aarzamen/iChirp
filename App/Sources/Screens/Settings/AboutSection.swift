@@ -3,8 +3,8 @@ import ChirpUI
 import SwiftUI
 import UIKit
 
-/// Settings → About: the build stamp (owner's rule: every revision is identifiable in the app) plus the memory the
-/// system still allows the app, a device diagnostic.
+/// Settings → About: the owner's pixel-parakeet artwork, the build stamp (owner's rule: every revision is
+/// identifiable in the app) and the memory the system still allows the app, a device diagnostic.
 struct AboutSection: View {
     @State private var copied = false
     @State private var availableMemory: String = "…"
@@ -13,6 +13,7 @@ struct AboutSection: View {
 
     var body: some View {
         SettingsGroup(title: "About") {
+            artwork
             aboutRow("Version", "\(build.version) (\(build.build))")
             aboutRow("Commit", build.commit, monospaced: true)
             aboutRow("Branch", build.branch, monospaced: true)
@@ -45,6 +46,19 @@ struct AboutSection: View {
         .task {
             availableMemory = Self.availableMemoryText()
         }
+    }
+
+    /// The owner's "PARAKEET" pixel art (also the launch screen), on its own cream plate so it reads the same in light
+    /// and dark mode.
+    private var artwork: some View {
+        Image("ParakeetArt")
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: 240)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(Color("LaunchBackground"))
+            .accessibilityLabel("Parakeet")
     }
 
     private func aboutRow(_ title: String, _ value: String, monospaced: Bool = false) -> some View {

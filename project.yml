@@ -25,7 +25,9 @@ targets:
         CFBundleDisplayName: $(APP_DISPLAY_NAME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIImageName: ParakeetArt
+          UIColorName: LaunchBackground
         UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
