@@ -23,8 +23,10 @@ iPhone 17 Pro simulator, iOS 26.5. Full status:
 | peakMemoryMB | 592 |
 
 The device runs below used later commits of the same branch; the transcription path is unchanged since `e232b62d`.
+Their build stamps show `b2dd8a67` / `8f6c874d`: those commits were later reworded locally (assistant trailers
+removed, same trees) and are now `617c3280` / `52cd3c09`.
 
-## 2026-09-22 — Device smoke, iPhone 15 Pro, `b2dd8a67` — PASS
+## 2026-09-22 — Device smoke, iPhone 15 Pro, `617c3280` — PASS
 
 `DEVICE_ID=DF20767D-0672-56DB-9928-AD2191C2CCA5 scripts/device_smoke.sh` (iPhone 15 Pro "Default15", A17 Pro, 8 GB),
 same DEBUG smoke runner and bundled synthetic two-voice sample as the simulator run.
@@ -44,7 +46,7 @@ Notes: "Parapete" for "Parakeet" is a recognition miss on the synthetic TTS voic
 assertion checks the word count and speaker count). Peak memory on device (2.3 GB) is ~4× the simulator figure; watch
 it when M2 meeting capture keeps the recorder and a Parakeet pool resident together.
 
-## 2026-09-22 — Device smoke, iPhone 17 Pro, `8f6c874d` — PASS
+## 2026-09-22 — Device smoke, iPhone 17 Pro, `52cd3c09` — PASS
 
 `scripts/device_smoke.sh` on the owner's iPhone 17 Pro (A19 Pro, 12 GB, iOS 26.2) on Wi-Fi, models already on the
 phone (downloaded earlier in the session once it had a working connection), so this is a warm load, not a first run.
@@ -77,7 +79,7 @@ settled it:
 | 17 Pro, 13:54 | Wi-Fi (isExpensive: a hotspot) | all passed: raw TCP/TLS ready, apple 200, HF API 200, HF CDN range 206 / 1006 ms; `cellularData = notRestricted` |
 
 So the app's download code and Hugging Face were fine. The 17 Pro's cellular link passed no traffic at that time,
-and the per-app Settings toggle was not off. Since commit `e5aa05fd`, connectivity failures (timeout, offline, DNS,
+and the per-app Settings toggle was not off. Since commit `68e89428`, connectivity failures (timeout, offline, DNS,
 connect) say what to check instead of URLSession's bare text.
 
 The background `URLSession` follow-up in
