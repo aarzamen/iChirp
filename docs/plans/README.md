@@ -1,6 +1,6 @@
 # Plans — Status Board
 
-> Last reconciled: 2026-09-22, while plan 003 (M0 + M1) is being executed on branch `ichirp/foundation`.
+> Last reconciled: 2026-09-22 after plan 003 (M0 + M1) was implemented on branch `ichirp/foundation` (`a6cd8f2d`).
 > Plan status is working memory, not verification evidence: check the commit, the test run and the device smoke
 > result before trusting a row.
 
@@ -28,7 +28,7 @@ commands, steps, done criteria and STOP conditions.
 |---|---|---|---|
 | [001](2026-09-22-001-feat-iphone-app-design-handoff.md) | iPhone app design handoff (text version of the canvas) | **REFERENCE** | Update when the owner changes the canvas |
 | [002](2026-09-22-002-feat-ichirp-foundation-design.md) | iChirp foundation and M1 design | **APPROVED** 2026-09-22 | Amendments: FluidAudio exact 0.16.1; Clean-up default Raw; iOS 27 background Neural Engine restriction; SideStore specifics. Device scripts use existing profiles only ([ADR-008](../../spec/adr/008-distribution-and-build-identity.md)) |
-| [003](2026-09-22-003-feat-m0-m1-implementation-plan.md) | M0 + M1 implementation plan (Tasks 1–14) | **PARTIAL** — M0 implemented; M1 built and simulator-verified (`e232b62d`: full `ChirpKit` package suite and simulator app tests green, lint and README-reference checks clean); device smoke still pending | What's left: owner opens Parakeet → Settings → Speech model → Download with the app in the foreground (the phone's first Parakeet model download timed out twice when the app was backgrounded/locked right after launch — see [`docs/research/2026-09-22-device-benchmarks.md`](../research/2026-09-22-device-benchmarks.md)), then `scripts/device_smoke.sh` |
+| [003](2026-09-22-003-feat-m0-m1-implementation-plan.md) | M0 + M1 implementation plan (Tasks 1–14) | **IMPLEMENTED** `a6cd8f2d` on `ichirp/foundation` — full package suite (381, 2 opt-in real-model tests skipped) and simulator app tests (18) green, lint clean; `scripts/device_smoke.sh` SMOKE PASS on iPhone 17 Pro and iPhone 15 Pro ([benchmarks](../research/2026-09-22-device-benchmarks.md)); final whole-branch review fixed in one round (scoped re-review in progress) | Nothing; carried review items live in plans 010–012 |
 | [010](2026-09-22-010-m1.5-share-and-background.md) | M1.5: background file jobs, Share sheet, Voice Memos | **NOT STARTED** | Starts after M1 is IMPLEMENTED |
 | [011](2026-09-22-011-m2-dictation.md) | M2: dictation | **NOT STARTED** | |
 | [012](2026-09-22-012-m3-meetings.md) | M3: meeting recording | **NOT STARTED** | |

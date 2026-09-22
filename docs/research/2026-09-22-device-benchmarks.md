@@ -85,3 +85,11 @@ connect) say what to check instead of URLSession's bare text.
 The background `URLSession` follow-up in
 [`docs/plans/2026-09-22-010-m1.5-share-and-background.md`](../plans/2026-09-22-010-m1.5-share-and-background.md)
 still stands on its own merits (a ~0.5 GB first download should survive a screen lock). This failure did not motivate it.
+
+## 2026-09-22 — Final-gate device smoke, iPhone 17 Pro, `a6cd8f2d` — PASS
+
+After the review fix round (retry/offline/readable download failures, stricter "ready" check, bounded
+normalization): 15 words, 2 speakers, transcribe 408 ms, peak 273 MB, **modelLoadMs 15776**. No model file was
+re-downloaded (every Parakeet file on the phone still dates from the 20:55Z download), so the slower load is Core ML
+re-specializing the models for the Neural Engine after the app was reinstalled — expect ~15 s for the first load
+after an install, ~1.5 s once warm.
