@@ -1,0 +1,71 @@
+# ChirpCore
+
+The contract layer of ChirpKit. Every other module (store, audio, engines, text, export, features, UI) codes
+against the types and protocols here, and ChirpCore depends on nothing but Foundation and OSLog.
+
+## Entry point
+
+Start with `Models/Transcription.swift` (the library record) and `Engines/SpeechEngine.swift` (the engine
+plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `SpeechJobScheduler` →
+`SpeechEngine` / `SpeakerDiarizing` → `TranscriptionStoring`, all declared here.
+
+## What's here
+
+- `Models/Transcript.swift`: word, speaker, diarization and transcript segment value types, ported from
+  MacParakeet without the correction-only fields.
+- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`.
+- `Models/PrivacyClass.swift`: `general` / `personal` (default) / `clinical` sensitivity classes.
+- `Models/TranscriptionSettings.swift`: user preferences (`CleanupMode`, `ParakeetVariant`, speaker labels,
+  filler removal), with forgiving decoding.
+- `Engines/EngineDescriptor.swift`: `EngineDescriptor`, `EngineKind` and `EngineLocality`, the static facts
+  about an engine.
+- `Engines/ModelAssets.swift`: `ModelAssetStatus` and `ModelAssetManaging` (download, status, delete).
+- `Engines/SpeechEngine.swift`: `SpeechEngine`, `SpeakerDiarizing`, their options, results and
+  `SpeechEngineError`.
+- `Engines/LanguageModel.swift`: the M4 text-generation contract (`LanguageModel`, `GenerationRequest`,
+  `GenerationEvent`). No conformers yet.
+- `Engines/StructureModel.swift`: the M6 extraction and embedding contract. No conformers yet.
+- `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
+  each privacy class.
+- `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`.
+- `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore.
+- `Scheduling/SpeechJobScheduler.swift`: the actor that serializes speech work into an interactive slot
+  (dictation) and a prioritized background slot, with live-chunk backpressure.
+- `System/AppPaths.swift`: the on-disk layout (`ichirp.sqlite`, `media/<uuid>/`) and relative-path mapping.
+- `System/BuildIdentity.swift`: reads the build stamp (version, build, commit, branch, dirty, date) from
+  Info.plist.
+- `System/Log.swift`: `Log.logger(_:)` under the `com.aarzamen.ichirp` subsystem.
+
+## What to know before editing
+
+- The public signatures are contracts. Parallel lanes and later milestones compile against them. Adding
+  a conformance or a defaulted parameter is safe. Renaming, retyping or adding a required parameter breaks
+  other modules. Any change to the engine protocols (`SpeechEngine`, `SpeakerDiarizing`,
+  `ModelAssetManaging`, `LanguageModel`, `StructureModel`, `EngineDescriptor`) must also update
+  `spec/contracts/speech-engine-plugin-v1.md` and its tests in the same change.
+- Keep ChirpCore free of third-party dependencies and UI frameworks. Engine-specific code belongs in
+  its own target, such as `ChirpEngineFluidAudio`.
+- `Transcription` round-trips through a default `JSONEncoder`/`JSONDecoder`. New stored properties must be
+  optional or defaulted, and new rows default to `PrivacyClass.personal`.
+- `SpeechJobScheduler` invariants: a slot is released exactly once per granted job, every continuation is
+  resumed exactly once, and a job leaves `pending` before its continuation is resumed. Keep the file
+  warning-free under Swift 6 strict concurrency. Scheduling semantics follow upstream `STTScheduler`, but the
+  code is new. Do not paste upstream code into it.
+- `Models/Transcript.swift` is a port. Keep its provenance header, and diff against
+  `upstream/macparakeet/Sources/MacParakeetCore/Models/Transcription.swift` when syncing upstream.
+- `AppPaths.applicationSupport()` keeps the app root in backups because it holds user data. Only
+  re-downloadable model folders are excluded from backup, and that happens where those folders are created.
+
+## How to verify
+
+```bash
+cd /Users/ama/Documents/GitHub/iChirp
+scripts/check.sh ChirpCoreTests
+```
+
+This runs the package build, the focused ChirpCore tests and the strict `swift format` lint. The scheduler
+tests use timing, so after touching `SpeechJobScheduler.swift` run them repeatedly:
+
+```bash
+for i in $(seq 1 20); do swift test --package-path ChirpKit --filter SpeechJobSchedulerTests || break; done
+```

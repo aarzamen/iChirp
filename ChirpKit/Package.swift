@@ -19,7 +19,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
     ],
     targets: [
-        .target(name: "ChirpCore"),
+        .target(name: "ChirpCore", exclude: ["README.md"]),
         .target(name: "ChirpText", dependencies: ["ChirpCore"]),
         .target(name: "ChirpExport", dependencies: ["ChirpCore", "ChirpText"]),
         .target(name: "ChirpStore", dependencies: ["ChirpCore", .product(name: "GRDB", package: "GRDB.swift")]),
