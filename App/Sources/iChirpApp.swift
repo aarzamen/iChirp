@@ -14,6 +14,9 @@ struct iChirpApp: App {
                     .task {
                         await environment.launch()
                         #if DEBUG
+                        if NetworkDiagnostics.isRequested(in: ProcessInfo.processInfo.arguments) {
+                            await NetworkDiagnostics.runAndWrite()
+                        }
                         if SmokeTestRunner.isRequested(in: ProcessInfo.processInfo.arguments) {
                             environment.smoke.start(environment: environment, reason: .launchArgument)
                         }
