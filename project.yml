@@ -29,7 +29,6 @@ targets:
         UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         "UISupportedInterfaceOrientations~ipad": [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
-        UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: false
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
