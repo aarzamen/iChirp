@@ -75,6 +75,17 @@ extension StatusChip {
         )
     }
 
+    /// An honest marker on a card whose feature isn't built yet, e.g. "Not built yet · M2" (AGENTS §4). No dot: a
+    /// colored dot reads as "on".
+    public static func notBuiltYet(milestone: String) -> StatusChip {
+        StatusChip(
+            "Not built yet · \(milestone)",
+            ink: Tokens.Color.accentInk,
+            fill: Tokens.Color.surface,
+            border: Tokens.Color.tintBorderSelected
+        )
+    }
+
     /// An in-progress transcription readout, e.g. "Transcribing · 62%".
     public static func transcribing(percent: Int) -> StatusChip {
         StatusChip(
@@ -96,6 +107,7 @@ extension StatusChip {
     VStack(alignment: .leading, spacing: 10) {
         StatusChip.onDevice()
         StatusChip.cleanTextOnCopy()
+        StatusChip.notBuiltYet(milestone: "M2")
         StatusChip.transcribing(percent: 62)
         StatusChip.partialAudio()
     }

@@ -121,11 +121,13 @@ struct CaptureScreen: View {
                     Text("Dictate")
                         .chirpTitleFont(23)
                         .foregroundStyle(Tokens.Color.ink)
-                    Text("Press the Action Button, or tap to go hands-free.")
+                    // Until M2 ships, the card describes what dictation will do and says it isn't built; the canvas's
+                    // "Press the Action Button" line and green "Clean text on copy" chip would claim a live feature.
+                    Text("Hands-free dictation, clean text to your clipboard.")
                         .chirpFont(13.5)
                         .foregroundStyle(Tokens.Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    StatusChip.cleanTextOnCopy()
+                    StatusChip.notBuiltYet(milestone: "M2")
                         .padding(.top, 3)
                 }
                 Spacer(minLength: 0)

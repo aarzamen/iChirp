@@ -30,7 +30,7 @@ from the canvas.
 - `Components/Card.swift` — `ChirpCardStyle` and the `.chirpCard(...)` view modifier: the
   surface/border/radius treatment every grouped card on the canvas uses.
 - `Components/StatusChip.swift` — `StatusChip`, a capsule icon+label chip, with static
-  factories for the recurring cases (`.onDevice()`, `.cleanTextOnCopy()`,
+  factories for the recurring cases (`.onDevice()`, `.cleanTextOnCopy()`, `.notBuiltYet(milestone:)`,
   `.transcribing(percent:)`, `.partialAudio()`).
 - `Components/SpeakerDot.swift` — `SpeakerDot`, the colored-dot + label + timestamp row used
   above every transcript paragraph.
