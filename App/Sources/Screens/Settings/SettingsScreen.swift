@@ -54,11 +54,15 @@ struct SettingsScreen: View {
 
     private var captureGroup: some View {
         SettingsGroup(title: "Capture") {
+            // Values are "Not built yet", not the canvas's illustrative "Action Button" / "Double tap" /
+            // "Tap to stop": nothing is actually configured until M2 (AGENTS §4 honest UI, final-review Lane C 6).
             PlaceholderRow(
-                title: "Dictation trigger", value: "Action Button", placeholder: .dictationTrigger,
+                title: "Dictation trigger", value: "Not built yet", placeholder: .dictationTrigger,
                 open: { placeholder = $0 })
-            PlaceholderRow(title: "Back Tap", value: "Double tap", placeholder: .backTap, open: { placeholder = $0 })
-            PlaceholderRow(title: "Stop mode", value: "Tap to stop", placeholder: .stopMode, open: { placeholder = $0 })
+            PlaceholderRow(
+                title: "Back Tap", value: "Not built yet", placeholder: .backTap, open: { placeholder = $0 })
+            PlaceholderRow(
+                title: "Stop mode", value: "Not built yet", placeholder: .stopMode, open: { placeholder = $0 })
         }
     }
 

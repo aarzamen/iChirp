@@ -20,7 +20,7 @@ struct TransformsScreen: View {
             systemImage: "line.3.horizontal.decrease"),
         Item(id: "decide", title: "Decide", summary: "Turn this into a recommendation", systemImage: "scalemass"),
         Item(
-            id: "brief", title: "Brief", summary: "Your custom Transform · BLUF, then three bullets",
+            id: "brief", title: "Brief", summary: "A custom Transform template · BLUF, then three bullets",
             systemImage: "doc.text"),
         Item(
             id: "meeting-notes", title: "Meeting notes", summary: "Summary, decisions and owners from a meeting",
