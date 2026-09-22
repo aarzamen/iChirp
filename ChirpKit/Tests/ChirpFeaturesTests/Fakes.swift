@@ -779,12 +779,21 @@ final class FakeContinuedProcessingScheduler: ContinuedProcessingScheduling {
         let id = "com.aarzamen.ichirp.\(kind.rawValue).\(UUID().uuidString)"
         submissions.append(Submission(id: id, kind: kind, title: title, subtitle: subtitle))
         launchHandlers[id] = onStart
+        registeredHandlers[id] = onStart
         return id
     }
+
+    /// Keeps the launch handler after a withdrawal, as the real scheduler keeps its registration.
+    private var registeredHandlers: [String: @MainActor (any ContinuedProcessingTask) -> Void] = [:]
 
     func withdraw(_ requestID: String) {
         withdrawn.append(requestID)
         launchHandlers[requestID] = nil
+    }
+
+    /// The system starts a request it had queued before it saw the withdrawal (a race the app must survive).
+    func startIgnoringWithdrawal(_ requestID: String, with task: FakeContinuedTask) {
+        registeredHandlers[requestID]?(task)
     }
 
     /// The system starts the request (the launch handler runs). Returns nil if it was withdrawn or never submitted.

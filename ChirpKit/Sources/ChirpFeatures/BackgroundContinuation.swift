@@ -104,8 +104,11 @@ public enum ContinuedProcessingKind: String, Sendable, CaseIterable {
     /// work simply runs in the foreground as before.
     @discardableResult public func begin() -> Bool {
         guard !isSubmitted, !items.isEmpty, let scheduler else { return false }
-        requestID = scheduler.submit(kind, title: title, subtitle: lastSubtitle) { [weak self] task in
-            self?.attach(task)
+        // Strong on purpose: if the system starts a request after its work ended (a queued request it had not yet
+        // withdrawn), this continuation must still be there to complete the task at once; the system requires
+        // `setTaskCompleted` for every task it starts. A finished continuation holds only a few small values.
+        requestID = scheduler.submit(kind, title: title, subtitle: lastSubtitle) { task in
+            self.attach(task)
         }
         isSubmitted = requestID != nil
         logger.notice(

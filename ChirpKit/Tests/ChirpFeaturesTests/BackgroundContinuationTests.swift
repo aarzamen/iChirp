@@ -216,6 +216,25 @@ final class BackgroundContinuationTests: XCTestCase {
         XCTAssertEqual(task.progress.completedUnitCount, BackgroundContinuation.totalUnits)
     }
 
+    /// The system may start a queued request after the work ended and the owner let go of the continuation; the task
+    /// must still be completed (the system requires it for every task it starts).
+    func testALateStartIsCompletedEvenAfterTheOwnerReleasedTheContinuation() throws {
+        let scheduler = FakeContinuedProcessingScheduler()
+        let item = UUID()
+        var continuation: BackgroundContinuation? = BackgroundContinuation(
+            scheduler: scheduler, kind: .transcription, title: "Memo", subtitle: "Waiting to start", items: [item])
+        continuation?.begin()
+        let requestID = try XCTUnwrap(scheduler.submissions.first?.id)
+        continuation?.end(item, succeeded: true)
+        XCTAssertEqual(scheduler.withdrawn, [requestID])
+        continuation = nil
+
+        let late = FakeContinuedTask(requestID: requestID)
+        scheduler.startIgnoringWithdrawal(requestID, with: late)
+
+        XCTAssertEqual(late.completions, [true])
+    }
+
     func testExpirationWithoutAnEndCompletesAfterTheGrace() async throws {
         let scheduler = FakeContinuedProcessingScheduler()
         let item = UUID()
