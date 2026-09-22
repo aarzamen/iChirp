@@ -48,5 +48,16 @@ public struct IncomingFileInbox: Sendable, Equatable {
         }
     }
 
+    /// Where an incoming file goes (M5): documents (PDF, text, Markdown, RTF, HTML, DOCX, other plain text) to the
+    /// document path, everything else to the audio and video pipeline.
+    public enum Kind: Sendable, Equatable {
+        case media, document
+    }
+
+    /// `url`'s kind, by its extension.
+    public static func kind(of url: URL) -> Kind {
+        DocumentImportPipeline.canImport(url) ? .document : .media
+    }
+
     private static let logger = Log.logger("inbox")
 }

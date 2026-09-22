@@ -2,6 +2,7 @@ import ChirpCore
 import ChirpIngest
 import ChirpText
 import Foundation
+import UniformTypeIdentifiers
 
 /// Turns an imported document (PDF, text, Markdown, RTF, HTML, DOCX) into a finished document row (M5).
 ///
@@ -39,7 +40,18 @@ public actor DocumentImportPipeline: ItemImporting {
 
     /// Whether `url` is a document this pipeline reads (by extension).
     public nonisolated static func canImport(_ url: URL) -> Bool {
-        DocumentFormat(url: url) != nil
+        format(of: url) != nil
+    }
+
+    /// `url`'s document format by extension; any other plain-text type (`.log`, `.csv`, source code…) reads as
+    /// plain text. Nil for everything else (audio, video, images, archives).
+    public nonisolated static func format(of url: URL) -> DocumentFormat? {
+        if let format = DocumentFormat(url: url) {
+            return format
+        }
+        let fileExtension = url.pathExtension
+        guard !fileExtension.isEmpty, let type = UTType(filenameExtension: fileExtension) else { return nil }
+        return type.conforms(to: .plainText) ? .plainText : nil
     }
 
     // MARK: - Import
@@ -47,7 +59,7 @@ public actor DocumentImportPipeline: ItemImporting {
     /// Copies `url` into `media/<id>/source.<ext>` and inserts a `.processing` document row. On failure nothing is
     /// left behind (no folder, no row). Throws `DocumentExtractionError.unsupportedFormat` for other files.
     public func importItem(from url: URL) async throws -> UUID {
-        guard let format = DocumentFormat(url: url) else {
+        guard let format = Self.format(of: url) else {
             throw DocumentExtractionError.unsupportedFormat(url.pathExtension.lowercased())
         }
         let id = UUID()
@@ -138,7 +150,7 @@ public actor DocumentImportPipeline: ItemImporting {
         guard FileManager.default.fileExists(atPath: source.path) else {
             throw FileTranscriptionPipeline.PipelineError.sourceFileMissing
         }
-        let format = row.documentFormat ?? DocumentFormat(url: source)
+        let format = row.documentFormat ?? Self.format(of: source)
         guard let format else { throw DocumentExtractionError.unsupportedFormat(source.pathExtension) }
         let onProgress = self.onProgress
         let extracted = try await extractor.extract(from: source, format: format) { done, total in

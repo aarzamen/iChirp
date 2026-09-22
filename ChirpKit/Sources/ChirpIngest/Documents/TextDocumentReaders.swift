@@ -111,18 +111,23 @@ enum RichTextReader {
         guard data.starts(with: Data("{\\rtf".utf8)) else {
             throw DocumentExtractionError.malformed(.rtf, "it is not an RTF file.")
         }
-        var attributes: NSDictionary?
         let attributed: NSAttributedString
         do {
             attributed = try NSAttributedString(
                 data: data, options: [.documentType: NSAttributedString.DocumentType.rtf],
-                documentAttributes: &attributes)
+                documentAttributes: nil)
         } catch {
             throw DocumentExtractionError.unreadable(.rtf)
         }
         let text = DocumentTextExtractor.tidy(attributed.string.replacingOccurrences(of: "\u{2028}", with: "\n"))
         guard !text.isEmpty else { throw DocumentExtractionError.noText(.rtf) }
-        let title = attributes?[NSAttributedString.DocumentAttributeKey.title] as? String
-        return ExtractedDocument(text: text, title: DocumentTextExtractor.plausibleTitle(title))
+        return ExtractedDocument(text: text, title: DocumentTextExtractor.plausibleTitle(infoTitle(in: data)))
+    }
+
+    /// The `{\info{\title …}}` text, read from the source: the title document attribute exists only on macOS.
+    static func infoTitle(in data: Data) -> String? {
+        let source = String(decoding: data.prefix(64 * 1_024), as: UTF8.self)
+        guard let match = source.firstMatch(of: /\\title\s+([^{}\\]+)/) else { return nil }
+        return String(match.1).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

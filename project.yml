@@ -20,7 +20,7 @@ targets:
       - path: App/Shared
     dependencies:
       - package: ChirpKit
-        products: [ChirpCore, ChirpText, ChirpExport, ChirpStore, ChirpAudio, ChirpEngineFluidAudio, ChirpFeatures, ChirpUI]
+        products: [ChirpCore, ChirpText, ChirpExport, ChirpStore, ChirpAudio, ChirpEngineFluidAudio, ChirpFeatures, ChirpUI, ChirpIngest]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:
@@ -47,6 +47,26 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.movie]
+          # M5: documents shared into Parakeet become document items (text read on this iPhone). Same Open-in path,
+          # no extension, no entitlement.
+          - CFBundleTypeName: Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+              - org.openxmlformats.wordprocessingml.document
+              - public.rtf
+              - public.html
+              - net.daringfireball.markdown
+              - public.plain-text
+        # M5: so .md files map to Markdown (conforming to plain text) even where the system does not declare it.
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: net.daringfireball.markdown
+            UTTypeDescription: Markdown document
+            UTTypeConformsTo: [public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [md, markdown]
+              public.mime-type: [text/markdown]
         # M1.5 Step 2: BGContinuedProcessingTask identifiers, <bundle id>.<kind>.<UUID> (wildcard suffix, iOS 26).
         # No entitlement: CPU/Neural Engine work needs none; only background GPU would.
         BGTaskSchedulerPermittedIdentifiers:

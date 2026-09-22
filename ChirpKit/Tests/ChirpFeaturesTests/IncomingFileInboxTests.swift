@@ -117,3 +117,16 @@ final class IncomingFileInboxTests: XCTestCase {
         XCTAssertTrue(settled.isEmpty)
     }
 }
+
+/// M5: shared documents go to the document path; audio and video stay on the file pipeline.
+final class IncomingFileKindTests: XCTestCase {
+    func testDocumentsAndOtherTextAreDocumentsEverythingElseIsMedia() {
+        for name in ["a.pdf", "b.DOCX", "c.md", "d.rtf", "e.html", "f.txt", "g.csv", "h.log"] {
+            XCTAssertEqual(IncomingFileInbox.kind(of: URL(fileURLWithPath: "/tmp/\(name)")), .document, name)
+        }
+        for name in ["a.m4a", "b.mov", "c.mp3", "d.wav", "e", "f.zip"] {
+            XCTAssertEqual(IncomingFileInbox.kind(of: URL(fileURLWithPath: "/tmp/\(name)")), .media, name)
+        }
+        XCTAssertEqual(DocumentImportPipeline.format(of: URL(fileURLWithPath: "/tmp/notes.log")), .plainText)
+    }
+}

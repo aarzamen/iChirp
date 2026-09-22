@@ -1,7 +1,8 @@
 # 11 - Ingest
 
-> Status: PROPOSAL, except "Share sheet (M1.5)" → "Built", which is ACTIVE — how things get into Parakeet beyond M1's
-> file picker. M1.5 and M5 executor plans refine this.
+> Status: ACTIVE — how things get into Parakeet beyond M1's file picker. Built: the Share sheet (M1.5), and in M5
+> links (Apple Podcasts, feeds, direct media, YouTube captions) and documents (PDF with OCR, TXT, Markdown, RTF, HTML,
+> DOCX). Still proposals: the share extension (gated) and YouTube audio (owner decision, plan 014).
 > Source research: [`docs/research/2026-09-22-ios-platform-constraints.md`](../docs/research/2026-09-22-ios-platform-constraints.md)
 > sections 6 and 7.
 
@@ -44,8 +45,12 @@ M4 template (summary, meeting notes, SOAP note, …). It has no player and no SR
   `Documents/Inbox/` is ever deleted. The imported `media/<id>/source.<ext>` is the user's copy.
 - Opening a file is a person's action in the foreground, so its job also gets a continued-processing request and
   keeps running with the phone locked ([spec/05](05-audio-pipeline.md#m15-continued-processing-active)).
-- Not covered by "Open in": sharing a web URL (links arrive in M5), and importing without opening the app. Those are
-  the gaps the extension below would close.
+- Not covered by "Open in": sharing a web URL (links arrive in M5 through the Paste a link sheet instead), and
+  importing without opening the app. Those are the gaps the extension below would close.
+- **M5 (built): documents through the same door.** `CFBundleDocumentTypes` also lists PDF, Word (`.docx`), RTF,
+  HTML, Markdown (declared as an imported type conforming to plain text) and plain text. `openIncoming` asks
+  `IncomingFileInbox.kind(of:)`: documents (and any other plain text) go to `DocumentImportPipeline`, audio and video
+  to the file pipeline; the Inbox copy is deleted once the import settles, as before.
 
 **Gated (plan 010 Step 5): a share extension with an App Group inbox.** Needs an explicit App ID with the App Groups
 capability, an account change the owner must approve.

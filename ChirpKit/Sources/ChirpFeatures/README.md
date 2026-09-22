@@ -50,6 +50,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   (nothing left behind on failure; unsupported types throw); `process(id:)` extracts on device through
   `DocumentTextExtracting` with `.readingDocument` page progress, derives title and snippet, and saves with
   `savePreservingUserMetadata`; `retry(id:)` re-extracts from the kept source. No engine, no scheduler slot, no network.
+- `LinkImportViewModel.swift` (M5): the Paste a link sheet. `text` is classified locally on every change (`kind`);
+  `transcribe()` is the one networked action: podcast and media links get their row and continue as a tracked job
+  (`startMediaJob`, wired by the app to `startTracked`), YouTube links finish in the sheet; errors stay in the sheet
+  (`phase == .failed`) with no row created. `reset()` clears it for another link.
+- `IncomingFileInbox.swift` also answers `kind(of:)` (M5): documents (and any other plain text) versus media, for
+  routing a shared file.
 - `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
   (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:)` inserts the `.processing`
   row with `sourceURL` / `sourceTitle`, `download(id:from:)` fetches into `media/<id>/source.<ext>` with
