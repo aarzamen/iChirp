@@ -1,0 +1,154 @@
+import ChirpAudio
+import ChirpCore
+import ChirpEngineFluidAudio
+import ChirpFeatures
+import ChirpStore
+import Foundation
+import Observation
+
+/// The composition root: builds every concrete store, engine and view model once, and owns launch housekeeping.
+///
+/// Engines are built once, here, from the saved settings. A Parakeet version change in Settings is saved and takes
+/// effect the next time the app starts (`runningVariant` is what is loaded now).
+@MainActor @Observable final class AppEnvironment {
+    let paths: AppPaths
+    let store: GRDBTranscriptionStore
+    let speechEngine: ParakeetEngine
+    let diarizer: FluidAudioDiarizer
+    let scheduler: SpeechJobScheduler
+    let settings: UserDefaultsSettingsStore
+    let jobCenter: TranscriptionJobCenter
+    let pipeline: FileTranscriptionPipeline
+    let library: LibraryViewModel
+    let capture: CaptureViewModel
+    let speechSettings: SpeechSettingsViewModel
+    /// The Parakeet version the speech engine was built with.
+    let runningVariant: ParakeetVariant
+    /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
+    /// the "download the model" banner before it knows).
+    private(set) var isLaunched = false
+    #if DEBUG
+    let smoke = SmokeTestRunner()
+    #endif
+
+    @ObservationIgnored private var launchTask: Task<Void, Never>?
+    @ObservationIgnored private let logger = Log.logger("launch")
+
+    /// Opens the database and builds the engines and view models. Throws only when the app's folder or database
+    /// cannot be opened; nothing is deleted on failure.
+    init(paths: AppPaths) throws {
+        self.paths = paths
+        let database = try DatabaseManager(url: paths.databaseURL)
+        let store = GRDBTranscriptionStore(database: database)
+        let settings = UserDefaultsSettingsStore()
+        let settingsValue = settings.load()
+        let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
+        let scheduler = SpeechJobScheduler()
+        let jobCenter = TranscriptionJobCenter()
+        self.store = store
+        self.settings = settings
+        self.runningVariant = settingsValue.parakeetVariant
+        self.speechEngine = engines.speech
+        self.diarizer = engines.diarizer
+        self.scheduler = scheduler
+        self.jobCenter = jobCenter
+        self.pipeline = FileTranscriptionPipeline(
+            paths: paths,
+            store: store,
+            normalizer: AVAudioNormalizer(),
+            speech: engines.speech,
+            diarizer: engines.diarizer,
+            scheduler: scheduler,
+            settings: settings,
+            onProgress: jobCenter.progressHandler
+        )
+        self.library = LibraryViewModel(store: store, paths: paths)
+        self.capture = CaptureViewModel(store: store)
+        self.speechSettings = SpeechSettingsViewModel(
+            speech: engines.speech, diarizer: engines.diarizer, settings: settings)
+    }
+
+    /// Builds the environment in Application Support, or describes why it could not.
+    static func make() -> AppLaunchState {
+        do {
+            return .ready(try AppEnvironment(paths: AppPaths.applicationSupport()))
+        } catch {
+            Log.logger("launch").fault(
+                "environment_failed error_type=\(String(describing: type(of: error)), privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return .failed(message: Formatting.message(for: error))
+        }
+    }
+
+    // MARK: - Launch
+
+    /// Runs once per process; later callers wait for the first run. Order matters: rows left `.processing` by a
+    /// killed process become `.interrupted` before any new job can insert a row, then their temporary audio goes.
+    func launch() async {
+        if let launchTask {
+            await launchTask.value
+            return
+        }
+        let task = Task { await self.performLaunch() }
+        launchTask = task
+        await task.value
+    }
+
+    private func performLaunch() async {
+        do {
+            let interrupted = try await store.markStaleProcessingAsInterrupted()
+            if interrupted > 0 {
+                logger.notice("marked_interrupted count=\(interrupted, privacy: .public)")
+            }
+        } catch {
+            logger.error(
+                "mark_interrupted_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
+        }
+        await pipeline.sweepOrphanedTemporaryAudio()
+        logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
+        await library.start()
+        await capture.start()
+        await speechSettings.refresh()
+        isLaunched = true
+    }
+
+    // MARK: - Actions shared by screens
+
+    /// Imports and transcribes each file as its own tracked job (after launch housekeeping, so a new row can never
+    /// be swept up as interrupted).
+    func importFiles(_ urls: [URL]) {
+        Task {
+            await launch()
+            for url in urls {
+                jobCenter.start(fileAt: url, pipeline: pipeline)
+            }
+        }
+    }
+
+    /// Re-runs a failed, cancelled or interrupted row.
+    func retry(_ id: UUID) {
+        jobCenter.retry(id, pipeline: pipeline)
+    }
+
+    /// Deletes a row and its audio after the user confirmed: cancels its job first, then deletes.
+    func delete(_ id: UUID) async throws {
+        jobCenter.cancel(id)
+        try await library.delete(id)
+    }
+
+    func makeTranscriptViewModel(id: UUID) -> TranscriptViewModel {
+        TranscriptViewModel(id: id, store: store, paths: paths, settings: settings)
+    }
+
+    /// Whether the speech model is on disk (the Capture banner shows when it is not).
+    var isSpeechModelReady: Bool {
+        if case .ready = speechSettings.speechStatus { return true }
+        return false
+    }
+}
+
+/// What the app shows at the root: the tabs, or an honest error when the library could not be opened.
+enum AppLaunchState {
+    case ready(AppEnvironment)
+    case failed(message: String)
+}
