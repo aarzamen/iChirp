@@ -1,0 +1,123 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Ask.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Ask",
+      "w": 390,
+      "x": 940,
+      "y": 1244
+    },
+    "Dictating.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Dictating",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Home.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Capture",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "Library.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Library",
+      "w": 390,
+      "x": 0,
+      "y": 1244
+    },
+    "Meeting.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Meeting — recording",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "Settings.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Settings",
+      "w": 390,
+      "x": 940,
+      "y": 2488
+    },
+    "Transcript.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Transcript",
+      "w": 390,
+      "x": 470,
+      "y": 1244
+    },
+    "Transform.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Transform — Share Sheet",
+      "w": 390,
+      "x": 470,
+      "y": 2488
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-21T18:30:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "key": {
+      "fill": "gray",
+      "text": "Mac → iPhone\n\nFn key → Action Button / Back Tap\nIdle pill → Dynamic Island + Lock Screen Live Activity\nSidebar → four tabs: Capture, Library, Transforms, Settings\nSelected-text Transforms → Share Sheet extension\nDictations + Meetings → Library filters\n\nTokens are the app's own: coral #E86B3B on warm ground #FAFAF7, rounded headline face over SF Pro body, 14 / 16 / 20 / 24 radii, Seed-of-Life covers on a night field, green sacred-geometry rosette for meeting capture.\n\nTap the tab bars and rows in Play — the screens are linked.",
+      "w": 380,
+      "x": 1420,
+      "y": 0
+    },
+    "row1": {
+      "kind": "title1",
+      "maxW": 1330,
+      "text": "Capture — dictate, record, import",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "row2": {
+      "kind": "title1",
+      "maxW": 1330,
+      "text": "Library — read, play, ask",
+      "w": 240,
+      "x": 0,
+      "y": 944
+    },
+    "row3": {
+      "kind": "title1",
+      "maxW": 1330,
+      "text": "System surfaces — Live Activity, Share Sheet, Settings",
+      "w": 240,
+      "x": 0,
+      "y": 2188
+    }
+  },
+  "order": [
+    "Home.dc.html",
+    "Dictating.dc.html",
+    "Meeting.dc.html",
+    "Library.dc.html",
+    "Transcript.dc.html",
+    "Ask.dc.html",
+    "Transform.dc.html",
+    "Settings.dc.html"
+  ],
+  "pages": [],
+  "title": "MacParakeet for iPhone"
+}
