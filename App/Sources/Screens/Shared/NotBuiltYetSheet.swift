@@ -58,10 +58,6 @@ extension Placeholder {
         summary: "Optionally let Ask and Transforms use a cloud model you set up. Off by default; clinical items "
             + "stay on device.",
         systemImage: "cloud")
-    static let customWords = Placeholder(
-        id: "custom-words", title: "Custom words & snippets", milestone: "M2",
-        summary: "Teach Parakeet names and terms, and expand short phrases into longer text.",
-        systemImage: "character.book.closed")
     static let gridLayout = Placeholder(
         id: "grid-layout", title: "Grid layout", milestone: "M8",
         summary: "Browse the Library as a grid of covers.",

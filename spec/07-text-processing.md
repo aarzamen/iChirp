@@ -38,8 +38,11 @@ word's start is its first token's start, its end the last token's end, its confi
 | 4. Snippets | Trigger phrase → expansion, not recursive | "my address" → the saved address |
 | 5. Whitespace and style | Collapse spaces, fix punctuation spacing; sentence style capitalizes | "hello   world ." → "Hello world." |
 
-`TextRefinement.refine(rawText:mode:customWords:snippets:removeUmFiller:)` returns nil for Raw. M1 passes an empty
-custom-word list and no snippets; their editors arrive in M2. Meetings (M3) get only step 2, as upstream.
+`TextRefinement.refine(rawText:mode:customWords:snippets:removeUmFiller:)` returns nil for Raw. Since M2 the lists
+come from the person's editor (Settings → Text → Custom words & snippets, stored in `custom_words` /
+`text_snippets`): the file pipeline applies the enabled **custom words** when the clean-up mode is Clean (no snippets
+for files, as upstream), and a dictation applies **custom words and snippets** whenever Clean runs for it — "Polish
+after" on the Dictating screen, or the Clean mode. Meetings (M3) get only step 2, as upstream.
 
 Not present, by design: number normalization (inverse text normalization) and any casing or punctuation model. The
 bundled NeMo text normalizer in FluidAudio 0.16.1 is reserved for dictation number formatting in M2.

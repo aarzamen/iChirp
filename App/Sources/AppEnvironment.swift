@@ -24,6 +24,8 @@ import Observation
     let microphone: SharedMicrophoneStream
     /// Dictation: microphone → live preview → final Parakeet pass → clipboard (M2).
     let dictation: DictationCoordinator
+    /// Custom words and snippets (M2): the editor in Settings → Text; Clean reads them for files and dictations.
+    let textRules: TextRulesViewModel
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -51,6 +53,7 @@ import Observation
         self.paths = paths
         let database = try DatabaseManager(url: paths.databaseURL)
         let store = GRDBTranscriptionStore(database: database)
+        let textRulesStore = GRDBTextRulesStore(database: database)
         let settings = UserDefaultsSettingsStore()
         let settingsValue = settings.load()
         let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
@@ -79,6 +82,7 @@ import Observation
             diarizer: engines.diarizer,
             scheduler: scheduler,
             settings: settings,
+            customWords: { (try? await textRulesStore.enabledCustomWords()) ?? [] },
             onProgress: jobCenter.progressHandler
         )
         self.dictation = DictationCoordinator(
@@ -89,8 +93,10 @@ import Observation
             store: store,
             paths: paths,
             settings: settings,
-            clipboard: SystemClipboard()
+            clipboard: SystemClipboard(),
+            textRules: { await DictationTextRules.enabled(in: textRulesStore) }
         )
+        self.textRules = TextRulesViewModel(store: textRulesStore)
         self.library = LibraryViewModel(store: store, paths: paths)
         self.capture = CaptureViewModel(store: store)
         self.speechSettings = SpeechSettingsViewModel(

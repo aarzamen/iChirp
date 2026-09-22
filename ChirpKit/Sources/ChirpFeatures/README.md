@@ -58,7 +58,8 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
-  `settingsValue`, which saves on every set.
+  `settingsValue`, which saves on every set — only the fields Settings edits, onto the freshest stored value, so the
+  dictation screen's "Polish after" (M2) is never overwritten by an older copy.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
 - `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
@@ -74,6 +75,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   the text through `ClipboardWriting`. Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
+- `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
+  add (trimmed; a blank replacement is none), edit, on/off, delete, readable errors for empty fields and duplicates;
+  `DictationTextRules.enabled(in:)` reads the enabled lists for a dictation.
 - `SettingsStore.swift`: `SettingsStoring` and `UserDefaultsSettingsStore`, a JSON blob under
   `ichirp.transcriptionSettings` that falls back to the defaults when missing or unreadable.
 

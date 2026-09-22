@@ -42,6 +42,8 @@ pipeline directly.
   only (the FTS/search-index half of `KnowledgeSegmenter` is out of scope for M0/M1).
 - `Models/`: `CustomWord`, `TextSnippet`, `KeyAction`, `DictationInsertionStyle`, `TextProcessingResult`
   — ported with their upstream fields, minus GRDB persistence conformances (ChirpStore owns persistence).
+  `Models/TextRulesStoring.swift` (M2) is the persistence contract for words and snippets (`enabledCustomWords()`,
+  `enabledSnippets()`, `TextRulesStoreError.duplicate`), implemented by `ChirpStore.GRDBTextRulesStore`.
 
 ## What to know before editing
 

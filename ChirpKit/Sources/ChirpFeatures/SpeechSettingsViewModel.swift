@@ -12,12 +12,20 @@ import Observation
     /// The last download or delete failure, readable (e.g. the engine's "in use" refusal). Cleared by the next action.
     public private(set) var lastError: String?
 
-    /// The user's preferences. Setting it saves to the settings store.
+    /// The user's preferences. Setting it saves the fields Settings edits onto the **freshest** stored value, so a
+    /// field another writer owns (the dictation screen's "Polish after", M2) is never overwritten by this screen's
+    /// older copy.
     public var settingsValue: TranscriptionSettings {
         get { storedSettings }
         set {
-            storedSettings = newValue
-            settings.save(newValue)
+            var merged = settings.load()
+            merged.cleanupMode = newValue.cleanupMode
+            merged.speakerLabelsEnabled = newValue.speakerLabelsEnabled
+            merged.parakeetVariant = newValue.parakeetVariant
+            merged.removeUmFiller = newValue.removeUmFiller
+            merged.keepDictationAudio = newValue.keepDictationAudio
+            storedSettings = merged
+            settings.save(merged)
         }
     }
 

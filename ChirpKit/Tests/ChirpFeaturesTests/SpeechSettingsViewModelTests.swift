@@ -151,4 +151,19 @@ final class SpeechSettingsViewModelTests: XCTestCase {
 
         XCTAssertEqual(UserDefaultsSettingsStore(defaults: defaults).load(), TranscriptionSettings())
     }
+
+    /// M2: the Dictating screen saves "Polish after" straight to the store. A later Settings change must not write
+    /// back the older copy this view model loaded at launch.
+    func testASettingsChangeKeepsTheDictationPolishToggleAnotherScreenSaved() {
+        let store = InMemorySettingsStore()
+        let viewModel = SpeechSettingsViewModel(speech: FakeSpeech(), diarizer: nil, settings: store)
+        var fromDictation = store.load()
+        fromDictation.dictationPolishAfter = false
+        store.save(fromDictation)
+
+        viewModel.settingsValue.cleanupMode = .clean
+
+        XCTAssertEqual(store.load().cleanupMode, .clean)
+        XCTAssertFalse(store.load().dictationPolishAfter, "the other screen's field survives")
+    }
 }

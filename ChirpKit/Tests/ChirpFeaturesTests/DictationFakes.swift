@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpText
 import Foundation
 import Synchronization
 import XCTest
@@ -150,5 +151,52 @@ final class FakeLiveProvider: LiveSpeechSessionProviding {
 
     func copy(_ text: String) {
         copies.append(text)
+    }
+}
+
+/// In-memory `TextRulesStoring` with the GRDB store's semantics (case-insensitive uniqueness, sorted lists).
+actor FakeTextRulesStore: TextRulesStoring {
+    private var wordsByID: [UUID: CustomWord] = [:]
+    private var snippetsByID: [UUID: TextSnippet] = [:]
+    private var failure: (any Error)?
+
+    func fail(with error: (any Error)?) { failure = error }
+
+    func customWords() throws -> [CustomWord] {
+        if let failure { throw failure }
+        return wordsByID.values.sorted { $0.word.localizedCaseInsensitiveCompare($1.word) == .orderedAscending }
+    }
+
+    func save(_ word: CustomWord) throws {
+        if let failure { throw failure }
+        if wordsByID.values.contains(where: { $0.id != word.id && $0.word.lowercased() == word.word.lowercased() }) {
+            throw TextRulesStoreError.duplicate(word.word)
+        }
+        wordsByID[word.id] = word
+    }
+
+    func deleteCustomWords(ids: Set<UUID>) throws {
+        for id in ids { wordsByID[id] = nil }
+    }
+
+    func snippets() throws -> [TextSnippet] {
+        if let failure { throw failure }
+        return snippetsByID.values.sorted {
+            $0.trigger.localizedCaseInsensitiveCompare($1.trigger) == .orderedAscending
+        }
+    }
+
+    func save(_ snippet: TextSnippet) throws {
+        if let failure { throw failure }
+        if snippetsByID.values.contains(where: {
+            $0.id != snippet.id && $0.trigger.lowercased() == snippet.trigger.lowercased()
+        }) {
+            throw TextRulesStoreError.duplicate(snippet.trigger)
+        }
+        snippetsByID[snippet.id] = snippet
+    }
+
+    func deleteSnippets(ids: Set<UUID>) throws {
+        for id in ids { snippetsByID[id] = nil }
     }
 }

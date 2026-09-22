@@ -47,7 +47,10 @@ struct SettingsScreen: View {
         } message: {
             Text(environment.speechSettings.lastError ?? "")
         }
-        .task { await environment.speechSettings.refresh() }
+        .task {
+            await environment.speechSettings.refresh()
+            await environment.textRules.load()
+        }
     }
 
     // MARK: - Capture (M2)
@@ -193,8 +196,9 @@ struct SettingsScreen: View {
         return SettingsGroup(
             title: "Text",
             footer:
-                "Raw keeps Parakeet’s text exactly as recognized. Clean removes fillers like “um” and tidies "
-                + "spacing, and will apply your custom words once they arrive in M2. Applies to the next transcription."
+                "Raw keeps Parakeet’s text exactly as recognized. Clean removes fillers like “um”, tidies spacing "
+                + "and applies your custom words and snippets. Applies to the next transcription; a dictation with "
+                + "“Polish after” is always cleaned."
         ) {
             SettingsRow(title: "Clean-up") {
                 Picker("Clean-up", selection: $speech.settingsValue.cleanupMode) {
@@ -205,8 +209,21 @@ struct SettingsScreen: View {
                 .frame(width: 140)
                 .labelsHidden()
             }
-            PlaceholderRow(
-                title: "Custom words & snippets", value: "None", placeholder: .customWords, open: { placeholder = $0 })
+            NavigationLink {
+                TextRulesScreen(model: environment.textRules)
+            } label: {
+                SettingsRow(title: "Custom words & snippets") {
+                    Text(environment.textRules.count == 0 ? "None" : "\(environment.textRules.count)")
+                        .chirpFont(15)
+                        .monospacedDigit()
+                        .foregroundStyle(Tokens.Color.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Tokens.Color.mutedText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 }
