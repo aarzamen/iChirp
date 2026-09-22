@@ -71,7 +71,8 @@ enum NetworkDiagnostics {
         checks.append(await fetch("hf-resolve-small", "https://huggingface.co/\(repo)/resolve/main/README.md"))
         if let large = api.largeFile {
             // Large files redirect to Hugging Face's storage CDN; fetch only the first 1 KB.
-            checks.append(await fetch("hf-resolve-large-range", "https://huggingface.co/\(repo)/resolve/main/\(large)", range: "bytes=0-1023"))
+            let largeURL = "https://huggingface.co/\(repo)/resolve/main/\(large)"
+            checks.append(await fetch("hf-resolve-large-range", largeURL, range: "bytes=0-1023"))
         }
         let formatter = ISO8601DateFormatter()
         let report = Report(
@@ -109,7 +110,9 @@ enum NetworkDiagnostics {
         return (result.check, large)
     }
 
-    private static func fetchWithBody(_ name: String, _ urlString: String, range: String?) async -> (check: Check, body: Data?) {
+    private static func fetchWithBody(
+        _ name: String, _ urlString: String, range: String?
+    ) async -> (check: Check, body: Data?) {
         let started = Date()
         var check = Check(name: name, url: urlString, bytes: 0, elapsedMs: 0)
         guard let url = URL(string: urlString) else {
