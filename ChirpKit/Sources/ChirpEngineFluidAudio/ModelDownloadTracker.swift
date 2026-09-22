@@ -83,7 +83,32 @@ extension SpeechEngineError {
         if let urlError = error as? URLError, urlError.code == .cancelled {
             return .cancelled
         }
+        if let urlError = connectivityError(in: error) {
+            return .underlying(
+                "Couldn't reach the model server (\(urlError.localizedDescription)) Check that this iPhone is online "
+                    + "— Wi-Fi, or cellular data allowed for this app in Settings — then try the download again."
+            )
+        }
         return .underlying(error.localizedDescription)
+    }
+
+    /// URLSession's own text ("The request timed out.") doesn't tell the owner what to check. These codes mean the
+    /// phone never got a usable connection; FluidAudio may throw them directly or wrapped as an underlying error.
+    private static let connectivityCodes: Set<URLError.Code> = [
+        .timedOut, .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+        .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
+    ]
+
+    private static func connectivityError(in error: any Error) -> URLError? {
+        var current: (any Error)? = error
+        for _ in 0..<4 {
+            guard let candidate = current else { return nil }
+            if let urlError = candidate as? URLError, connectivityCodes.contains(urlError.code) {
+                return urlError
+            }
+            current = (candidate as NSError).userInfo[NSUnderlyingErrorKey] as? any Error
+        }
+        return nil
     }
 
     /// Cancellation is not a download failure worth showing in `assetStatus()`.

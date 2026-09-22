@@ -1,3 +1,4 @@
+import ChirpCore
 import FluidAudio
 import XCTest
 
@@ -58,6 +59,33 @@ final class ModelDownloadTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.lastFailure, "offline")
         tracker.begin()
         XCTAssertNil(tracker.lastFailure)
+    }
+
+    func testConnectivityFailuresSayWhatToCheck() throws {
+        // The iPhone 17 Pro's first-download failure: URLSession's bare "The request timed out."
+        let message = try XCTUnwrap(SpeechEngineError.failureMessage(for: URLError(.timedOut)))
+        XCTAssertTrue(message.contains(URLError(.timedOut).localizedDescription), message)
+        XCTAssertTrue(message.contains("online"), message)
+        XCTAssertTrue(message.contains("try the download again"), message)
+    }
+
+    func testConnectivityFailureWrappedAsUnderlyingErrorIsRecognized() throws {
+        let wrapped = NSError(
+            domain: "FluidAudio.DownloadError", code: 1,
+            userInfo: [NSUnderlyingErrorKey: URLError(.notConnectedToInternet)]
+        )
+        let message = try XCTUnwrap(SpeechEngineError.failureMessage(for: wrapped))
+        XCTAssertTrue(message.contains("online"), message)
+    }
+
+    func testNonConnectivityURLErrorsKeepTheirOwnText() {
+        let error = URLError(.badServerResponse)
+        XCTAssertEqual(SpeechEngineError.mapping(error), .underlying(error.localizedDescription))
+    }
+
+    func testCancelledDownloadIsStillCancellationNotAFailure() {
+        XCTAssertEqual(SpeechEngineError.mapping(URLError(.cancelled)), .cancelled)
+        XCTAssertNil(SpeechEngineError.failureMessage(for: URLError(.cancelled)))
     }
 }
 
