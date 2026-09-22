@@ -21,7 +21,7 @@
   [ADR-002](../../spec/adr/002-local-first-and-privacy-classes.md), [ADR-004](../../spec/adr/004-engine-plugin-architecture.md),
   [design handoff: Ask and Transform](2026-09-22-001-feat-iphone-app-design-handoff.md)
 - **Planned at:** commit `bd8cfc7c`, 2026-09-22
-- **Status:** NOT STARTED
+- **Status:** IN PROGRESS — Steps 1–5 (core, no UI) done on `m4/language-models-core`; Step 6 (UI, Info.plist, `project.yml`) in the M4-UI lane after M1.5 merges. Report: `.superpowers/sdd/milestones/m4-core-report.md`
 
 ## Why this matters
 

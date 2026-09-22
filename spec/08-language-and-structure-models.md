@@ -1,7 +1,9 @@
 # 08 - Language and Structure Models
 
-> Status: PROPOSAL — the contracts exist in `ChirpCore` (no conformers yet); providers, templates and the Structure
-> models land in M4 and M6, whose executor plans refine this document.
+> Status: ACTIVE for language models (M4 core, plan 013 Steps 1–5: engines, keys, routing, templates, deliverables,
+> map-reduce; the screens land in the M4-UI lane). PROPOSAL for structure models (M6).
+> Contracts: [language-model-plugin-v1](contracts/language-model-plugin-v1.md), [deliverables-v1](contracts/deliverables-v1.md).
+> Decision on providers: [ADR-011](adr/011-language-model-providers-direct-ports.md).
 
 Two engine kinds turn transcripts into documents:
 
@@ -13,13 +15,16 @@ Two engine kinds turn transcripts into documents:
 Both are plug-ins ([ADR-004](adr/004-engine-plugin-architecture.md)) and both go through the privacy router
 ([ADR-002](adr/002-local-first-and-privacy-classes.md)) before any text leaves the process.
 
-## Contracts (already in `ChirpCore`)
+## Contracts (in `ChirpCore`)
 
 ```swift
 public struct GenerationRequest: Sendable { system: String?, prompt: String, privacyClass: PrivacyClass, maxOutputTokens: Int? }
-public enum GenerationEvent: Sendable, Equatable { case text(String), finished }
+public enum GenerationEvent: Sendable, Equatable { case text(String), usage(GenerationUsage), finished }
 public protocol LanguageModel: Sendable {
     var descriptor: EngineDescriptor { get }
+    var endpointHost: String? { get }                         // where content goes; nil on device
+    func contextWindowTokens() async -> Int?                  // whole window, read at run time
+    func availability() async -> LanguageModelAvailability    // e.g. Apple Intelligence off
     func generate(_ request: GenerationRequest) -> AsyncThrowingStream<GenerationEvent, Error>
 }
 
@@ -31,27 +36,36 @@ public protocol StructureModel: Sendable {
 }
 ```
 
-M4 adds structured output for language models where the provider supports it (Apple `@Generable`, JSON schema).
+Errors are `LanguageModelError` (content-free `kindName` for logs). Provider settings are
+`LanguageModelProviderConfiguration` (no secret; locality derived from the base URL's host); keys live in a
+`SecretStoring` (the Keychain via `ChirpKeychain`). Structured output (`@Generable`, JSON schema) is deferred to M6.
 
 ## Language model providers (M4, M7)
 
 | Provider | Locality | How | Notes |
 |---|---|---|---|
-| Apple Foundation Models | on device | Built in (iOS 26) | ~3B model, **4K-token context** shared by instructions, input and output; best for titles, action items, short summaries |
-| Anthropic, OpenAI-compatible, Gemini | cloud | HTTPS | Bring your own key, stored in the **Keychain** (never `UserDefaults`) |
-| Ollama, LM Studio on the owner's Mac | local network | HTTP on the LAN | Can be marked **trusted** for clinical content |
+| Apple Foundation Models | on device | `ChirpEngineAppleFM` (iOS 26 framework) | ~3B model, **4K-token context** shared by instructions, input and output, read at run time; "Apple Intelligence off / not eligible / not ready" is an explicit state |
+| Anthropic, OpenAI-compatible (OpenAI, OpenRouter, Gemini's OpenAI endpoint) | cloud | `ChirpEngineHTTPLLM`, HTTPS only | Bring your own key, stored in the **Keychain** (never `UserDefaults`) |
+| Ollama (native `/api/chat`), LM Studio / llama.cpp (OpenAI-compatible) on the owner's Mac | local network | `ChirpEngineHTTPLLM`, HTTP on the LAN | Can be marked **trusted** for clinical content; Ollama gets `num_ctx` equal to the planned window |
 | MLX Swift small models | on device, **foreground only** (GPU) | Swift package | Needs Xcode builds (Metal shaders) |
 | llama.cpp GGUF (Qwen3.5-2B, LFM2.5-1.2B, Qwen3-4B-Instruct-2507) | on device | XCFramework, one actor | Widest model choice |
 | Core AI, LiteRT-LM, ExecuTorch, Private Cloud Compute | later | iOS 27 / Xcode 27 or entitlements | Adopt behind `#available` so iOS 26 devices keep working |
 
-**Evaluate Hugging Face AnyLanguageModel first** (Apache-2.0, a Swift package with a Foundation-Models-shaped API over
-Apple's model, Core ML, MLX, llama.cpp, Ollama, Anthropic, OpenAI and Gemini). One plug-in target could then cover
-most providers. The M4 plan decides after a spike.
+**AnyLanguageModel was evaluated and not adopted** ([ADR-011](adr/011-language-model-providers-direct-ports.md)):
+0.9.0 builds strict-concurrency clean but pulls 8 packages (swift-nio, swift-syntax macros, …), is pre-1.0, and its
+Ollama adapter does not set `num_ctx`, which silently truncates long prompts. The HTTP adapters are ports of
+MacParakeet's; it may be revisited for MLX / llama.cpp in M7.
 
-**Long transcripts.** A 60-minute meeting is about 12K tokens, three to four times the on-device context. Port
-upstream's map-reduce (chunk, summarize each, then summarize the summaries; upstream uses 12K-character chunks above a
-24K threshold) and make it the default for small-context models. Never silently middle-truncate a clinical
-transcript: if it cannot fit, say so.
+**Where content goes.** An HTTP provider's locality is derived from its host (`LocalNetworkHost`: `.local`,
+`.home.arpa`, `.internal`, `.lan`, private and link-local IPs; everything else is cloud), cloud hosts must use
+HTTPS, every redirect is refused, and requests use an ephemeral session with no URL cache.
+
+**Long transcripts.** A 60-minute meeting is about 12K tokens, three to four times the on-device context.
+`MapReduceGenerator` (ported semantics of upstream's map-reduce) budgets from the engine's real window (a quarter
+reserved for output, 3 characters per token, 10% margin): one call when the transcript fits; otherwise it extracts
+notes from every part, condenses the notes in groups until they fit (up to 4 levels), then writes the result. A
+`contextTooLong` from a model re-plans with half the window. Nothing is ever middle-truncated, for any class: input
+that still cannot fit fails with "too long for this model" and stores nothing.
 
 ## Deliverable templates (M4)
 
@@ -66,12 +80,23 @@ Templates are versioned prompts that take `{{transcript}}` and optional `{{userN
 | SOAP note | Subjective / Objective / Assessment / Plan, clinical privacy class by default |
 | Transforms | Polish (keep the voice), Distill (essential points), Decide (a recommendation), Brief (BLUF, then three bullets) |
 
-Rules:
+The nine built-ins are `ChirpFeatures.BuiltInTemplates` (canonical keys `summary`, `meeting-notes`, `action-items`,
+`agenda`, `soap-note`, `polish`, `distill`, `decide`, `brief`); users can add templates and edit any template.
 
-- Results are stored as separate documents linked to the transcript; the transcript is never overwritten.
-- **Ask** answers cite timestamps (`04:06`) that seek the player.
-- A run ledger records provider, model, duration and token counts, **never content** (upstream `llm_runs` rule).
-- Clinical output is always a draft for the clinician to review and sign.
+Rules ([deliverables-v1](contracts/deliverables-v1.md)):
+
+- Template text lives in immutable `prompt_versions` (the database rejects updates); a deliverable records the
+  version it used. `{{transcript}}` and `{{userNotes}}` render in one pass; without `{{transcript}}` the transcript
+  is appended as a tagged data block. Source text is declared data, never instructions.
+- Results are stored as separate `deliverables` linked to the transcript; the transcript is never overwritten.
+- The SOAP note template's output class is clinical: a SOAP run is routed and stored as clinical whatever the
+  transcript's class.
+- **Ask** answers cite timestamps (`[04:06]`); only citations that match a real segment start are returned, so a
+  chip always seeks somewhere real.
+- The run ledger (`llm_runs`) records engine, provider, model, locality, class, whether an override was used,
+  status, duration, token and character counts, **never content** (upstream `llm_runs` rule, enforced by the schema).
+- Clinical output is always a draft for the clinician to review and sign; the SOAP template tells the model never to
+  invent findings or numbers and to write "Not documented".
 
 ## Structure models (M6)
 
@@ -102,5 +127,10 @@ Before `generate`, `extract` or `embed`, the caller checks
 - general / personal: any locality.
 - clinical: on device; a local-network host only if the user marked it trusted; anything else (an untrusted LAN
   host or any cloud provider) only with a per-run override the user confirms, logged without content.
+
+For language models the one call site is `ChirpFeatures.DeliverableService` (a test fails if anything else calls
+`generate`). It routes with the engine's real `endpointHost`, re-checks before every model call, and accepts an
+override only as a `PrivacyOverride` token that `confirmOverride` mints from a request it issued: bound to that
+transcript, engine, host, locality and class, single use, valid 10 minutes.
 
 Details: [`12-privacy.md`](12-privacy.md).
