@@ -26,6 +26,8 @@ import Observation
     let dictation: DictationCoordinator
     /// Custom words and snippets (M2): the editor in Settings → Text; Clean reads them for files and dictations.
     let textRules: TextRulesViewModel
+    /// The dictation Live Activity (M2), driven by the coordinator's state.
+    let liveActivity: DictationLiveActivity
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -97,15 +99,26 @@ import Observation
             textRules: { await DictationTextRules.enabled(in: textRulesStore) }
         )
         self.textRules = TextRulesViewModel(store: textRulesStore)
+        let liveActivity = DictationLiveActivity(
+            modelName: settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2")
+        self.liveActivity = liveActivity
         self.library = LibraryViewModel(store: store, paths: paths)
         self.capture = CaptureViewModel(store: store)
         self.speechSettings = SpeechSettingsViewModel(
             speech: engines.speech, diarizer: engines.diarizer, settings: settings)
+        let dictation = self.dictation
+        dictation.onStateChange = { [weak liveActivity, weak dictation] state in
+            liveActivity?.update(for: state, recordedSeconds: dictation?.recordedSeconds ?? 0)
+        }
         let inbox = IncomingFileInbox.appDefault()
         self.inbox = inbox
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }
+
+    /// The process's one environment: the scene shows it, and the App Intents (Action Button, Control, Shortcuts) use
+    /// it even when they launched the app before any scene existed.
+    static let shared: AppLaunchState = make()
 
     /// Builds the environment in Application Support, or describes why it could not.
     static func make() -> AppLaunchState {

@@ -141,6 +141,22 @@ Dictating screen
 - [ ] Cancel while recording: the screen closes, no Recent row appears.
 - [ ] Airplane mode on: dictation still works end to end (nothing uses the network).
 
+Action Button, Control, Live Activity (Step 7)
+- [ ] Settings app → Action Button → Controls → Choose a Control → Parakeet → Dictate. From the Home Screen, press
+      the Action Button: Parakeet opens on the Dictating screen and records; the Dynamic Island shows the red waveform
+      and a running time.
+- [ ] Open Notes, press the Action Button (Parakeet opens and records), speak, press it again: "Copied"; switch back
+      to Notes and paste.
+- [ ] Lock the phone, press the Action Button: note whether it records from the Lock Screen (it may ask to unlock
+      first — iOS opens the app). Record the behavior in the plan's Step 7 notes.
+- [ ] While recording, go Home, long-press the Dynamic Island: "Dictating", time, **Stop & copy**. Tap it: the island
+      shows "Copied" for a few seconds, and the text is on the clipboard (paste in Notes).
+- [ ] The Lock Screen shows the same Live Activity while recording, with Stop & copy.
+- [ ] Settings → Action Button → Shortcut → Parakeet → Dictate works the same way. Siri: "Dictate with Parakeet".
+- [ ] Back Tap: Accessibility → Touch → Back Tap → Double Tap → Dictate (Parakeet); double-tap the back to start and
+      again to stop.
+- [ ] Control Center → add the Parakeet "Dictate" control; tap it to start and again to stop.
+
 Interruptions and routes (the recording must never be lost)
 - [ ] Dictate, then call the phone from another phone: the screen says "Paused — a call…"; decline the call. Either
       it resumes by itself, or it shows **Resume**; tap it and keep talking. Stop & copy: the text has both halves.

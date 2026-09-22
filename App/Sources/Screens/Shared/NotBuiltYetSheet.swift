@@ -36,15 +36,6 @@ extension Placeholder {
         id: "transform", title: "Transform", milestone: "M4",
         summary: "Rewrite a transcript with Polish, Distill, Decide or your own Transforms.",
         systemImage: "sparkles")
-    static let dictationTrigger = Placeholder(
-        id: "dictation-trigger", title: "Dictation trigger", milestone: "M2",
-        summary: "Choose how dictation starts: the Action Button, a Shortcut, or the Dictate card.",
-        systemImage: "button.programmable")
-    static let backTap = Placeholder(
-        id: "back-tap", title: "Back Tap", milestone: "M2",
-        summary: "Back Tap is an iPhone Accessibility setting that runs a Shortcut. M2 adds the Parakeet shortcut "
-            + "and shows how to assign it.",
-        systemImage: "hand.tap")
     static let cloudModels = Placeholder(
         id: "cloud-models", title: "Cloud models", milestone: "M4",
         summary: "Optionally let Ask and Transforms use a cloud model you set up. Off by default; clinical items "

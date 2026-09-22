@@ -94,6 +94,14 @@ Built in plan 011 (`ChirpAudio/Capture/`, README "Capture (M2)").
   pass, inside the engine (the saved WAV is not padded).
 - **Live preview is display-only:** a tail-window batch preview (every ~1 s over the last 15 s) or, later, a
   streaming engine. The copied text always comes from the final pass over the recorded file.
+- **Starting without opening the app (M2 Step 7).** The Action Button, a Control, Back Tap, Siri and Shortcuts all
+  run the App Intents in `App/Shared/DictationIntents.swift` in the app's process: `StartDictationIntent` and
+  `ToggleDictationIntent` are `AudioRecordingIntent`s with `supportedModes = .foreground(.immediate)` (recording
+  starts only in the foreground), and return once recording runs. The app starts the dictation Live Activity the
+  moment recording begins (`DictationLiveActivity`), which an audio-recording intent requires, keeps it through
+  Paused and Finishing, and ends it after the outcome. Its Stop button is `StopDictationIntent`, a
+  `LiveActivityIntent` that returns only after the final pass, so iOS keeps the app running for it. No App Group,
+  no entitlement: the widget extension only draws what the app sends.
 
 ## M3: meeting recording (PROPOSAL)
 

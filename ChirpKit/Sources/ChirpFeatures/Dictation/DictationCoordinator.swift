@@ -98,6 +98,8 @@ public struct DictationTextRules: Sendable {
     /// A discard still deleting the previous dictation; the next start waits for it (one recorder, one folder).
     @ObservationIgnored private var cleanupTask: Task<Void, Never>?
     @ObservationIgnored private var recordedSamples = 0
+    /// Callers of `waitForState(_:)`, resumed on the first state that matches.
+    @ObservationIgnored private var stateWaiters: [(matches: (DictationFlowState) -> Bool, resume: () -> Void)] = []
 
     public init(
         capture: any AudioCapturing,
@@ -147,6 +149,23 @@ public struct DictationTextRules: Sendable {
         }
     }
 
+    /// Returns once the flow reaches a state `matches` accepts (at once if it already has). The App Intents use it:
+    /// a start intent returns only when recording has begun (its Live Activity then exists), a stop intent only when
+    /// the text is copied or the dictation ended otherwise.
+    public func waitForState(_ matches: @escaping (DictationFlowState) -> Bool) async {
+        if matches(state) { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            stateWaiters.append((matches, { continuation.resume() }))
+        }
+    }
+
+    private func resumeStateWaiters() {
+        let current = state
+        let ready = stateWaiters.filter { $0.matches(current) }
+        stateWaiters.removeAll { $0.matches(current) }
+        for waiter in ready { waiter.resume() }
+    }
+
     /// Whether the failed dictation kept a recording that Retry can transcribe again.
     public var canRetry: Bool {
         guard case .failed = state, let recording else { return false }
@@ -163,6 +182,7 @@ public struct DictationTextRules: Sendable {
         if machine.state != state {
             state = machine.state
             onStateChange?(state)
+            resumeStateWaiters()
         }
         for effect in effects {
             perform(effect)

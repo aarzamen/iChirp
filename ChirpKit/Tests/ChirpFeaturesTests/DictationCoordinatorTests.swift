@@ -388,4 +388,15 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.mediaRelativePath, h.paths.relativePath(for: newURL))
     }
+
+    func testWaitForStateReturnsWhenRecordingBeginsAndWhenTheDictationEnds() async throws {
+        let h = Harness(testCase: self)
+        h.coordinator.start()
+        await h.coordinator.waitForState { $0 == .recording || $0.isFinished }
+        XCTAssertEqual(h.coordinator.state, .recording)
+        h.coordinator.stop()
+        await h.coordinator.waitForState(\.isFinished)
+        XCTAssertEqual(h.coordinator.state, .done)
+        await h.coordinator.waitForState(\.isFinished)  // already there: returns at once
+    }
 }

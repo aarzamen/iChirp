@@ -117,8 +117,6 @@ final class AppScreenLogicTests: XCTestCase {
         XCTAssertEqual(Placeholder.ask.milestone, "M4")
         XCTAssertEqual(Placeholder.transform.milestone, "M4")
         XCTAssertEqual(Placeholder.cloudModels.milestone, "M4")
-        XCTAssertEqual(Placeholder.dictationTrigger.milestone, "M2")
-        XCTAssertEqual(Placeholder.backTap.milestone, "M2")
     }
 
     /// M2: a dictation row being finalized says "Transcribing" (it never queues); a file still says it waits.
