@@ -88,6 +88,11 @@ public final class DatabaseManager: Sendable {
             }
         }
 
+        // M4 (plan 013): prompts, prompt versions, deliverables and the content-free run ledger.
+        migrator.registerMigration("v3-language-models") { db in
+            try LanguageModelSchema.create(db)
+        }
+
         return migrator
     }
 }

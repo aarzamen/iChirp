@@ -18,6 +18,9 @@ public protocol TranscriptionStoring: Sendable {
     func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription?
     /// Atomically sets only `isFavorite` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
     func updateFavorite(id: UUID, isFavorite: Bool) async throws -> Transcription?
+    /// Atomically sets only `privacyClass` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
+    /// Callers that also hold deliverables raise theirs too (`DeliverableService.setPrivacyClass`).
+    func updatePrivacyClass(id: UUID, privacyClass: PrivacyClass) async throws -> Transcription?
     /// Atomically moves `status` to `to` and sets `errorMessage` (and `updatedAt`), only if the stored status is one of
     /// `from`. Returns the updated row, or nil when the row is gone or its status is not in `from` (row unchanged).
     func transitionStatus(

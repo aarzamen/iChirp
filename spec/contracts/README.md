@@ -37,11 +37,14 @@ Each contract document includes:
 - [Media Storage Layout v1](media-storage-layout-v1.md): the on-disk layout under `Application Support/iChirp/`.
 - [File Transcription Audio Tracks v1](file-transcription-audio-tracks-v1.md): which audio track of an imported
   file is transcribed, the track picker, and `transcriptions.audioTrackOrdinal` (M1.5).
+- [Language Model Plug-in v1](language-model-plugin-v1.md): `LanguageModel`, provider configuration, secret
+  storage and the where-content-goes guarantees (M4).
+- [Deliverables v1](deliverables-v1.md): templates, immutable versions, deliverables, the metadata-only run ledger
+  and the single generation path (M4).
 
 ## Candidate contracts (write them with their milestone)
 
 - Share-extension inbox manifest in the App Group (M1.5).
 - `recording.lock` and meeting session folder (M3, port of upstream `meeting-artifacts-v1` and
   `meeting-recovery-retention`).
-- Deliverable and prompt-template records (M4).
 - App Intents and URL-scheme parameters (`ichirp://…`) once they are public automation surfaces (M2).

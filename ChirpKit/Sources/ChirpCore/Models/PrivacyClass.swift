@@ -6,3 +6,20 @@
 public enum PrivacyClass: String, Codable, Sendable, CaseIterable {
     case general, personal, clinical
 }
+
+extension PrivacyClass {
+    /// general < personal < clinical.
+    public var strictness: Int {
+        switch self {
+        case .general: 0
+        case .personal: 1
+        case .clinical: 2
+        }
+    }
+
+    /// The stricter of the two classes.
+    public func stricter(_ other: PrivacyClass?) -> PrivacyClass {
+        guard let other, other.strictness > strictness else { return self }
+        return other
+    }
+}

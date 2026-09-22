@@ -55,7 +55,7 @@ enum FakeStoreError: Error {
 /// can interleave another writer exactly there (the actor stays reentrant while a call is parked).
 actor FakeStore: TranscriptionStoring {
     enum Call: Hashable, Sendable {
-        case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, transitionStatus
+        case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, updatePrivacyClass, transitionStatus
     }
 
     private var rows: [UUID: Transcription] = [:]
@@ -114,6 +114,15 @@ actor FakeStore: TranscriptionStoring {
         try Task.checkCancellation()
         return modify(id) { row in
             row.isFavorite = isFavorite
+            return true
+        }
+    }
+
+    func updatePrivacyClass(id: UUID, privacyClass: PrivacyClass) async throws -> Transcription? {
+        await parkIfHeld(.updatePrivacyClass)
+        try Task.checkCancellation()
+        return modify(id) { row in
+            row.privacyClass = privacyClass
             return true
         }
     }

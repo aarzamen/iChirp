@@ -16,9 +16,9 @@ conformer in this package.
 
 - `DatabaseManager.swift` — connection setup (`init(url:)` for a file-backed
   `DatabasePool`, `inMemory()` for tests) and the migrator. The single source
-  of truth for the `transcriptions` schema; migrations `v1-transcriptions` and
-  `v2-audio-track-ordinal` (M1.5: one nullable integer column, `audioTrackOrdinal`;
-  NULL is automatic track selection, so every earlier row reads unchanged).
+  of truth for the schema: `v1-transcriptions`, then `v2-audio-track-ordinal` (M1.5: one nullable integer column,
+  `audioTrackOrdinal`; NULL is automatic track selection, so every earlier row reads unchanged), then
+  `v3-language-models` (M4).
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
@@ -28,16 +28,32 @@ conformer in this package.
   as SQL NULL and an empty list as `[]`, and each reads back as it was.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
   insert/update/fetch/fetchAll/delete, `savePreservingUserMetadata`, the
-  field-level `updateTitleOverride` / `updateFavorite` / `transitionStatus`,
+  field-level `updateTitleOverride` / `updateFavorite` / `updatePrivacyClass` /
+  `transitionStatus`,
   and `observeAll()` bridging a GRDB `ValueObservation` to an `AsyncStream`.
   `decodeRows` is the one row-by-row decoder behind both list reads.
+- `LanguageModelSchema.swift` — the M4 tables created by migration
+  `v3-language-models`: `prompts`, `prompt_versions` (immutable: SQLite triggers
+  abort every UPDATE and DELETE), `deliverables` (cascade-deleted with their
+  transcript) and `llm_runs` (the metadata-only run ledger; no content column).
+  Contract: `spec/contracts/deliverables-v1.md`.
+- `LanguageModelRecords.swift` — GRDB row mirrors (`PromptRecord`,
+  `PromptVersionRecord`, `DeliverableRecord`, `LanguageModelRunRecord`). Unknown
+  privacy classes read as `clinical`, unknown localities as `cloud`.
+- `GRDBDeliverableStore.swift` — the `DeliverableStoring` implementation:
+  built-in template install and upgrade by canonical key and revision (a user
+  edit or delete wins), user templates and versions, soft delete, deliverables
+  (insert, list, field-level text edit, raise-only privacy class), and the run
+  ledger.
 
 ## What to know before editing
 
 **Migrations are never edited after they ship.** Each is a
 `migrator.registerMigration("vX-name") { db in ... }` block registered once,
 in order, inside `DatabaseManager.migrator`. To change the schema, register a
-*new* migration — don't rewrite `v1-transcriptions`.
+*new* migration — don't rewrite `v1-transcriptions` or `v3-language-models`.
+(`v2-audio-track-ordinal` comes from the parallel M1.5 lane; the merge puts it
+between them.)
 
 **Older builds and parallel lanes share databases.** GRDB ignores applied
 migrations it does not know, so an M1 build opens a database migrated by
