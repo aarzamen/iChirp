@@ -45,6 +45,13 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
     public var derivedSnippet: String?
     public var isFavorite: Bool
     public var privacyClass: PrivacyClass
+    // M3 meetings (migration `v5-meetings`, spec/contracts/meeting-session-v1.md).
+    /// What the person typed about this item (the Notes tab). A user field: pipeline saves never overwrite it.
+    public var userNotes: String?
+    /// A meeting recovered after the app was killed while it recorded: its audio ends where the kill happened.
+    public var isPartialAudio: Bool
+    /// When the meeting-audio retention setting deleted this item's audio (`mediaRelativePath` is nil since).
+    public var audioRemovedAt: Date?
 
     /// Creates a new row. Every property not listed here starts empty: optionals are nil, `isFavorite` is
     /// false and `updatedAt` equals `createdAt`.
@@ -72,6 +79,7 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
         self.status = status
         self.isFavorite = false
         self.privacyClass = privacyClass
+        self.isPartialAudio = false
     }
 
     /// titleOverride ?? non-empty derivedTitle ?? fileName without extension
@@ -99,5 +107,33 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
             return nil
         }
         return trimmed
+    }
+}
+
+extension Transcription {
+    /// The trimmed name a rename may store: nil for blank input (a speaker keeps a label; "Speaker 1" is restored by
+    /// renaming it back).
+    public static func speakerName(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(60))
+    }
+
+    /// Renames speaker `speakerId` to `label` in `speakers` and in every transcript segment of that speaker (M3).
+    /// Returns false, changing nothing, when the speaker is not in `speakers` or the name is blank.
+    @discardableResult
+    public mutating func renameSpeaker(_ speakerId: String, to label: String) -> Bool {
+        guard let name = Self.speakerName(label),
+            let index = speakers?.firstIndex(where: { $0.id == speakerId })
+        else { return false }
+        speakers?[index].label = name
+        if let segments = transcriptSegments {
+            transcriptSegments = segments.map { segment in
+                guard segment.speakerId == speakerId else { return segment }
+                var renamed = segment
+                renamed.speakerLabel = name
+                return renamed
+            }
+        }
+        return true
     }
 }

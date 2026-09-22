@@ -86,6 +86,7 @@ actor FakeStore: TranscriptionStoring {
         merged.titleOverride = current.titleOverride
         merged.isFavorite = current.isFavorite
         merged.privacyClass = current.privacyClass
+        merged.userNotes = current.userNotes
         rows[merged.id] = merged
         publish()
         return merged

@@ -39,6 +39,10 @@ struct TranscriptionRecord: Codable, Equatable, Sendable {
     var derivedSnippet: String?
     var isFavorite: Bool
     var privacyClass: String
+    /// Added by migration `v5-meetings` (M3); NULL / false / NULL on every earlier row.
+    var userNotes: String?
+    var isPartialAudio: Bool
+    var audioRemovedAt: Date?
 }
 
 extension TranscriptionRecord: FetchableRecord, PersistableRecord {
@@ -76,6 +80,9 @@ extension TranscriptionRecord {
         derivedSnippet = transcription.derivedSnippet
         isFavorite = transcription.isFavorite
         privacyClass = transcription.privacyClass.rawValue
+        userNotes = transcription.userNotes
+        isPartialAudio = transcription.isPartialAudio
+        audioRemovedAt = transcription.audioRemovedAt
     }
 
     /// Decodes this row back into a `Transcription`.
@@ -125,6 +132,9 @@ extension TranscriptionRecord {
         transcription.derivedTitle = derivedTitle
         transcription.derivedSnippet = derivedSnippet
         transcription.isFavorite = isFavorite
+        transcription.userNotes = userNotes
+        transcription.isPartialAudio = isPartialAudio
+        transcription.audioRemovedAt = audioRemovedAt
         return transcription
     }
 

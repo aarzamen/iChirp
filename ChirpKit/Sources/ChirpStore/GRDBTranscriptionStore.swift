@@ -1,7 +1,7 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Database/TranscriptionRepository.swift @ bbae9e0e
 // Changes: ports the intent of `savePreservingUserMetadata` (merge titleOverride + isFavorite, and here also
-// privacyClass, from the stored row onto pipeline output, inside one write transaction; a missing row is not
-// re-inserted, upstream throws `recordingDeleted`, here it returns nil) and of the field-level
+// privacyClass and M3's userNotes, from the stored row onto pipeline output, inside one write transaction; a missing
+// row is not re-inserted, upstream throws `recordingDeleted`, here it returns nil) and of the field-level
 // `updateTitleOverride` / `updateFavorite` / `transitionStatus` onto ChirpCore's
 // `TranscriptionStoring` protocol and the trimmed `Transcription` shape. List reads decode row by row and skip
 // (and log) a row this build cannot read, where upstream fails the whole fetch. Every lookup goes
@@ -47,6 +47,7 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
             merged.titleOverride = current.titleOverride
             merged.isFavorite = current.isFavorite
             merged.privacyClass = current.privacyClass
+            merged.userNotes = current.userNotes  // M3: the person's notes are a user field too.
             try merged.update(db)
             // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
             return try TranscriptionRecord.fetchOne(db, key: merged.id)?.toTranscription()
@@ -78,6 +79,28 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     public func updatePrivacyClass(id: UUID, privacyClass: PrivacyClass) async throws -> Transcription? {
         try await modify(id: id) { row in
             row.privacyClass = privacyClass
+            return true
+        }
+    }
+
+    public func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            row.userNotes = userNotes
+            return true
+        }
+    }
+
+    public func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            row.renameSpeaker(speakerId, to: label)
+        }
+    }
+
+    public func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            guard row.status == .completed else { return false }
+            row.mediaRelativePath = nil
+            row.audioRemovedAt = date
             return true
         }
     }
