@@ -41,8 +41,12 @@ Then read `ParakeetEngine.swift`.
   on iOS and on macOS 15+, and serializes only on macOS 14.
 - `WordTimingBuilder.swift`: an internal copy of upstream `STTWordTimingBuilder` that merges `▁` tokens into
   `WordTimestamp`s. It is a copy because this target must not depend on ChirpText.
-- `FluidAudioModelLocations.swift`: model folders under the FluidAudio models root, cache-completeness checks
-  (required files plus FluidAudio's pinned-revision marker), backup exclusion and on-disk size.
+- `FluidAudioModelLocations.swift`: model folders under the FluidAudio models root, cache-completeness checks,
+  backup exclusion and on-disk size. "Ready" means complete: every required `.mlmodelc` has its root
+  `coremldata.bin` and no `*.partial` file from an interrupted download, the Parakeet vocabulary (written last)
+  exists, and FluidAudio's pinned-revision marker matches. `AsrModels.modelsExist` only checks that bundle folders
+  exist, so when it passes on a partial cache the Parakeet download first runs `ModelHub.download`, which fetches
+  the missing files and resumes the partial ones without deleting anything.
 - `ModelDownloadTracker.swift`: maps FluidAudio's `DownloadProgress` phases onto one monotonic 0…1 bar, keeps the
   in-flight fraction and the last failure for `assetStatus()`, and maps errors onto `SpeechEngineError`.
 
@@ -52,8 +56,9 @@ Then read `ParakeetEngine.swift`.
   with a range. On every bump, diff the public API used here (`AsrModels`, `AsrManager`, `ASRConfig`,
   `TdtDecoderState`, `OfflineDiarizerModels`, `OfflineDiarizerManager`, `OfflineDiarizerConfig`, `ModelHub`,
   `Repo.revision`, `DownloadProgress`). Re-check `ModelDownloadTracker.fluidAudioDownloadWeight` against
-  FluidAudio's `ProgressReporter`, and re-check the `.fluidaudio-revision` marker logic against its
-  `ModelCache.matchesRevision`. Then run the gated real-model test below as the regression pass. A revision
+  FluidAudio's `ProgressReporter`, the `.fluidaudio-revision` marker logic against its
+  `ModelCache.matchesRevision`, and `FluidAudioModelLocations.incompleteFiles` against its
+  `ModelCache.incompleteFiles`. Then run the gated real-model test below as the regression pass. A revision
   bump for a pinned repo (the diarizer) makes existing caches report `.notDownloaded`, by design.
 - **Never download implicitly.** `assetStatus()` only reads the file system. Only `downloadAssets` touches the
   network. `prepare`, `transcribe` and `diarize` load strictly from local files, so never call

@@ -92,12 +92,20 @@ public actor ParakeetEngine: SpeechEngine {
     static func liveHooks(variant: ParakeetVariant, modelsRoot: URL) -> ModelAssetLifecycle<ParakeetRuntime>.Hooks {
         let directory = FluidAudioModelLocations.parakeetDirectory(in: modelsRoot, variant: variant)
         let version = FluidAudioModelLocations.asrVersion(for: variant)
+        let repo = FluidAudioModelLocations.asrRepo(for: variant)
+        let downloadVariant = FluidAudioModelLocations.downloadVariant(for: variant)
         return ModelAssetLifecycle<ParakeetRuntime>.Hooks(
             engineID: engineID,
             displayName: descriptor(for: variant).displayName,
             modelsPresent: { FluidAudioModelLocations.parakeetModelsExist(in: modelsRoot, variant: variant) },
             bytesOnDisk: { FluidAudioModelLocations.byteSize(of: directory) },
             download: { handler in
+                if FluidAudioModelLocations.parakeetNeedsRepair(in: modelsRoot, variant: variant) {
+                    // A partial cache that `AsrModels.download` would skip: fetch the missing files and resume the
+                    // `.partial` ones (nothing is deleted), then let it finish as usual.
+                    try await ModelHub.download(
+                        repo, to: modelsRoot, variant: downloadVariant, progressHandler: handler)
+                }
                 _ = try await AsrModels.download(to: directory, version: version, progressHandler: handler)
                 try FluidAudioModelLocations.excludeFromBackup(directory)
             },
@@ -126,7 +134,8 @@ public actor ParakeetEngine: SpeechEngine {
         await lifecycle.status()
     }
 
-    /// Downloads (or validates) the model via `AsrModels.download`, then excludes its folder from backups.
+    /// Downloads (or validates) the model via `AsrModels.download`, first repairing a partial cache it would skip,
+    /// then excludes its folder from backups.
     /// A second call while one is running joins it and sees only 0 and 1 as progress.
     public func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {
         try await lifecycle.download(progress: progress)

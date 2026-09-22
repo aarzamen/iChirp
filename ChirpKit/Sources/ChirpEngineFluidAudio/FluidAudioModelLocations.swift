@@ -46,20 +46,77 @@ enum FluidAudioModelLocations {
         root.appendingPathComponent(Repo.diarizer.folderName, isDirectory: true)
     }
 
-    /// Every file `AsrModels.load` needs is on disk and came from the revision this FluidAudio build pins.
+    /// `ModelHub.download`'s `variant` for Parakeet, as `AsrModels.download` passes it (default int8 encoder on v3).
+    static func downloadVariant(for variant: ParakeetVariant) -> String? {
+        switch variant {
+        case .v3: return ParakeetEncoderPrecision.int8.rawValue
+        case .v2: return nil
+        }
+    }
+
+    /// What `AsrModels.loadLocal` reads, relative to the repo folder: the compiled bundles (int8 encoder, its
+    /// default) and the vocabulary JSON, which `AsrModels.download` writes last.
+    static func parakeetRequiredFiles(variant: ParakeetVariant) -> Set<String> {
+        let bundles: Set<String>
+        switch variant {
+        case .v3: bundles = ModelNames.ASR.requiredModelsV3(precision: .int8)
+        case .v2: bundles = ModelNames.ASR.requiredModels
+        }
+        return bundles.union([ModelNames.ASR.vocabularyFile])
+    }
+
+    /// Ready means complete: every file `AsrModels.loadLocal` needs is on disk and whole, and came from the revision
+    /// this FluidAudio build pins. `AsrModels.modelsExist` alone only checks that each bundle folder exists.
     static func parakeetModelsExist(in root: URL, variant: ParakeetVariant) -> Bool {
         let directory = parakeetDirectory(in: root, variant: variant)
         return AsrModels.modelsExist(at: directory, version: asrVersion(for: variant))
+            && incompleteFiles(in: directory, requiredFiles: parakeetRequiredFiles(variant: variant)).isEmpty
             && cacheMatchesPinnedRevision(directory, repo: asrRepo(for: variant))
     }
 
-    /// Upstream `DiarizationService.isModelCached`, plus the revision check.
+    /// True when the cache is incomplete but `AsrModels.download` would still stop early on its looser
+    /// folder-exists check. The download hook then runs `ModelHub.download` first, which fetches the missing files
+    /// and resumes `.partial` ones without deleting anything.
+    static func parakeetNeedsRepair(in root: URL, variant: ParakeetVariant) -> Bool {
+        let directory = parakeetDirectory(in: root, variant: variant)
+        return AsrModels.modelsExist(at: directory, version: asrVersion(for: variant))
+            && !parakeetModelsExist(in: root, variant: variant)
+    }
+
+    /// Upstream `DiarizationService.isModelCached`, made strict (every bundle whole) plus the revision check.
+    /// `ModelHub.download` has no early exit of its own, so a partial cache is repaired by the next Download.
     static func diarizerModelsExist(in root: URL) -> Bool {
         let directory = diarizerDirectory(in: root)
-        let filesPresent = ModelNames.OfflineDiarizer.requiredModels.allSatisfy { name in
-            FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
+        return incompleteFiles(in: directory, requiredFiles: ModelNames.OfflineDiarizer.requiredModels).isEmpty
+            && cacheMatchesPinnedRevision(directory, repo: .diarizer)
+    }
+
+    /// Mirrors FluidAudio's internal `ModelCache.incompleteFiles` (issue #819): a `.mlmodelc` bundle counts only
+    /// with its root `coremldata.bin` and no `*.partial` file left by an interrupted `FileDownloader` fetch; any
+    /// other file must exist. Returns the incomplete names, sorted.
+    static func incompleteFiles(in repoDirectory: URL, requiredFiles: Set<String>) -> [String] {
+        let fileManager = FileManager.default
+        return requiredFiles.filter { name in
+            let url = repoDirectory.appendingPathComponent(name)
+            guard name.hasSuffix(".mlmodelc") else {
+                return !fileManager.fileExists(atPath: url.path)
+            }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue,
+                fileManager.fileExists(atPath: url.appendingPathComponent("coremldata.bin").path)
+            else { return true }
+            return containsPartialDownload(url)
+        }.sorted()
+    }
+
+    private static func containsPartialDownload(_ directory: URL) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
+            return false
         }
-        return filesPresent && cacheMatchesPinnedRevision(directory, repo: .diarizer)
+        for case let item as URL in enumerator where item.pathExtension == "partial" {
+            return true
+        }
+        return false
     }
 
     /// Mirrors FluidAudio's internal `ModelCache.matchesRevision`. FluidAudio's loaders re-download a cache whose
