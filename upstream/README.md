@@ -18,8 +18,19 @@ against `git rev-parse bbae9e0e^{tree}`.
   or adapt it into iChirp's own sources rather than depending on this tree at
   build time. This directory exists for reference and diffing, not linking.
 - **Provenance headers.** When porting a file or a substantial chunk of logic
-  from this tree, note its origin (path + commit) in a comment at the top of
-  the new iChirp file, so later readers can trace it back to `bbae9e0e`.
+  from this tree, start the new iChirp file with this exact header, followed by
+  a one-line summary of what changed in the port:
+
+  ```swift
+  // Ported from MacParakeet (GPL-3.0): <path relative to upstream/macparakeet> @ bbae9e0e
+  ```
+
+  For example:
+  `// Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/STT/STTWordTimingBuilder.swift @ bbae9e0e`.
+  Code that re-implements upstream behavior without copying lines says so:
+  `// Semantics from MacParakeet (GPL-3.0): <path> @ bbae9e0e — … Fresh implementation, not a line port.`
+  After a sync to a newer ref, the header of a re-ported file carries the new SHA.
+  `grep -rl "Ported from MacParakeet" ChirpKit App` lists every ported file.
 
 ## How to sync
 
@@ -28,7 +39,16 @@ scripts/sync_upstream.sh <ref>
 ```
 
 Updates `upstream/macparakeet/` to match a newer upstream ref, preserving the
-read-only, verbatim-copy contract described above.
+read-only, verbatim-copy contract described above. The sync is its own commit,
+so what upstream changed between two syncs is:
+
+```bash
+git log --oneline -- upstream/macparakeet | head -5      # find the two sync commits
+git diff <old-sync>..<new-sync> -- upstream/macparakeet/Sources/MacParakeetCore/STT/
+```
+
+Port the deltas that matter into iChirp's files, then update their provenance
+SHA. See `AGENTS.md`, section 6.
 
 ## Where to look
 

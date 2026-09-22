@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAF7}
+a{text-decoration:none;color:#BE4E26}
+a:hover{color:#8F3A1B}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;margin:0;text-align:left;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; overflow: hidden; background: #FAFAF7; color: #1A1A1A; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Nunito, system-ui, sans-serif; display: flex; flex-direction: column;">
+
+  <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 56px 24px 0 24px;">
+
+    <div style="height: 44px; display: flex; align-items: center; font-family: ui-rounded, 'SF Pro Rounded', Nunito, -apple-system, system-ui, sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -0.02em;">Settings</div>
+
+    <div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #6B6B6B; margin: 14px 0 8px 4px;">Capture</div>
+    <div style="border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; overflow: hidden;">
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Dictation trigger</span>
+        <span style="font-size: 15px; color: #6B6B6B;">Action Button</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+      <div style="height: 1px; margin-left: 14px; background: #F0F0E8;"></div>
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Back Tap</span>
+        <span style="font-size: 15px; color: #6B6B6B;">Double tap</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+      <div style="height: 1px; margin-left: 14px; background: #F0F0E8;"></div>
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Stop mode</span>
+        <span style="font-size: 15px; color: #6B6B6B;">Tap to stop</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+    </div>
+
+    <div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #6B6B6B; margin: 20px 0 8px 4px;">Speech</div>
+    <div style="border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; overflow: hidden;">
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 62px; padding: 0 14px;">
+        <span style="flex-grow: 1; min-width: 0;">
+          <span style="display: block; font-size: 15.5px;">Speech model</span>
+          <span style="display: block; font-size: 12.5px; color: #6B6B6B; margin-top: 2px;">On device &#183; 620 MB &#183; Neural Engine</span>
+        </span>
+        <span style="font-size: 15px; color: #6B6B6B;">Parakeet v3</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+      <div style="height: 1px; margin-left: 14px; background: #F0F0E8;"></div>
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Language</span>
+        <span style="font-size: 15px; color: #6B6B6B;">English (US)</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+      <div style="height: 1px; margin-left: 14px; background: #F0F0E8;"></div>
+      <div style="display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Speaker labels</span>
+        <button type="button" aria-label="Speaker labels" aria-pressed="{{speakersOn}}" onClick="{{toggleSpeakers}}" style="width: 51px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;">
+          <span style="width: 51px; height: 31px; border-radius: 16px; background: {{speakersTrack}}; display: flex; align-items: center; justify-content: {{speakersJustify}}; padding: 0 2px; box-sizing: border-box;">
+            <span style="width: 27px; height: 27px; border-radius: 14px; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.25);"></span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #6B6B6B; margin: 20px 0 8px 4px;">Privacy</div>
+    <div style="border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 14px;">
+        <span style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: #E8F5EC; display: flex; align-items: center; justify-content: center;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#1E7B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 18px; height: 18px;"><path d="M7.5 11V8.2a4.5 4.5 0 0 1 9 0V11"/><rect x="5" y="11" width="14" height="9" rx="2.6"/></svg>
+        </span>
+        <span style="flex-grow: 1; min-width: 0;">
+          <span style="display: block; font-size: 15.5px;">Everything stays on this iPhone</span>
+          <span style="display: block; font-size: 12.5px; color: #6B6B6B; margin-top: 2px;">Audio, transcripts, notes &#8212; no account, no upload</span>
+        </span>
+      </div>
+      <div style="height: 1px; margin-left: 14px; background: #F0F0E8;"></div>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 10px 14px;">
+        <span style="flex-grow: 1; min-width: 0;">
+          <span style="display: block; font-size: 15.5px;">Cloud models for Ask</span>
+          <span style="display: block; font-size: 12.5px; color: #6B6B6B; margin-top: 2px;">Off &#8212; Ask and Transforms run locally</span>
+        </span>
+        <button type="button" aria-label="Cloud models for Ask" aria-pressed="{{cloudOn}}" onClick="{{toggleCloud}}" style="width: 51px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;">
+          <span style="width: 51px; height: 31px; border-radius: 16px; background: {{cloudTrack}}; display: flex; align-items: center; justify-content: {{cloudJustify}}; padding: 0 2px; box-sizing: border-box;">
+            <span style="width: 27px; height: 27px; border-radius: 14px; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.25);"></span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #6B6B6B; margin: 20px 0 8px 4px;">Text</div>
+    <div style="border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; overflow: hidden;">
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Clean-up pipeline</span>
+        <span style="font-size: 15px; color: #6B6B6B;">Balanced</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+      <div style="height: 1px; margin-left: 14px; background: #F0F0E8;"></div>
+      <button type="button" style="display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 14px;">
+        <span style="flex-grow: 1; font-size: 15.5px;">Custom words &amp; snippets</span>
+        <span style="font-size: 15px; color: #6B6B6B;">24</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9C9C9C" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 16px; height: 16px; flex-shrink: 0;"><path d="m9.5 6 6 6-6 6"/></svg>
+      </button>
+    </div>
+
+  </div>
+
+  <div style="height: 83px; flex-shrink: 0; box-sizing: border-box; background: rgba(250,250,247,0.94); border-top: 1px solid #E8E8E0; padding: 8px 8px 0 8px; display: flex; flex-direction: column;">
+    <div style="flex-grow: 1; display: flex;">
+      <a href="Home.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width: 23px; height: 23px;"><path d="M4 10.5v3M8 7v10M12 4v16M16 8v8M20 10.5v3"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Capture</span>
+      </a>
+      <a href="Library.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true" style="width: 23px; height: 23px;"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2.3"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="2.3"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="2.3"/><rect x="13" y="13" width="7.5" height="7.5" rx="2.3"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Library</span>
+      </a>
+      <a href="Transform.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="width: 23px; height: 23px;"><path d="M11 3.6 12.7 8.3 17.4 10 12.7 11.7 11 16.4 9.3 11.7 4.6 10 9.3 8.3z"/><path d="M17.8 15.1l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9z"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Transforms</span>
+      </a>
+      <a href="Settings.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #BE4E26;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true" style="width: 23px; height: 23px;"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.6v2.2M12 18.2v2.2M20.4 12h-2.2M5.8 12H3.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6M17.9 17.9l-1.6-1.6M7.7 7.7 6.1 6.1"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Settings</span>
+      </a>
+    </div>
+    <div style="height: 21px; display: flex; align-items: center; justify-content: center;">
+      <span style="width: 134px; height: 5px; border-radius: 3px; background: #1A1A1A; opacity: 0.25;"></span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { speakers: true, cloud: false };
+  }
+  renderVals() {
+    const sp = this.state.speakers;
+    const cl = this.state.cloud;
+    return {
+      speakersOn: sp,
+      toggleSpeakers: () => this.setState({ speakers: !sp }),
+      speakersTrack: sp ? '#33A854' : '#DDDDD5',
+      speakersJustify: sp ? 'flex-end' : 'flex-start',
+      cloudOn: cl,
+      toggleCloud: () => this.setState({ cloud: !cl }),
+      cloudTrack: cl ? '#33A854' : '#DDDDD5',
+      cloudJustify: cl ? 'flex-end' : 'flex-start'
+    };
+  }
+}
+</script>
+</body>
+</html>

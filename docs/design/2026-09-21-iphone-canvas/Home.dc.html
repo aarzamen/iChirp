@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Capture</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FAFAF7}
+a{text-decoration:none;color:#BE4E26}
+a:hover{color:#8F3A1B}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;margin:0;text-align:left;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; overflow: hidden; background: #FAFAF7; color: #1A1A1A; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Nunito, system-ui, sans-serif; display: flex; flex-direction: column;">
+
+  <div style="flex-grow: 1; overflow: hidden; padding: 56px 24px 0 24px; display: flex; flex-direction: column; gap: 14px;">
+
+    <div style="height: 40px; display: flex; align-items: center; gap: 9px;">
+      <div style="width: 27px; height: 27px; color: #E86B3B; flex-shrink: 0;">
+        <svg viewBox="0 0 1024 1024" aria-hidden="true" style="width: 100%; height: 100%; display: block;"><path fill="currentColor" fill-rule="evenodd" d="M 532.0 246.9 c -11.7 2.6 -16.9 4.5 -28.0 10.2 -21.6 11.0 -38.3 28.6 -50.8 53.5 -17.2 34.4 -23.8 75.8 -29.2 183.4 -1.1 22.3 -2.5 46.1 -3.0 53.0 -1.4 17.2 -6.1 55.3 -6.9 56.2 -0.3 0.4 -7.1 1.6 -15.1 2.8 -40.0 5.9 -68.5 16.2 -88.1 31.8 -13.7 10.9 -22.8 25.6 -25.0 40.4 -3.5 22.0 7.0 42.4 26.5 51.8 29.0 13.9 63.2 6.6 88.6 -19.0 17.6 -17.6 31.3 -44.2 41.9 -81.5 l 2.9 -10.0 13.3 -1.2 c 7.4 -0.6 19.3 -1.7 26.4 -2.3 64.1 -5.7 100.5 -19.6 130.1 -49.4 21.8 -21.9 36.3 -50.7 40.6 -80.2 1.6 -11.3 1.6 -37.7 0.0 -47.4 -1.4 -8.6 -5.4 -21.5 -8.4 -27.4 l -2.0 -4.0 -1.6 3.0 c -4.3 8.2 -17.7 23.1 -25.7 28.5 l -3.5 2.4 0.0 13.4 c 0.0 29.8 -10.0 59.0 -27.8 81.3 -6.9 8.6 -20.3 21.4 -28.5 27.3 -17.5 12.3 -47.6 24.0 -74.6 28.9 -16.8 3.1 -32.9 5.2 -33.6 4.4 -0.3 -0.3 0.6 -9.1 2.0 -19.6 3.4 -25.9 5.8 -52.5 9.4 -104.7 3.7 -53.4 5.4 -70.8 8.7 -88.5 7.7 -41.7 17.9 -65.8 36.0 -85.0 20.1 -21.2 48.5 -30.5 74.0 -24.0 25.9 6.6 43.4 24.3 49.5 49.8 2.8 11.6 2.3 31.1 -1.1 41.7 -9.0 28.4 -28.5 47.9 -56.2 56.4 -20.1 6.1 -48.3 4.4 -65.3 -3.9 -3.3 -1.6 -6.2 -2.7 -6.4 -2.4 -1.0 1.0 14.8 15.0 21.0 18.7 33.2 19.5 79.5 11.4 107.7 -18.8 7.9 -8.4 11.5 -13.7 16.7 -24.8 5.4 -11.5 8.2 -21.9 9.5 -36.0 1.8 -18.8 -1.0 -38.5 -7.4 -53.1 -9.0 -20.3 -28.4 -39.4 -49.1 -48.3 -15.5 -6.7 -23.1 -8.3 -42.5 -8.8 -13.7 -0.4 -17.9 -0.2 -25.0 1.4 z m -122.0 375.3 c 0.0 0.7 -1.3 6.4 -3.0 12.5 -10.2 39.0 -29.5 64.8 -55.1 73.9 -17.0 5.9 -37.5 2.5 -46.3 -7.8 -9.5 -11.1 -5.7 -30.7 8.9 -45.2 10.4 -10.4 24.5 -18.4 43.5 -24.6 13.0 -4.3 18.4 -5.5 35.5 -8.0 15.0 -2.2 16.5 -2.3 16.5 -0.8 z"/><path fill="currentColor" d="M 582.0 313.8 c -10.7 5.3 -10.7 20.4 0.1 26.0 10.1 5.3 21.0 -1.7 21.2 -13.5 0.1 -10.4 -11.7 -17.4 -21.3 -12.5 z"/><path fill="currentColor" d="M 659.7 327.7 c 1.0 4.7 1.3 11.2 1.1 21.0 l -0.3 14.1 4.6 0.6 c 7.5 1.0 15.9 8.4 15.9 14.1 0.0 3.1 1.9 1.4 4.7 -4.3 2.5 -5.0 2.8 -6.8 2.8 -15.2 0.0 -8.1 -0.4 -10.3 -2.6 -15.0 -4.5 -9.5 -14.5 -17.9 -25.5 -21.4 -2.2 -0.7 -2.2 -0.6 -0.7 6.1 z"/><path fill="currentColor" d="M 469.1 623.9 l -6.4 0.6 -3.2 9.5 c -10.2 30.6 -29.7 63.4 -51.4 86.4 l -5.6 5.9 5.5 -2.8 c 29.1 -14.5 56.2 -47.0 75.5 -90.5 l 4.4 -10.0 -6.2 0.2 c -3.4 0.1 -9.1 0.4 -12.6 0.7 z"/></svg>
+      </div>
+      <div style="flex-grow: 1; font-family: ui-rounded, 'SF Pro Rounded', Nunito, -apple-system, system-ui, sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.01em;">Parakeet</div>
+      <div style="display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 13px; background: #FFFFFF; border: 1px solid #E8E8E0; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 13px; height: 13px;"><path d="M7.5 11V8.2a4.5 4.5 0 0 1 9 0V11"/><rect x="5" y="11" width="14" height="9" rx="2.6"/></svg>
+        <span style="font-size: 11.5px; font-weight: 600;">On device</span>
+      </div>
+    </div>
+
+    <a href="Dictating.dc.html" style="display: flex; align-items: center; gap: 16px; height: 140px; box-sizing: border-box; padding: 0 20px; border-radius: 24px; background: #FFF0EB; border: 1px solid #F6D3C3; color: #1A1A1A;">
+      <div style="width: 76px; height: 76px; border-radius: 38px; background: #E86B3B; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 6px 16px rgba(232,107,59,0.32);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-linecap="round" aria-hidden="true" style="width: 34px; height: 34px;"><path d="M3.5 10.5v3M7.75 6.5v11M12 3v18M16.25 7.5v9M20.5 10.5v3"/></svg>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
+        <div style="font-family: ui-rounded, 'SF Pro Rounded', Nunito, -apple-system, system-ui, sans-serif; font-size: 23px; font-weight: 700; letter-spacing: -0.015em;">Dictate</div>
+        <div style="font-size: 13.5px; line-height: 1.35; color: #6B6B6B;">Hold the Action Button, or tap here to go hands&#8209;free.</div>
+        <div style="display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; margin-top: 3px; height: 22px; padding: 0 9px; border-radius: 11px; background: #FFFFFF; border: 1px solid #F1C9B6;">
+          <span style="width: 6px; height: 6px; border-radius: 3px; background: #33A854;"></span>
+          <span style="font-size: 11px; font-weight: 600; color: #BE4E26;">Clean text on copy</span>
+        </div>
+      </div>
+    </a>
+
+    <div style="display: flex; gap: 14px;">
+      <button type="button" style="flex-grow: 1; flex-basis: 0; min-width: 0; height: 108px; box-sizing: border-box; padding: 14px; border-radius: 18px; background: #FFFFFF; border: 1px solid #E8E8E0; display: flex; flex-direction: column; justify-content: space-between;">
+        <div style="width: 34px; height: 34px; border-radius: 10px; background: #FFF0EB; display: flex; align-items: center; justify-content: center; color: #BE4E26;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 19px; height: 19px;"><path d="M10.4 13.6a4.2 4.2 0 0 0 6 0l2.7-2.7a4.2 4.2 0 0 0-6-6l-1.1 1.1"/><path d="M13.6 10.4a4.2 4.2 0 0 0-6 0l-2.7 2.7a4.2 4.2 0 0 0 6 6l1.1-1.1"/></svg>
+        </div>
+        <div>
+          <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Paste a link</div>
+          <div style="font-size: 12px; color: #6B6B6B; margin-top: 2px;">YouTube, podcast, X</div>
+        </div>
+      </button>
+      <button type="button" style="flex-grow: 1; flex-basis: 0; min-width: 0; height: 108px; box-sizing: border-box; padding: 14px; border-radius: 18px; background: #FFFFFF; border: 1px solid #E8E8E0; display: flex; flex-direction: column; justify-content: space-between;">
+        <div style="width: 34px; height: 34px; border-radius: 10px; background: #FFF0EB; display: flex; align-items: center; justify-content: center; color: #BE4E26;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 19px; height: 19px;"><path d="M12 3.8v9.4"/><path d="m8.4 9.6 3.6 3.6 3.6-3.6"/><path d="M4.8 15.6v2.4A2.2 2.2 0 0 0 7 20.2h10a2.2 2.2 0 0 0 2.2-2.2v-2.4"/></svg>
+        </div>
+        <div>
+          <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Import audio</div>
+          <div style="font-size: 12px; color: #6B6B6B; margin-top: 2px;">Voice Memos, Files</div>
+        </div>
+      </button>
+    </div>
+
+    <a href="Meeting.dc.html" style="display: flex; align-items: center; gap: 13px; height: 84px; box-sizing: border-box; padding: 0 16px; border-radius: 18px; background: #FFFFFF; border: 1px solid #E8E8E0; color: #1A1A1A;">
+      <svg viewBox="0 0 120 140" aria-hidden="true" style="width: 40px; height: 47px; flex-shrink: 0;">
+        <g fill="none" stroke="#59A659" stroke-width="2.2" opacity="0.9"><circle cx="60" cy="48" r="15"/><circle cx="60" cy="33" r="15"/><circle cx="73" cy="40.5" r="15"/><circle cx="73" cy="55.5" r="15"/><circle cx="60" cy="63" r="15"/><circle cx="47" cy="55.5" r="15"/><circle cx="47" cy="40.5" r="15"/></g>
+        <path d="M60 63 C 60 86, 58 98, 60 122" fill="none" stroke="#59A659" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M60 94 C 48 92, 41 84, 40 76 C 50 76, 58 83, 60 94 Z" fill="#59A659" opacity="0.85"/>
+        <path d="M60 108 C 72 106, 79 98, 80 90 C 70 90, 62 97, 60 108 Z" fill="#59A659" opacity="0.55"/>
+      </svg>
+      <div style="flex-grow: 1; min-width: 0;">
+        <div style="font-size: 16px; font-weight: 600; letter-spacing: -0.01em;">Record Meeting</div>
+        <div style="font-size: 12.5px; color: #6B6B6B; margin-top: 2px;">Mic + room audio, transcribed on device</div>
+      </div>
+      <span style="display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 0 16px; border-radius: 17px; background: #BE4E26; color: #FFFFFF; font-size: 14px; font-weight: 700;">Start</span>
+    </a>
+
+    <div style="display: flex; align-items: baseline; margin-top: 4px;">
+      <div style="flex-grow: 1; font-size: 12.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #6B6B6B;">Recent</div>
+      <a href="Library.dc.html" style="font-size: 13.5px; font-weight: 600; color: #BE4E26;">See all</a>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 9px;">
+      <a href="Transcript.dc.html" style="display: flex; align-items: center; gap: 12px; height: 62px; box-sizing: border-box; padding: 0 12px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; color: #1A1A1A;">
+        <svg viewBox="0 0 100 100" aria-hidden="true" style="width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;"><rect width="100" height="100" fill="#16211D"/><g fill="none" stroke="#6E8F7A" stroke-width="1.7" opacity="0.5" transform="rotate(16 50 50)"><circle cx="50" cy="50" r="18"/><circle cx="50" cy="32" r="18"/><circle cx="65.6" cy="41" r="18"/><circle cx="65.6" cy="59" r="18"/><circle cx="50" cy="68" r="18"/><circle cx="34.4" cy="59" r="18"/><circle cx="34.4" cy="41" r="18"/></g><g fill="none" stroke="#9DBFA8" stroke-width="2" transform="rotate(16 50 50)"><circle cx="65.6" cy="41" r="18"/></g></svg>
+        <div style="flex-grow: 1; min-width: 0;">
+          <div style="font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Weekly Sync &#8212; Detachment Leads</div>
+          <div style="font-size: 12px; color: #6B6B6B; margin-top: 2px;">Meeting &#183; 28:40 &#183; 4 speakers</div>
+        </div>
+      </a>
+      <a href="Transcript.dc.html" style="display: flex; align-items: center; gap: 12px; height: 62px; box-sizing: border-box; padding: 0 12px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; color: #1A1A1A;">
+        <span style="width: 40px; height: 40px; border-radius: 11px; background: #FFF0EB; display: flex; align-items: center; justify-content: center; color: #BE4E26; flex-shrink: 0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="width: 19px; height: 19px;"><path d="M4 10.5v3M8 7v10M12 4.5v15M16 8v8M20 10.5v3"/></svg>
+        </span>
+        <div style="flex-grow: 1; min-width: 0;">
+          <div style="font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Update the readiness roster before Friday&#8217;s&#8230;</div>
+          <div style="font-size: 12px; color: #6B6B6B; margin-top: 2px;">Dictation &#183; 0:12 &#183; 2:34 PM</div>
+        </div>
+      </a>
+      <a href="Transcript.dc.html" style="display: flex; align-items: center; gap: 12px; height: 62px; box-sizing: border-box; padding: 0 12px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E8E8E0; color: #1A1A1A;">
+        <span style="width: 40px; height: 40px; border-radius: 11px; background: #F5F5F0; border: 1px solid #E8E8E0; display: flex; align-items: center; justify-content: center; color: #6B6B6B; flex-shrink: 0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width: 18px; height: 18px;"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.4v4.8l3.1 1.9"/></svg>
+        </span>
+        <div style="flex-grow: 1; min-width: 0;">
+          <div style="font-size: 14.5px; font-weight: 600; color: #6B6B6B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Corpsman handoff notes.m4a</div>
+          <div style="font-size: 12px; color: #BE4E26; margin-top: 2px; font-weight: 600;">Transcribing &#183; 62%</div>
+        </div>
+      </a>
+    </div>
+
+  </div>
+
+  <div style="height: 83px; flex-shrink: 0; box-sizing: border-box; background: rgba(250,250,247,0.94); border-top: 1px solid #E8E8E0; padding: 8px 8px 0 8px; display: flex; flex-direction: column;">
+    <div style="flex-grow: 1; display: flex;">
+      <a href="Home.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #BE4E26;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width: 23px; height: 23px;"><path d="M4 10.5v3M8 7v10M12 4v16M16 8v8M20 10.5v3"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Capture</span>
+      </a>
+      <a href="Library.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true" style="width: 23px; height: 23px;"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2.3"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="2.3"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="2.3"/><rect x="13" y="13" width="7.5" height="7.5" rx="2.3"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Library</span>
+      </a>
+      <a href="Transform.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="width: 23px; height: 23px;"><path d="M11 3.6 12.7 8.3 17.4 10 12.7 11.7 11 16.4 9.3 11.7 4.6 10 9.3 8.3z"/><path d="M17.8 15.1l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9z"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Transforms</span>
+      </a>
+      <a href="Settings.dc.html" style="flex-grow: 1; flex-basis: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #6B6B6B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" style="width: 23px; height: 23px;"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.6v2.2M12 18.2v2.2M20.4 12h-2.2M5.8 12H3.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6M17.9 17.9l-1.6-1.6M7.7 7.7 6.1 6.1"/></svg>
+        <span style="font-size: 10.5px; font-weight: 600;">Settings</span>
+      </a>
+    </div>
+    <div style="height: 21px; display: flex; align-items: center; justify-content: center;">
+      <span style="width: 134px; height: 5px; border-radius: 3px; background: #1A1A1A; opacity: 0.25;"></span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
