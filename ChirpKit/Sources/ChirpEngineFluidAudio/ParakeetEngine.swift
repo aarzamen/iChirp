@@ -166,7 +166,9 @@ public actor ParakeetEngine: SpeechEngine {
             await lifecycle.release(lease)
             return result
         } catch {
-            checkIn(worker, for: lease)
+            // The worker is dropped, not checked in: a manager that threw (or was cancelled) part-way through may
+            // hold half-finished decoder or progress-stream state. The next job makes a fresh one on the same
+            // models. No `cleanup()`: it also clears FluidAudio's process-wide MLArray cache other jobs use.
             await lifecycle.release(lease)
             throw SpeechEngineError.mapping(error)
         }
@@ -221,7 +223,7 @@ public actor ParakeetEngine: SpeechEngine {
         return idleWorkers.popLast() ?? lease.runtime.makeWorker()
     }
 
-    /// Returns a worker to the pool unless its model generation has been deleted since.
+    /// Returns a worker that finished cleanly to the pool, unless its model generation has been deleted since.
     private func checkIn(_ worker: any ParakeetWorker, for lease: ModelLease<ParakeetRuntime>) {
         guard lease.generation == idleWorkersGeneration else { return }
         idleWorkers.append(worker)

@@ -8,20 +8,24 @@ import XCTest
 /// progress stream, and two tasks iterating it trap with "attempt to await next() on more than one task". The fake
 /// worker here keeps that single-stream shape, so sharing a worker would crash or leak progress.
 final class ParakeetWorkerPoolTests: XCTestCase {
+    private struct InferenceFailure: Error {}
+
     private actor FakeWorker: ParakeetWorker {
         nonisolated let id: Int
         private let rendezvous: Rendezvous
         private let hold: Latch?
         private let events: LockedLog<String>
+        private let fails: Bool
         private(set) var streamRequests = 0
         private var stream: AsyncThrowingStream<Double, any Error>?
         private var continuation: AsyncThrowingStream<Double, any Error>.Continuation?
 
-        init(id: Int, rendezvous: Rendezvous, hold: Latch?, events: LockedLog<String>) {
+        init(id: Int, rendezvous: Rendezvous, hold: Latch?, events: LockedLog<String>, fails: Bool) {
             self.id = id
             self.rendezvous = rendezvous
             self.hold = hold
             self.events = events
+            self.fails = fails
         }
 
         static func marker(_ id: Int) -> Double { Double(id) / 10 }
@@ -45,6 +49,11 @@ final class ParakeetWorkerPoolTests: XCTestCase {
             continuation?.yield(Self.marker(id))
             await rendezvous.arrive()
             if let hold { await hold.wait() }
+            if fails {
+                // Like a CoreML or decoder error part-way through: the manager's state is now unknown.
+                events.append("throw-\(id)")
+                throw InferenceFailure()
+            }
             continuation?.finish()
             continuation = nil
             stream = nil
@@ -70,10 +79,13 @@ final class ParakeetWorkerPoolTests: XCTestCase {
         let events = LockedLog<String>()
         let rendezvous: Rendezvous
         let hold: Latch?
+        /// Workers (by 1-based creation order) whose transcription throws.
+        let failingWorkers: Set<Int>
 
-        init(partyCount: Int, hold: Latch? = nil) {
+        init(partyCount: Int, hold: Latch? = nil, failingWorkers: Set<Int> = []) {
             rendezvous = Rendezvous(partyCount: partyCount)
             self.hold = hold
+            self.failingWorkers = failingWorkers
         }
 
         var workers: [FakeWorker] {
@@ -97,7 +109,9 @@ final class ParakeetWorkerPoolTests: XCTestCase {
         private func makeWorker() -> FakeWorker {
             lock.lock()
             defer { lock.unlock() }
-            let worker = FakeWorker(id: made.count + 1, rendezvous: rendezvous, hold: hold, events: events)
+            let id = made.count + 1
+            let worker = FakeWorker(
+                id: id, rendezvous: rendezvous, hold: hold, events: events, fails: failingWorkers.contains(id))
             made.append(worker)
             return worker
         }
@@ -194,5 +208,31 @@ final class ParakeetWorkerPoolTests: XCTestCase {
         try await engine.downloadAssets { _ in }
         let result = try await engine.transcribe(fileAt: audio, options: SpeechTranscriptionOptions()) { _ in }
         XCTAssertEqual(try workerID(of: result), 2)
+    }
+
+    /// A manager whose transcription threw may hold half-finished decoder or progress state, so it must never serve
+    /// another job: the next job gets a fresh manager on the same loaded models.
+    func testAWorkerWhoseTranscriptionThrewIsDroppedNotReturnedToThePool() async throws {
+        let root = try makeScratchDirectory("ichirp-pool")
+        let audio = try writeSilentWAV(seconds: 2, in: root)
+        let fake = FakeParakeet(partyCount: 1, failingWorkers: [1])
+        let engine = fake.engine(in: root)
+
+        do {
+            _ = try await engine.transcribe(fileAt: audio, options: SpeechTranscriptionOptions()) { _ in }
+            XCTFail("Worker 1 throws")
+        } catch {
+            XCTAssertEqual(error as? SpeechEngineError, .underlying(InferenceFailure().localizedDescription))
+        }
+        XCTAssertEqual(fake.events.values, ["transcribe-1", "throw-1"])
+
+        let second = try await engine.transcribe(fileAt: audio, options: SpeechTranscriptionOptions()) { _ in }
+        XCTAssertEqual(try workerID(of: second), 2, "the failed manager must not be checked out again")
+        let third = try await engine.transcribe(fileAt: audio, options: SpeechTranscriptionOptions()) { _ in }
+        XCTAssertEqual(try workerID(of: third), 2, "a manager that succeeded goes back to the pool")
+        XCTAssertEqual(fake.workers.count, 2)
+        XCTAssertEqual(fake.events.values.filter { $0 == "transcribe-1" }.count, 1)
+        let leases = await engine.lifecycle.activeLeaseCount
+        XCTAssertEqual(leases, 0, "the failed job still releases its lease")
     }
 }
