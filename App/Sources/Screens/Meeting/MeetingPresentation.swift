@@ -22,7 +22,12 @@ struct MeetingPresentation: ViewModifier {
     /// Shown from Start until the person closes it; "Hide recording" hides it while recording continues.
     private var isMeetingShown: Binding<Bool> {
         Binding(
-            get: { environment.meeting.state != .idle && !environment.meeting.isScreenHidden },
+            get: {
+                // A dictation started during a meeting (Action Button) takes the screen; the meeting keeps
+                // recording and Capture's "Return" brings it back.
+                let dictating = environment.dictation.state != .idle && environment.dictation.state != .cancelled
+                return environment.meeting.state != .idle && !environment.meeting.isScreenHidden && !dictating
+            },
             set: { presented in
                 guard !presented else { return }
                 if environment.meeting.state.isFinished {

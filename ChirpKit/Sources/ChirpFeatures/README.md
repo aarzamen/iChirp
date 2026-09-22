@@ -139,6 +139,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `MeetingAudioRetention.swift`: `MeetingAudioRetentionPolicy` (completed meetings with audio, no lock file, older
   than N days; keep forever by default) and `MeetingAudioRetentionSweeper` (marks the row `audioRemovedAt` first,
   then deletes `meeting.caf`; the transcript and notes stay).
+- `TranscriptNotesViewModel.swift`: the Transcript's Notes tab (notes saved with `updateUserNotes`, blank clears;
+  speaker rename with `renameSpeaker`, blank names refused).
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 

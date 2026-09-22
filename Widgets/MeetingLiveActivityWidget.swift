@@ -68,6 +68,8 @@ private struct MeetingLockScreenView: View {
                     .font(.system(size: 28, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(.white)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 120, alignment: .trailing)
             }
             if let detail = state.detail {
                 Text(detail)
@@ -148,11 +150,11 @@ extension MeetingActivityAttributes.ContentState.Phase {
 
     var title: String {
         switch self {
-        case .recording: "Recording meeting"
-        case .paused: "Meeting paused"
+        case .recording: "Recording"
+        case .paused: "Paused"
         case .interrupted: "Interrupted"
         case .finishing: "Transcribing"
-        case .saved: "Meeting saved"
+        case .saved: "Saved"
         case .failed: "Not transcribed"
         }
     }
