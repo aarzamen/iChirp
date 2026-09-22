@@ -4,8 +4,8 @@ import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
-/// Tab 4 (canvas `Settings.dc.html`): Capture (M2 placeholders), Speech (real model management), Privacy, Text,
-/// About (the build stamp) and, in DEBUG builds, Diagnostics.
+/// Tab 4 (canvas `Settings.dc.html`): Capture (M2 placeholders), Speech (real model management), Privacy (with
+/// Settings → Models, M4), Text, About (the build stamp) and, in DEBUG builds, Diagnostics.
 struct SettingsScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var placeholder: Placeholder?
@@ -166,23 +166,8 @@ struct SettingsScreen: View {
             .frame(minHeight: 64)
             .accessibilityElement(children: .combine)
 
-            Button {
-                placeholder = .cloudModels
-            } label: {
-                SettingsRow(
-                    title: "Cloud models for Ask", caption: "Off — Ask and Transforms run locally · Milestone M4"
-                ) {
-                    Toggle("Cloud models for Ask", isOn: .constant(false))
-                        .labelsHidden()
-                        .disabled(true)
-                        .allowsHitTesting(false)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityValue("Off")
-            .accessibilityHint("Not built yet, milestone M4")
+            // M4: Settings → Models (on-device, home-network and cloud models; keys in the Keychain).
+            ModelsSettingsLink()
         }
     }
 

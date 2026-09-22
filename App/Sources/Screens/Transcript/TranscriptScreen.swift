@@ -7,8 +7,8 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// One transcript (canvas `Transcript.dc.html`): header with star and rename, Transcript / Notes / Ask tabs,
-/// player bar, speaker paragraphs with tappable timestamps, and Copy / Share / Transform.
+/// One transcript (canvas `Transcript.dc.html`): header with star and rename, Transcript / Notes / Ask tabs and the
+/// privacy class, player bar, speaker paragraphs with tappable timestamps, and Copy / Share / Transform (M4).
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let id: UUID
@@ -22,10 +22,17 @@ struct TranscriptScreen: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var copied = false
+    /// M4: the Ask tab and the Transform sheet.
+    @State private var selectedTab: TranscriptTab = .transcript
+    @State private var ask: AskSessionViewModel
+    @State private var isTransforming = false
+
+    enum TranscriptTab { case transcript, ask }
 
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
         _model = State(initialValue: environment.makeTranscriptViewModel(id: id))
+        _ask = State(initialValue: AskSessionViewModel(service: environment.deliverables, transcriptionID: id))
     }
 
     var body: some View {
@@ -42,7 +49,7 @@ struct TranscriptScreen: View {
             ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if model.transcription?.status == .completed {
+            if model.transcription?.status == .completed, selectedTab == .transcript {
                 bottomBar
             }
         }
@@ -60,6 +67,13 @@ struct TranscriptScreen: View {
         }
         .onDisappear { player.stop() }
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
+        .sheet(isPresented: $isTransforming, onDismiss: { Task { await environment.deliverableLibrary.load() } }) {
+            if let item = model.transcription {
+                TransformSheet(
+                    transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
+                    environment: environment)
+            }
+        }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
                 .presentationDetents([.medium, .large])
@@ -155,14 +169,21 @@ struct TranscriptScreen: View {
         .disabled(model.transcription == nil)
     }
 
-    // MARK: - Tabs (Transcript real; Notes M3, Ask M4)
+    // MARK: - Tabs (Transcript and Ask real; Notes M3) and the privacy class (M4)
 
     private var tabs: some View {
         HStack(spacing: 24) {
-            tabButton("Transcript", selected: true) {}
-            tabButton("Notes", selected: false) { placeholder = .notes }
-            tabButton("Ask", selected: false) { placeholder = .ask }
+            tabButton("Transcript", selected: selectedTab == .transcript) { selectedTab = .transcript }
+            tabButton("Notes", selected: false, notBuilt: true) { placeholder = .notes }
+            tabButton("Ask", selected: selectedTab == .ask) { selectedTab = .ask }
             Spacer(minLength: 0)
+            if let item = model.transcription {
+                PrivacyClassControl(current: item.privacyClass) { newClass in
+                    // Through the service, so the transcript's documents are raised with it (never lowered).
+                    try await environment.deliverables.setPrivacyClass(newClass, transcriptionID: id)
+                    await model.load()
+                }
+            }
         }
         .frame(minHeight: 44)
         .overlay(alignment: .bottom) {
@@ -171,7 +192,9 @@ struct TranscriptScreen: View {
         .padding(.horizontal, 24)
     }
 
-    private func tabButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func tabButton(_ title: String, selected: Bool, notBuilt: Bool = false, action: @escaping () -> Void)
+        -> some View
+    {
         Button(action: action) {
             Text(title)
                 .chirpFont(14.5, selected ? .bold : .semibold)
@@ -186,7 +209,7 @@ struct TranscriptScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint(selected ? "" : "Not built yet")
+        .accessibilityHint(notBuilt ? "Not built yet" : "")
     }
 
     // MARK: - Content
@@ -236,23 +259,33 @@ struct TranscriptScreen: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 14)
             }
-            ScrollView {
-                if paragraphs.isEmpty {
-                    EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                            paragraphView(
-                                paragraph,
-                                speakerIndex: paragraph.speakerId.flatMap { speakerOrder[$0] },
-                                showsTiming: hasTimings,
-                                isCurrent: index == current)
-                        }
+            if selectedTab == .ask {
+                AskView(transcription: item, session: ask, environment: environment) { ms in seek(toMs: ms) }
+            } else {
+                transcriptText(paragraphs, hasTimings: hasTimings, speakerOrder: speakerOrder, current: current)
+            }
+        }
+    }
+
+    private func transcriptText(
+        _ paragraphs: [TranscriptParagraph], hasTimings: Bool, speakerOrder: [String: Int], current: Int?
+    ) -> some View {
+        ScrollView {
+            if paragraphs.isEmpty {
+                EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                        paragraphView(
+                            paragraph,
+                            speakerIndex: paragraph.speakerId.flatMap { speakerOrder[$0] },
+                            showsTiming: hasTimings,
+                            isCurrent: index == current)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 10)
-                    .padding(.bottom, 24)
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 10)
+                .padding(.bottom, 24)
             }
         }
     }
@@ -346,7 +379,7 @@ struct TranscriptScreen: View {
             }
             .accessibilityLabel("Share")
             barButton(title: "Transform", systemImage: "sparkles", emphasized: true) {
-                placeholder = .transform
+                isTransforming = true
             }
         }
         .frame(minHeight: 58)

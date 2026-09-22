@@ -116,17 +116,33 @@ final class AppScreenLogicTests: XCTestCase {
         XCTAssertEqual(Placeholder.pasteLink.milestone, "M5")
         XCTAssertEqual(Placeholder.recordMeeting.milestone, "M3")
         XCTAssertEqual(Placeholder.notes.milestone, "M3")
-        XCTAssertEqual(Placeholder.ask.milestone, "M4")
-        XCTAssertEqual(Placeholder.transform.milestone, "M4")
-        XCTAssertEqual(Placeholder.cloudModels.milestone, "M4")
         XCTAssertEqual(Placeholder.dictationTrigger.milestone, "M2")
         XCTAssertEqual(Placeholder.backTap.milestone, "M2")
     }
 
-    func testTransformsListMatchesTheCanvasSet() {
-        XCTAssertEqual(
-            TransformsScreen.items.map(\.title),
-            ["Polish", "Distill", "Decide", "Brief", "Meeting notes", "SOAP note", "Agenda", "Action items"])
+    /// M4: every built-in template has an icon and a line in the Transforms lists; the canvas set is all there.
+    func testEveryBuiltInTemplateHasAStyle() {
+        let keys = Set(BuiltInTemplates.all.map(\.canonicalKey))
+        XCTAssertEqual(Set(TemplateStyle.builtIns.keys), keys)
+        let names = Set(BuiltInTemplates.all.map(\.name))
+        for canvasItem in ["Polish", "Distill", "Decide", "Brief", "Meeting notes", "SOAP note", "Agenda", "Action items"] {
+            XCTAssertTrue(names.contains(canvasItem), canvasItem)
+        }
+    }
+
+    /// M4: no "Milestone M4" placeholder is left in the app sources (M5+ placeholders stay).
+    func testNoM4PlaceholdersRemain() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/Sources")
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        var offenders: [String] = []
+        for case let file as URL in files where file.pathExtension == "swift" {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            if source.contains("milestone: \"M4\"") || source.contains("Milestone M4") || source.contains("milestone M4") {
+                offenders.append(file.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(offenders, [])
     }
 
     // MARK: - Build identity and diagnostics

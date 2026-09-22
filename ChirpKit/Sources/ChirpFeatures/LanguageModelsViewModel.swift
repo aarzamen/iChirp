@@ -82,7 +82,7 @@ public struct LanguageModelChoice: Sendable, Equatable, Hashable, Identifiable {
 
 /// The Settings → Models provider form. It says where the provider would run before anything is saved, and it holds
 /// a typed key only until `LanguageModelsViewModel.save` hands it to the Keychain.
-public struct LanguageModelProviderDraft: Sendable, Equatable {
+public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
     public let id: UUID
     public let isNew: Bool
     public private(set) var kind: LanguageModelProviderKind

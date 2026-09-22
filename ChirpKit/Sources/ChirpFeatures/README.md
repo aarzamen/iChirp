@@ -198,6 +198,9 @@ LibraryViewModel(store: store, paths: paths)               // paths: delete remo
 - **Clinical content to a cloud or untrusted LAN engine needs a `PrivacyOverride`**: only `confirmOverride` makes
   one, only from a request this service issued, for one run. The UI must call it only from the user's tap on
   "Send" in the confirmation that shows `request.title` and `request.message`; never from code that did not ask.
+  In the app that is `ClinicalConfirmationActions.userTappedSend()`
+  (`App/Sources/Screens/Transforms/ClinicalConfirmation.swift`), and `AppTests/ClinicalConfirmationTests` fails when
+  any other app code calls `confirmOverride`.
   Its use is logged as `privacy_override_used` (ids, engine id, locality; host `.private`) and recorded as
   `llm_runs.privacyOverride`. A LAN engine that does not report `endpointHost` is never trusted.
 - **Every run that reaches routing writes one `llm_runs` row** (succeeded, failed, cancelled or refused), outside
