@@ -90,6 +90,11 @@ Then read `ParakeetEngine.swift`.
   the `AsrManager.transcribe` call and the `OfflineDiarizerManager.process` call. Never gate model loading or
   downloads, and never call a gated method from inside a gated body. The body runs in the caller's isolation,
   which is how the actors keep FluidAudio's non-Sendable types confined.
+- **Blocking work is `@concurrent`.** CoreML compiles (`ParakeetEngine.loadRuntime`,
+  `FluidAudioDiarizer.loadLocalModels`), file work (`ModelAssetLifecycle.offActor`, PLDA repair), the download
+  retry loop and the chunk-progress setup are marked `@concurrent`, so they stay off the engine actors even if
+  nonisolated async functions later default to the caller's actor (Xcode's "Approachable Concurrency"). Mark new
+  blocking async work the same way.
 - Model folders are excluded from device backups after every successful download, because they can be
   re-downloaded. User data stays in backups (see ChirpCore's `AppPaths`).
 - `WordTimingBuilder` must stay behavior-identical to ChirpText's `WordTimingBuilder`. `WordTimingParityTests`

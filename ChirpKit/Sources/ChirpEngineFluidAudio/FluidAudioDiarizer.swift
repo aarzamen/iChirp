@@ -106,7 +106,9 @@ public actor FluidAudioDiarizer: SpeakerDiarizing {
     /// Builds `OfflineDiarizerModels` from this exact directory and never downloads. This does what
     /// `OfflineDiarizerModels.load` does without its `ModelHub.loadModels` download and purge-and-re-download
     /// path: Segmentation, Embedding and PldaRho on `.all`, FBank on `.cpuOnly` (fastest on CPU), and the PLDA psi
-    /// tensor decoded from `plda-parameters.json`. CoreML compiles synchronously here, off every actor.
+    /// tensor decoded from `plda-parameters.json`. CoreML compiles synchronously here, off every actor
+    /// (`@concurrent`).
+    @concurrent
     static func loadLocalModels(directory: URL) async throws -> OfflineDiarizerModels {
         let start = Date()
         func model(_ name: String, _ computeUnits: MLComputeUnits) throws -> MLModel {
@@ -229,7 +231,9 @@ public actor FluidAudioDiarizer: SpeakerDiarizing {
 
     /// FluidAudio's `ModelHub` repairs compiled models, but the PLDA JSON is parsed outside that recovery, so an
     /// existing malformed file is re-fetched here. Model bundles are never purged, and the old file stays until a
-    /// valid replacement arrives. Runs only from `downloadAssets`, the explicit network action.
+    /// valid replacement arrives. Runs only from `downloadAssets`, the explicit network action, and off every actor
+    /// (`@concurrent`: it reads and writes the file synchronously).
+    @concurrent
     static func repairPLDAParameters(
         modelsRoot: URL,
         offlineMode: Bool = ModelHub.offlineMode,

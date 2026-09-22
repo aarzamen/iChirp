@@ -283,7 +283,10 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         }
     }
 
-    /// Runs synchronous file work on the generic executor instead of the actor.
+    /// Runs synchronous file work on the generic executor instead of the actor. `@concurrent` keeps it there even
+    /// if nonisolated async functions are later made to run on the caller's actor (Xcode's "Approachable
+    /// Concurrency" / `NonisolatedNonsendingByDefault`).
+    @concurrent
     private static func offActor(_ body: @Sendable () throws -> Void) async throws {
         try body()
     }

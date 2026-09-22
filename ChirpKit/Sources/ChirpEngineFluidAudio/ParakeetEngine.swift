@@ -118,7 +118,9 @@ public actor ParakeetEngine: SpeechEngine {
 
     /// Loads from this exact directory and never downloads. `AsrModels.load` is not used because its
     /// `ModelHub.loadModels` fetches missing files and purges and re-downloads after a failed load. `loadLocal`
-    /// compiles synchronously, so it runs here on the generic executor, off every actor.
+    /// compiles synchronously, so it runs here on the generic executor, off every actor (`@concurrent`, so that
+    /// holds under any default for nonisolated async functions).
+    @concurrent
     static func loadRuntime(directory: URL, version: AsrModelVersion) async throws -> ParakeetRuntime {
         let models = try AsrModels.loadLocal(
             from: directory, version: version, encoderComputeUnits: ParakeetASRConfig.encoderComputeUnits())
@@ -244,6 +246,8 @@ public actor ParakeetEngine: SpeechEngine {
 
     /// FluidAudio only emits chunk progress for audio longer than one model window, and only finishes the
     /// session it opened for such audio, so the worker's stream is opened (before inference starts) only then.
+    /// `@concurrent`: opening the file to measure it stays off the engine actor.
+    @concurrent
     private static func forwardChunkProgress(
         of worker: any ParakeetWorker,
         for url: URL,
