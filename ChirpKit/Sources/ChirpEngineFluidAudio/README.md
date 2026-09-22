@@ -13,19 +13,27 @@ The code is ported from MacParakeet's `STTRuntime` and `DiarizationService` (ups
 
 `Registration.swift`: `FluidAudioEngines.makeDefault(settings:)` builds the `ParakeetEngine` for the user's
 `ParakeetVariant` plus the `FluidAudioDiarizer`. Both use FluidAudio's default model cache and the shared
-`ANEInferenceGate`. Read `ParakeetEngine.swift` next. It shows the lifecycle every engine here follows:
-`downloadAssets` → `prepare` → `transcribe` / `diarize`.
+`ANEInferenceGate`. Read `ModelAssetLifecycle.swift` next. It holds the lifecycle both engines share
+(`downloadAssets` → `prepare` → `transcribe` / `diarize` → `deleteAssets`) and the rules for what may overlap.
+Then read `ParakeetEngine.swift`.
 
 ## What's here
 
-- `ParakeetEngine.swift`: the `SpeechEngine` actor. Downloads with `AsrModels.download`, loads with
-  `AsrModels.load` + `AsrManager.loadModels`, and transcribes a 16 kHz mono file with a fresh `TdtDecoderState`
-  inside the gate. It forwards FluidAudio's chunk progress for files longer than 15 s, and maps a BCP-47
-  `languageHint` onto FluidAudio's v3 script filter.
+- `ModelAssetLifecycle.swift`: the generic actor both engines delegate to. It owns the download and load jobs
+  (concurrent callers join one of each), the leases that in-flight jobs hold, and a generation counter. A delete
+  refuses while a lease is out, bumps the generation, cancels and awaits in-flight work, and only then removes
+  files. A load that finishes for an older generation is discarded. The FluidAudio calls come in through
+  `Hooks`, which is also the test seam.
+- `ParakeetEngine.swift`: the `SpeechEngine` actor. It downloads with `AsrModels.download` and loads with
+  `AsrModels.loadLocal`, which reads local files only. Each `transcribe` checks out its own `AsrManager` (a
+  `ParakeetWorker`) from an idle pool; all of them share one read-only `AsrModels`. It transcribes a 16 kHz mono
+  file with a fresh `TdtDecoderState` inside the gate, forwards that manager's chunk progress for files longer
+  than 15 s, and maps a BCP-47 `languageHint` onto FluidAudio's v3 script filter.
 - `FluidAudioDiarizer.swift`: the `SpeakerDiarizing` actor. Holds upstream's `highAccuracyConfig`
   (`stepRatio 0.1`, `minSegmentDurationSeconds 0`, zero-vote re-embed), maps no-speech to an empty
   `DiarizationOutput`, renumbers speakers `S1…Sn` by first speech with `Speaker N` labels, and repairs a malformed
-  PLDA JSON during `downloadAssets`.
+  PLDA JSON during `downloadAssets`. It builds `OfflineDiarizerModels` from the local `.mlmodelc` bundles and
+  `plda-parameters.json` itself, because `OfflineDiarizerModels.load` downloads missing files.
 - `ParakeetASRConfig.swift`: the `ASRConfig` and encoder compute units policy, plus `ChirpTuning` (the on-device
   tunables, starting with `parakeetParallelChunks = 2` on iOS). macOS mirrors upstream.
 - `ANEInferenceGate.swift` and `AsyncPermit.swift`: ports of the process-wide Neural Engine mutex. It is a no-op
@@ -46,10 +54,19 @@ The code is ported from MacParakeet's `STTRuntime` and `DiarizationService` (ups
   FluidAudio's `ProgressReporter`, and re-check the `.fluidaudio-revision` marker logic against its
   `ModelCache.matchesRevision`. Then run the gated real-model test below as the regression pass. A revision
   bump for a pinned repo (the diarizer) makes existing caches report `.notDownloaded`, by design.
-- **Never download implicitly.** `assetStatus()` only reads the file system. `prepare`, `transcribe` and
-  `diarize` check the cache first and throw `SpeechEngineError.modelNotDownloaded` rather than letting FluidAudio's
-  loaders fetch missing files. Only `downloadAssets` touches the network. One known exception sits inside
-  FluidAudio: if a cached model fails to load, `ModelHub.loadModels` purges the cache and re-downloads it once.
+- **Never download implicitly.** `assetStatus()` only reads the file system. Only `downloadAssets` touches the
+  network. `prepare`, `transcribe` and `diarize` load strictly from local files, so never call
+  `AsrModels.load`, `AsrModels.downloadAndLoad` or `OfflineDiarizerModels.load`: those go through
+  `ModelHub.loadModels`, which downloads missing files and purges and re-downloads a cache that fails to load.
+  Loading throws `SpeechEngineError.modelNotDownloaded` while the files are missing, while a download is in
+  flight, and while a delete runs.
+- **One `AsrManager` per concurrent job.** A manager has exactly one progress stream and one progress session.
+  Two jobs on one manager trap in `AsyncStreamBuffer` ("attempt to await next() on more than one task"), or leak
+  progress into each other. `ChirpCore`'s scheduler runs an interactive and a background job at once, so the
+  engine pools managers. Upstream `STTRuntime` does the same with one manager per scheduler slot.
+- **Deleting is refused while a job runs.** `deleteAssets` throws `SpeechEngineError.underlying` with an in-use
+  message while any transcription or diarization holds a lease. Otherwise it waits for any download or load to
+  finish cancelling before it removes files.
 - **The ANE gate is never nested.** It is a plain mutex, not reentrant. Gate exactly one level per inference:
   the `AsrManager.transcribe` call and the `OfflineDiarizerManager.process` call. Never gate model loading or
   downloads, and never call a gated method from inside a gated body. The body runs in the caller's isolation,
@@ -69,10 +86,13 @@ scripts/check.sh ChirpEngineFluidAudioTests
 ```
 
 This runs the package build, the unit tests and the strict lint. The unit tests never download: they cover the
-gate, the descriptors, word timing, the not-downloaded paths, diarizer renumbering, PLDA repair and progress
-mapping. The real-model test is skipped unless you opt in. It downloads Parakeet v3 (~0.5 GB) and the diarizer
-into `~/Library/Caches/ichirp-test-models`, then transcribes and diarizes
-`ChirpKit/Tests/ChirpEngineFluidAudioTests/Fixtures/two-voices-16k.wav`:
+gate, the descriptors, word timing, the not-downloaded paths, the lifecycle race rules, the per-job manager pool,
+diarizer renumbering, PLDA repair and decoding, and progress mapping.
+
+The real-model tests are skipped unless you opt in. They download Parakeet v3 (~0.5 GB) and the diarizer into
+`~/Library/Caches/ichirp-test-models`. Then they transcribe and diarize
+`ChirpKit/Tests/ChirpEngineFluidAudioTests/Fixtures/two-voices-16k.wav`, and run two concurrent transcriptions of
+it looped past 15 s on one engine:
 
 ```bash
 CHIRP_MODEL_TESTS=1 swift test --package-path ChirpKit --filter ParakeetEngineIntegrationTests

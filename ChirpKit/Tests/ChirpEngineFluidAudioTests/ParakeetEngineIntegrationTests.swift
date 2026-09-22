@@ -109,6 +109,37 @@ final class ParakeetEngineIntegrationTests: XCTestCase {
         XCTAssertEqual(diarization.segments.first?.speakerId, "S1")
         XCTAssertEqual(diarization.segments.map(\.startMs), diarization.segments.map(\.startMs).sorted())
     }
+
+    /// Two concurrent jobs on one engine with audio longer than one 15 s window, the case where both open
+    /// FluidAudio's per-manager progress stream. Sharing one `AsrManager` traps in `AsyncStreamBuffer`.
+    func testTwoConcurrentLongTranscriptionsOnOneEngine() async throws {
+        try requireModelTests()
+        let scratch = try makeScratchDirectory("ichirp-long")
+        let long = try writeLoopedWAV(of: try fixtureURL(), times: 3, in: scratch)
+        let engine = ParakeetEngine(variant: .v3, modelsRoot: modelsRoot)
+        try await engine.downloadAssets { _ in }
+
+        let start = ContinuousClock.now
+        let logA = LockedLog<Double>()
+        let logB = LockedLog<Double>()
+        async let first = engine.transcribe(fileAt: long, options: SpeechTranscriptionOptions()) { logA.append($0) }
+        async let second = engine.transcribe(fileAt: long, options: SpeechTranscriptionOptions()) { logB.append($0) }
+        let results = try await [first, second]
+        print("[ParakeetEngineIntegrationTests] two concurrent 16.5 s jobs took \(ContinuousClock.now - start)")
+
+        for (result, log) in zip(results, [logA, logB]) {
+            print(
+                "[ParakeetEngineIntegrationTests] concurrent transcript (\(result.words.count) words): \(result.text)")
+            print("[ParakeetEngineIntegrationTests] progress: \(log.values.map { String(format: "%.2f", $0) })")
+            let lowercased = result.text.lowercased()
+            XCTAssertTrue(lowercased.contains("quick brown fox"), result.text)
+            XCTAssertTrue(lowercased.contains("iphone"), result.text)
+            XCTAssertGreaterThan(result.words.count, 30)
+            XCTAssertEqual(log.values.first, 0)
+            XCTAssertEqual(log.values.last, 1)
+            XCTAssertEqual(log.values, log.values.sorted())
+        }
+    }
 }
 
 private final class FractionLog: @unchecked Sendable {

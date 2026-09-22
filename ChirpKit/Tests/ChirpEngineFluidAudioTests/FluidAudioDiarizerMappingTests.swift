@@ -130,6 +130,20 @@ final class PLDARepairTests: XCTestCase {
         XCTAssertEqual(log.urls, [])
     }
 
+    /// The local model load decodes psi itself (FluidAudio's decoder is private): little-endian float32 → Double.
+    func testPsiDecodesFloat32TensorLikeFluidAudio() {
+        func plda(_ bytes: Data) -> Data {
+            Data(#"{"tensors":{"psi":{"data_base64":"\#(bytes.base64EncodedString())"}}}"#.utf8)
+        }
+        let floats: [Float] = [1.5, -2.25, 0, 1e-3]
+        let bytes = floats.withUnsafeBytes { Data($0) }
+
+        XCTAssertEqual(FluidAudioDiarizer.decodePLDAPsi(plda(bytes)), floats.map(Double.init))
+        XCTAssertNil(FluidAudioDiarizer.decodePLDAPsi(plda(Data())), "an empty tensor is malformed")
+        XCTAssertNil(FluidAudioDiarizer.decodePLDAPsi(plda(Data([1, 2, 3]))), "not a whole number of floats")
+        XCTAssertNil(FluidAudioDiarizer.decodePLDAPsi(Data("{}".utf8)))
+    }
+
     func testMalformedReplacementIsRejectedAndTheOldFileKept() async throws {
         let malformed = Data("not json".utf8)
         let (root, file) = try makeRoot(plda: malformed)

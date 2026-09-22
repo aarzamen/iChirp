@@ -1,16 +1,36 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/STT/STTRuntime.swift @ bbae9e0e
-// Parakeet TDT download (~L1875), load (~L2330) and file transcription (~L700–L760) as one ChirpCore engine.
+// Parakeet TDT download (~L1875), load (~L2330: one AsrManager per concurrent job over shared read-only models) and
+// file transcription (~L700–L760) as one ChirpCore engine; models load from local files only.
 
 import AVFoundation
 import ChirpCore
 import FluidAudio
 import Foundation
 
+/// What one transcription needs from FluidAudio. `AsrManager` conforms as is; tests substitute fakes.
+protocol ParakeetWorker: Actor {
+    var transcriptionProgressStream: AsyncThrowingStream<Double, any Error> { get async }
+    func transcribe(_ url: URL, decoderState: inout TdtDecoderState, language: Language?) async throws -> ASRResult
+    func cleanup()
+}
+
+extension AsrManager: ParakeetWorker {}
+
+/// A loaded Parakeet model: every worker made by `makeWorker` shares one read-only `AsrModels`.
+struct ParakeetRuntime: Sendable {
+    let decoderLayerCount: Int
+    let makeWorker: @Sendable () -> any ParakeetWorker
+}
+
 /// Parakeet TDT 0.6B speech recognition on FluidAudio (CoreML, Neural Engine), fully on device.
 ///
 /// Lifecycle: `downloadAssets` fetches the model into `modelsRoot`, `prepare` loads it into memory, and
-/// `transcribe` runs it. Nothing is ever downloaded implicitly: with missing models `prepare` and `transcribe`
-/// throw `SpeechEngineError.modelNotDownloaded`.
+/// `transcribe` runs it. Nothing is ever downloaded implicitly: with missing models (or while a download or delete
+/// runs) `prepare` and `transcribe` throw `SpeechEngineError.modelNotDownloaded`.
+///
+/// Concurrency: each `transcribe` call checks out its own `AsrManager` from a small idle pool, because an
+/// `AsrManager` has exactly one progress stream and one progress session. Two jobs on one manager would share (and
+/// crash on) that stream. `deleteAssets` throws while a transcription runs.
 public actor ParakeetEngine: SpeechEngine {
     public static let engineID = "fluidaudio.parakeet-tdt"
 
@@ -24,20 +44,29 @@ public actor ParakeetEngine: SpeechEngine {
     /// FluidAudio models root; the model lives in `<modelsRoot>/<repo folder>`.
     public nonisolated let modelsRoot: URL
 
+    let lifecycle: ModelAssetLifecycle<ParakeetRuntime>
     private let gate: ANEInferenceGate
-    private let downloads = ModelDownloadTracker()
-    private var downloadTask: Task<Void, any Error>?
-    private var loadTask: Task<Void, any Error>?
-    private var manager: AsrManager?
-    private var decoderLayerCount: Int?
+    private var idleWorkers: [any ParakeetWorker] = []
+    private var idleWorkersGeneration = 0
 
     /// - Parameters:
     ///   - modelsRoot: defaults to FluidAudio's own model cache. Tests pass a scratch directory.
     ///   - gate: serializes Neural Engine inference where the OS requires it; share one per process.
     public init(variant: ParakeetVariant = .v3, modelsRoot: URL? = nil, gate: ANEInferenceGate = .shared) {
+        let root = (modelsRoot ?? FluidAudioModelLocations.defaultModelsRoot).standardizedFileURL
+        self.init(
+            variant: variant, modelsRoot: root, gate: gate, hooks: Self.liveHooks(variant: variant, modelsRoot: root))
+    }
+
+    /// Test seam: `hooks` replaces FluidAudio's download, load and file checks.
+    init(
+        variant: ParakeetVariant, modelsRoot: URL, gate: ANEInferenceGate,
+        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks
+    ) {
         self.variant = variant
-        self.modelsRoot = (modelsRoot ?? FluidAudioModelLocations.defaultModelsRoot).standardizedFileURL
+        self.modelsRoot = modelsRoot
         self.gate = gate
+        self.lifecycle = ModelAssetLifecycle(hooks: hooks)
     }
 
     public nonisolated var descriptor: EngineDescriptor {
@@ -58,119 +87,65 @@ public actor ParakeetEngine: SpeechEngine {
         )
     }
 
-    private nonisolated var modelDirectory: URL {
-        FluidAudioModelLocations.parakeetDirectory(in: modelsRoot, variant: variant)
+    // MARK: - FluidAudio wiring
+
+    static func liveHooks(variant: ParakeetVariant, modelsRoot: URL) -> ModelAssetLifecycle<ParakeetRuntime>.Hooks {
+        let directory = FluidAudioModelLocations.parakeetDirectory(in: modelsRoot, variant: variant)
+        let version = FluidAudioModelLocations.asrVersion(for: variant)
+        return ModelAssetLifecycle<ParakeetRuntime>.Hooks(
+            displayName: descriptor(for: variant).displayName,
+            modelsPresent: { FluidAudioModelLocations.parakeetModelsExist(in: modelsRoot, variant: variant) },
+            bytesOnDisk: { FluidAudioModelLocations.byteSize(of: directory) },
+            download: { handler in
+                _ = try await AsrModels.download(to: directory, version: version, progressHandler: handler)
+                try FluidAudioModelLocations.excludeFromBackup(directory)
+            },
+            load: { try await loadRuntime(directory: directory, version: version) },
+            remove: { try FluidAudioModelLocations.removeIfPresent(directory) }
+        )
     }
 
-    private nonisolated var asrVersion: AsrModelVersion {
-        FluidAudioModelLocations.asrVersion(for: variant)
-    }
-
-    private nonisolated var modelsExist: Bool {
-        FluidAudioModelLocations.parakeetModelsExist(in: modelsRoot, variant: variant)
+    /// Loads from this exact directory and never downloads. `AsrModels.load` is not used because its
+    /// `ModelHub.loadModels` fetches missing files and purges and re-downloads after a failed load. `loadLocal`
+    /// compiles synchronously, so it runs here on the generic executor, off every actor.
+    static func loadRuntime(directory: URL, version: AsrModelVersion) async throws -> ParakeetRuntime {
+        let models = try AsrModels.loadLocal(
+            from: directory, version: version, encoderComputeUnits: ParakeetASRConfig.encoderComputeUnits())
+        let config = ParakeetASRConfig.make()
+        return ParakeetRuntime(
+            decoderLayerCount: models.version.decoderLayers,
+            makeWorker: { AsrManager(config: config, models: models) }
+        )
     }
 
     // MARK: - ModelAssetManaging
 
     /// Never downloads; reads the file system and the in-flight download state.
     public func assetStatus() async -> ModelAssetStatus {
-        if let fraction = downloads.inFlightFraction {
-            return .downloading(fraction: fraction)
-        }
-        if modelsExist {
-            return .ready(bytesOnDisk: FluidAudioModelLocations.byteSize(of: modelDirectory))
-        }
-        if let failure = downloads.lastFailure {
-            return .failed(message: failure)
-        }
-        return .notDownloaded
+        await lifecycle.status()
     }
 
     /// Downloads (or validates) the model via `AsrModels.download`, then excludes its folder from backups.
     /// A second call while one is running joins it and sees only 0 and 1 as progress.
     public func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {
-        let task: Task<Void, any Error>
-        if let downloadTask {
-            task = downloadTask
-        } else {
-            let directory = modelDirectory
-            let version = asrVersion
-            let tracker = downloads
-            tracker.begin()
-            let handler = tracker.progressHandler(forwardingTo: progress)
-            task = Task {
-                defer { self.downloadTask = nil }
-                do {
-                    _ = try await AsrModels.download(to: directory, version: version, progressHandler: handler)
-                    try FluidAudioModelLocations.excludeFromBackup(directory)
-                    tracker.finish(failure: nil)
-                } catch {
-                    tracker.finish(failure: SpeechEngineError.failureMessage(for: error))
-                    throw error
-                }
-            }
-            downloadTask = task
-        }
-        progress(0)
-        do {
-            try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                task.cancel()
-            }
-        } catch {
-            throw SpeechEngineError.mapping(error)
-        }
-        progress(1)
+        try await lifecycle.download(progress: progress)
     }
 
+    /// Throws while a transcription runs. Otherwise cancels and awaits any download or load, then removes the model.
     public func deleteAssets() async throws {
-        downloadTask?.cancel()
-        await manager?.cleanup()
-        manager = nil
-        decoderLayerCount = nil
-        do {
-            try FluidAudioModelLocations.removeIfPresent(modelDirectory)
-        } catch {
-            throw SpeechEngineError.mapping(error)
+        try await lifecycle.delete()
+        let workers = idleWorkers
+        idleWorkers = []
+        for worker in workers {
+            await worker.cleanup()
         }
     }
 
     // MARK: - SpeechEngine
 
-    /// Loads the downloaded model into an `AsrManager`. Idempotent; concurrent callers share one load.
+    /// Loads the downloaded model from local files. Idempotent; concurrent callers share one load.
     public func prepare() async throws {
-        if manager != nil { return }
-        let task: Task<Void, any Error>
-        if let loadTask {
-            task = loadTask
-        } else {
-            guard modelsExist else {
-                throw SpeechEngineError.modelNotDownloaded(descriptor.displayName)
-            }
-            task = Task {
-                defer { self.loadTask = nil }
-                try await self.loadModels()
-            }
-            loadTask = task
-        }
-        do {
-            try await task.value
-        } catch {
-            throw SpeechEngineError.mapping(error)
-        }
-    }
-
-    private func loadModels() async throws {
-        let models = try await AsrModels.load(
-            from: modelDirectory,
-            version: asrVersion,
-            encoderComputeUnits: ParakeetASRConfig.encoderComputeUnits()
-        )
-        let loadedManager = AsrManager(config: ParakeetASRConfig.make())
-        try await loadedManager.loadModels(models)
-        decoderLayerCount = await loadedManager.decoderLayerCount
-        manager = loadedManager
+        try await lifecycle.prepare()
     }
 
     /// `fileAt` must be 16 kHz mono PCM. Progress reports 0 at the start and 1 at the end, with FluidAudio's
@@ -180,54 +155,90 @@ public actor ParakeetEngine: SpeechEngine {
         options: SpeechTranscriptionOptions,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
+        let lease = try await lifecycle.acquire()
+        let worker = checkOutWorker(for: lease)
         do {
-            try await prepare()
-            guard let manager, let decoderLayers = decoderLayerCount else {
-                throw SpeechEngineError.underlying("The Parakeet model is not loaded.")
-            }
-            progress(0)
-            let progressTask = await Self.forwardChunkProgress(of: manager, for: url, to: progress)
-            defer { progressTask?.cancel() }
-
-            try Task.checkCancellation()
-            var decoderState = TdtDecoderState.make(decoderLayers: decoderLayers)
-            let language = Self.fluidAudioLanguage(forHint: options.languageHint, variant: variant)
-            try Task.checkCancellation()
-            // Gate only the CoreML inference call; model loading and progress plumbing stay outside it.
-            let result = try await gate.withExclusiveAccess {
-                try await manager.transcribe(url, decoderState: &decoderState, language: language)
-            }
-            try Task.checkCancellation()
-
-            guard !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw SpeechEngineError.emptyTranscript
-            }
-            let words = WordTimingBuilder.words(from: result.tokenTimings)
-            progress(1)
-            return SpeechResult(
-                text: result.text,
-                words: words,
-                // v2 is English-only. FluidAudio's `ASRResult` does not report a detected language for v3.
-                language: variant == .v2 ? "en" : nil,
-                engineID: Self.engineID,
-                engineVariant: variant.rawValue
-            )
+            let result = try await transcribe(
+                url, with: worker, decoderLayers: lease.runtime.decoderLayerCount, options: options,
+                progress: progress)
+            checkIn(worker, for: lease)
+            await lifecycle.release(lease)
+            return result
         } catch {
+            checkIn(worker, for: lease)
+            await lifecycle.release(lease)
             throw SpeechEngineError.mapping(error)
         }
     }
 
+    private func transcribe(
+        _ url: URL,
+        with worker: any ParakeetWorker,
+        decoderLayers: Int,
+        options: SpeechTranscriptionOptions,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> SpeechResult {
+        progress(0)
+        let progressTask = await Self.forwardChunkProgress(of: worker, for: url, to: progress)
+        defer { progressTask?.cancel() }
+
+        try Task.checkCancellation()
+        var decoderState = TdtDecoderState.make(decoderLayers: decoderLayers)
+        let language = Self.fluidAudioLanguage(forHint: options.languageHint, variant: variant)
+        // Gate only the CoreML inference call; model loading and progress plumbing stay outside it.
+        let result = try await gate.withExclusiveAccess {
+            try await worker.transcribe(url, decoderState: &decoderState, language: language)
+        }
+        try Task.checkCancellation()
+
+        guard !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw SpeechEngineError.emptyTranscript
+        }
+        let words = WordTimingBuilder.words(from: result.tokenTimings)
+        // Drain the forwarder first so no chunk value can arrive after the final 1.
+        progressTask?.cancel()
+        await progressTask?.value
+        progress(1)
+        return SpeechResult(
+            text: result.text,
+            words: words,
+            // v2 is English-only. FluidAudio's `ASRResult` does not report a detected language for v3.
+            language: variant == .v2 ? "en" : nil,
+            engineID: Self.engineID,
+            engineVariant: variant.rawValue
+        )
+    }
+
+    // MARK: - Worker pool
+
+    /// An idle worker for the lease's generation, or a new one. A worker serves one transcription at a time.
+    private func checkOutWorker(for lease: ModelLease<ParakeetRuntime>) -> any ParakeetWorker {
+        if lease.generation != idleWorkersGeneration {
+            idleWorkers.removeAll()
+            idleWorkersGeneration = lease.generation
+        }
+        return idleWorkers.popLast() ?? lease.runtime.makeWorker()
+    }
+
+    /// Returns a worker to the pool unless its model generation has been deleted since.
+    private func checkIn(_ worker: any ParakeetWorker, for lease: ModelLease<ParakeetRuntime>) {
+        guard lease.generation == idleWorkersGeneration else { return }
+        idleWorkers.append(worker)
+    }
+
+    // MARK: - Progress and language
+
     /// FluidAudio only emits chunk progress for audio longer than one model window, and only finishes the
-    /// session it opened for such audio, so the stream is opened (before inference starts) only in that case.
+    /// session it opened for such audio, so the worker's stream is opened (before inference starts) only then.
     private static func forwardChunkProgress(
-        of manager: AsrManager,
+        of worker: any ParakeetWorker,
         for url: URL,
         to progress: @escaping @Sendable (Double) -> Void
     ) async -> Task<Void, Never>? {
         guard let samples = estimatedSampleCount(of: url), samples > ASRConstants.maxModelSamples else {
             return nil
         }
-        let stream = await manager.transcriptionProgressStream
+        let stream = await worker.transcriptionProgressStream
         return Task {
             do {
                 for try await value in stream {
