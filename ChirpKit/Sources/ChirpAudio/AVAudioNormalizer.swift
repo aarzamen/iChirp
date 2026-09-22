@@ -11,12 +11,23 @@ import Foundation
 import Synchronization
 
 /// Errors from `AVAudioNormalizer`.
-public enum AudioNormalizationError: Error, Equatable {
+public enum AudioNormalizationError: Error, Equatable, LocalizedError {
     /// `sourceURL` has no audio track AVFoundation can decode.
     case noAudioTrack
     /// `AVAssetReader` (or the output file) failed; the message is AVFoundation's own
     /// description.
     case readerFailed(String)
+
+    /// Shown on the failed row, so it says what happened in plain words (without this, iOS shows
+    /// "The operation couldn't be completed (ChirpAudio.AudioNormalizationError error 0.)").
+    public var errorDescription: String? {
+        switch self {
+        case .noAudioTrack:
+            return "This file has no audio Parakeet can read."
+        case .readerFailed(let message):
+            return "Parakeet couldn't read the audio in this file (\(message))."
+        }
+    }
 }
 
 /// Decodes any AVFoundation-readable audio or video file into 16 kHz mono Float32 WAV.

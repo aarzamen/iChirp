@@ -210,6 +210,13 @@ final class AVAudioNormalizerTests: XCTestCase {
         let sawCancellation = try await task.value
         XCTAssertTrue(sawCancellation)
     }
+    func testNormalizationErrorsReadAsPlainSentences() {
+        XCTAssertEqual(
+            AudioNormalizationError.noAudioTrack.localizedDescription, "This file has no audio Parakeet can read.")
+        let reader = AudioNormalizationError.readerFailed("Cannot Open")
+        XCTAssertEqual(reader.localizedDescription, "Parakeet couldn't read the audio in this file (Cannot Open).")
+        XCTAssertFalse(reader.localizedDescription.contains("error 0"))
+    }
 }
 
 // MARK: - Long tone fixture (cancellation test)
@@ -466,4 +473,5 @@ enum MovieFixture {
         }
         return sampleBuffer
     }
+
 }
