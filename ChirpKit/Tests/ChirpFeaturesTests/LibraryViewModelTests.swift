@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpExport
 import Foundation
 import XCTest
 
@@ -152,6 +153,29 @@ final class LibraryViewModelTests: XCTestCase {
         await waitUntil { viewModel.items.map(\.id) == [kept.id] }
         XCTAssertFalse(fileExists(paths.mediaDirectory(for: doomed.id)))
         XCTAssertTrue(fileExists(paths.mediaDirectory(for: kept.id)), "only the deleted item's folder goes")
+    }
+
+    func testDeleteRemovesExportTempFolder() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibraryDeleteExport-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: base) }
+        let paths = AppPaths(root: base)
+        let doomed = row("Doomed", .file, hoursAgo: 1)
+        let kept = row("Kept", .file, hoursAgo: 2)
+        let doomedExport = ExportTempFiles.directory(for: doomed.id)
+        let keptExport = ExportTempFiles.directory(for: kept.id)
+        addTeardownBlock { try? FileManager.default.removeItem(at: doomedExport) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: keptExport) }
+        for export in [doomedExport, keptExport] {
+            try FileManager.default.createDirectory(at: export, withIntermediateDirectories: true)
+            try Data("transcript".utf8).write(to: export.appendingPathComponent("transcript.txt"))
+        }
+        let (viewModel, _) = await makeViewModel(rows: [doomed, kept], paths: paths)
+
+        try await viewModel.delete(doomed.id)
+
+        XCTAssertFalse(fileExists(doomedExport), "the deleted row's export temp folder must go with it")
+        XCTAssertTrue(fileExists(keptExport), "only the deleted item's export folder goes")
     }
 
     func testToggleFavoriteFlipsAndPersists() async throws {
