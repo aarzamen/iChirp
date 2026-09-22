@@ -79,7 +79,7 @@ offer_local_file() {
 }
 
 echo ""
-offer_local_file "Config/Signing.local.xcconfig" "device builds: DEVELOPMENT_TEAM = XM6E4PUXTU"
+offer_local_file "Config/Signing.local.xcconfig" "device builds: set DEVELOPMENT_TEAM to your Team ID"
 offer_local_file "Config/Device.local" "which iPhone scripts/run_device.sh installs to"
 
 echo ""

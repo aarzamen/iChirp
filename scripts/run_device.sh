@@ -7,7 +7,7 @@
 #   scripts/run_device.sh -- -ChirpSmoke transcribe-sample   # a leading "--" is accepted and dropped
 #   scripts/run_device.sh --dry-run                # show the chosen device, team and build command; build nothing
 #   scripts/run_device.sh --print-device           # print only the chosen device identifier (used by device_smoke.sh)
-#   DEVELOPMENT_TEAM=<team> scripts/run_device.sh  # otherwise Config/Signing.local.xcconfig, else XM6E4PUXTU
+#   DEVELOPMENT_TEAM=<team> scripts/run_device.sh  # otherwise Config/Signing.local.xcconfig; neither = stop
 #   SMOKE_CONSOLE=1 scripts/run_device.sh          # launch with `devicectl ... --console` instead, backgrounded,
 #                                                   # streaming the app's stdout/stderr to .build/device-logs/
 #
@@ -42,7 +42,7 @@ fi
 signing_failed() {
   cat >&2 <<'EOF'
 
-Signing failed. Do NOT try to fix the Apple Developer account from a script. Open iChirp.xcodeproj in Xcode once, select the iChirp target → Signing & Capabilities → Team XM6E4PUXTU (Automatic), build to the iPhone from the Xcode GUI, then rerun. See APPLE_DEVELOPER_WARNING.md.
+Signing failed. Do NOT try to fix the Apple Developer account from a script. Open iChirp.xcodeproj in Xcode once, select the iChirp target → Signing & Capabilities → your team (Automatic), build to the iPhone from the Xcode GUI, then rerun. See APPLE_DEVELOPER_WARNING.md.
 EOF
 }
 
@@ -153,7 +153,13 @@ if [ -z "${DEVELOPMENT_TEAM:-}" ] && [ -f Config/Signing.local.xcconfig ]; then
   DEVELOPMENT_TEAM=$(sed -nE 's/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*([A-Za-z0-9]+).*/\1/p' \
     Config/Signing.local.xcconfig | head -1)
 fi
-DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-XM6E4PUXTU}"
+# No built-in fallback: this repo is public, so the Team ID comes only from the environment or the gitignored file.
+if [ -z "${DEVELOPMENT_TEAM:-}" ] || [ "$DEVELOPMENT_TEAM" = "YOUR_TEAM_ID" ]; then
+  echo "error: no Apple Developer Team ID. Set DEVELOPMENT_TEAM=<your Team ID>, or copy" >&2
+  echo "Config/Signing.local.xcconfig.example to Config/Signing.local.xcconfig and put your Team ID in it." >&2
+  echo "Find it at developer.apple.com → Account → Membership details. See docs/distribution.md." >&2
+  exit 1
+fi
 
 echo "Device: $DEVICE_NAME (CoreDevice $DEVICE_ID, UDID $UDID) — from $DEVICE_SOURCE"
 echo "Team:   $DEVELOPMENT_TEAM (automatic signing, existing profiles only)"

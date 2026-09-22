@@ -1,4 +1,5 @@
 // Copy this file to Signing.local.xcconfig (gitignored) and fill in your own
 // team ID to enable device builds. Config/Shared.xcconfig includes it
 // optionally (#include?), so its absence is fine for simulator-only builds.
-DEVELOPMENT_TEAM = XM6E4PUXTU
+// Your 10-character Team ID: developer.apple.com → Account → Membership details (not the ID in the certificate name).
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

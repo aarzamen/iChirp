@@ -28,7 +28,7 @@ removed, same trees) and are now `617c3280` / `52cd3c09`.
 
 ## 2026-09-22 — Device smoke, iPhone 15 Pro, `617c3280` — PASS
 
-`DEVICE_ID=DF20767D-0672-56DB-9928-AD2191C2CCA5 scripts/device_smoke.sh` (iPhone 15 Pro "Default15", A17 Pro, 8 GB),
+`DEVICE_ID=<iPhone 15 Pro identifier> scripts/device_smoke.sh` (iPhone 15 Pro "Default15", A17 Pro, 8 GB),
 same DEBUG smoke runner and bundled synthetic two-voice sample as the simulator run.
 
 | Field | Value |

@@ -37,7 +37,7 @@ the MacParakeet copyright holder's permission for the App Store.
 
    ```bash
    cd /Users/ama/Documents/GitHub/iChirp
-   cp Config/Signing.local.xcconfig.example Config/Signing.local.xcconfig   # sets DEVELOPMENT_TEAM = XM6E4PUXTU
+   cp Config/Signing.local.xcconfig.example Config/Signing.local.xcconfig   # then replace YOUR_TEAM_ID (the owner: XM6E4PUXTU)
    ```
 
    `scripts/bootstrap.sh` offers to do this for you.

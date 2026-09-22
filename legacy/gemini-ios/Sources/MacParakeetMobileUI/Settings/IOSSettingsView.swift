@@ -117,7 +117,7 @@ public struct IOSSettingsView: View {
                     HStack {
                         Text("Developer Team")
                         Spacer()
-                        Text("XM6E4PUXTU")
+                        Text("(your team)")
                             .font(MobileDesignSystem.Typography.monoTimestamp)
                             .foregroundColor(MobileDesignSystem.Colors.textTertiary)
                     }

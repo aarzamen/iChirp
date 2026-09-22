@@ -2,5 +2,5 @@
 # Copy this file to Config/Device.local (gitignored). DEVICE_ID=<identifier> in the environment still wins.
 # Without this file the scripts use the one reachable paired iPhone, and stop if more than one is reachable.
 # Identifiers: the Identifier column of `xcrun devicectl list devices`.
-# The owner's iPhone 17 Pro:
-DEVICE_ID=4FC3C1DC-B809-552A-B60F-B1723ADB45B8
+# Replace with your iPhone's identifier and uncomment:
+# DEVICE_ID=00000000-0000-0000-0000-000000000000
