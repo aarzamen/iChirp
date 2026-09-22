@@ -266,6 +266,91 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertNil(row.speakerCount)
     }
 
+    // MARK: - Privacy routing
+
+    func testClinicalItemIsRefusedByACloudSpeechEngine() async throws {
+        let h = try PipelineHarness(testCase: self, speech: FakeSpeech(locality: .cloud))
+        let id = try await h.importSample()
+        await h.store.setPrivacyClass(.clinical, for: id)
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .failed)
+        XCTAssertEqual(
+            row.errorMessage,
+            FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(engineName: "Fake Parakeet").errorDescription)
+        let prepareCalls = await h.speech.prepareCalls
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(prepareCalls, 0)
+        XCTAssertEqual(transcribeCalls, 0, "clinical audio never reaches a cloud engine")
+        let started = await h.normalizer.startedOutputURLs
+        XCTAssertTrue(started.isEmpty, "the audio is not even prepared for an engine that may not have it")
+        XCTAssertTrue(fileExists(h.sourceURL(for: id)))
+    }
+
+    func testPrivacyClassChangedWhileTheJobWaitsIsCheckedBeforeTheEngineGetsAudio() async throws {
+        let (entered, sink) = AsyncStream.makeStream(of: Void.self)
+        let h = try PipelineHarness(testCase: self, speech: FakeSpeech(locality: .cloud))
+        await h.normalizer.parkNormalizations { sink.yield() }
+        let id = try await h.importSample()
+        let job = Task { await h.pipeline.process(id: id) }
+        var iterator = entered.makeAsyncIterator()
+        _ = await iterator.next()
+
+        // The user marks the item clinical while its audio is being prepared (M4 adds the control).
+        await h.store.setPrivacyClass(.clinical, for: id)
+        await h.normalizer.releaseParked()
+        let result = await job.value
+
+        XCTAssertEqual(result?.status, .failed)
+        XCTAssertEqual(
+            result?.errorMessage,
+            FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(engineName: "Fake Parakeet").errorDescription)
+        let prepareCalls = await h.speech.prepareCalls
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(prepareCalls, 0)
+        XCTAssertEqual(transcribeCalls, 0)
+        XCTAssertFalse(fileExists(h.normalizedURL(for: id)))
+    }
+
+    func testClinicalItemRunsOnAnOnDeviceEngine() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        await h.store.setPrivacyClass(.clinical, for: id)
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.privacyClass, .clinical)
+        XCTAssertEqual(row.speakerCount, 2, "the on-device diarizer runs too")
+    }
+
+    func testPersonalItemMayUseACloudSpeechEngine() async throws {
+        let h = try PipelineHarness(testCase: self, speech: FakeSpeech(locality: .cloud))
+        let id = try await h.importSample()
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .completed)
+    }
+
+    func testClinicalItemSkipsACloudDiarizer() async throws {
+        let h = try PipelineHarness(testCase: self, diarizer: FakeDiarizer(locality: .cloud))
+        let id = try await h.importSample()
+        await h.store.setPrivacyClass(.clinical, for: id)
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .completed, "speaker labels are optional, so the job still completes")
+        XCTAssertNil(row.speakerCount)
+        let diarizeCalls = await h.diarizer.diarizeCalls
+        XCTAssertEqual(diarizeCalls, 0, "clinical audio never reaches a cloud diarizer")
+    }
+
     // MARK: - Clean-up
 
     func testCleanupRawLeavesCleanTranscriptNil() async throws {
@@ -469,6 +554,94 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(firstResult?.status, .completed)
         let transcribeCalls = await h.speech.transcribeCalls
         XCTAssertEqual(transcribeCalls, 1)
+    }
+
+    // MARK: - Audio preparation limit
+
+    func testConcurrentProcessCallsNeverExceedTheAudioPreparationLimit() async throws {
+        let (events, sink) = AsyncStream.makeStream(of: String.self)
+        let h = try PipelineHarness(
+            testCase: self,
+            onProgress: { _, progress in
+                if progress.stage == .queued { sink.yield("queued") }
+            })
+        await h.normalizer.parkNormalizations { sink.yield("normalizing") }
+        var ids: [UUID] = []
+        for index in 0..<5 {
+            ids.append(try await h.importSample(named: "file-\(index).m4a"))
+        }
+
+        let jobs = ids.map { id in Task { await h.pipeline.process(id: id) } }
+        // Every job either starts normalizing or reports that it is queued; wait until all five have done one.
+        var iterator = events.makeAsyncIterator()
+        var seen: [String] = []
+        while seen.count < ids.count, let event = await iterator.next() {
+            seen.append(event)
+        }
+
+        let limit = FileTranscriptionPipeline.maxConcurrentAudioPreparations
+        XCTAssertEqual(limit, 2)
+        XCTAssertEqual(seen.filter { $0 == "normalizing" }.count, limit, "\(seen)")
+        XCTAssertEqual(seen.filter { $0 == "queued" }.count, ids.count - limit, "\(seen)")
+        let activeWhileParked = await h.normalizer.active
+        XCTAssertEqual(activeWhileParked, limit)
+
+        await h.normalizer.releaseParked()
+        var statuses: [Transcription.Status?] = []
+        for job in jobs {
+            statuses.append(await job.value?.status)
+        }
+
+        XCTAssertEqual(statuses, Array(repeating: .completed, count: ids.count))
+        let maxActive = await h.normalizer.maxActive
+        XCTAssertEqual(maxActive, limit, "never more than \(limit) normalizations at once")
+        for id in ids {
+            XCTAssertFalse(fileExists(h.normalizedURL(for: id)))
+        }
+    }
+
+    func testCancellingAJobQueuedForAudioPreparationMarksItCancelledWithoutNormalizing() async throws {
+        let (queued, sink) = AsyncStream.makeStream(of: UUID.self)
+        let h = try PipelineHarness(
+            testCase: self,
+            onProgress: { id, progress in
+                if progress.stage == .queued { sink.yield(id) }
+            })
+        await h.normalizer.parkNormalizations {}
+        var jobs: [UUID: Task<Transcription?, Never>] = [:]
+        for index in 0..<3 {
+            let id = try await h.importSample(named: "file-\(index).m4a")
+            jobs[id] = Task { await h.pipeline.process(id: id) }
+        }
+        var iterator = queued.makeAsyncIterator()
+        let queuedValue = await iterator.next()
+        let queuedID = try XCTUnwrap(queuedValue)
+        let queuedJob = try XCTUnwrap(jobs[queuedID])
+
+        queuedJob.cancel()
+        let cancelled = await queuedJob.value
+
+        XCTAssertEqual(cancelled?.status, .cancelled)
+        let started = await h.normalizer.startedOutputURLs
+        XCTAssertFalse(started.contains(h.normalizedURL(for: queuedID)), "a queued job never starts normalizing")
+        XCTAssertTrue(fileExists(h.sourceURL(for: queuedID)), "cancel never deletes the source")
+
+        await h.normalizer.releaseParked()
+        for (id, job) in jobs where id != queuedID {
+            let status = await job.value?.status
+            XCTAssertEqual(status, .completed)
+        }
+        // The cancelled waiter left no permit behind: a later job still runs.
+        let late = try await h.importSample(named: "late.m4a")
+        let lateResult = await h.pipeline.process(id: late)
+        XCTAssertEqual(lateResult?.status, .completed)
+    }
+
+    func testFileWorkRunsOnTheFileQueue() async throws {
+        let label = try await FileTranscriptionPipeline.runOnFileQueue {
+            String(cString: __dispatch_queue_get_label(nil))
+        }
+        XCTAssertEqual(label, FileTranscriptionPipeline.fileQueueLabel)
     }
 
     // MARK: - Retry

@@ -14,9 +14,11 @@ pipeline's `Task`s and publishes its progress to the UI.
 ## What's here
 
 - `FileTranscriptionPipeline.swift`: the `FileTranscriptionPipeline` actor plus `PipelineStage` and `JobProgress`.
-  - `importFile(from:sourceType:)` copies the file (security-scoped, never moved) into `media/<id>/source.<ext>` and
-    inserts a `.processing` row.
-  - `process(id:)` runs: model check → normalize to `media/<id>/normalized-16k.wav` → one scheduler
+  - `importFile(from:sourceType:)` copies the file (security-scoped, never moved) into `media/<id>/source.<ext>` on
+    the pipeline's file queue, then inserts a `.processing` row.
+  - `process(id:)` runs: privacy routing check → model check → audio-preparation permit (at most two jobs) →
+    normalize to
+    `media/<id>/normalized-16k.wav` → one scheduler
     `.fileTranscription` job (`prepare`, `transcribe`, then `diarize` if enabled and ready) → `SpeakerMerger` →
     `TextRefinement` → `TitleDeriver` / `SnippetDeriver` → `FileTranscriptSegments` → `savePreservingUserMetadata`.
   - `retry(id:)` moves a `.failed` / `.cancelled` / `.interrupted` row back to `.processing` and runs `process`
@@ -54,6 +56,14 @@ LibraryViewModel(store: store, paths: paths)               // paths: delete remo
 
 ## What to know before editing
 
+- **Privacy routing runs before any engine gets audio** (ADR-002, `spec/12-privacy.md`). `run` asks
+  `PrivacyRoutingPolicy` (injected, default: no trusted LAN hosts) whether the speech engine's locality may process
+  the item's `privacyClass`, first at the start of the job, so refused audio is never even prepared, and again
+  inside the scheduler slot against the class as stored at that moment, because the user may change it while the
+  job waits. A refused speech engine fails the row with `PipelineError.privacyRoutingRefused`; a refused diarizer is
+  skipped and logged (speaker labels are optional). On-device engines always pass. Logs carry the id, engine id,
+  locality and class, never content. M1 has no per-run cloud override. Copy this pattern at every new engine call
+  site (M4 language models, M6 structure models).
 - **The pipeline never downloads.** If `speech.assetStatus()` is not `.ready`, or `prepare`/`transcribe` throws
   `SpeechEngineError.modelNotDownloaded`, the row fails with `FileTranscriptionPipeline.modelMissingMessage`
   ("Download the Parakeet speech model in Settings → Speech model"). A diarizer that is not ready is skipped and
@@ -74,11 +84,23 @@ LibraryViewModel(store: store, paths: paths)               // paths: delete remo
   never inserts; the pipeline then logs, deletes its temp WAV and removes the media folder only if it is empty.
 - **`process(id:)` runs only for a `.processing` row** (a fresh import, or one `retry` moved back); any other row is
   returned unchanged, so a finished transcript is never re-run by accident.
-- **`normalized-16k.wav` is removed on every exit** (a `defer` in `process`); the source is never touched. The
-  media layout is a contract: `spec/contracts/media-storage-layout-v1.md`.
+- **At most two jobs prepare audio at once** (`maxConcurrentAudioPreparations`). A job takes a permit before it
+  normalizes and gives it back when its WAV is deleted, right after the scheduler job. So one file is normalized
+  while another is transcribed, but a batch of imports (M1.5 share sheet, Voice Memos) never decodes all at once
+  or fills the disk with WAVs (about 230 MB per hour of audio each). A job past the limit reports `.queued` and waits
+  first come, first served; cancelling it while it waits marks it `.cancelled` without normalizing. The permit is
+  pipeline state, not a scheduler slot: normalizing inside the `.fileTranscription` slot would hold the one
+  background slot through a long decode and delay M2/M3 meeting work queued for it.
+- **Blocking work stays off the pipeline actor and Swift's cooperative pool.** The import copy runs on the
+  pipeline's file queue (`runOnFileQueue`); `AVAudioNormalizer` decodes on its own queue (see
+  `ChirpAudio/README.md`). Never call a blocking file or decode API directly in an `async` function here.
+- **`normalized-16k.wav` is removed on every exit** (when the permit is returned, and again by a `defer` in
+  `process`); the source is never touched. The media layout is a contract:
+  `spec/contracts/media-storage-layout-v1.md`.
 - **One run per id.** A second `process` or `retry` for an id that is already running returns nil, so two runs
   never share and delete one WAV.
 - **Progress:** importing 0.02 (reported only after the row is inserted, so a failed import leaves no entry) →
+  queued 0.02 (only when the job has to wait for an audio-preparation permit) →
   normalizing 0.05–0.15 → waitingForEngine (queue and model load) → transcribing
   0.15–0.85 → identifyingSpeakers 0.85–0.95 → finishing 1.0, never decreasing. `onProgress` is called from the
   pipeline actor and from engine callbacks. `TranscriptionJobCenter.update` ignores ids that already finished,

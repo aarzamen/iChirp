@@ -6,6 +6,7 @@ import AVFoundation
 import ChirpCore
 import CoreMedia
 import Foundation
+import Synchronization
 
 /// Errors from `AVAudioNormalizer`.
 public enum AudioNormalizationError: Error, Equatable {
@@ -23,13 +24,24 @@ public enum AudioNormalizationError: Error, Equatable {
 /// and `normalize` never needs the source's duration up front (`sampleCount` and `durationMs`
 /// are derived from what was actually decoded and written, not from asset metadata that may be
 /// approximate or absent).
+///
+/// The decode loop blocks its thread until the file is done, so it runs on `decodeQueue`, a dedicated
+/// dispatch queue, never on Swift's small cooperative thread pool or on the caller's actor.
 public struct AVAudioNormalizer: AudioNormalizing {
     private static let targetSampleRate: Double = 16_000
     private static let targetChannelCount: AVAudioChannelCount = 1
 
+    static let decodeQueueLabel = "com.aarzamen.ichirp.audio.normalize"
+    /// Concurrent, so each normalization gets its own dispatch thread; callers bound how many run at once
+    /// (`FileTranscriptionPipeline` allows two). Blocking a dispatch thread does not starve Swift concurrency.
+    private static let decodeQueue = DispatchQueue(label: decodeQueueLabel, qos: .utility, attributes: .concurrent)
+
     public init() {}
 
+    /// `@concurrent`: always runs off the caller's actor, whatever the module's default isolation becomes.
+    @concurrent
     public func normalize(sourceURL: URL, outputURL: URL) async throws -> NormalizedAudio {
+        try Task.checkCancellation()
         let asset = AVURLAsset(url: sourceURL)
 
         let audioTracks: [AVAssetTrack]
@@ -38,10 +50,25 @@ public struct AVAudioNormalizer: AudioNormalizing {
         } catch {
             throw AudioNormalizationError.readerFailed(error.localizedDescription)
         }
-        guard let track = audioTracks.first else {
+        guard let firstTrack = audioTracks.first else {
             throw AudioNormalizationError.noAudioTrack
         }
 
+        // A hand-off, not sharing: after this line the track is only touched on the decode queue.
+        nonisolated(unsafe) let track = firstTrack
+        return try await Self.runOnDecodeQueue { isCancelled in
+            try Self.decode(asset: asset, track: track, outputURL: outputURL, isCancelled: isCancelled)
+        }
+    }
+
+    /// The blocking reader→writer loop. Runs on `decodeQueue` only (tests call it directly); `isCancelled` reports
+    /// the awaiting task's cancellation and is checked once per decoded buffer.
+    static func decode(
+        asset: AVURLAsset,
+        track: AVAssetTrack,
+        outputURL: URL,
+        isCancelled: () -> Bool
+    ) throws -> NormalizedAudio {
         let reader: AVAssetReader
         do {
             reader = try AVAssetReader(asset: asset)
@@ -99,7 +126,7 @@ public struct AVAudioNormalizer: AudioNormalizing {
 
         var sampleCount = 0
         while let sampleBuffer = output.copyNextSampleBuffer() {
-            if Task.isCancelled {
+            if isCancelled() {
                 reader.cancelReading()
                 try? FileManager.default.removeItem(at: outputURL)
                 throw CancellationError()
@@ -128,6 +155,25 @@ public struct AVAudioNormalizer: AudioNormalizing {
         return NormalizedAudio(url: outputURL, durationMs: durationMs, sampleCount: sampleCount)
     }
 
+    /// Runs blocking `work` on `decodeQueue` and returns its result. `work` receives a check that turns true once the
+    /// awaiting task is cancelled (dispatch threads have no current task, so `Task.isCancelled` would stay false).
+    static func runOnDecodeQueue<T: Sendable>(
+        _ work: @escaping @Sendable (_ isCancelled: @escaping @Sendable () -> Bool) throws -> T
+    ) async throws -> T {
+        let cancelled = CancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                decodeQueue.async {
+                    continuation.resume(with: Result { try work { cancelled.isSet } })
+                }
+            }
+        } onCancel: {
+            cancelled.set()
+        }
+    }
+
+    /// `@concurrent`: always runs off the caller's actor, whatever the module's default isolation becomes.
+    @concurrent
     public func durationMs(of sourceURL: URL) async throws -> Int {
         let asset = AVURLAsset(url: sourceURL)
         let duration: CMTime
@@ -175,5 +221,16 @@ public struct AVAudioNormalizer: AudioNormalizing {
             memcpy(destinationBytes, sourceData, byteCount)
         }
         return pcmBuffer
+    }
+}
+
+/// A one-way flag set from a task's cancellation handler and read from a dispatch thread.
+private final class CancellationFlag: Sendable {
+    private let state = Mutex(false)
+
+    var isSet: Bool { state.withLock { $0 } }
+
+    func set() {
+        state.withLock { $0 = true }
     }
 }

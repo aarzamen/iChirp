@@ -9,13 +9,6 @@ import ChirpCore
 import Foundation
 import GRDB
 
-/// Errors converting between a `transcriptions` row and `Transcription`.
-enum TranscriptionRecordError: Error, Equatable {
-    case invalidSourceType(String)
-    case invalidStatus(String)
-    case invalidPrivacyClass(String)
-}
-
 /// The `transcriptions` table row. One column per `Transcription` field; `wordTimestamps`,
 /// `speakers`, `diarizationSegments` and `transcriptSegments` are stored as JSON TEXT.
 struct TranscriptionRecord: Codable, Equatable, Sendable {
@@ -83,15 +76,18 @@ extension TranscriptionRecord {
     }
 
     /// Decodes this row back into a `Transcription`.
+    ///
+    /// An enum value this build does not know (a newer build wrote it) never makes the row unreadable: it reads as
+    /// `fallbackSourceType`, `fallbackStatus` or `fallbackPrivacyClass`. A JSON column that cannot be decoded still
+    /// throws; list reads skip such a row (see `GRDBTranscriptionStore.decodeRows`).
     func toTranscription() throws -> Transcription {
-        guard let sourceTypeValue = Transcription.SourceType(rawValue: sourceType) else {
-            throw TranscriptionRecordError.invalidSourceType(sourceType)
-        }
-        guard let statusValue = Transcription.Status(rawValue: status) else {
-            throw TranscriptionRecordError.invalidStatus(status)
-        }
-        guard let privacyClassValue = PrivacyClass(rawValue: privacyClass) else {
-            throw TranscriptionRecordError.invalidPrivacyClass(privacyClass)
+        let sourceTypeValue = Transcription.SourceType(rawValue: sourceType) ?? Self.fallbackSourceType
+        let statusValue = Transcription.Status(rawValue: status) ?? Self.fallbackStatus
+        let privacyClassValue = PrivacyClass(rawValue: privacyClass) ?? Self.fallbackPrivacyClass
+        if sourceTypeValue.rawValue != sourceType || statusValue.rawValue != status
+            || privacyClassValue.rawValue != privacyClass
+        {
+            Self.logger.info("row_unknown_enum_value_read_as_fallback id=\(id, privacy: .public)")
         }
 
         var transcription = Transcription(
@@ -127,6 +123,39 @@ extension TranscriptionRecord {
         transcription.isFavorite = isFavorite
         return transcription
     }
+
+    // MARK: Unknown enum values
+
+    /// What an unknown `sourceType` reads as: the generic imported-file kind.
+    static let fallbackSourceType = Transcription.SourceType.file
+    /// What an unknown `status` reads as: a terminal status the UI already renders, with Retry.
+    static let fallbackStatus = Transcription.Status.interrupted
+    /// What an unknown `privacyClass` reads as: the most protective class, so routing stays on-device.
+    static let fallbackPrivacyClass = PrivacyClass.clinical
+
+    private static let logger = Log.logger("store")
+
+    /// This record with `stored`'s enum raw values put back wherever `stored` held a value this build does not know
+    /// and this record still carries the fallback it read as. A rename or favorite made on an older build therefore
+    /// never overwrites a newer build's value; an explicit change (a Retry moving the status) still lands.
+    func keepingUnknownRawValues(of stored: TranscriptionRecord?) -> TranscriptionRecord {
+        guard let stored else { return self }
+        var result = self
+        if Transcription.SourceType(rawValue: stored.sourceType) == nil,
+            sourceType == Self.fallbackSourceType.rawValue
+        {
+            result.sourceType = stored.sourceType
+        }
+        if Transcription.Status(rawValue: stored.status) == nil, status == Self.fallbackStatus.rawValue {
+            result.status = stored.status
+        }
+        if PrivacyClass(rawValue: stored.privacyClass) == nil, privacyClass == Self.fallbackPrivacyClass.rawValue {
+            result.privacyClass = stored.privacyClass
+        }
+        return result
+    }
+
+    // MARK: JSON columns
 
     private static func encodeJSON<T: Encodable>(_ value: T?) throws -> String? {
         guard let value else { return nil }

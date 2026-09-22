@@ -23,11 +23,13 @@ conformer in this package.
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
   JSON TEXT (manually encoded/decoded, not GRDB's automatic Codable-JSON
   path, so the column contents are predictable and queryable). Converts to
-  and from `Transcription` via `init(_:)` / `toTranscription()`.
+  and from `Transcription` via `init(_:)` / `toTranscription()`; nil is stored
+  as SQL NULL and an empty list as `[]`, and each reads back as it was.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
   insert/update/fetch/fetchAll/delete, `savePreservingUserMetadata`, the
   field-level `updateTitleOverride` / `updateFavorite` / `transitionStatus`,
   and `observeAll()` bridging a GRDB `ValueObservation` to an `AsyncStream`.
+  `decodeRows` is the one row-by-row decoder behind both list reads.
 
 ## What to know before editing
 
@@ -45,10 +47,38 @@ silently miss rows. Always go through GRDB's record APIs —
 id or status column. This has bitten the upstream repo before; see
 `upstream/macparakeet/Sources/MacParakeetCore/Database/README.md`.
 
+**One unreadable row never empties a list.** The owner runs several builds
+across phones and worktrees against copies of the same data, so a row may hold
+values this build does not know. Two rules keep the Library usable:
+
+- *Unknown enum values read as safe fallbacks* (`TranscriptionRecord.toTranscription()`):
+  an unknown `status` reads as `.interrupted` (terminal, rendered, offers
+  Retry), an unknown `privacyClass` as `.clinical` (the most protective class,
+  so routing stays on-device), an unknown `sourceType` as `.file`.
+- *Anything else that cannot be decoded skips the row.* `fetchAll()` and
+  `observeAll()` fetch raw `Row`s and decode each one on its own
+  (`decodeRows`): a bad JSON column, a date or a NULL this build cannot read
+  drops that one row and logs `row_skipped_unreadable` with the row id and the
+  error's type name only. Never log the error's description: GRDB's decoding
+  errors quote the whole row, transcript text included. `fetch(id:)` still
+  throws for such a row, so a screen opening it can show the error.
+
+**Writes never overwrite a value this build could not read.** Every write that
+starts from a stored row (`update`, `savePreservingUserMetadata` and the
+field-level methods) calls `TranscriptionRecord.keepingUnknownRawValues(of:)`:
+where the stored row held an unknown raw value and the outgoing row still
+carries the fallback it was read as, the stored raw value is written back
+unchanged. An explicit change (Retry moving the status to `processing`) still
+lands.
+
 **`savePreservingUserMetadata` is a single write transaction.** It fetches
-the currently stored row, copies `titleOverride` and `isFavorite` from it
-onto the incoming value, then updates — so a pipeline completion that
-doesn't know about a user's concurrent edits can't clobber them. When the row
+the currently stored row and copies the user's fields, `titleOverride`,
+`isFavorite` and `privacyClass`, from its raw columns onto the incoming
+value, then updates — so a pipeline completion that doesn't know about a
+user's concurrent edits can't clobber them (a row marked clinical during a
+job stays clinical). It does not decode the stored row, so an unknown privacy
+class survives as written and a row with an unreadable JSON column is
+repaired by the job's output. When the row
 is gone (the user deleted it while the job ran) it returns nil and writes
 nothing: it never inserts, so a deleted transcript is never resurrected
 (upstream throws `recordingDeleted` here). Ports the intent of upstream
@@ -64,6 +94,13 @@ the pipeline would overwrite whatever landed in between (for example a
 completed transcript reverted to `processing` by a stale favorite write), so
 `update(_:)` is only for rows nothing else can be writing. Ports upstream's
 `updateTitleOverride`, `updateFavorite` and `transitionStatus`.
+
+**JSON work never runs on the caller's actor.** Every method encodes
+(`TranscriptionRecord(_:)`) and decodes (`toTranscription()`) inside its GRDB
+`read`/`write` closure, on GRDB's own queues. A `@MainActor` caller such as the
+Transcript screen therefore never decodes an hour of word timings on the main
+thread, whatever the module's default isolation becomes. Keep new methods the
+same way.
 
 **`observeAll()` owns its `ValueObservation` lifecycle.** It schedules on a
 dedicated serial `DispatchQueue` (GRDB requires a serial queue for

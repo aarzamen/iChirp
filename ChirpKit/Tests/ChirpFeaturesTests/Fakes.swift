@@ -85,6 +85,7 @@ actor FakeStore: TranscriptionStoring {
         var merged = transcription
         merged.titleOverride = current.titleOverride
         merged.isFavorite = current.isFavorite
+        merged.privacyClass = current.privacyClass
         rows[merged.id] = merged
         publish()
         return merged
@@ -189,6 +190,11 @@ actor FakeStore: TranscriptionStoring {
         fetchAllError = error
     }
 
+    /// Sets a row's privacy class directly (the app has no control for it until M4).
+    func setPrivacyClass(_ privacyClass: PrivacyClass, for id: UUID) {
+        rows[id]?.privacyClass = privacyClass
+    }
+
     private func parkIfHeld(_ call: Call) async {
         guard let pending = pendingHold, pending.calls.contains(call) else { return }
         pendingHold = nil
@@ -228,11 +234,21 @@ actor FakeStore: TranscriptionStoring {
 // MARK: - Normalizer
 
 /// "Normalizes" by copying the source byte for byte and reporting 3000 ms.
+///
+/// `parkNormalizations(onEnter:)` makes every later `normalize` report that it is running and then wait for
+/// `releaseParked()`, so a test can see how many run at once (`active`, `maxActive`) without sleeping.
 actor FakeNormalizer: AudioNormalizing {
     static let durationMs = 3_000
     private var durationError: FakeError?
     private var normalizeError: FakeError?
+    private var parkOnEnter: (@Sendable () -> Void)?
+    private var parked: [CheckedContinuation<Void, Never>] = []
     private(set) var outputURLs: [URL] = []
+    /// Every `outputURL` a `normalize` call started on, in call order.
+    private(set) var startedOutputURLs: [URL] = []
+    /// `normalize` calls running right now, and the most that ever ran at once.
+    private(set) var active = 0
+    private(set) var maxActive = 0
 
     func failDuration(with error: FakeError?) {
         durationError = error
@@ -242,7 +258,30 @@ actor FakeNormalizer: AudioNormalizing {
         normalizeError = error
     }
 
+    /// Every `normalize` from now on calls `onEnter` once it is running, then waits for `releaseParked()`.
+    func parkNormalizations(onEnter: @escaping @Sendable () -> Void) {
+        parkOnEnter = onEnter
+    }
+
+    /// Resumes every parked `normalize` and stops parking new ones.
+    func releaseParked() {
+        parkOnEnter = nil
+        let waiting = parked
+        parked = []
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
+
     func normalize(sourceURL: URL, outputURL: URL) async throws -> NormalizedAudio {
+        startedOutputURLs.append(outputURL)
+        active += 1
+        maxActive = max(maxActive, active)
+        defer { active -= 1 }
+        if let onEnter = parkOnEnter {
+            onEnter()
+            await withCheckedContinuation { parked.append($0) }
+        }
         if let normalizeError { throw normalizeError }
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: outputURL.path) {
@@ -270,15 +309,7 @@ actor FakeSpeech: SpeechEngine {
         WordTimestamp(word: "Kenobi.", startMs: 1_900, endMs: 2_800, confidence: 0.96),
     ]
 
-    nonisolated let descriptor = EngineDescriptor(
-        id: "fake.parakeet",
-        kind: .speech,
-        provider: "Fake",
-        displayName: "Fake Parakeet",
-        locality: .onDevice,
-        license: "CC-BY-4.0",
-        providesWordTimestamps: true
-    )
+    nonisolated let descriptor: EngineDescriptor
 
     private var status: ModelAssetStatus
     private var result: SpeechResult
@@ -293,7 +324,16 @@ actor FakeSpeech: SpeechEngine {
     /// Whether the normalized file existed when `transcribe` was called.
     private(set) var inputExistedAtTranscribe: [Bool] = []
 
-    init(status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000)) {
+    init(status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000), locality: EngineLocality = .onDevice) {
+        self.descriptor = EngineDescriptor(
+            id: "fake.parakeet",
+            kind: .speech,
+            provider: "Fake",
+            displayName: "Fake Parakeet",
+            locality: locality,
+            license: "CC-BY-4.0",
+            providesWordTimestamps: true
+        )
         self.status = status
         self.result = SpeechResult(
             text: Self.helloText,
@@ -400,14 +440,7 @@ actor FakeDiarizer: SpeakerDiarizing {
         SpeakerInfo(id: "S2", label: "Speaker 2"),
     ]
 
-    nonisolated let descriptor = EngineDescriptor(
-        id: "fake.diarizer",
-        kind: .diarization,
-        provider: "Fake",
-        displayName: "Fake Diarizer",
-        locality: .onDevice,
-        license: "CC-BY-4.0"
-    )
+    nonisolated let descriptor: EngineDescriptor
 
     private var status: ModelAssetStatus
     private var output = DiarizationOutput(segments: twoSpeakerSegments, speakers: twoSpeakers)
@@ -416,7 +449,15 @@ actor FakeDiarizer: SpeakerDiarizing {
     private(set) var diarizeCalls = 0
     private(set) var downloadCalls = 0
 
-    init(status: ModelAssetStatus = .ready(bytesOnDisk: 30_000_000)) {
+    init(status: ModelAssetStatus = .ready(bytesOnDisk: 30_000_000), locality: EngineLocality = .onDevice) {
+        self.descriptor = EngineDescriptor(
+            id: "fake.diarizer",
+            kind: .diarization,
+            provider: "Fake",
+            displayName: "Fake Diarizer",
+            locality: locality,
+            license: "CC-BY-4.0"
+        )
         self.status = status
     }
 

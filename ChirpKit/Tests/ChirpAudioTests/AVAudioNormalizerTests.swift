@@ -127,10 +127,9 @@ final class AVAudioNormalizerTests: XCTestCase {
 
     // MARK: - Cancellation
 
-    /// A long (>= 30 s) input gives the reader loop many `CMSampleBuffer` iterations to decode,
-    /// so cancelling the wrapping `Task` genuinely exercises the per-iteration
-    /// `Task.isCancelled` check in the loop rather than only whatever happens before the loop
-    /// starts (asset/track loading, opening the reader and output file).
+    /// End to end through `normalize`: a task cancelled before or while it runs throws `CancellationError` and
+    /// leaves no WAV. Depending on timing the cancel is seen before loading or inside the loop; the next test pins
+    /// the mid-file branch deterministically.
     func testCancellationStopsReaderAndRemovesPartialOutput() async throws {
         let source = try ToneFixture.makeLongTone(duration: 35, inDirectory: tmpDir)
         let output = outputURL("cancelled")
@@ -153,6 +152,63 @@ final class AVAudioNormalizerTests: XCTestCase {
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: output.path),
             "A cancelled normalize() must not leave a partial output WAV behind")
+    }
+
+    /// Drives the decode loop directly with a cancellation check that turns true after a few buffers, so the
+    /// mid-file branch (stop the reader, delete the partial WAV, throw `CancellationError`) runs every time.
+    func testDecodeLoopCancelledMidFileStopsAndRemovesPartialOutput() async throws {
+        let source = try ToneFixture.makeLongTone(duration: 35, inDirectory: tmpDir)
+        let output = outputURL("cancelled-mid-file")
+        let asset = AVURLAsset(url: source)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        let track = try XCTUnwrap(tracks.first)
+        var checks = 0
+
+        XCTAssertThrowsError(
+            try AVAudioNormalizer.decode(asset: asset, track: track, outputURL: output) {
+                checks += 1
+                return checks > 3
+            }
+        ) { error in
+            XCTAssertTrue(error is CancellationError, "got \(error)")
+        }
+
+        XCTAssertEqual(checks, 4, "three buffers were decoded before the cancel was seen")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the partial WAV is deleted")
+    }
+
+    // MARK: - Where the blocking decode runs
+
+    /// The reader→writer loop blocks its thread for as long as the file takes to decode, so it runs on the
+    /// normalizer's own dispatch queue, never on Swift's small cooperative pool or the caller's actor.
+    func testBlockingWorkRunsOnTheDecodeQueue() async throws {
+        let label = try await AVAudioNormalizer.runOnDecodeQueue { _ in
+            String(cString: __dispatch_queue_get_label(nil))
+        }
+        XCTAssertEqual(label, AVAudioNormalizer.decodeQueueLabel)
+    }
+
+    @MainActor
+    func testBlockingWorkCalledFromTheMainActorRunsOffTheMainThread() async throws {
+        let ranOnMainThread = try await AVAudioNormalizer.runOnDecodeQueue { _ in Thread.isMainThread }
+        XCTAssertFalse(ranOnMainThread)
+    }
+
+    /// Cancelling the awaiting task reaches the blocking work through its `isCancelled` check.
+    func testBlockingWorkSeesTheCallersCancellation() async throws {
+        let task = Task {
+            try await AVAudioNormalizer.runOnDecodeQueue { isCancelled in
+                let deadline = Date().addingTimeInterval(10)
+                while !isCancelled(), Date() < deadline {
+                    usleep(1_000)
+                }
+                return isCancelled()
+            }
+        }
+        task.cancel()
+
+        let sawCancellation = try await task.value
+        XCTAssertTrue(sawCancellation)
     }
 }
 
