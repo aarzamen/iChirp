@@ -29,18 +29,43 @@ The end goal is not transcripts; it is documents: meeting notes, agendas, SOAP n
 turns any transcript into those deliverables with the owner's choice of model (on device, the owner's Mac over the LAN, or a
 cloud provider) while guaranteeing that clinical text never leaves the phone without their explicit per-run consent.
 
-## Current state (expected after M1)
+## Current state (verified at `721db7e8`, plan 003 IMPLEMENTED at `a6cd8f2d`)
 
-- `ChirpCore`: `LanguageModel` (`generate(_:) -> AsyncThrowingStream<GenerationEvent, Error>`), `GenerationRequest`
-  (with `privacyClass`), `PrivacyRoutingPolicy.allows(_:for:host:userOverride:)`, `EngineDescriptor` with locality.
-  No conformers.
-- `Transcription.privacyClass` persisted (default `personal`); no UI to change it yet.
-- App placeholders: Ask tab, Transform button, Transforms tab items, Settings "Cloud models" (all "Milestone M4").
+Drift check run 2026-09-22: `docs/plans/README.md` row 003 is **IMPLEMENTED**; `git diff --stat bd8cfc7c..HEAD` over
+the listed paths shows M1 added the pipeline, store, view models and screens, and changed
+`ChirpCore/Engines/SpeechEngine.swift` only (5 lines). The M4 contracts below are as planned; the approach holds.
+
+- `ChirpCore/Engines/LanguageModel.swift`: `LanguageModel` (`descriptor`, `generate(_:) -> AsyncThrowingStream<
+  GenerationEvent, Error>`), `GenerationRequest` (`system`, `prompt`, `privacyClass`, `maxOutputTokens`) and
+  `GenerationEvent` (`.text`, `.finished`, no usage metadata). No conformers.
+- `ChirpCore/Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy.allows(_:for:host:userOverride:)` with
+  `trustedLocalNetworkHosts` (case-insensitive); pinned by `PrivacyRoutingPolicyTests`. `userOverride` is a plain
+  `Bool`, so nothing yet proves an override came from a per-run confirmation. `EngineDescriptor` has `locality`
+  but no host: the LAN host must come from the provider configuration.
+- `Transcription.privacyClass` persisted (default `personal`), preserved by `savePreservingUserMetadata`, and an
+  unknown stored value reads as `clinical`. `TranscriptionStoring` has no field-level privacy-class setter yet and
+  no UI changes the class.
+- `FileTranscriptionPipeline` is the routing pattern to copy: check before any engine work, and again against the
+  class as stored at the moment of use; logs carry ids and classes, never content.
+- `ChirpFeatures` depends on ChirpCore, ChirpText and ChirpExport only (not ChirpStore), so deliverable persistence
+  needs a ChirpCore protocol implemented in ChirpStore, like `TranscriptionStoring`.
+- `ChirpStore/DatabaseManager.swift` registers one migration, `v1-transcriptions`. The parallel M1.5 lane adds
+  `v2-audio-track-ordinal`; M4's migration is named `v3-language-models` and the merge orders them.
+- Settings persist as one JSON blob in `UserDefaults` (`UserDefaultsSettingsStore`); there is no Keychain code.
+- App placeholders: Ask tab, Transform button, Transforms tab items, Settings "Cloud models for Ask" (all
+  "Milestone M4"). `App/Info.plist` has no `NSLocalNetworkUsageDescription` or ATS keys; `project.yml` links the
+  eight current ChirpKit products only.
+- Toolchain on the owner's Mac: Xcode 26.6, Swift 6.3.3, macOS 26.5.1; the macOS SDK ships `FoundationModels`.
 - Upstream to port (pipeline map §6): `Services/LLM/` (`LLMClient` adapters: Anthropic Messages, OpenAI-compatible,
-  Ollama native `/api/chat`; SSE streaming over `URLSession.AsyncBytes`), `LLMConfigStore` + `KeychainKeyValueStore`
-  (keys in the Keychain), `Models/Prompt.swift` built-ins, `PromptTemplateRenderer` (`{{transcript}}`,
-  `{{userNotes}}`), `InProcessLLMClient` map-reduce (chunk 12K characters, threshold 24K), the metadata-only
-  `llm_runs` ledger.
+  Ollama native `/api/chat`; SSE streaming over `URLSession.AsyncBytes`; `LLMHTTPErrorMapper` key scrubbing;
+  `LLMHTTPStreamCompletionPolicy`), `LLMConfigStore` + `Licensing/KeychainKeyValueStore` (keys in the Keychain),
+  `Models/Prompt.swift` built-ins, `PromptTemplateRenderer` (`{{transcript}}`, `{{userNotes}}`), `PromptVersion`,
+  `InProcessLLMClient` map-reduce (chunk 12K characters, threshold 24K; upstream middle-truncates the combined
+  partials and the conversation context, which iChirp must not do), the metadata-only `llm_runs` ledger
+  (`Models/LLMRun.swift`, migration `v0.18-llm-runs`).
+
+**Lane split (2026-09-22).** Steps 1–5 without app UI run in lane `m4/language-models-core`; Step 6 and every
+`App/`, `project.yml` and Info.plist change run in a later M4-UI lane after M1.5 merges.
 
 ## Commands you will need
 
