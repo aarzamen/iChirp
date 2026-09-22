@@ -7,12 +7,13 @@ import Foundation
 
 /// The coarse steps of one file job, in order.
 public enum PipelineStage: String, Sendable, CaseIterable {
-    case importing, normalizing, waitingForEngine, transcribing, identifyingSpeakers, finishing
+    case importing, queued, normalizing, waitingForEngine, transcribing, identifyingSpeakers, finishing
 
     /// Short user-facing label, e.g. for "Transcribing · 42%".
     public var displayName: String {
         switch self {
         case .importing: "Importing"
+        case .queued: "Queued"
         case .normalizing: "Preparing audio"
         case .waitingForEngine: "Waiting for speech model"
         case .transcribing: "Transcribing"
@@ -41,6 +42,10 @@ public struct JobProgress: Sendable, Equatable {
 ///    `.fileTranscription` slot, optionally diarizes and merges speakers, cleans up, derives the title and snippet,
 ///    and saves with `savePreservingUserMetadata` so a rename or favorite made meanwhile survives.
 ///
+/// At most `maxConcurrentAudioPreparations` jobs hold a normalized WAV at once: a job takes a permit before it
+/// normalizes and returns it once its WAV is deleted, so one file is prepared while another is transcribed and a
+/// batch of imports never decodes (or fills the disk with WAVs) all at once. Jobs past the limit wait, `.queued`.
+///
 /// Every exit of `process` deletes the normalized WAV and never touches the source. Failures become `.failed` with a
 /// readable `errorMessage`; cancelling the calling task becomes `.cancelled`. Models are never downloaded here.
 public actor FileTranscriptionPipeline {
@@ -49,6 +54,12 @@ public actor FileTranscriptionPipeline {
     static let normalizedFileName = "normalized-16k.wav"
     /// The statuses `retry` accepts.
     static let retryableStatuses: Set<Transcription.Status> = [.failed, .cancelled, .interrupted]
+    /// How many jobs may hold a normalized WAV at once: one being transcribed plus one being prepared behind it.
+    static let maxConcurrentAudioPreparations = 2
+    static let fileQueueLabel = "com.aarzamen.ichirp.pipeline.files"
+    /// Blocking file work (copying an imported file, which can be a large video) runs here, never on this actor or
+    /// Swift's cooperative pool.
+    private static let fileQueue = DispatchQueue(label: fileQueueLabel, qos: .userInitiated, attributes: .concurrent)
 
     /// Pipeline failures that are not engine errors.
     public enum PipelineError: Error, Equatable, LocalizedError {
@@ -75,6 +86,10 @@ public actor FileTranscriptionPipeline {
     /// Ids with a `process` in flight; a second `process` for the same id is refused so two runs never share
     /// (and delete) one normalized WAV.
     private var running: Set<UUID> = []
+    /// Audio-preparation permits taken, at most `maxConcurrentAudioPreparations`.
+    private var audioPermitsInUse = 0
+    /// Jobs waiting for a permit, oldest first. Non-empty only while every permit is taken.
+    private var audioPermitWaiters: [(ticket: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
 
     /// - Parameters:
     ///   - customWords: read once per job, only when the clean-up mode is `.clean`.
@@ -117,8 +132,11 @@ public actor FileTranscriptionPipeline {
             fileExtension.isEmpty ? "source" : "source.\(fileExtension)", isDirectory: false)
 
         do {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Self.copySecurityScoped(from: url, to: destination)
+            // Off this actor: copying a large video blocks its thread for as long as the copy takes.
+            try await Self.runOnFileQueue {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try Self.copySecurityScoped(from: url, to: destination)
+            }
             guard let relativePath = paths.relativePath(for: destination) else {
                 throw CocoaError(.fileWriteInvalidFileName)
             }
@@ -283,10 +301,18 @@ public actor FileTranscriptionPipeline {
             throw SpeechEngineError.modelNotDownloaded(speech.descriptor.displayName)
         }
 
-        report(id, .normalizing, 0.05)
         guard let relativePath = row.mediaRelativePath else { throw PipelineError.sourceFileMissing }
         let sourceURL = paths.absoluteURL(forRelativePath: relativePath)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else { throw PipelineError.sourceFileMissing }
+
+        // The permit covers the WAV's whole life: taken before it is written, returned right after it is deleted.
+        try await acquireAudioPermit(for: id)
+        defer {
+            try? FileManager.default.removeItem(at: normalizedURL)
+            releaseAudioPermit()
+        }
+        try Task.checkCancellation()
+        report(id, .normalizing, 0.05)
         try? FileManager.default.removeItem(at: normalizedURL)
         let normalized = try await normalizer.normalize(sourceURL: sourceURL, outputURL: normalizedURL)
         report(id, .normalizing, 0.15)
@@ -338,6 +364,48 @@ public actor FileTranscriptionPipeline {
     private struct EngineOutput: Sendable {
         var result: SpeechResult
         var diarization: DiarizationOutput?
+    }
+
+    // MARK: - Audio preparation permits
+
+    /// Takes one of the `maxConcurrentAudioPreparations` permits. When all are taken, reports `.queued` and waits
+    /// its turn (first come, first served); throws `CancellationError` if the job is cancelled while waiting. Every
+    /// successful call is paired with one `releaseAudioPermit()`.
+    private func acquireAudioPermit(for id: UUID) async throws {
+        if audioPermitsInUse < Self.maxConcurrentAudioPreparations {
+            audioPermitsInUse += 1
+            return
+        }
+        report(id, .queued, 0.02)
+        let ticket = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                // Runs on this actor before any suspension. A job cancelled before its ticket was queued is refused
+                // here, because the cancellation hop below finds nothing to remove.
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                audioPermitWaiters.append((ticket, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelAudioPermitWait(ticket) }
+        }
+    }
+
+    /// Hands the permit straight to the oldest waiter (so a newcomer never jumps the queue), or frees it.
+    private func releaseAudioPermit() {
+        if audioPermitWaiters.isEmpty {
+            audioPermitsInUse -= 1
+        } else {
+            audioPermitWaiters.removeFirst().continuation.resume()
+        }
+    }
+
+    private func cancelAudioPermitWait(_ ticket: UUID) {
+        // Not found: the permit was already handed over (the job checks cancellation right after taking it).
+        guard let index = audioPermitWaiters.firstIndex(where: { $0.ticket == ticket }) else { return }
+        audioPermitWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
     }
 
     /// The diarizer when speaker labels are on and its model is on disk; otherwise nil, with the reason logged.
@@ -485,6 +553,15 @@ public actor FileTranscriptionPipeline {
                 "fetch_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(reason, privacy: .private)"
             )
             return nil
+        }
+    }
+
+    /// Runs blocking `work` on `fileQueue` and returns its result.
+    static func runOnFileQueue<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            fileQueue.async {
+                continuation.resume(with: Result { try work() })
+            }
         }
     }
 

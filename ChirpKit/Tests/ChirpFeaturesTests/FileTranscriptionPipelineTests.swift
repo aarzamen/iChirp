@@ -471,6 +471,94 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(transcribeCalls, 1)
     }
 
+    // MARK: - Audio preparation limit
+
+    func testConcurrentProcessCallsNeverExceedTheAudioPreparationLimit() async throws {
+        let (events, sink) = AsyncStream.makeStream(of: String.self)
+        let h = try PipelineHarness(
+            testCase: self,
+            onProgress: { _, progress in
+                if progress.stage == .queued { sink.yield("queued") }
+            })
+        await h.normalizer.parkNormalizations { sink.yield("normalizing") }
+        var ids: [UUID] = []
+        for index in 0..<5 {
+            ids.append(try await h.importSample(named: "file-\(index).m4a"))
+        }
+
+        let jobs = ids.map { id in Task { await h.pipeline.process(id: id) } }
+        // Every job either starts normalizing or reports that it is queued; wait until all five have done one.
+        var iterator = events.makeAsyncIterator()
+        var seen: [String] = []
+        while seen.count < ids.count, let event = await iterator.next() {
+            seen.append(event)
+        }
+
+        let limit = FileTranscriptionPipeline.maxConcurrentAudioPreparations
+        XCTAssertEqual(limit, 2)
+        XCTAssertEqual(seen.filter { $0 == "normalizing" }.count, limit, "\(seen)")
+        XCTAssertEqual(seen.filter { $0 == "queued" }.count, ids.count - limit, "\(seen)")
+        let activeWhileParked = await h.normalizer.active
+        XCTAssertEqual(activeWhileParked, limit)
+
+        await h.normalizer.releaseParked()
+        var statuses: [Transcription.Status?] = []
+        for job in jobs {
+            statuses.append(await job.value?.status)
+        }
+
+        XCTAssertEqual(statuses, Array(repeating: .completed, count: ids.count))
+        let maxActive = await h.normalizer.maxActive
+        XCTAssertEqual(maxActive, limit, "never more than \(limit) normalizations at once")
+        for id in ids {
+            XCTAssertFalse(fileExists(h.normalizedURL(for: id)))
+        }
+    }
+
+    func testCancellingAJobQueuedForAudioPreparationMarksItCancelledWithoutNormalizing() async throws {
+        let (queued, sink) = AsyncStream.makeStream(of: UUID.self)
+        let h = try PipelineHarness(
+            testCase: self,
+            onProgress: { id, progress in
+                if progress.stage == .queued { sink.yield(id) }
+            })
+        await h.normalizer.parkNormalizations {}
+        var jobs: [UUID: Task<Transcription?, Never>] = [:]
+        for index in 0..<3 {
+            let id = try await h.importSample(named: "file-\(index).m4a")
+            jobs[id] = Task { await h.pipeline.process(id: id) }
+        }
+        var iterator = queued.makeAsyncIterator()
+        let queuedValue = await iterator.next()
+        let queuedID = try XCTUnwrap(queuedValue)
+        let queuedJob = try XCTUnwrap(jobs[queuedID])
+
+        queuedJob.cancel()
+        let cancelled = await queuedJob.value
+
+        XCTAssertEqual(cancelled?.status, .cancelled)
+        let started = await h.normalizer.startedOutputURLs
+        XCTAssertFalse(started.contains(h.normalizedURL(for: queuedID)), "a queued job never starts normalizing")
+        XCTAssertTrue(fileExists(h.sourceURL(for: queuedID)), "cancel never deletes the source")
+
+        await h.normalizer.releaseParked()
+        for (id, job) in jobs where id != queuedID {
+            let status = await job.value?.status
+            XCTAssertEqual(status, .completed)
+        }
+        // The cancelled waiter left no permit behind: a later job still runs.
+        let late = try await h.importSample(named: "late.m4a")
+        let lateResult = await h.pipeline.process(id: late)
+        XCTAssertEqual(lateResult?.status, .completed)
+    }
+
+    func testFileWorkRunsOnTheFileQueue() async throws {
+        let label = try await FileTranscriptionPipeline.runOnFileQueue {
+            String(cString: __dispatch_queue_get_label(nil))
+        }
+        XCTAssertEqual(label, FileTranscriptionPipeline.fileQueueLabel)
+    }
+
     // MARK: - Retry
 
     func testRetryReprocessesFailedRowFromStoredSource() async throws {
