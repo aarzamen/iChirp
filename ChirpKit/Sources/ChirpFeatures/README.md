@@ -45,6 +45,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   M5 (additive): `start(filesAt:importer:)` and `retry(_:title:importer:)` run any `ItemImporting` (documents) the
   same way, and `startTracked(_:title:work:)` tracks work for an existing row (a link's download, then its
   transcription) with its own background request, cancellable by `cancel(id)`.
+- `DocumentImportPipeline.swift` (M5): documents, an `ItemImporting` the job center runs. `importItem(from:)` copies
+  the file into `media/<id>/source.<ext>` and inserts a `.processing` `.document` row with its `documentFormat`
+  (nothing left behind on failure; unsupported types throw); `process(id:)` extracts on device through
+  `DocumentTextExtracting` with `.readingDocument` page progress, derives title and snippet, and saves with
+  `savePreservingUserMetadata`; `retry(id:)` re-extracts from the kept source. No engine, no scheduler slot, no network.
 - `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
   (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:)` inserts the `.processing`
   row with `sourceURL` / `sourceTitle`, `download(id:from:)` fetches into `media/<id>/source.<ext>` with

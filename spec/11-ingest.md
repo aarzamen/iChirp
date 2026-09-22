@@ -85,6 +85,12 @@ the terms. The M5 plan records the owner's decision before building option 2.
 
 ## Documents (M5)
 
+**Built (plan 014 Step 4, PDF).** Files → Parakeet or the Paste a link sheet's "Import a document" →
+`DocumentImportPipeline` copies it into `media/<id>/source.pdf`, inserts a `.document` row, and extracts on device:
+PDFKit per page, and for a page with (almost) no text layer, the page rendered to an image and read with Vision
+`RecognizeDocumentsRequest` (falling back to `RecognizeTextRequest`). `documentPages` records each page's method.
+Password-protected, damaged and text-free PDFs fail with a message and Retry.
+
 | Format | Method |
 |---|---|
 | PDF with text | `PDFDocument.string` or per-page `string` |

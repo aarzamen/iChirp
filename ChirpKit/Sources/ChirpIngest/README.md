@@ -37,3 +37,16 @@
   latest episode; `latestEpisode(inFeed:)` serves feed links. Only the show id (and Apple's feed URL) is requested.
 - `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
   `itunes:duration`), plus the channel title.
+
+### Documents
+
+- `Documents/DocumentTextExtractor.swift`: `DocumentTextExtracting` (the protocol `ChirpFeatures` uses),
+  `ExtractedDocument` (text, PDF pages, a plausible title), `DocumentExtractionError` (unsupported, unreadable,
+  password-protected, no text, damaged; each worded for the person) and `DocumentTextExtractor`, which dispatches by
+  `DocumentFormat`. `tidy` collapses blank runs; `plausibleTitle` drops file names and placeholders ("Untitled",
+  "Microsoft Word - …").
+- `Documents/PDFTextExtractor.swift`: PDFKit per page. A page whose text layer has fewer than 20 visible characters is
+  rendered (crop box, rotation applied, ~2,200 px long side, on white) and read with `PageTextRecognizing`; the longer
+  result wins. Pages record `textLayer`, `ocr` or `empty`. Cancellable between pages.
+- `Documents/PageTextRecognizer.swift`: `VisionPageTextRecognizer`, Vision's `RecognizeDocumentsRequest` (paragraphs
+  in reading order), falling back to `RecognizeTextRequest` lines. On-device, so allowed for clinical items.
