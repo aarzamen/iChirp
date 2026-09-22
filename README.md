@@ -22,8 +22,8 @@ the Cactus runtime. The product vision is in [`spec/00-vision.md`](spec/00-visio
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 | Foundation: XcodeGen project, `ChirpKit` package, scripts, specs, agent docs | In progress (branch `ichirp/foundation`) |
-| M1 | Parakeet v3 file transcription: import, speaker labels, Library, Transcript with player, export, model management, device smoke test | In progress (branch `ichirp/foundation`) |
+| M0 | Foundation: XcodeGen project, `ChirpKit` package, scripts, specs, agent docs | Implemented (branch `ichirp/foundation`, `e232b62d`) |
+| M1 | Parakeet v3 file transcription: import, speaker labels, Library, Transcript with player, export, model management, device smoke test | Built and simulator-verified (`e232b62d`); device smoke pending the first on-phone model download |
 | M1.5 | Finish long files in the background; import from the Share sheet and Voice Memos | Roadmap |
 | M2 | Dictation (Action Button, Live Activity, live preview, final pass, copy) | Roadmap |
 | M3 | Meeting recording with crash recovery, Notes tab | Roadmap |

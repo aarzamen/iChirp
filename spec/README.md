@@ -106,8 +106,8 @@ Each later milestone has an executor-ready plan; the [plans board](../docs/plans
 
 | Milestone | Scope | Status | Plan |
 |---|---|---|---|
-| M0 | Foundation: restructure, XcodeGen project, ChirpKit targets, scripts, CI, specs and agent docs | IN PROGRESS | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
-| M1 | Parakeet v3 file transcription: import, normalize, transcribe, speaker labels, Library, Transcript with player, export, model management, device smoke | IN PROGRESS | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
+| M0 | Foundation: restructure, XcodeGen project, ChirpKit targets, scripts, CI, specs and agent docs | Implemented (branch `ichirp/foundation`, `e232b62d`) | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
+| M1 | Parakeet v3 file transcription: import, normalize, transcribe, speaker labels, Library, Transcript with player, export, model management, device smoke | Built and simulator-verified (`e232b62d`); device smoke pending the first on-phone model download | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
 | M1.5 | `BGContinuedProcessingTask` for long files, Share-sheet import (share extension plus App Group), Voice Memos | NOT STARTED | [010](../docs/plans/2026-09-22-010-m1.5-share-and-background.md) |
 | M2 | Dictation: audio session, live preview, final Parakeet pass, clean-up, copy, Action Button intent with a Live Activity | NOT STARTED | [011](../docs/plans/2026-09-22-011-m2-dictation.md) |
 | M3 | Meeting recording: background audio, crash-safe recording plus `recording.lock` recovery, live chunks, final pass plus diarization, Notes tab | NOT STARTED | [012](../docs/plans/2026-09-22-012-m3-meetings.md) |

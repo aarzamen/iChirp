@@ -84,7 +84,7 @@ rather than eyeballing new numbers.
   temporarily render a component in the app's root view and run it on the simulator
   (`scripts/run_sim.sh`) for a real-device screenshot — revert the temporary App change
   afterward, since screens are Task 12b's job, not this module's.
-- There is no `ChirpUITests` target (`Package.swift` isn't part of this task's scope), so the
+- There is no `ChirpUITests` target (`ChirpKit/Package.swift` isn't part of this task's scope), so the
   one piece of genuinely pure logic — `Tokens.Color.rgbComponents(fromHex:)` and
   `Tokens.Color.speaker(at:)`'s modulo wraparound — should be spot-checked by copying the
   function body into a throwaway `swift` script and running it, rather than skipped.
