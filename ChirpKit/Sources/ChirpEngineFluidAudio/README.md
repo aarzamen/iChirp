@@ -33,9 +33,9 @@ Then read `ParakeetEngine.swift`.
 - `ParakeetEngine.swift`: the `SpeechEngine` actor. It downloads with `AsrModels.download` and loads with
   `AsrModels.loadLocal`, which reads local files only. Each `transcribe` checks out its own `AsrManager` (a
   `ParakeetWorker`) from an idle pool; all of them share one read-only `AsrModels`. A manager whose transcription
-  threw or was cancelled is dropped, never returned to the pool. It transcribes a 16 kHz mono
-  file with a fresh `TdtDecoderState` inside the gate, forwards that manager's chunk progress for files longer
-  than 15 s, and maps a BCP-47 `languageHint` onto FluidAudio's v3 script filter.
+  threw or was cancelled is dropped, never returned to the pool. It transcribes a 16 kHz mono file with a fresh
+  `TdtDecoderState` inside the gate, forwards that manager's chunk progress for files longer than 15 s, and maps a
+  BCP-47 `languageHint` onto FluidAudio's v3 script filter.
 - `FluidAudioDiarizer.swift`: the `SpeakerDiarizing` actor. Holds upstream's `highAccuracyConfig`
   (`stepRatio 0.1`, `minSegmentDurationSeconds 0`, zero-vote re-embed), maps no-speech to an empty
   `DiarizationOutput`, renumbers speakers `S1…Sn` by first speech with `Speaker N` labels, and repairs a malformed

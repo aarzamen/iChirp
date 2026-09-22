@@ -264,7 +264,7 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         }
     }
 
-    /// Error type and code for logs, e.g. "URLError URLError -1001".
+    /// Error type and code for logs, e.g. "error_type=URLError code=URLError -1001".
     private static func diagnostics(_ error: any Error) -> String {
         "error_type=\(String(describing: type(of: error))) code=\(DownloadDiagnostics.code(of: error))"
     }
