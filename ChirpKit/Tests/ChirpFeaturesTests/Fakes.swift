@@ -85,6 +85,7 @@ actor FakeStore: TranscriptionStoring {
         var merged = transcription
         merged.titleOverride = current.titleOverride
         merged.isFavorite = current.isFavorite
+        merged.privacyClass = current.privacyClass
         rows[merged.id] = merged
         publish()
         return merged

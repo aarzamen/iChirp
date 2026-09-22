@@ -1,9 +1,10 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Database/TranscriptionRepository.swift @ bbae9e0e
-// Changes: ports the intent of `savePreservingUserMetadata` (merge titleOverride + isFavorite
-// from the stored row onto pipeline output, inside one write transaction; a missing row is not
+// Changes: ports the intent of `savePreservingUserMetadata` (merge titleOverride + isFavorite, and here also
+// privacyClass, from the stored row onto pipeline output, inside one write transaction; a missing row is not
 // re-inserted, upstream throws `recordingDeleted`, here it returns nil) and of the field-level
 // `updateTitleOverride` / `updateFavorite` / `transitionStatus` onto ChirpCore's
-// `TranscriptionStoring` protocol and the trimmed `Transcription` shape. Every lookup goes
+// `TranscriptionStoring` protocol and the trimmed `Transcription` shape. List reads decode row by row and skip
+// (and log) a row this build cannot read, where upstream fails the whole fetch. Every lookup goes
 // through GRDB's record APIs (`fetchOne(key:)`, `filter(Column(...) == ...)`) — never raw SQL
 // string comparison against a UUID, which silently misses rows (see Database/README.md).
 
@@ -16,6 +17,9 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     private let database: DatabaseManager
     /// Serial so `observeAll()` notifications never reorder; GRDB requires a serial queue here.
     private let observationQueue = DispatchQueue(label: "com.ichirp.chirpstore.observeAll")
+    private static let logger = Log.logger("store")
+    /// Every list read: all rows, newest first.
+    private static let newestFirst = TranscriptionRecord.order(Column("createdAt").desc)
 
     public init(database: DatabaseManager) {
         self.database = database
@@ -29,16 +33,19 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     }
 
     public func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
-        try await database.writer.write { db in
-            guard let currentRecord = try TranscriptionRecord.fetchOne(db, key: transcription.id) else {
+        let output = try TranscriptionRecord(transcription)
+        return try await database.writer.write { db in
+            guard let current = try TranscriptionRecord.fetchOne(db, key: transcription.id) else {
                 // The row was deleted while the job ran: the user's delete wins, nothing is re-inserted.
                 return nil
             }
-            let current = try currentRecord.toTranscription()
-            var merged = transcription
+            // The user's fields are copied from the stored columns as they are, without decoding the stored row, so
+            // an unknown privacy class survives and a row with an unreadable JSON column is repaired by the output.
+            var merged = output.keepingUnknownRawValues(of: current)
             merged.titleOverride = current.titleOverride
             merged.isFavorite = current.isFavorite
-            try TranscriptionRecord(merged).update(db)
+            merged.privacyClass = current.privacyClass
+            try merged.update(db)
             // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
             return try TranscriptionRecord.fetchOne(db, key: merged.id)?.toTranscription()
         }
@@ -47,7 +54,8 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     public func update(_ transcription: Transcription) async throws {
         let record = try TranscriptionRecord(transcription)
         try await database.writer.write { db in
-            try record.update(db)
+            let stored = try TranscriptionRecord.fetchOne(db, key: record.id)
+            try record.keepingUnknownRawValues(of: stored).update(db)
         }
     }
 
@@ -90,7 +98,7 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
             var row = try record.toTranscription()
             guard change(&row) else { return nil }
             row.updatedAt = Date()
-            try TranscriptionRecord(row).update(db)
+            try TranscriptionRecord(row).keepingUnknownRawValues(of: record).update(db)
             // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
             return try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()
         }
@@ -103,13 +111,11 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         return try record?.toTranscription()
     }
 
+    /// Newest first. A row this build cannot read is skipped and logged, never fatal to the list (`decodeRows`).
     public func fetchAll() async throws -> [Transcription] {
-        let records = try await database.writer.read { db in
-            try TranscriptionRecord
-                .order(Column("createdAt").desc)
-                .fetchAll(db)
+        try await database.writer.read { db in
+            Self.decodeRows(try Row.fetchAll(db, Self.newestFirst))
         }
-        return try records.map { try $0.toTranscription() }
     }
 
     public func delete(id: UUID) async throws {
@@ -131,26 +137,44 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         }
     }
 
+    /// Emits every readable row, newest first, on each change. Unreadable rows are skipped the same way as in
+    /// `fetchAll()`, so one bad row never empties the Library.
     public func observeAll() -> AsyncStream<[Transcription]> {
         AsyncStream { continuation in
             let observation = ValueObservation.tracking { db in
-                try TranscriptionRecord
-                    .order(Column("createdAt").desc)
-                    .fetchAll(db)
+                Self.decodeRows(try Row.fetchAll(db, Self.newestFirst))
             }
             let cancellable = observation.start(
                 in: database.writer,
                 scheduling: .async(onQueue: observationQueue),
-                onError: { _ in
+                onError: { error in
+                    Self.logger.error(
+                        "observe_all_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
                     continuation.finish()
                 },
-                onChange: { records in
-                    let transcriptions = (try? records.map { try $0.toTranscription() }) ?? []
+                onChange: { transcriptions in
                     continuation.yield(transcriptions)
                 }
             )
             continuation.onTermination = { _ in
                 cancellable.cancel()
+            }
+        }
+    }
+
+    /// Decodes each row on its own. A row that fails (a JSON column, date or other column this build cannot read,
+    /// for example one written by a newer build) is skipped and logged with its id and the error's type only: the
+    /// error's description can quote the row's columns, which hold transcript text.
+    static func decodeRows(_ rows: [Row]) -> [Transcription] {
+        rows.compactMap { row in
+            do {
+                return try TranscriptionRecord(row: row).toTranscription()
+            } catch {
+                let id = (row["id"] as DatabaseValue?).flatMap(UUID.fromDatabaseValue)?.uuidString ?? "unreadable"
+                logger.error(
+                    "row_skipped_unreadable id=\(id, privacy: .public) error_type=\(String(describing: type(of: error)), privacy: .public)"
+                )
+                return nil
             }
         }
     }

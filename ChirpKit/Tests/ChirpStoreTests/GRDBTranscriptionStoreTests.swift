@@ -1,4 +1,5 @@
 import ChirpCore
+import GRDB
 import XCTest
 
 @testable import ChirpStore
@@ -6,6 +7,33 @@ import XCTest
 final class GRDBTranscriptionStoreTests: XCTestCase {
     private func makeStore() throws -> GRDBTranscriptionStore {
         GRDBTranscriptionStore(database: try DatabaseManager.inMemory())
+    }
+
+    /// The store plus its database, for tests that write a row the way another build (or a damaged file) would.
+    private func makeStoreAndDatabase() throws -> (GRDBTranscriptionStore, DatabaseManager) {
+        let database = try DatabaseManager.inMemory()
+        return (GRDBTranscriptionStore(database: database), database)
+    }
+
+    /// Rewrites the stored row's raw columns, bypassing `Transcription`, as a newer build or a damaged file would.
+    private func tamper(
+        _ database: DatabaseManager,
+        id: UUID,
+        _ change: @escaping @Sendable (inout TranscriptionRecord) -> Void
+    ) async throws {
+        try await database.writer.write { db in
+            guard var record = try TranscriptionRecord.fetchOne(db, key: id) else {
+                throw TamperError.rowMissing
+            }
+            change(&record)
+            try record.update(db)
+        }
+    }
+
+    private func storedRecord(_ database: DatabaseManager, id: UUID) async throws -> TranscriptionRecord? {
+        try await database.writer.read { db in
+            try TranscriptionRecord.fetchOne(db, key: id)
+        }
     }
 
     /// A fully populated `Transcription`, including every JSON-column field, so round-trip
@@ -307,6 +335,204 @@ final class GRDBTranscriptionStoreTests: XCTestCase {
         XCTAssertTrue(fetched.isFavorite)
     }
 
+    func testSavePreservingUserMetadataKeepsPrivacyClassChangedDuringJob() async throws {
+        let store = try makeStore()
+        var original = makeSample(status: .processing)
+        original.privacyClass = .personal
+        try await store.insert(original)
+
+        // The user marks the item clinical while the job runs.
+        var marked = original
+        marked.privacyClass = .clinical
+        try await store.update(marked)
+
+        // Pipeline output still carries the class it read when the job started.
+        var pipelineOutput = original
+        pipelineOutput.status = .completed
+        pipelineOutput.rawTranscript = "final transcript"
+        let savedValue = try await store.savePreservingUserMetadata(pipelineOutput)
+        let saved = try XCTUnwrap(savedValue)
+
+        XCTAssertEqual(saved.privacyClass, .clinical, "privacy class is user metadata; the job must not revert it")
+        XCTAssertEqual(saved.status, .completed)
+        let fetched = try await store.fetch(id: original.id)
+        XCTAssertEqual(fetched?.privacyClass, .clinical)
+    }
+
+    // MARK: - Decoding: nil vs empty JSON, unknown values, unreadable rows
+
+    func testNilAndEmptyJSONColumnsRoundTripDistinctly() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        var original = makeSample()
+        original.wordTimestamps = []
+        original.speakers = nil
+        original.diarizationSegments = []
+        original.transcriptSegments = nil
+        try await store.insert(original)
+
+        let fetched = try await store.fetch(id: original.id)
+
+        XCTAssertEqual(fetched, original)
+        XCTAssertEqual(fetched?.wordTimestamps, [], "an empty list stays an empty list")
+        XCTAssertNil(fetched?.speakers, "nil stays nil")
+        XCTAssertEqual(fetched?.diarizationSegments, [])
+        XCTAssertNil(fetched?.transcriptSegments)
+        let record = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(record?.wordTimestamps, "[]", "an empty list is stored as JSON []")
+        XCTAssertNil(record?.speakers, "nil is stored as SQL NULL")
+        XCTAssertEqual(record?.diarizationSegments, "[]")
+        XCTAssertNil(record?.transcriptSegments)
+    }
+
+    func testUnknownEnumValuesFromANewerBuildDecodeToSafeFallbacks() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+        try await tamper(database, id: original.id) { record in
+            record.sourceType = "hologram"
+            record.status = "summarizing"
+            record.privacyClass = "restricted"
+        }
+
+        let fetchedValue = try await store.fetch(id: original.id)
+        let fetched = try XCTUnwrap(fetchedValue)
+        XCTAssertEqual(fetched.status, .interrupted, "an unknown status reads as a terminal status the UI renders")
+        XCTAssertEqual(fetched.privacyClass, .clinical, "an unknown privacy class reads as the most protective class")
+        XCTAssertEqual(fetched.sourceType, .file)
+        XCTAssertEqual(fetched.rawTranscript, original.rawTranscript, "the rest of the row is intact")
+        let all = try await store.fetchAll()
+        XCTAssertEqual(all.map(\.id), [original.id])
+    }
+
+    func testFieldLevelWritesKeepUnknownValuesTheyDoNotChange() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+        try await tamper(database, id: original.id) { record in
+            record.sourceType = "hologram"
+            record.status = "summarizing"
+            record.privacyClass = "restricted"
+        }
+
+        _ = try await store.updateFavorite(id: original.id, isFavorite: false)
+        _ = try await store.updateTitleOverride(id: original.id, titleOverride: "Renamed on an older build")
+
+        let afterEdits = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(afterEdits?.sourceType, "hologram", "an older build never overwrites a newer build's value")
+        XCTAssertEqual(afterEdits?.status, "summarizing")
+        XCTAssertEqual(afterEdits?.privacyClass, "restricted")
+        XCTAssertEqual(afterEdits?.isFavorite, false)
+        XCTAssertEqual(afterEdits?.titleOverride, "Renamed on an older build")
+
+        // An explicit status change (Retry) does replace the unknown status, and only the status.
+        let retried = try await store.transitionStatus(
+            id: original.id, from: [.interrupted], to: .processing, errorMessage: nil)
+        XCTAssertEqual(retried?.status, .processing)
+        let afterRetry = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(afterRetry?.status, "processing")
+        XCTAssertEqual(afterRetry?.privacyClass, "restricted")
+        XCTAssertEqual(afterRetry?.sourceType, "hologram")
+    }
+
+    func testSavePreservingUserMetadataKeepsAnUnknownPrivacyClass() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = makeSample(status: .processing)
+        try await store.insert(original)
+        try await tamper(database, id: original.id) { record in
+            record.privacyClass = "restricted"
+        }
+
+        var pipelineOutput = original
+        pipelineOutput.status = .completed
+        pipelineOutput.privacyClass = .personal
+        let savedValue = try await store.savePreservingUserMetadata(pipelineOutput)
+        let saved = try XCTUnwrap(savedValue)
+
+        XCTAssertEqual(saved.privacyClass, .clinical, "read back through the fallback")
+        let record = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(record?.privacyClass, "restricted", "the stored value is kept as written")
+        XCTAssertEqual(record?.status, "completed")
+    }
+
+    func testSavePreservingUserMetadataRepairsARowWithAnUnreadableJSONColumn() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        var original = makeSample(status: .processing)
+        original.titleOverride = "Keep this title"
+        try await store.insert(original)
+        try await tamper(database, id: original.id) { record in
+            record.wordTimestamps = "{not json"
+        }
+
+        var pipelineOutput = original
+        pipelineOutput.status = .completed
+        pipelineOutput.titleOverride = nil
+        let savedValue = try await store.savePreservingUserMetadata(pipelineOutput)
+        let saved = try XCTUnwrap(savedValue, "the job's output replaces the unreadable column")
+
+        XCTAssertEqual(saved.wordTimestamps, original.wordTimestamps)
+        XCTAssertEqual(saved.titleOverride, "Keep this title")
+    }
+
+    func testFetchAllSkipsAnUnreadableRowAndKeepsTheRest() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let oldest = makeSample(fileName: "a.m4a", createdAt: Date(timeIntervalSinceReferenceDate: 100))
+        let broken = makeSample(fileName: "b.m4a", createdAt: Date(timeIntervalSinceReferenceDate: 200))
+        let newest = makeSample(fileName: "c.m4a", createdAt: Date(timeIntervalSinceReferenceDate: 300))
+        for row in [oldest, broken, newest] {
+            try await store.insert(row)
+        }
+        try await tamper(database, id: broken.id) { record in
+            record.speakers = "{not json"
+        }
+
+        let all = try await store.fetchAll()
+
+        XCTAssertEqual(all.map(\.id), [newest.id, oldest.id], "one unreadable row never empties the list")
+        do {
+            _ = try await store.fetch(id: broken.id)
+            XCTFail("fetching the unreadable row by id reports the error")
+        } catch {}
+    }
+
+    func testFetchAllSkipsARowWhoseColumnsCannotBeRead() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let good = makeSample(fileName: "good.m4a")
+        let broken = makeSample(fileName: "broken.m4a")
+        try await store.insert(good)
+        try await store.insert(broken)
+        // A column this build expects as text holds a value it cannot read (a later schema could relax it).
+        try await database.writer.write { db in
+            try db.execute(sql: "UPDATE transcriptions SET createdAt = 'not a date' WHERE fileName = 'broken.m4a'")
+        }
+
+        let all = try await store.fetchAll()
+
+        XCTAssertEqual(all.map(\.id), [good.id])
+    }
+
+    func testObserveAllSkipsAnUnreadableRowAndKeepsTheRest() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let good = makeSample(fileName: "good.m4a")
+        let broken = makeSample(fileName: "broken.m4a")
+        try await store.insert(good)
+        try await store.insert(broken)
+        try await tamper(database, id: broken.id) { record in
+            record.transcriptSegments = "[{\"oops\": true}]"
+        }
+        let collector = EmissionCollector()
+
+        let observationTask = Task {
+            for await value in store.observeAll() {
+                await collector.append(value)
+            }
+        }
+        try await waitUntil(timeout: 2) { await collector.count >= 1 }
+        observationTask.cancel()
+
+        let first = await collector.values.first
+        XCTAssertEqual(first?.map(\.id), [good.id], "the Library keeps every readable row")
+    }
+
     // MARK: - observeAll
 
     func testObserveAllEmitsAfterInsert() async throws {
@@ -349,6 +575,10 @@ private actor EmissionCollector {
 }
 
 private struct TestTimeoutError: Error {}
+
+private enum TamperError: Error {
+    case rowMissing
+}
 
 /// Polls `condition` until it returns true or `timeout` elapses. Used instead of a fixed
 /// `sleep` so the observation test finishes as soon as GRDB delivers its emission.
