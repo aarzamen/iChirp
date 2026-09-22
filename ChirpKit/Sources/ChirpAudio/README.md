@@ -6,12 +6,18 @@
 > binary — iChirp has no FFmpeg on iOS, so this goes through AVFoundation's
 > native decode path (`AVAssetReader`) instead.
 
-## Entry point
+Since M2 it also owns microphone capture and the audio session (see
+"Capture (M2)" below).
 
-`AVAudioNormalizer` — the only type here, and the only
-`ChirpCore.AudioNormalizing` (and, since M1.5, `ChirpCore.AudioTrackProbing`)
-conformer in this package. Stateless (`init()` takes nothing); safe to
-construct per call.
+## Entry points
+
+- `AVAudioNormalizer` — the only `ChirpCore.AudioNormalizing` (and, since
+  M1.5, `ChirpCore.AudioTrackProbing`) conformer in this package. Stateless
+  (`init()` takes nothing); safe to construct per call.
+- `AudioSessionController` — the one owner of the process's audio session
+  (M2). Built once in `AppEnvironment` over `LiveAudioSessionPlatform.shared`.
+- `SharedMicrophoneStream` — the one microphone stream per process (M2),
+  over `AVAudioEngineMicrophone`.
 
 ## What's here
 
@@ -100,9 +106,49 @@ movie in git history. The same goes for `AudioTrackSelectionTests`'
 different length and loudness, so the decoded output shows which track was
 read).
 
+## Capture (M2)
+
+- `Capture/AudioSessionPlatform.swift` — `AudioSessionPlatform`, the seam over
+  `AVAudioSession` (configure for `.recording` = `.playAndRecord` with
+  Bluetooth HFP and the speaker, or `.playback` = spoken audio; activate;
+  microphone permission; session events). `LiveAudioSessionPlatform` (iOS
+  only) turns the interruption, route-change and media-services notifications
+  into `AudioSessionEvent`s. Package tests use `FakeAudioSessionPlatform`
+  (`ChirpKit/Tests/ChirpAudioTests/CaptureFakes.swift`), so they run on the Mac.
+- `Capture/AudioSessionController.swift` — arbitration: one use at a time;
+  recording pre-empts playback (the player gets `.interruptionBegan` and does
+  not auto-resume); playback is refused while recording; session events go
+  to the active use's observers, media-services events to everyone; a reset
+  forgets the configuration so the next activation configures again. The
+  transcript player (`App/Sources/Screens/Transcript/PlayerBar.swift`) goes through it and never
+  touches `AVAudioSession` itself.
+- `Capture/MicrophoneEngine.swift` — `MicrophoneEngine`, the seam over the
+  input graph. `AVAudioEngineMicrophone.start` **always builds a new
+  `AVAudioEngine` and installs the tap on it**, and reports
+  `AVAudioEngineConfigurationChange` through a callback.
+- `Capture/SharedMicrophoneStream.swift` — port of upstream's shared stream:
+  subscribe/unsubscribe on one serial engine queue, render-thread fan-out
+  from a lock-guarded handler snapshot, 4096-frame tap. Recovery: interruption
+  began → engine torn down, `.interrupted`; ended with `shouldResume` →
+  rebuilt, `.resumed`; ended without it → `.waitingForResume` until the owner
+  calls `resume()`; a configuration change (or route change) that left the
+  engine stopped → rebuilt with a new tap, `.routeChanged`; media services
+  lost → `.interrupted`, reset → reconfigured and rebuilt, `.resumed`; a
+  failed rebuild → `.failed(message:)` and the subscription stays for a
+  manual `resume()`.
+
+**Rules to keep.** Never restart an old engine: rebuild and re-tap (a
+restarted engine can run without delivering buffers — upstream's silent
+stall). Resume automatically only on `.shouldResume`. Tests never sleep:
+`SharedMicrophoneStream.drain()` waits for the engine and callback queues.
+
 ## How to verify
 
 - `scripts/check.sh ChirpAudioTests` — build, run this target's tests, lint.
+  Capture only: `swift test --package-path ChirpKit --filter
+  "SharedMicrophoneStreamTests|AudioSessionControllerTests"`. Real microphone
+  behavior (calls, AirPods, Siri) is checked on the phone
+  (`docs/human-qa-guide.md`, M2).
 - `swift test --package-path ChirpKit --filter ChirpAudioTests` — just the
   tests.
 - `swift test --package-path ChirpKit` — full suite (run once, as the final

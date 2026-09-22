@@ -1,7 +1,7 @@
 # 05 - Audio Pipeline
 
-> Status: ACTIVE — M1 file decoding and storage, and the M1.5 continued-processing section, govern code now; the
-> capture sections are PROPOSAL (M2–M3) and are refined by their executor plans.
+> Status: ACTIVE — M1 file decoding and storage, the M1.5 continued-processing section and the M2 dictation capture
+> section govern code now; the M3 meeting section is PROPOSAL and is refined by its executor plan.
 
 ## M1: decoding imported files (ChirpAudio)
 
@@ -69,20 +69,31 @@ Verified against the iOS 26.5 SDK headers and WWDC25 session 227 (plan 010, "Ref
   exactly as in M1; a refused download falls back to `DownloadKeepAlive`.
 - **Neural Engine in the background:** see the table above; plan 010 Step 3 measures it on the owner's phone.
 
-## M2: capture for dictation (PROPOSAL)
+## M2: capture for dictation (ACTIVE)
 
-- One shared microphone stream per process, fanning buffers out to subscribers (port of upstream
-  `SharedMicrophoneStream` semantics, re-reviewed against the salvaged `IOSMicrophoneEnginePlatform` in
-  `legacy/gemini-ios/`).
-- `AVAudioSession` category `.playAndRecord` (or `.record`), activated in the foreground.
-- Interruptions: observe `interruptionNotification`; resume only when `.shouldResume` is set. Consider
-  `setPrefersNoInterruptionsFromSystemAlerts(true)`.
-- Route changes (AirPods switching modes): `AVAudioEngineConfigurationChange` stops the engine; rebuild the graph
-  and re-install the tap (upstream's silent-stall lesson).
-- Recording format: 16 kHz mono Float32 WAV for the final pass, as upstream's `AudioRecorder`. Recordings shorter
-  than 0.3 s are rejected. Short Parakeet clips get 0.5 s of trailing silence before the final pass (upstream rule).
-- Live preview is display-only: a tail-window batch preview (about every 1 s over the last 15 s) or a streaming
-  engine. The pasted text always comes from the final pass over the recorded file.
+Built in plan 011 (`ChirpAudio/Capture/`, README "Capture (M2)").
+
+- **One audio-session owner.** `AudioSessionController` over the `AudioSessionPlatform` seam
+  (`LiveAudioSessionPlatform` wraps `AVAudioSession`; tests use a fake). Recording uses `.playAndRecord`, mode
+  `.default`, options Bluetooth HFP + default-to-speaker, not mixable, and prefers no interruptions from system
+  alerts. Playback (the transcript player) uses `.playback` / `.spokenAudio`. Recording pre-empts playback (the player
+  pauses and does not auto-resume); playback is refused while recording. Deactivation notifies other apps.
+- **One shared microphone stream** (`SharedMicrophoneStream`, port of upstream's): the engine starts with the first
+  subscriber and stops with the last; 4096-frame tap; render-thread fan-out from a lock-guarded snapshot.
+- **Interruptions:** began → engine torn down, `CaptureEvent.interrupted`; ended with `.shouldResume` → session
+  reactivated, engine rebuilt, `.resumed`; ended without it → `.waitingForResume` (the Dictating screen offers
+  Resume or Stop).
+- **Route and configuration changes:** `AVAudioEngineConfigurationChange` (or a route change) that left the engine
+  stopped → a **new** engine with the tap installed again (upstream's silent-stall lesson), `.routeChanged`.
+- **Media services:** lost → `.interrupted`; reset → session configured again, engine rebuilt, `.resumed`.
+- A rebuild that fails reports `.failed(message:)`; the recording so far stays intact and can be stopped (final pass)
+  or resumed.
+- **Recording format:** 16 kHz mono Float32 WAV at `media/<id>/dictation.wav`, as upstream's `AudioRecorder`
+  (`AVAudioConverter`, prime method none; channel 0 under voice processing, otherwise a downmix). Recordings shorter
+  than 0.3 s are rejected and their file removed. Short Parakeet clips get 0.5 s of trailing silence at the final
+  pass, inside the engine (the saved WAV is not padded).
+- **Live preview is display-only:** a tail-window batch preview (every ~1 s over the last 15 s) or, later, a
+  streaming engine. The copied text always comes from the final pass over the recorded file.
 
 ## M3: meeting recording (PROPOSAL)
 

@@ -18,6 +18,8 @@ import Observation
     let diarizer: FluidAudioDiarizer
     let scheduler: SpeechJobScheduler
     let settings: UserDefaultsSettingsStore
+    /// The one owner of the audio session: dictation and the transcript player go through it (M2).
+    let audioSession: AudioSessionController
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -52,6 +54,7 @@ import Observation
         let continuedProcessing = SystemContinuedProcessingScheduler()
         let jobCenter = TranscriptionJobCenter(continuedProcessing: continuedProcessing)
         self.continuedProcessing = continuedProcessing
+        self.audioSession = AudioSessionController(platform: LiveAudioSessionPlatform.shared)
         self.store = store
         self.settings = settings
         self.runningVariant = settingsValue.parakeetVariant
