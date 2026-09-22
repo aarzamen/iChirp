@@ -12,6 +12,8 @@ Application Support/iChirp/
 ├── ichirp.sqlite                 GRDB database (WAL mode, so also -wal and -shm files)
 └── media/<transcription uuid>/
     ├── source.<ext>              the imported file, copied in; kept for playback
+    ├── dictation.wav             M2: a dictation's recording (16 kHz mono Float32); kept unless the person turned
+    │                             off "Keep dictation audio"
     └── normalized-16k.wav        temporary decode for the engine; deleted when the job finishes
 ```
 

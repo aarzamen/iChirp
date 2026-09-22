@@ -18,6 +18,8 @@ Since M2 it also owns microphone capture and the audio session (see
   (M2). Built once in `AppEnvironment` over `LiveAudioSessionPlatform.shared`.
 - `SharedMicrophoneStream` — the one microphone stream per process (M2),
   over `AVAudioEngineMicrophone`.
+- `DictationRecorder` — the `ChirpCore.AudioCapturing` conformer (M2): the
+  shared stream into `media/<id>/dictation.wav`.
 
 ## What's here
 
@@ -137,6 +139,18 @@ read).
   failed rebuild → `.failed(message:)` and the subscription stays for a
   manual `resume()`.
 
+- `Capture/DictationRecorder.swift` — port of upstream's `AudioRecorder`
+  dictation path. The tap only copies each buffer (`copyPCMBufferForAsyncUse`);
+  one serial processing queue keeps channel 0 under voice processing (else
+  downmixes, with upstream's phase-cancellation guard), converts to 16 kHz
+  mono Float32 (`SpeechRateConverter`: `AVAudioConverter`, prime method none,
+  rebuilt when a route change switches the input format, keeps `.inputRanDry`
+  partial output), writes the WAV and yields `.samples` (exactly what was
+  written), a smoothed `.level` and capture `.event`s on the update stream.
+  `stop()` unsubscribes, drains the queue and closes the file, then rejects
+  anything under 0.3 s (`AudioCaptureError.tooShort`, file removed);
+  `cancel()` deletes the file. Helpers: `Capture/CaptureBuffers.swift`.
+
 **Rules to keep.** Never restart an old engine: rebuild and re-tap (a
 restarted engine can run without delivering buffers — upstream's silent
 stall). Resume automatically only on `.shouldResume`. Tests never sleep:
@@ -146,7 +160,10 @@ stall). Resume automatically only on `.shouldResume`. Tests never sleep:
 
 - `scripts/check.sh ChirpAudioTests` — build, run this target's tests, lint.
   Capture only: `swift test --package-path ChirpKit --filter
-  "SharedMicrophoneStreamTests|AudioSessionControllerTests"`. Real microphone
+  "SharedMicrophoneStreamTests|AudioSessionControllerTests|DictationRecorderTests"`.
+  `DictationRecorderTests` feeds the committed `say` fixture through the real
+  stream on a fake engine and checks the WAV's rate, channels and duration
+  (±1%). Real microphone
   behavior (calls, AirPods, Siri) is checked on the phone
   (`docs/human-qa-guide.md`, M2).
 - `swift test --package-path ChirpKit --filter ChirpAudioTests` — just the
