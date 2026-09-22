@@ -36,7 +36,7 @@ de-duplication at the seams), so a two-hour file does not need two hours of samp
 | File job, app in foreground | Runs normally | M1 |
 | File job, user leaves the app | Short grace period, then suspended | **M1.5 (built):** `BGContinuedProcessingTask`, submitted from the user action, reports real `Progress`, and the system shows a Live Activity with Cancel (below) |
 | Model download, user leaves the app | Same | **M1.5 (built):** the Settings Download tap gets its own continued-processing request; the M1 keep-alive (`DownloadKeepAlive`) remains as the fallback |
-| Recording (dictation, meeting) in background | Allowed with the `audio` background mode **if started in the foreground** | M2/M3 |
+| Recording (dictation, meeting) in background | Allowed with the `audio` background mode **if started in the foreground** | **M2 (built):** `UIBackgroundModes: audio`; dictation starts in the foreground (the Action Button and Control open Parakeet) and keeps recording locked or in another app. M3 reuses it |
 | Neural Engine work in background, iOS 26 | No documented restriction | Parakeet keeps running |
 | Neural Engine work in background, **iOS 27** | Blocked unless the app has `com.apple.developer.background-tasks.continued-processing.inference` | Plan for CPU fallback when backgrounded; measure on the device; ask the owner before requesting the entitlement (account change) |
 | GPU (Metal, MLX) in background | Not allowed on iPhone | Language models on GPU run only in the foreground |
@@ -53,8 +53,9 @@ Verified against the iOS 26.5 SDK headers and WWDC25 session 227 (plan 010, "Ref
   id and never reused (registering an identifier twice kills the app). `project.yml` permits them with the wildcards
   `$(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*` and `….download.*` in `BGTaskSchedulerPermittedIdentifiers`. The
   launch handler is registered right before `submit`, on the main queue.
-- **No `UIBackgroundModes`, no entitlement.** Parakeet runs on the CPU and Neural Engine; only background GPU
-  (`requiredResources = .gpu`) needs an entitlement, and it is not requested.
+- **No entitlement.** Parakeet runs on the CPU and Neural Engine; only background GPU (`requiredResources = .gpu`)
+  needs an entitlement, and it is not requested. (M2 adds `UIBackgroundModes: audio` for recording only; file jobs
+  still rely on continued processing, not on the audio mode.)
 - **The job stays authoritative.** Jobs start at once whether or not the system accepts the request; the task is a
   keep-alive and a progress surface only (`ChirpFeatures.BackgroundContinuation`, bridged in
   `App/Sources/Support/ContinuedProcessing.swift`). Progress is the pipeline's real `JobProgress` (1000 units,
