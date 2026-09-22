@@ -190,6 +190,11 @@ actor FakeStore: TranscriptionStoring {
         fetchAllError = error
     }
 
+    /// Sets a row's privacy class directly (the app has no control for it until M4).
+    func setPrivacyClass(_ privacyClass: PrivacyClass, for id: UUID) {
+        rows[id]?.privacyClass = privacyClass
+    }
+
     private func parkIfHeld(_ call: Call) async {
         guard let pending = pendingHold, pending.calls.contains(call) else { return }
         pendingHold = nil
@@ -304,15 +309,7 @@ actor FakeSpeech: SpeechEngine {
         WordTimestamp(word: "Kenobi.", startMs: 1_900, endMs: 2_800, confidence: 0.96),
     ]
 
-    nonisolated let descriptor = EngineDescriptor(
-        id: "fake.parakeet",
-        kind: .speech,
-        provider: "Fake",
-        displayName: "Fake Parakeet",
-        locality: .onDevice,
-        license: "CC-BY-4.0",
-        providesWordTimestamps: true
-    )
+    nonisolated let descriptor: EngineDescriptor
 
     private var status: ModelAssetStatus
     private var result: SpeechResult
@@ -327,7 +324,16 @@ actor FakeSpeech: SpeechEngine {
     /// Whether the normalized file existed when `transcribe` was called.
     private(set) var inputExistedAtTranscribe: [Bool] = []
 
-    init(status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000)) {
+    init(status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000), locality: EngineLocality = .onDevice) {
+        self.descriptor = EngineDescriptor(
+            id: "fake.parakeet",
+            kind: .speech,
+            provider: "Fake",
+            displayName: "Fake Parakeet",
+            locality: locality,
+            license: "CC-BY-4.0",
+            providesWordTimestamps: true
+        )
         self.status = status
         self.result = SpeechResult(
             text: Self.helloText,
@@ -434,14 +440,7 @@ actor FakeDiarizer: SpeakerDiarizing {
         SpeakerInfo(id: "S2", label: "Speaker 2"),
     ]
 
-    nonisolated let descriptor = EngineDescriptor(
-        id: "fake.diarizer",
-        kind: .diarization,
-        provider: "Fake",
-        displayName: "Fake Diarizer",
-        locality: .onDevice,
-        license: "CC-BY-4.0"
-    )
+    nonisolated let descriptor: EngineDescriptor
 
     private var status: ModelAssetStatus
     private var output = DiarizationOutput(segments: twoSpeakerSegments, speakers: twoSpeakers)
@@ -450,7 +449,15 @@ actor FakeDiarizer: SpeakerDiarizing {
     private(set) var diarizeCalls = 0
     private(set) var downloadCalls = 0
 
-    init(status: ModelAssetStatus = .ready(bytesOnDisk: 30_000_000)) {
+    init(status: ModelAssetStatus = .ready(bytesOnDisk: 30_000_000), locality: EngineLocality = .onDevice) {
+        self.descriptor = EngineDescriptor(
+            id: "fake.diarizer",
+            kind: .diarization,
+            provider: "Fake",
+            displayName: "Fake Diarizer",
+            locality: locality,
+            license: "CC-BY-4.0"
+        )
         self.status = status
     }
 

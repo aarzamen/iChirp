@@ -266,6 +266,91 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertNil(row.speakerCount)
     }
 
+    // MARK: - Privacy routing
+
+    func testClinicalItemIsRefusedByACloudSpeechEngine() async throws {
+        let h = try PipelineHarness(testCase: self, speech: FakeSpeech(locality: .cloud))
+        let id = try await h.importSample()
+        await h.store.setPrivacyClass(.clinical, for: id)
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .failed)
+        XCTAssertEqual(
+            row.errorMessage,
+            FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(engineName: "Fake Parakeet").errorDescription)
+        let prepareCalls = await h.speech.prepareCalls
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(prepareCalls, 0)
+        XCTAssertEqual(transcribeCalls, 0, "clinical audio never reaches a cloud engine")
+        let started = await h.normalizer.startedOutputURLs
+        XCTAssertTrue(started.isEmpty, "the audio is not even prepared for an engine that may not have it")
+        XCTAssertTrue(fileExists(h.sourceURL(for: id)))
+    }
+
+    func testPrivacyClassChangedWhileTheJobWaitsIsCheckedBeforeTheEngineGetsAudio() async throws {
+        let (entered, sink) = AsyncStream.makeStream(of: Void.self)
+        let h = try PipelineHarness(testCase: self, speech: FakeSpeech(locality: .cloud))
+        await h.normalizer.parkNormalizations { sink.yield() }
+        let id = try await h.importSample()
+        let job = Task { await h.pipeline.process(id: id) }
+        var iterator = entered.makeAsyncIterator()
+        _ = await iterator.next()
+
+        // The user marks the item clinical while its audio is being prepared (M4 adds the control).
+        await h.store.setPrivacyClass(.clinical, for: id)
+        await h.normalizer.releaseParked()
+        let result = await job.value
+
+        XCTAssertEqual(result?.status, .failed)
+        XCTAssertEqual(
+            result?.errorMessage,
+            FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(engineName: "Fake Parakeet").errorDescription)
+        let prepareCalls = await h.speech.prepareCalls
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(prepareCalls, 0)
+        XCTAssertEqual(transcribeCalls, 0)
+        XCTAssertFalse(fileExists(h.normalizedURL(for: id)))
+    }
+
+    func testClinicalItemRunsOnAnOnDeviceEngine() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        await h.store.setPrivacyClass(.clinical, for: id)
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.privacyClass, .clinical)
+        XCTAssertEqual(row.speakerCount, 2, "the on-device diarizer runs too")
+    }
+
+    func testPersonalItemMayUseACloudSpeechEngine() async throws {
+        let h = try PipelineHarness(testCase: self, speech: FakeSpeech(locality: .cloud))
+        let id = try await h.importSample()
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .completed)
+    }
+
+    func testClinicalItemSkipsACloudDiarizer() async throws {
+        let h = try PipelineHarness(testCase: self, diarizer: FakeDiarizer(locality: .cloud))
+        let id = try await h.importSample()
+        await h.store.setPrivacyClass(.clinical, for: id)
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .completed, "speaker labels are optional, so the job still completes")
+        XCTAssertNil(row.speakerCount)
+        let diarizeCalls = await h.diarizer.diarizeCalls
+        XCTAssertEqual(diarizeCalls, 0, "clinical audio never reaches a cloud diarizer")
+    }
+
     // MARK: - Clean-up
 
     func testCleanupRawLeavesCleanTranscriptNil() async throws {

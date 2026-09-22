@@ -48,6 +48,12 @@ public struct JobProgress: Sendable, Equatable {
 ///
 /// Every exit of `process` deletes the normalized WAV and never touches the source. Failures become `.failed` with a
 /// readable `errorMessage`; cancelling the calling task becomes `.cancelled`. Models are never downloaded here.
+///
+/// Before any engine gets audio, `PrivacyRoutingPolicy` checks the engine's locality against the item's privacy
+/// class (ADR-002): a refused speech engine fails the job, a refused diarizer is skipped. The check runs twice: at the
+/// start (so refused audio is never even prepared) and again inside the scheduler slot against the class as stored
+/// then, because the user may change it while the job waits. Later engine call sites (language and structure
+/// models) must follow the same pattern.
 public actor FileTranscriptionPipeline {
     /// The error shown on a row when the speech model is missing.
     public static let modelMissingMessage = "Download the Parakeet speech model in Settings → Speech model"
@@ -64,11 +70,16 @@ public actor FileTranscriptionPipeline {
     /// Pipeline failures that are not engine errors.
     public enum PipelineError: Error, Equatable, LocalizedError {
         case sourceFileMissing
+        /// `PrivacyRoutingPolicy` refused the speech engine for this item's privacy class.
+        case privacyRoutingRefused(engineName: String)
 
         public var errorDescription: String? {
             switch self {
             case .sourceFileMissing:
                 "The imported file is missing. Delete this item and import the file again."
+            case .privacyRoutingRefused(let engineName):
+                "This item is marked clinical, so its audio stays on this iPhone. \(engineName) does not run on this "
+                    + "iPhone, so it was not used."
             }
         }
     }
@@ -80,6 +91,7 @@ public actor FileTranscriptionPipeline {
     private let diarizer: (any SpeakerDiarizing)?
     private let scheduler: SpeechJobScheduler
     private let settings: any SettingsStoring
+    private let privacyRouting: PrivacyRoutingPolicy
     private let customWords: @Sendable () -> [CustomWord]
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private let logger = Log.logger("pipeline")
@@ -92,6 +104,8 @@ public actor FileTranscriptionPipeline {
     private var audioPermitWaiters: [(ticket: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
 
     /// - Parameters:
+    ///   - privacyRouting: which engine localities may process each privacy class. The default trusts no
+    ///     local-network host.
     ///   - customWords: read once per job, only when the clean-up mode is `.clean`.
     ///   - onProgress: called from this actor and from engine callbacks, on no particular thread. UI owners hop
     ///     to their actor (see `TranscriptionJobCenter.progressHandler`).
@@ -103,6 +117,7 @@ public actor FileTranscriptionPipeline {
         diarizer: (any SpeakerDiarizing)?,
         scheduler: SpeechJobScheduler,
         settings: any SettingsStoring,
+        privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
         customWords: @escaping @Sendable () -> [CustomWord] = { [] },
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
@@ -113,6 +128,7 @@ public actor FileTranscriptionPipeline {
         self.diarizer = diarizer
         self.scheduler = scheduler
         self.settings = settings
+        self.privacyRouting = privacyRouting
         self.customWords = customWords
         self.onProgress = onProgress
     }
@@ -297,6 +313,7 @@ public actor FileTranscriptionPipeline {
         let settingsValue = settings.load()
         try Task.checkCancellation()
 
+        try Self.checkSpeechRouting(privacyRouting, speech: speech.descriptor, privacyClass: row.privacyClass, id: id)
         guard case .ready = await speech.assetStatus() else {
             throw SpeechEngineError.modelNotDownloaded(speech.descriptor.displayName)
         }
@@ -320,10 +337,17 @@ public actor FileTranscriptionPipeline {
 
         report(id, .waitingForEngine, 0.15)
         let speech = self.speech
-        let diarizer = settingsValue.speakerLabelsEnabled ? await readyDiarizer(for: id) : nil
+        let candidateDiarizer = settingsValue.speakerLabelsEnabled ? await readyDiarizer(for: row) : nil
         let onProgress = self.onProgress
+        let store = self.store
+        let routing = self.privacyRouting
         // Transcription and diarization share one background slot so two files never run their models at once.
         let output = try await scheduler.run(.fileTranscription) {
+            // The last check before any engine gets audio, against the privacy class as stored now: the user may have
+            // changed it while this job waited for an audio permit or for the slot.
+            let privacyClass = try await store.fetch(id: id)?.privacyClass ?? row.privacyClass
+            try Self.checkSpeechRouting(routing, speech: speech.descriptor, privacyClass: privacyClass, id: id)
+            let diarizer = Self.routedDiarizer(candidateDiarizer, routing, privacyClass: privacyClass, id: id)
             try await speech.prepare()
             onProgress(id, JobProgress(stage: .transcribing, fraction: 0.15))
             let result = try await speech.transcribe(
@@ -408,10 +432,54 @@ public actor FileTranscriptionPipeline {
         audioPermitWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
     }
 
-    /// The diarizer when speaker labels are on and its model is on disk; otherwise nil, with the reason logged.
-    private func readyDiarizer(for id: UUID) async -> (any SpeakerDiarizing)? {
-        guard let diarizer else {
+    // MARK: - Privacy routing
+
+    /// Throws `PipelineError.privacyRoutingRefused` when `privacyClass` may not go to the speech engine `speech`.
+    /// Engines never enforce privacy themselves; the caller checks before handing over any audio. M1 has no per-run
+    /// cloud override (it arrives with M4's cloud engines), so `userOverride` is always false here. Logs ids, the
+    /// engine id and the classes only, never content.
+    private static func checkSpeechRouting(
+        _ routing: PrivacyRoutingPolicy,
+        speech: EngineDescriptor,
+        privacyClass: PrivacyClass,
+        id: UUID
+    ) throws {
+        guard routing.allows(speech, for: privacyClass) else {
+            Log.logger("pipeline").error(
+                "process_refused_by_privacy_routing id=\(id, privacy: .public) engine=\(speech.id, privacy: .public) locality=\(speech.locality.rawValue, privacy: .public) privacy_class=\(privacyClass.rawValue, privacy: .public)"
+            )
+            throw PipelineError.privacyRoutingRefused(engineName: speech.displayName)
+        }
+    }
+
+    /// `diarizer` when routing allows it for `privacyClass`; otherwise nil, logged. Speaker labels are optional, so a
+    /// refused diarizer is skipped rather than failing the job.
+    private static func routedDiarizer(
+        _ diarizer: (any SpeakerDiarizing)?,
+        _ routing: PrivacyRoutingPolicy,
+        privacyClass: PrivacyClass,
+        id: UUID
+    ) -> (any SpeakerDiarizing)? {
+        guard let diarizer else { return nil }
+        guard routing.allows(diarizer.descriptor, for: privacyClass) else {
+            Log.logger("pipeline").notice(
+                "diarization_skipped id=\(id, privacy: .public) reason=privacy_routing engine=\(diarizer.descriptor.id, privacy: .public) locality=\(diarizer.descriptor.locality.rawValue, privacy: .public)"
+            )
+            return nil
+        }
+        return diarizer
+    }
+
+    /// The diarizer when speaker labels are on, privacy routing allows it for this item and its model is on disk;
+    /// otherwise nil, with the reason logged.
+    private func readyDiarizer(for row: Transcription) async -> (any SpeakerDiarizing)? {
+        let id = row.id
+        guard diarizer != nil else {
             logger.notice("diarization_skipped id=\(id, privacy: .public) reason=no_diarizer")
+            return nil
+        }
+        guard let diarizer = Self.routedDiarizer(diarizer, privacyRouting, privacyClass: row.privacyClass, id: id)
+        else {
             return nil
         }
         let status = await diarizer.assetStatus()

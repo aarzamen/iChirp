@@ -16,7 +16,8 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `FileTranscriptionPipeline.swift`: the `FileTranscriptionPipeline` actor plus `PipelineStage` and `JobProgress`.
   - `importFile(from:sourceType:)` copies the file (security-scoped, never moved) into `media/<id>/source.<ext>` on
     the pipeline's file queue, then inserts a `.processing` row.
-  - `process(id:)` runs: model check → audio-preparation permit (at most two jobs) → normalize to
+  - `process(id:)` runs: privacy routing check → model check → audio-preparation permit (at most two jobs) →
+    normalize to
     `media/<id>/normalized-16k.wav` → one scheduler
     `.fileTranscription` job (`prepare`, `transcribe`, then `diarize` if enabled and ready) → `SpeakerMerger` →
     `TextRefinement` → `TitleDeriver` / `SnippetDeriver` → `FileTranscriptSegments` → `savePreservingUserMetadata`.
@@ -54,6 +55,14 @@ LibraryViewModel(store: store, paths: paths)               // paths: delete remo
 
 ## What to know before editing
 
+- **Privacy routing runs before any engine gets audio** (ADR-002, `spec/12-privacy.md`). `run` asks
+  `PrivacyRoutingPolicy` (injected, default: no trusted LAN hosts) whether the speech engine's locality may process
+  the item's `privacyClass`, first at the start of the job, so refused audio is never even prepared, and again
+  inside the scheduler slot against the class as stored at that moment, because the user may change it while the
+  job waits. A refused speech engine fails the row with `PipelineError.privacyRoutingRefused`; a refused diarizer is
+  skipped and logged (speaker labels are optional). On-device engines always pass. Logs carry the id, engine id,
+  locality and class, never content. M1 has no per-run cloud override. Copy this pattern at every new engine call
+  site (M4 language models, M6 structure models).
 - **The pipeline never downloads.** If `speech.assetStatus()` is not `.ready`, or `prepare`/`transcribe` throws
   `SpeechEngineError.modelNotDownloaded`, the row fails with `FileTranscriptionPipeline.modelMissingMessage`
   ("Download the Parakeet speech model in Settings → Speech model"). A diarizer that is not ready is skipped and
