@@ -56,7 +56,8 @@ database and every screen that lists or edits documents.
   them. An unknown stored class reads as `clinical`, an unknown locality as `cloud`.
 - **The run ledger holds no content.** No column can hold transcript text, prompts, notes, questions or output;
   `errorType` is a content-free name (`LanguageModelError.kindName`, `privacy_override_required`, …). Ledger rows
-  outlive their transcript (ids become NULL). Every run writes exactly one row, including refused ones.
+  outlive their transcript (ids become NULL). Every run that reaches routing writes exactly one row, including
+  refused and cancelled ones (a missing transcript or template fails before routing and writes none).
 - **Routing at the one call site.** `DeliverableService` calls `PrivacyRoutingPolicy.allows` before the first model
   call and again before every later call (against the class as stored at that moment). Clinical content to a cloud
   or untrusted LAN engine needs a `PrivacyOverride` token minted by `confirmOverride` for exactly that transcript,
@@ -86,8 +87,12 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
   transcript delete cascades deliverables and keeps the ledger; `updatePrivacyClass` is field-level.
 - `PromptTemplateRendererTests` (ChirpTextTests), `BuiltInTemplatesTests` (ChirpFeaturesTests).
 - `DeliverableServiceRoutingTests` (ChirpFeaturesTests): the full privacy matrix with a recording fake model.
-- `DeliverableServiceTests` and `MapReducePlannerTests` (ChirpFeaturesTests): deliverable stored with the
-  version and class, SOAP raises to clinical, ledger rows carry no content, every chunk is seen, no truncation.
+- `DeliverableServiceTests`, `MapReduceGeneratorTests`, `DeliverableRunViewModelTests` and
+  `SingleGenerationPathTests` (ChirpFeaturesTests): deliverable stored with the version, engine and class; the
+  transcript untouched; ledger rows carry no content; every line of a 60-minute synthetic transcript sent exactly
+  once; condensing instead of cutting; `transcriptTooLong` instead of truncation; re-planning on `contextTooLong`;
+  cancellation; only `DeliverableService` calls `LanguageModel.generate`.
+- `TranscriptPromptTextTests` (ChirpTextTests): chunker never loses text; citations only for real segments.
 
 ## When this changes
 

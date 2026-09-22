@@ -28,6 +28,10 @@ pipeline directly.
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.
+- `TranscriptPromptText.swift`: model input shaping (M4). `TranscriptPromptFormatter.timestampedText(for:)`
+  (`[mm:ss] Speaker: text` per segment with the roster's current labels, else the display text), `TextChunker`
+  (ported upstream split: paragraph, then line, then sentence boundaries; never loses text) and
+  `TranscriptCitationParser` (keeps only `[mm:ss]` citations that match a real segment start).
 - `TextProcessingPipeline.swift`: the deterministic 5-step pipeline (filler removal → custom words →
   trailing action extraction → snippet expansion → whitespace/insertion-style cleanup).
 - `CustomWordReplacer.swift`: pre-compiled, reusable custom-word regex replacement (internal — the

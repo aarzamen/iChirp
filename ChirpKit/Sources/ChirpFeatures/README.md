@@ -1,6 +1,7 @@
 # ChirpFeatures
 
-The file-transcription pipeline coordinator and the `@MainActor @Observable` view models the app screens use.
+The file-transcription pipeline coordinator, the deliverable generation service (M4), and the
+`@MainActor @Observable` view models the app screens use.
 Depends only on ChirpCore, ChirpText and ChirpExport: engines, the store and the normalizer arrive as ChirpCore
 protocols, so nothing here imports FluidAudio, GRDB or AVFoundation, and every test runs on the Mac with fakes.
 
@@ -44,6 +45,23 @@ pipeline's `Task`s and publishes its progress to the UI.
   (Settings → Models): provider metadata as a JSON blob under `ichirp.languageModelProviders`, each API key in the
   injected `SecretStoring` (the Keychain) under the provider's `secretAccount`, never in `UserDefaults`. The key is
   written before the metadata; `routingPolicy()` trusts exactly the LAN hosts the user marked trusted.
+- `DeliverableService.swift`: **the only path from a transcript to a `LanguageModel`** (M4; contract
+  `spec/contracts/deliverables-v1.md`). `route(transcriptionID:templateID:model:)` answers `.allowed` or
+  `.needsOverride(PrivacyOverrideRequest)` without sending anything; `confirmOverride(_:)` mints a single-use
+  `PrivacyOverride` bound to that transcript, engine, host, locality and class (10-minute lifetime);
+  `generate(templateID:transcriptionID:userNotes:model:override:)` and `ask(question:…)` stream
+  `DeliverableRunEvent`s; `setPrivacyClass(_:transcriptionID:)` sets a transcript's class and raises (never lowers)
+  its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`.
+- `MapReduceGenerator.swift`: `DeliverablePromptAssembler` (tagged source blocks, `{{transcript}}` /
+  `{{userNotes}}` placement, Ask citation rules), `GenerationBudget` (from the engine's context window: a quarter
+  reserved for output, 3 characters per token, 10% margin) and `MapReduceGenerator` (one call when it fits;
+  otherwise extract per part, condense in groups up to 4 levels, combine; never truncates, else
+  `transcriptTooLong`).
+- `BuiltInTemplates.swift`: the nine shipped templates (Summary, Meeting notes, Action items, Agenda, SOAP note with
+  a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
+- `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
+  waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
+  `.answered` or `.failed(sentence)`.
 
 ## Wiring (app composition root)
 
@@ -122,11 +140,34 @@ LibraryViewModel(store: store, paths: paths)               // paths: delete remo
 - **M1 imports are `.file`.** `importFile` keeps its `sourceType` parameter. Detecting video by UTType, for the
   Library's "Video" chip, is later work.
 
+## Deliverables and privacy routing (M4)
+
+- **Every model call goes through `DeliverableService`.** `SingleGenerationPathTests` fails when any other file in
+  ChirpFeatures or `App/Sources` calls `LanguageModel.generate`. Screens call the service or
+  `DeliverableRunViewModel`, never an engine.
+- **Routing happens before the first call and again before every later call**, against the class stored at that
+  moment and the policy as configured then (the provider store's `routingPolicy()`). The routing class is the
+  stricter of the transcript's class and the template's output class, so a SOAP run is clinical.
+- **Clinical content to a cloud or untrusted LAN engine needs a `PrivacyOverride`**: only `confirmOverride` makes
+  one, only from a request this service issued, for one run. The UI must call it only from the user's tap on
+  "Send" in the confirmation that shows `request.title` and `request.message`; never from code that did not ask.
+  Its use is logged as `privacy_override_used` (ids, engine id, locality; host `.private`) and recorded as
+  `llm_runs.privacyOverride`. A LAN engine that does not report `endpointHost` is never trusted.
+- **Every run that reaches routing writes one `llm_runs` row** (succeeded, failed, cancelled or refused), outside
+  the run's cancellation, with no content. Logs carry ids, engine ids, classes, counts and error kind names only.
+- **Nothing is truncated.** Input over budget is split; a `contextTooLong` from a model re-plans with half the
+  window (twice at most); input that still cannot fit fails with `transcriptTooLong` and stores nothing.
+- **Results are new rows.** The transcript is never written except by `setPrivacyClass`.
+
 ## How to verify
 
 ```bash
 scripts/check.sh ChirpFeaturesTests
 ```
+
+The M4 tests on their own: `swift test --package-path ChirpKit --filter
+"DeliverableService|MapReduceGenerator|DeliverableRunViewModel|SingleGenerationPath|BuiltInTemplates|LanguageModelProviderStore"`.
+`DeliverableServiceRoutingTests.testFullPrivacyMatrix` prints the 24-row routing matrix it checked.
 
 This runs the package build, the ChirpFeatures tests (pipeline, job center, Library/Capture, Transcript, Speech
 settings, `UserDefaultsSettingsStore`, and the store races: `FakeStore.holdNext(_:)` parks a store call at its entry
