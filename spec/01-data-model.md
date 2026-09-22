@@ -33,7 +33,7 @@ Application Support/iChirp/
 - New stored properties on `Transcription` are optional or defaulted, so old rows decode.
 - Field names match upstream MacParakeet where they overlap, so ported code needs no renaming.
 
-## `transcriptions` (migration `v1-transcriptions`)
+## `transcriptions` (migrations `v1-transcriptions`, `v2-audio-track-ordinal`)
 
 One row per imported file, dictation, meeting, link or document. The Swift type is `ChirpCore.Transcription`.
 
@@ -44,6 +44,7 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 | `sourceType` | text enum | `file` · `dictation` · `meeting` · `url` · `podcast` · `document` |
 | `fileName` | text | Original file name shown to the user |
 | `mediaRelativePath` | text, nullable | e.g. `media/<id>/source.m4a`, relative to the root |
+| `audioTrackOrdinal` | int, nullable | M1.5 (`v2-audio-track-ordinal`): the zero-based audio track chosen in a multi-track file; NULL = automatic (the first track, and every earlier row). Reused by Retry ([contract](contracts/file-transcription-audio-tracks-v1.md)) |
 | `fileSizeBytes`, `durationMs` | int, nullable | From the imported file |
 | `rawTranscript` | text, nullable | The engine's text, unchanged |
 | `cleanTranscript` | text, nullable | Deterministic clean-up output; **nil in Raw mode** (the default) |

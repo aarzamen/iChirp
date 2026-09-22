@@ -18,6 +18,8 @@ struct TranscriptionRecord: Codable, Equatable, Sendable {
     var sourceType: String
     var fileName: String
     var mediaRelativePath: String?
+    /// Added by migration `v2-audio-track-ordinal`; NULL on every earlier row (automatic selection).
+    var audioTrackOrdinal: Int?
     var fileSizeBytes: Int?
     var durationMs: Int?
     var rawTranscript: String?
@@ -54,6 +56,7 @@ extension TranscriptionRecord {
         sourceType = transcription.sourceType.rawValue
         fileName = transcription.fileName
         mediaRelativePath = transcription.mediaRelativePath
+        audioTrackOrdinal = transcription.audioTrackOrdinal
         fileSizeBytes = transcription.fileSizeBytes
         durationMs = transcription.durationMs
         rawTranscript = transcription.rawTranscript
@@ -96,6 +99,7 @@ extension TranscriptionRecord {
             sourceType: sourceTypeValue,
             fileName: fileName,
             mediaRelativePath: mediaRelativePath,
+            audioTrackOrdinal: audioTrackOrdinal,
             fileSizeBytes: fileSizeBytes,
             durationMs: durationMs,
             status: statusValue,

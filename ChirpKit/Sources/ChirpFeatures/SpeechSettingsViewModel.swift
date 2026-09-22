@@ -54,7 +54,11 @@ import Observation
         lastError = nil
     }
 
-    public func downloadSpeechModel() async {
+    /// Downloads the speech model. `onProgress` also receives each fraction on the main actor (the app forwards it to
+    /// the system's progress UI). Returns whether the model is ready afterwards.
+    @discardableResult public func downloadSpeechModel(
+        onProgress: (@MainActor (Double) -> Void)? = nil
+    ) async -> Bool {
         lastError = nil
         speechDownloadActive = true
         speechStatus = .downloading(fraction: 0)
@@ -63,6 +67,7 @@ import Observation
                 Task { @MainActor [weak self] in
                     guard let self, self.speechDownloadActive else { return }
                     self.speechStatus = .downloading(fraction: fraction)
+                    onProgress?(fraction)
                 }
             }
         } catch {
@@ -70,6 +75,8 @@ import Observation
         }
         speechDownloadActive = false
         speechStatus = await speech.assetStatus()
+        if case .ready = speechStatus { return true }
+        return false
     }
 
     public func deleteSpeechModel() async {
@@ -82,8 +89,12 @@ import Observation
         speechStatus = await speech.assetStatus()
     }
 
-    public func downloadDiarizer() async {
-        guard let diarizer else { return }
+    /// Downloads the speaker model; `onProgress` as in `downloadSpeechModel`. Returns whether it is ready afterwards
+    /// (false, doing nothing, when the app has no diarizer).
+    @discardableResult public func downloadDiarizer(
+        onProgress: (@MainActor (Double) -> Void)? = nil
+    ) async -> Bool {
+        guard let diarizer else { return false }
         lastError = nil
         diarizerDownloadActive = true
         diarizerStatus = .downloading(fraction: 0)
@@ -92,6 +103,7 @@ import Observation
                 Task { @MainActor [weak self] in
                     guard let self, self.diarizerDownloadActive else { return }
                     self.diarizerStatus = .downloading(fraction: fraction)
+                    onProgress?(fraction)
                 }
             }
         } catch {
@@ -99,6 +111,8 @@ import Observation
         }
         diarizerDownloadActive = false
         diarizerStatus = await diarizer.assetStatus()
+        if case .ready = diarizerStatus { return true }
+        return false
     }
 
     public func deleteDiarizer() async {

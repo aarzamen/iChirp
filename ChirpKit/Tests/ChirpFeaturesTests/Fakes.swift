@@ -246,6 +246,8 @@ actor FakeNormalizer: AudioNormalizing {
     private(set) var outputURLs: [URL] = []
     /// Every `outputURL` a `normalize` call started on, in call order.
     private(set) var startedOutputURLs: [URL] = []
+    /// The `audioTrackOrdinal` of every `normalize(…audioTrackOrdinal:)` call, in call order.
+    private(set) var requestedOrdinals: [Int?] = []
     /// `normalize` calls running right now, and the most that ever ran at once.
     private(set) var active = 0
     private(set) var maxActive = 0
@@ -292,9 +294,58 @@ actor FakeNormalizer: AudioNormalizing {
         return NormalizedAudio(url: outputURL, durationMs: Self.durationMs, sampleCount: 48_000)
     }
 
+    /// Like the real normalizer: an explicit ordinal the file lacks throws `trackMissing`, never falling back. The
+    /// synthetic file says how many tracks it has (`SyntheticMedia`); an ordinary fixture has one.
+    func normalize(sourceURL: URL, outputURL: URL, audioTrackOrdinal: Int?) async throws -> NormalizedAudio {
+        requestedOrdinals.append(audioTrackOrdinal)
+        if let audioTrackOrdinal {
+            let count = SyntheticMedia.audioTrackCount(of: sourceURL)
+            guard (0..<count).contains(audioTrackOrdinal) else {
+                throw AudioTrackSelectionError.trackMissing(ordinal: audioTrackOrdinal, trackCount: count)
+            }
+        }
+        return try await normalize(sourceURL: sourceURL, outputURL: outputURL)
+    }
+
     func durationMs(of sourceURL: URL) async throws -> Int {
         if let durationError { throw durationError }
         return Self.durationMs
+    }
+}
+
+// MARK: - Audio tracks
+
+/// Synthetic "media" whose bytes say how many audio tracks it has: every byte is the track count. Files made any
+/// other way (`PipelineHarness.makeSourceFile`) count as one track.
+enum SyntheticMedia {
+    static func write(to url: URL, audioTracks: Int) throws {
+        try Data(repeating: UInt8(audioTracks), count: 64).write(to: url)
+    }
+
+    static func audioTrackCount(of url: URL) -> Int {
+        guard let data = try? Data(contentsOf: url), data.count == 64, let first = data.first,
+            data.allSatisfy({ $0 == first })
+        else {
+            return 1
+        }
+        return Int(first)
+    }
+}
+
+/// Lists `SyntheticMedia` tracks ("eng" first, then "spa", …); counts the calls. Throws for a missing file.
+final class FakeTrackProbe: AudioTrackProbing {
+    private let calls = Mutex(0)
+    var callCount: Int { calls.withLock { $0 } }
+
+    func audioTracks(in sourceURL: URL) async throws -> [AudioTrackDescriptor] {
+        calls.withLock { $0 += 1 }
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else { throw FakeError(message: "unreadable") }
+        let languages = ["eng", "spa", "fra", "deu"]
+        return (0..<SyntheticMedia.audioTrackCount(of: sourceURL)).map { ordinal in
+            AudioTrackDescriptor(
+                ordinal: ordinal, trackID: ordinal + 1, languageCode: languages[ordinal % languages.count],
+                isDefault: ordinal == 0)
+        }
     }
 }
 
@@ -560,6 +611,7 @@ struct PipelineHarness {
         diarizer: FakeDiarizer = FakeDiarizer(),
         includeDiarizer: Bool = true,
         customWords: [CustomWord] = [],
+        trackProbe: (any AudioTrackProbing)? = nil,
         onProgress: (@Sendable (UUID, JobProgress) -> Void)? = nil
     ) throws {
         let base = FileManager.default.temporaryDirectory
@@ -583,6 +635,7 @@ struct PipelineHarness {
             paths: paths,
             store: store,
             normalizer: normalizer,
+            trackProbe: trackProbe,
             speech: speech,
             diarizer: includeDiarizer ? diarizer : nil,
             scheduler: scheduler,
@@ -599,6 +652,13 @@ struct PipelineHarness {
     func makeSourceFile(named name: String = "Interview.m4a", bytes: Int = 1_024) throws -> URL {
         let url = inbox.appendingPathComponent(name)
         try Data(repeating: 7, count: bytes).write(to: url)
+        return url
+    }
+
+    /// A synthetic file with `audioTracks` audio tracks (see `SyntheticMedia`), outside the app root.
+    func makeMediaFile(named name: String, audioTracks: Int) throws -> URL {
+        let url = inbox.appendingPathComponent(name)
+        try SyntheticMedia.write(to: url, audioTracks: audioTracks)
         return url
     }
 
@@ -642,5 +702,112 @@ func waitUntil(
             XCTFail("condition not met within \(timeout)s", file: file, line: line)
             return
         }
+    }
+}
+
+// MARK: - Continued processing (M1.5 background)
+
+/// Stands in for `BGContinuedProcessingTask`: records every progress value, title update and completion.
+@MainActor
+final class FakeContinuedTask: ContinuedProcessingTask {
+    let progress = Progress(totalUnitCount: 0)
+    let requestID: String
+    private(set) var expirationHandler: (@MainActor () -> Void)?
+    private(set) var subtitles: [String] = []
+    private(set) var titles: [String] = []
+    private(set) var completions: [Bool] = []
+    private let units = UnitLog()
+    private var observation: NSKeyValueObservation?
+
+    private final class UnitLog: Sendable {
+        let values = Mutex<[Int64]>([])
+    }
+
+    init(requestID: String) {
+        self.requestID = requestID
+        observation = progress.observe(\.completedUnitCount, options: [.new]) { [units] progress, _ in
+            units.values.withLock { $0.append(progress.completedUnitCount) }
+        }
+    }
+
+    /// Every `completedUnitCount` value the task was given, in order.
+    var reportedUnits: [Int64] { units.values.withLock { $0 } }
+
+    func setExpirationHandler(_ handler: @escaping @MainActor () -> Void) {
+        expirationHandler = handler
+    }
+
+    func updateTitle(_ title: String, subtitle: String) {
+        titles.append(title)
+        subtitles.append(subtitle)
+    }
+
+    func setTaskCompleted(success: Bool) {
+        completions.append(success)
+    }
+
+    /// What the system does when the person taps Cancel in the Live Activity (or it expires the task).
+    func expire() {
+        expirationHandler?()
+    }
+}
+
+/// Stands in for `BGTaskScheduler`: records submissions and withdrawals, and starts a task only when the test says.
+@MainActor
+final class FakeContinuedProcessingScheduler: ContinuedProcessingScheduling {
+    struct Submission: Equatable {
+        var id: String
+        var kind: ContinuedProcessingKind
+        var title: String
+        var subtitle: String
+    }
+
+    /// When true, `submit` refuses like the Simulator (`BGTaskScheduler.Error.unavailable`).
+    var refuses = false
+    private(set) var submissions: [Submission] = []
+    private(set) var withdrawn: [String] = []
+    private(set) var tasks: [String: FakeContinuedTask] = [:]
+    private var launchHandlers: [String: @MainActor (any ContinuedProcessingTask) -> Void] = [:]
+
+    func submit(
+        _ kind: ContinuedProcessingKind,
+        title: String,
+        subtitle: String,
+        onStart: @escaping @MainActor (any ContinuedProcessingTask) -> Void
+    ) -> String? {
+        guard !refuses else { return nil }
+        let id = "com.aarzamen.ichirp.\(kind.rawValue).\(UUID().uuidString)"
+        submissions.append(Submission(id: id, kind: kind, title: title, subtitle: subtitle))
+        launchHandlers[id] = onStart
+        registeredHandlers[id] = onStart
+        return id
+    }
+
+    /// Keeps the launch handler after a withdrawal, as the real scheduler keeps its registration.
+    private var registeredHandlers: [String: @MainActor (any ContinuedProcessingTask) -> Void] = [:]
+
+    func withdraw(_ requestID: String) {
+        withdrawn.append(requestID)
+        launchHandlers[requestID] = nil
+    }
+
+    /// The system starts a request it had queued before it saw the withdrawal (a race the app must survive).
+    func startIgnoringWithdrawal(_ requestID: String, with task: FakeContinuedTask) {
+        registeredHandlers[requestID]?(task)
+    }
+
+    /// The system starts the request (the launch handler runs). Returns nil if it was withdrawn or never submitted.
+    @discardableResult func start(_ requestID: String) -> FakeContinuedTask? {
+        guard let handler = launchHandlers.removeValue(forKey: requestID) else { return nil }
+        let task = FakeContinuedTask(requestID: requestID)
+        tasks[requestID] = task
+        handler(task)
+        return task
+    }
+
+    /// Starts the only (or last) submitted request.
+    @discardableResult func startLast() -> FakeContinuedTask? {
+        guard let last = submissions.last else { return nil }
+        return start(last.id)
     }
 }

@@ -9,8 +9,9 @@
 ## Entry point
 
 `AVAudioNormalizer` — the only type here, and the only
-`ChirpCore.AudioNormalizing` conformer in this package. Stateless (`init()`
-takes nothing); safe to construct per call.
+`ChirpCore.AudioNormalizing` (and, since M1.5, `ChirpCore.AudioTrackProbing`)
+conformer in this package. Stateless (`init()` takes nothing); safe to
+construct per call.
 
 ## What's here
 
@@ -21,6 +22,15 @@ takes nothing); safe to construct per call.
   straight into an `AVAudioFile` opened on `outputURL`. `AudioNormalizationError`
   has two cases: `.noAudioTrack` (no audio track found) and `.readerFailed`
   (any `AVAssetReader`/`AVAudioFile` failure, with AVFoundation's own message).
+- **Audio tracks (M1.5).** `audioTracks(in:)` lists the file's audio tracks
+  (ordinal, container track id, language code, default marker) from
+  metadata only. `normalize(sourceURL:outputURL:audioTrackOrdinal:)` decodes
+  the track with that zero-based ordinal among audio tracks (nil: the first,
+  which is what `normalize(sourceURL:outputURL:)` does). An ordinal the file
+  lacks throws `ChirpCore.AudioTrackSelectionError.trackMissing` before
+  anything is decoded; it never falls back to another track. A disabled
+  alternate track (a second language) decodes like any other. Contract:
+  `spec/contracts/file-transcription-audio-tracks-v1.md`.
 
 ## What to know before editing
 
@@ -85,7 +95,10 @@ format-mismatch error.
 (a 1-second video-plus-audio movie, to prove the normalizer picks the audio
 track out of a container that also carries video) is never committed — it's
 built at test time with `AVAssetWriter` in `setUp()`, so there's no binary
-movie in git history.
+movie in git history. The same goes for `AudioTrackSelectionTests`'
+`two-audio-tracks.mov` (an English default track and a Spanish alternate of
+different length and loudness, so the decoded output shows which track was
+read).
 
 ## How to verify
 

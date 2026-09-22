@@ -3,9 +3,11 @@ import UIKit
 
 /// Keeps the phone awake and the app alive while a model download runs (I3 keep-alive).
 ///
-/// Model downloads (Settings → Speech/Speaker "Download" and the DEBUG smoke runner's auto-download) are the only
-/// long network operations in M1: a locked or idle-timed-out phone would otherwise suspend the app mid-listing or
-/// mid-download. Reentrant so two downloads racing (e.g. speech model and diarizer) share one idle-timer /
+/// Since M1.5 a Settings Download tap runs under a continued-processing request instead
+/// (`AppEnvironment.downloadModel`, `ContinuedProcessing.swift`), which survives a locked phone. This keep-alive
+/// remains for the two cases that request cannot cover: when the system refuses it (the Simulator always does), and
+/// the DEBUG smoke runner's auto-download, which starts from a launch argument rather than a person's tap (Apple
+/// requires a person's action). A locked or idle-timed-out phone would otherwise suspend the app mid-download. Reentrant so two downloads racing (e.g. speech model and diarizer) share one idle-timer /
 /// background-task pair and only restore normal behavior when the last one finishes.
 /// `@unchecked Sendable`: every stored property is only ever touched on the main actor (`@MainActor` above), and
 /// UIKit's `beginBackgroundTask` expiration handler is an escaping closure whose own isolation this type does not

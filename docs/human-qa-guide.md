@@ -72,6 +72,48 @@ Guardrails
 Screenshots to attach
 - [ ] Capture with a job in progress; a finished Transcript with two speakers; Settings → About.
 
+## M1.5 checklist (Share sheet, locked-phone transcription, audio tracks)
+
+> Preconditions: the iPhone 17 Pro runs the `m1.5/share-and-background` build (Settings → About shows its commit;
+> install and file-making commands are in plan 010, Step 3.1–3.2); the speech model is downloaded; Console.app is
+> streaming the phone with the filter `subsystem:com.aarzamen.ichirp`; `long-20min.m4a` and `Two Tracks.mov` are in
+> Files (made with `say` and ffmpeg, synthetic); a throwaway, non-clinical Voice Memo of about 30 seconds exists.
+
+Share sheet ("Open in Parakeet")
+- [ ] Voice Memos → the memo → Share → the app row shows **Parakeet** → tap it: Parakeet opens on Capture and a
+      Recent row appears at once, then completes with a sensible title.
+- [ ] Files → `long-20min.m4a` → Share → Parakeet works the same way (the row starts "Transcribing · NN%").
+- [ ] Share while Parakeet is on another tab (Library or Settings): it switches to Capture.
+
+Locked phone (background)
+- [ ] Share `long-20min.m4a` to Parakeet, wait for "Transcribing", lock the phone: the Lock Screen shows a Live
+      Activity titled "long-20min" whose percentage moves on its own, with a Cancel control.
+- [ ] Leave it locked until it ends (about the file's length or less): unlocking shows the row Completed, with the
+      full transcript. Note the elapsed time for the Step 3 research note.
+- [ ] Share it again, lock, tap Cancel on the Live Activity: after unlocking the row says Cancelled (or Interrupted)
+      with Retry, never missing; Retry completes it.
+- [ ] Import two files at once (Capture → Import audio, select both): one Live Activity titled "2 files" whose
+      subtitle counts "1 of 2 done".
+- [ ] Settings → Speech model → Delete, then Download, then lock the phone: the download finishes with a Live
+      Activity ("Parakeet speech model") and Settings shows "On device" afterwards.
+
+Audio tracks
+- [ ] Files → `Two Tracks.mov` → Share → Parakeet: a "Choose an audio track" sheet lists "Track 1 — English
+      (Default)" and "Track 2 — Spanish"; no Recent row exists yet; the sheet cannot be swiped away.
+- [ ] Tap Track 2: a row appears and its transcript is the second track's sentence (Spanish when the Mac had the
+      Monica voice), not the English one.
+- [ ] Share it again and tap Cancel import: no row appears.
+- [ ] Voice Memos and `long-20min.m4a` (one track each) never show the sheet.
+
+Guardrails and regression
+- [ ] Force-quit Parakeet during a job: on relaunch the row is Interrupted with Retry, and Retry works.
+- [ ] `scripts/device_smoke.sh` prints `SMOKE PASS`.
+- [ ] M1 checklist "Happy path" still passes with the picker (Capture → Import audio).
+- [ ] Console never shows `submit_refused … code=3` (if it does, stop: that is plan 010's STOP condition).
+
+Screenshots to attach
+- [ ] The Lock Screen Live Activity mid-job; the audio-track sheet; the completed long row.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

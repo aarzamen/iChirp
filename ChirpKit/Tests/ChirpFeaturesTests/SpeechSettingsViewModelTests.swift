@@ -38,6 +38,26 @@ final class SpeechSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(downloadCalls, 1)
     }
 
+    /// M1.5: the Settings Download tap forwards real download progress to the system's progress UI.
+    func testDownloadForwardsProgressAndReportsReadiness() async {
+        let speech = FakeSpeech(status: .notDownloaded)
+        let viewModel = SpeechSettingsViewModel(speech: speech, diarizer: nil, settings: InMemorySettingsStore())
+        let hold = await speech.holdNextDownload()
+        var forwarded: [Double] = []
+
+        let download = Task { await viewModel.downloadSpeechModel(onProgress: { forwarded.append($0) }) }
+        await hold.entered.wait()
+        await waitUntil { viewModel.speechStatus == .downloading(fraction: 0.5) }
+        XCTAssertEqual(forwarded, [0.5])
+        hold.release.fire()
+        let ready = await download.value
+
+        XCTAssertTrue(ready)
+        let noDiarizer = SpeechSettingsViewModel(speech: speech, diarizer: nil, settings: InMemorySettingsStore())
+        let diarizerReady = await noDiarizer.downloadDiarizer(onProgress: { _ in XCTFail("no diarizer, no progress") })
+        XCTAssertFalse(diarizerReady)
+    }
+
     func testDeleteInUseErrorIsSurfacedNotThrown() async {
         let speech = FakeSpeech()
         await speech.failDelete(

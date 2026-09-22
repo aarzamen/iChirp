@@ -277,7 +277,8 @@ private enum ToneFixture {
 /// Builds small, synthetic AVFoundation fixtures at test time. `clip.mov` is never committed —
 /// only `speech-22k.aiff` and `tone-44k-stereo.m4a` (both made once via `say`/`afconvert`, see
 /// this target's README) live on disk in `Fixtures/`.
-private enum MovieFixture {
+/// Internal (not private) so `AudioTrackSelectionTests` can build its two-audio-track movie with the same helpers.
+enum MovieFixture {
     enum FixtureError: Error {
         case writerFailed(String)
         case couldNotBuildSampleBuffer
@@ -379,7 +380,7 @@ private enum MovieFixture {
         }
     }
 
-    private static func appendAudio(_ sampleBuffer: CMSampleBuffer, to input: AVAssetWriterInput) throws {
+    static func appendAudio(_ sampleBuffer: CMSampleBuffer, to input: AVAssetWriterInput) throws {
         var waited = 0
         while !input.isReadyForMoreMediaData, waited < 1_000 {
             usleep(1_000)
@@ -391,11 +392,12 @@ private enum MovieFixture {
     }
 
     /// A mono Float32 PCM `CMSampleBuffer` holding `duration` seconds of a sine tone.
-    private static func makeSineWaveSampleBuffer(
+    static func makeSineWaveSampleBuffer(
         frequency: Double,
         sampleRate: Double,
         duration: Double,
-        presentationTime: CMTime
+        presentationTime: CMTime,
+        amplitude: Float = 0.2
     ) throws -> CMSampleBuffer {
         let frameCount = Int(sampleRate * duration)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
@@ -407,7 +409,7 @@ private enum MovieFixture {
         buffer.frameLength = AVAudioFrameCount(frameCount)
         for frame in 0..<frameCount {
             let phase = 2.0 * Double.pi * frequency * Double(frame) / sampleRate
-            channelData[0][frame] = Float(sin(phase)) * 0.2
+            channelData[0][frame] = Float(sin(phase)) * amplitude
         }
 
         var asbd = format.streamDescription.pointee
