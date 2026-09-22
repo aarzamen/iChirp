@@ -50,6 +50,8 @@ struct RootTabView: View {
             // A discarded dictation closes at once; its files are deleted in the background.
             if state == .cancelled { environment.dictation.dismiss() }
         }
+        // M3: the Meeting screen while a meeting runs, and the launch recovery sheet (App/Sources/Screens/Meeting).
+        .meetingPresentation()
         .sheet(item: pendingTrackChoice) { request in
             // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
             AudioTrackPickerSheet(

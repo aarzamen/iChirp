@@ -21,6 +21,8 @@ import Observation
     }
 
     public var isVoiceActivityAvailable: Bool { voiceActivity != nil }
+    /// The model's download size, for "about 2 MB".
+    public var voiceActivityDownloadBytes: Int64? { voiceActivity?.descriptor.approximateDownloadBytes }
 
     private var storedRetention: MeetingAudioRetention
     @ObservationIgnored private let voiceActivity: (any VoiceActivityDetecting)?

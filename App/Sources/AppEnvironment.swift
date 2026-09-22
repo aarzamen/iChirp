@@ -28,6 +28,24 @@ import Observation
     let textRules: TextRulesViewModel
     /// The dictation Live Activity (M2), driven by the coordinator's state.
     let liveActivity: DictationLiveActivity
+    // M3 meetings (plan 012, spec/contracts/meeting-session-v1.md).
+    /// One per launch: stamps and recognizes this launch's `recording.lock` files.
+    let meetingLocks: MeetingSessionLockStore
+    let meetingFinalizer: MeetingFinalizer
+    /// The Meeting screen's model: microphone → `meeting.caf` + live text → final pass.
+    let meeting: MeetingCoordinator
+    let meetingRecovery: MeetingRecoveryService
+    let meetingSettings: MeetingSettingsViewModel
+    let meetingLiveActivity: MeetingLiveActivity
+    let meetingBackground: MeetingBackgroundWork
+    /// Meetings a killed or crashed launch left behind (the recovery sheet and the Library banner).
+    private(set) var pendingMeetingRecoveries: [PendingMeetingRecovery] = []
+    /// Ids being recovered now (the sheet shows their progress).
+    private(set) var recoveringMeetings: Set<UUID> = []
+    /// How each recovery this launch ended, for the sheet (title, sentence, whether the transcript was saved).
+    private(set) var meetingRecoveryOutcomes: [UUID: (title: String, message: String, succeeded: Bool)] = [:]
+    /// The recovery sheet is up (shown once at launch when something is pending; the Library banner reopens it).
+    var isMeetingRecoveryPresented = false
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -99,6 +117,43 @@ import Observation
             textRules: { await DictationTextRules.enabled(in: textRulesStore) }
         )
         self.textRules = TextRulesViewModel(store: textRulesStore)
+        let voiceActivity = FluidAudioEngines.makeVoiceActivity()
+        let meetingLocks = MeetingSessionLockStore(paths: paths)
+        let meetingBackground = MeetingBackgroundWork(scheduler: continuedProcessing)
+        let jobProgress = jobCenter.progressHandler
+        let meetingFinalizer = MeetingFinalizer(
+            paths: paths,
+            store: store,
+            normalizer: normalizer,
+            speech: engines.speech,
+            diarizer: engines.diarizer,
+            scheduler: scheduler,
+            settings: settings,
+            lockStore: meetingLocks,
+            customWords: { (try? await textRulesStore.enabledCustomWords()) ?? [] },
+            onProgress: { id, progress in
+                jobProgress(id, progress)
+                Task { @MainActor in meetingBackground.progress(id, progress) }
+            }
+        )
+        self.meetingLocks = meetingLocks
+        self.meetingFinalizer = meetingFinalizer
+        self.meetingBackground = meetingBackground
+        self.meeting = MeetingCoordinator(
+            recorder: MeetingRecorder(stream: microphone, session: audioSession),
+            speech: engines.speech,
+            voiceActivity: voiceActivity,
+            scheduler: scheduler,
+            store: store,
+            paths: paths,
+            lockStore: meetingLocks,
+            finalizer: meetingFinalizer
+        )
+        self.meetingRecovery = MeetingRecoveryService(
+            paths: paths, store: store, lockStore: meetingLocks, finalizer: meetingFinalizer, normalizer: normalizer)
+        self.meetingSettings = MeetingSettingsViewModel(voiceActivity: voiceActivity, settings: settings)
+        let meetingLiveActivity = MeetingLiveActivity()
+        self.meetingLiveActivity = meetingLiveActivity
         let liveActivity = DictationLiveActivity(
             modelName: settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2")
         self.liveActivity = liveActivity
@@ -109,6 +164,18 @@ import Observation
         let dictation = self.dictation
         dictation.onStateChange = { [weak liveActivity, weak dictation] state in
             liveActivity?.update(for: state, recordedSeconds: dictation?.recordedSeconds ?? 0)
+        }
+        let meeting = self.meeting
+        meeting.onStateChange = { [weak meetingLiveActivity, weak meeting] state in
+            meetingLiveActivity?.update(
+                for: state, recordedSeconds: meeting?.recordedSeconds ?? 0, title: meeting?.displayName ?? "Meeting")
+        }
+        meeting.onFinalPass = { [weak meetingBackground, weak meeting] id, running in
+            if running {
+                meetingBackground?.begin(id, title: meeting?.displayName ?? "Meeting")
+            } else {
+                meetingBackground?.end(id, succeeded: true)
+            }
         }
         let inbox = IncomingFileInbox.appDefault()
         self.inbox = inbox
@@ -159,6 +226,10 @@ import Observation
         await pipeline.sweepOrphanedTemporaryAudio()
         // A dictation recorded by a process that was killed before stopping becomes an interrupted row (never deleted).
         await dictation.recoverOrphanedRecordings()
+        // M3: retention (only the person's setting; never a locked or unfinished meeting), then meetings to recover.
+        await MeetingAudioRetentionSweeper(paths: paths, store: store, lockStore: meetingLocks, settings: settings)
+            .sweep()
+        await refreshMeetingRecoveries(presentIfAny: true)
         ExportTempFiles.sweepStale()
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
@@ -194,6 +265,11 @@ import Observation
     /// after the row).
     func retry(_ id: UUID) {
         let item = library.items.first { $0.id == id }
+        if item?.sourceType == .meeting {
+            // A meeting's retry is its own final pass (`.meetingFinalize`, custom words only, lock settlement).
+            retryMeeting(id, title: item?.displayTitle ?? "Meeting")
+            return
+        }
         if item?.sourceType == .dictation {
             // A dictation's recording is already 16 kHz: the dictation final pass (no speaker labels), no clipboard.
             let dictation = self.dictation
@@ -204,12 +280,70 @@ import Observation
         jobCenter.retry(id, title: title, pipeline: pipeline)
     }
 
+    // MARK: - Meetings (M3)
+
+    /// Re-reads the meetings an earlier launch left behind; at launch the sheet opens when there are any.
+    func refreshMeetingRecoveries(presentIfAny: Bool = false) async {
+        let pending = await meetingRecovery.discoverPendingRecoveries()
+        pendingMeetingRecoveries = pending.filter { !recoveringMeetings.contains($0.id) }
+        if presentIfAny, !pendingMeetingRecoveries.isEmpty {
+            isMeetingRecoveryPresented = true
+        }
+    }
+
+    /// Recover: finalize with the captured route; the row appears in the Library ("Partial audio" when cut).
+    func recoverMeeting(_ id: UUID) {
+        guard !recoveringMeetings.contains(id) else { return }
+        let title = pendingMeetingRecoveries.first { $0.id == id }?.displayName ?? "Meeting"
+        recoveringMeetings.insert(id)
+        meetingBackground.begin(id, title: title)
+        let recovery = meetingRecovery
+        Task {
+            let saved = await recovery.recover(id)
+            let succeeded = saved?.status == .completed
+            meetingBackground.end(id, succeeded: succeeded)
+            meetingRecoveryOutcomes[id] = (
+                title,
+                succeeded
+                    ? "Recovered. The transcript is in the Library."
+                    : (saved?.errorMessage ?? "It could not be transcribed yet.")
+                        + " The recording is in the Library; tap Retry there.",
+                succeeded
+            )
+            recoveringMeetings.remove(id)
+            await refreshMeetingRecoveries()
+        }
+    }
+
+    /// Discard (after the person confirmed in the sheet): the meeting's row and folder.
+    func discardMeeting(_ id: UUID) async throws {
+        try await meetingRecovery.discard(id)
+        await refreshMeetingRecoveries()
+    }
+
+    private func retryMeeting(_ id: UUID, title: String) {
+        meetingBackground.begin(id, title: title)
+        let finalizer = meetingFinalizer
+        Task {
+            let saved = await finalizer.retry(id: id)
+            meetingBackground.end(id, succeeded: saved?.status == .completed)
+        }
+    }
+
     // MARK: - Model downloads (Settings)
 
     func downloadSpeechModel() {
         let speech = speechSettings
         downloadModel(title: "Parakeet speech model") { onProgress in
             await speech.downloadSpeechModel(onProgress: onProgress)
+        }
+    }
+
+    /// Settings → Meetings: the voice-activity model for live meeting text (about 2 MB).
+    func downloadVoiceActivityModel() {
+        let meetingSettings = self.meetingSettings
+        downloadModel(title: "Voice activity model") { onProgress in
+            await meetingSettings.downloadVoiceActivityModel(onProgress: onProgress)
         }
     }
 

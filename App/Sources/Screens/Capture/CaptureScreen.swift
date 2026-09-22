@@ -5,8 +5,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Tab 1 (canvas `Home.dc.html`): the header, Dictate card, Paste a link / Import audio tiles, Record Meeting, and
-/// the three most recent transcriptions. Dictate (M2), Import audio and Recent are real; the rest open "Not built yet"
-/// sheets.
+/// the three most recent transcriptions. Dictate (M2), Record Meeting (M3), Import audio and Recent are real; the rest
+/// open "Not built yet" sheets.
 struct CaptureScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let openTab: (AppTab) -> Void
@@ -183,24 +183,38 @@ struct CaptureScreen: View {
 
     // MARK: - Record Meeting
 
+    /// M3: starts a meeting (the Meeting screen covers the tabs), or returns to one that is recording behind
+    /// "Hide recording".
     private var recordMeetingRow: some View {
-        Button {
-            placeholder = .recordMeeting
+        let meeting = environment.meeting
+        let isRunning = !meeting.state.isFinished
+        return Button {
+            if isRunning {
+                meeting.isScreenHidden = false
+            } else {
+                meeting.dismiss()
+                meeting.start()
+            }
         } label: {
             HStack(spacing: 13) {
-                RosetteMark()
+                RosetteMark(halo: meeting.state == .recording)
                     .frame(width: 40, height: 47)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Record Meeting")
+                    Text(isRunning ? "Meeting in progress" : "Record Meeting")
                         .chirpFont(16, .semibold)
                         .foregroundStyle(Tokens.Color.ink)
-                    Text("Microphone, transcribed on device")
-                        .chirpFont(12.5)
-                        .foregroundStyle(Tokens.Color.secondary)
+                    Text(
+                        isRunning
+                            ? "Recording · \(Formatting.clock(ms: Int(meeting.recordedSeconds * 1000)))"
+                            : "Microphone, transcribed on device"
+                    )
+                    .chirpFont(12.5)
+                    .monospacedDigit()
+                    .foregroundStyle(Tokens.Color.secondary)
                 }
                 Spacer(minLength: 8)
-                Text("Start")
+                Text(isRunning ? "Return" : "Start")
                     .chirpFont(14, .bold)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
@@ -215,7 +229,8 @@ struct CaptureScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Not built yet, milestone M3")
+        .accessibilityHint(
+            isRunning ? "Returns to the meeting that is recording." : "Starts recording a meeting on this iPhone.")
     }
 
     // MARK: - Recent

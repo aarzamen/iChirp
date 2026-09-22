@@ -20,6 +20,7 @@ struct SettingsScreen: View {
                         .frame(minHeight: 44, alignment: .leading)
                         .accessibilityAddTraits(.isHeader)
                     captureGroup
+                    MeetingSettingsGroup()  // M3
                     speechGroup
                     privacyGroup
                     textGroup
