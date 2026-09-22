@@ -176,6 +176,43 @@ Background (Step 8 research note)
       locked (Console `dictation_done`) and how long it took. Record the result in
       `docs/research/2026-09-22-m2-background-final-pass.md`.
 
+## M5 checklist (links and documents)
+
+> Preconditions: the iPhone 17 Pro runs the `m5/ingest` build (Settings → About shows its commit); the speech model
+> is downloaded; Console.app streams the phone with `subsystem:com.aarzamen.ichirp`; in Files: a short PDF you made,
+> a scanned PDF (Files → ⋯ → Scan Documents on a page of printed, non-clinical text), a DOCX, and a Markdown file.
+> Use public, non-personal links only.
+
+Links (Capture → Paste a link)
+- [ ] Copy an Apple Podcasts episode link (Podcasts → episode → Share → Copy Link), tap Paste: the card says "Apple
+      Podcasts episode". Tap Transcribe: "Finding the episode…", then a row appears; the sheet shows
+      "Downloading · NN%" then "Transcribing · NN%". Close the sheet: the Library row keeps going and completes with the
+      episode's title.
+- [ ] Paste a direct `.mp3` link: "Audio or video file"; Transcribe downloads and transcribes it.
+- [ ] Paste a YouTube link of a video with captions: "YouTube video"; Transcribe shows "Fetching the captions…", then
+      Open shows the text with timestamps and no player. Paste one without captions: a clear message, no row.
+- [ ] Paste an X, TikTok or Spotify link: "Can’t use this link" with what to do instead; Transcribe stays disabled.
+- [ ] Airplane mode, then Transcribe a podcast link: "You’re offline…", no row. Turn it off and tap Transcribe again.
+- [ ] Start a long episode and force-quit Parakeet while it says "Downloading". Relaunch: the row is Interrupted with
+      Retry; Retry finishes the download (Console shows `link_download_ready … resumed=true` when the host supports
+      ranges) and then transcribes.
+
+Documents
+- [ ] Paste a link → Import a document → the made PDF: a row with a PDF cover appears in Recent, then "PDF · N pages".
+      Open it: pages with their text; Copy and Share → Markdown work; Share offers no SRT/VTT.
+- [ ] The scanned PDF: pages marked **OCR**, text readable; the row says "read with OCR".
+- [ ] The DOCX and the Markdown file: text in paragraphs; the Markdown heading becomes the title.
+- [ ] Files → the PDF → Share → Parakeet: it opens on Capture and a document row appears (not an audio job).
+- [ ] A password-protected PDF: the row fails with "password-protected" and Retry; nothing else breaks.
+
+Guardrails and regression
+- [ ] Mark a document Clinical (if the M4 build exposes it) and run a template: routing stays on device.
+- [ ] Import audio (M1) and Share a Voice Memo (M1.5) still transcribe as before.
+- [ ] Nothing in Console shows a link, title or document text (ids, sizes, statuses and error types only).
+
+Screenshots to attach
+- [ ] The Paste a link sheet mid-download; a scanned PDF's document screen with an OCR page; a YouTube caption row.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

@@ -15,6 +15,8 @@ struct CaptureScreen: View {
     @State private var placeholder: Placeholder?
     @State private var isImporting = false
     @State private var pickerError: String?
+    /// M5: the Paste a link sheet.
+    @State private var isPastingLink = false
 
     static let importTypes: [UTType] = [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
 
@@ -31,8 +33,8 @@ struct CaptureScreen: View {
                     dictateCard
                     HStack(spacing: 14) {
                         tile(
-                            title: "Paste a link", subtitle: "YouTube, podcast, X", systemImage: "link",
-                            action: { placeholder = .pasteLink })
+                            title: "Paste a link", subtitle: "Podcast, YouTube, PDF", systemImage: "link",
+                            action: { isPastingLink = true })
                         tile(
                             title: "Import audio", subtitle: "Voice Memos, Files",
                             systemImage: "square.and.arrow.down", action: { isImporting = true })
@@ -50,9 +52,13 @@ struct CaptureScreen: View {
             .statusBarScrim()
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: UUID.self) { id in
-                TranscriptScreen(id: id, environment: environment)
+                LibraryItemScreen(id: id, environment: environment)
             }
         }
+        .sheet(isPresented: $isPastingLink) {
+            PasteLinkSheet(environment: environment) { id in path.append(id) }
+        }
+        .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: $path)
         .fileImporter(
             isPresented: $isImporting, allowedContentTypes: Self.importTypes, allowsMultipleSelection: true,
             onCompletion: handleImport
@@ -244,10 +250,10 @@ struct CaptureScreen: View {
         } else {
             VStack(spacing: 9) {
                 ForEach(recent) { item in
-                    TranscriptionRow(
+                    LibraryItemRow(
                         item: item,
                         progress: environment.jobCenter.progress[item.id],
-                        style: .compact,
+                        compact: true,
                         onOpen: { path.append(item.id) },
                         onRetry: { environment.retry(item.id) }
                     )

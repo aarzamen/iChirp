@@ -1,7 +1,8 @@
 # 11 - Ingest
 
-> Status: PROPOSAL, except "Share sheet (M1.5)" → "Built", which is ACTIVE — how things get into Parakeet beyond M1's
-> file picker. M1.5 and M5 executor plans refine this.
+> Status: ACTIVE — how things get into Parakeet beyond M1's file picker. Built: the Share sheet (M1.5), and in M5
+> links (Apple Podcasts, feeds, direct media, YouTube captions) and documents (PDF with OCR, TXT, Markdown, RTF, HTML,
+> DOCX). Still proposals: the share extension (gated) and YouTube audio (owner decision, plan 014).
 > Source research: [`docs/research/2026-09-22-ios-platform-constraints.md`](../docs/research/2026-09-22-ios-platform-constraints.md)
 > sections 6 and 7.
 
@@ -44,8 +45,12 @@ M4 template (summary, meeting notes, SOAP note, …). It has no player and no SR
   `Documents/Inbox/` is ever deleted. The imported `media/<id>/source.<ext>` is the user's copy.
 - Opening a file is a person's action in the foreground, so its job also gets a continued-processing request and
   keeps running with the phone locked ([spec/05](05-audio-pipeline.md#m15-continued-processing-active)).
-- Not covered by "Open in": sharing a web URL (links arrive in M5), and importing without opening the app. Those are
-  the gaps the extension below would close.
+- Not covered by "Open in": sharing a web URL (links arrive in M5 through the Paste a link sheet instead), and
+  importing without opening the app. Those are the gaps the extension below would close.
+- **M5 (built): documents through the same door.** `CFBundleDocumentTypes` also lists PDF, Word (`.docx`), RTF,
+  HTML, Markdown (declared as an imported type conforming to plain text) and plain text. `openIncoming` asks
+  `IncomingFileInbox.kind(of:)`: documents (and any other plain text) go to `DocumentImportPipeline`, audio and video
+  to the file pipeline; the Inbox copy is deleted once the import settles, as before.
 
 **Gated (plan 010 Step 5): a share extension with an App Group inbox.** Needs an explicit App ID with the App Groups
 capability, an account change the owner must approve.
@@ -58,6 +63,12 @@ capability, an account change the owner must approve.
 
 ## Podcasts and direct media (M5)
 
+**Built (plan 014 Steps 1–2).** Paste a link → `LinkClassifier` (local) → on Transcribe, `LinkIngestService.resolve`
+(the lookup, the feed, or a content-type probe for other web links) → a `.processing` row with `sourceURL` →
+`MediaDownloader` into `media/<id>/source.<ext>` with byte progress ("Downloading · NN%"), cancel, and resume on
+Retry (`Range` + `If-Range`) → the unchanged file pipeline. A web page, an X/TikTok/Instagram/Facebook/Vimeo/
+SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a message that says what to do instead.
+
 - `https://itunes.apple.com/lookup?id=<showId>&entity=podcastEpisode&limit=200` returns episode audio URLs
   (`episodeUrl`), the feed (`feedUrl`) and ids (`trackId`). Looking up an episode id directly returns nothing, so match
   the `?i=` value from the share link against the show's episodes, with the RSS feed as a fallback (port of upstream
@@ -65,6 +76,13 @@ capability, an account change the owner must approve.
 - Download to a file with `URLSession`, then decode with `AVAssetReader` (documented for files).
 
 ## YouTube (M5): ranked strategy
+
+**Built (plan 014 Step 3): captions only.** On Transcribe, `YouTubeCaptionFetcher` loads the watch page, reads
+`INNERTUBE_API_KEY`, asks `/youtubei/v1/player` as the ANDROID client, picks a track (manual in a preferred language,
+then automatic, then any), and reads its timed text. `LinkIngestService.importCaptions` stores a `.completed` `.url`
+row with the caption words (times spread across each caption), segments, the video title, `engine`
+`youtube.captions` and no audio. No captions, a bot check, age restriction or a changed page each fail with a
+message and no row. **YouTube audio is not built**; the options and the terms note wait for the owner in plan 014.
 
 1. **Captions first.** Port the youtube-transcript-api method (watch page → `INNERTUBE_API_KEY` → `/youtubei/v1/player`
    as the `ANDROID` client → caption `baseUrl`). No transcription needed; fails when a video has no captions.
@@ -79,10 +97,17 @@ the terms. The M5 plan records the owner's decision before building option 2.
 
 ## Documents (M5)
 
+**Built (plan 014 Step 4, PDF).** Files → Parakeet or the Paste a link sheet's "Import a document" →
+`DocumentImportPipeline` copies it into `media/<id>/source.pdf`, inserts a `.document` row, and extracts on device:
+PDFKit per page, and for a page with (almost) no text layer, the page rendered to an image and read with Vision
+`RecognizeDocumentsRequest` (falling back to `RecognizeTextRequest`). `documentPages` records each page's method.
+Password-protected, damaged and text-free PDFs fail with a message and Retry.
+
 | Format | Method |
 |---|---|
 | PDF with text | `PDFDocument.string` or per-page `string` |
 | Scanned PDF pages | Render the page to an image, then Vision `RecognizeDocumentsRequest` (iOS 26; paragraphs, tables, lists) |
-| TXT, Markdown | Read as UTF-8 text (swift-markdown only if structure is needed) |
-| RTF, HTML | `NSAttributedString` (these types are supported on iOS) |
-| DOCX | Unzip (ZIPFoundation) and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only |
+| TXT, Markdown | Read as UTF-8 text (BOM-marked UTF-16 and Windows-1252 also read; binary refused); a Markdown heading is the title. **Built** |
+| RTF | `NSAttributedString` (supported on iOS). **Built** |
+| HTML | **Built with a small converter instead of `NSAttributedString`**: its HTML import must run on the main thread and loads WebKit. Blocks, list items and cells keep their structure; scripts, styles and markup are dropped; `<title>` is the title |
+| DOCX | Unzip and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only. **Built on Foundation** (`ZipArchiveReader`: central directory, `NSData` raw-DEFLATE inflate, CRC-32) instead of ZIPFoundation, so no new dependency |

@@ -133,3 +133,37 @@ final class TranscriptionCodingTests: XCTestCase {
             try JSONDecoder().decode(TranscriptionSettings.self, from: JSONEncoder().encode(dictation)), dictation)
     }
 }
+
+/// M5: document formats, pages and the source title's place in `displayTitle`.
+final class DocumentModelTests: XCTestCase {
+    func testFormatsFromExtensions() {
+        XCTAssertEqual(DocumentFormat(fileExtension: "PDF"), .pdf)
+        XCTAssertEqual(DocumentFormat(fileExtension: "markdown"), .markdown)
+        XCTAssertEqual(DocumentFormat(fileExtension: "htm"), .html)
+        XCTAssertEqual(DocumentFormat(fileExtension: "docx"), .docx)
+        XCTAssertEqual(DocumentFormat(fileExtension: "txt"), .plainText)
+        XCTAssertNil(DocumentFormat(fileExtension: "doc"), "legacy Word is not readable on iOS")
+        XCTAssertNil(DocumentFormat(fileExtension: "m4a"))
+    }
+
+    func testDisplayTitlePrefersOverrideThenSourceTitleThenDerived() {
+        var row = Transcription(fileName: "episode-12.mp3")
+        XCTAssertEqual(row.displayTitle, "episode-12")
+        row.derivedTitle = "So today we talk"
+        XCTAssertEqual(row.displayTitle, "So today we talk")
+        row.sourceTitle = "Episode 12: Synthetic Title"
+        XCTAssertEqual(row.displayTitle, "Episode 12: Synthetic Title")
+        row.sourceTitle = "   "
+        XCTAssertEqual(row.displayTitle, "So today we talk", "a blank source title is ignored")
+        row.titleOverride = "Mine"
+        XCTAssertEqual(row.displayTitle, "Mine")
+    }
+
+    func testPagesRoundTripAndUnknownMethodStaysReadable() throws {
+        let pages = [DocumentPage(number: 1, text: "a", method: .ocr)]
+        let decoded = try JSONDecoder().decode([DocumentPage].self, from: JSONEncoder().encode(pages))
+        XCTAssertEqual(decoded, pages)
+        let future = Data(#"[{"number":2,"text":"b","method":"handwriting"}]"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode([DocumentPage].self, from: future).first?.method, .textLayer)
+    }
+}

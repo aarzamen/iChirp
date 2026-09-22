@@ -33,6 +33,7 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
     └── <UUID>/                                AppPaths.mediaDirectory(for: id); <UUID> = id.uuidString
         ├── source.<ext>                       the imported file; <ext> is the original file's extension
         ├── dictation.wav                      M2 (additive): a dictation recording, 16 kHz mono Float32 WAV
+        ├── download.part, download.part.json  M5 (additive): an unfinished link download and its resume record
         └── normalized-16k.wav                 temporary decode for the engine (see below)
 ```
 
@@ -50,6 +51,9 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   kept until the person deletes the transcript, unless they turned off "Keep dictation audio" (Settings → Capture),
   in which case it is deleted right after a successful final pass and `mediaRelativePath` becomes nil. A dictation
   the person cancels leaves no row and no folder. Recordings shorter than 0.3 s are rejected and their file removed.
+- M5 (additive, [document-items-v1](document-items-v1.md)): `source.<ext>` is also a document's copy (`.pdf`,
+  `.docx`, …) or a downloaded episode. `download.part` / `download.part.json` exist only while a link download is
+  unfinished; Retry resumes from them, and completing the download removes both.
 - `Documents/Inbox/` (outside the root) is where iOS copies a file another app opens in Parakeet (M1.5 "Open in").
   That copy is temporary, never referenced by a row, and deleted once its import settles
   (`IncomingFileInbox.removeIfInside`, which touches nothing outside that folder).

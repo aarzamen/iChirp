@@ -5,9 +5,11 @@ import ChirpCore
 import ChirpText
 import Foundation
 
-/// The coarse steps of one file job, in order.
+/// The coarse steps of one file job, in order. M5 adds `downloading` (a link's media, before `importing`'s place in a
+/// link job) and `readingDocument` (a document's text extraction; documents have no other stage).
 public enum PipelineStage: String, Sendable, CaseIterable {
     case importing, queued, normalizing, waitingForEngine, transcribing, identifyingSpeakers, finishing
+    case downloading, readingDocument
 
     /// Short user-facing label, e.g. for "Transcribing · 42%".
     public var displayName: String {
@@ -19,6 +21,8 @@ public enum PipelineStage: String, Sendable, CaseIterable {
         case .transcribing: "Transcribing"
         case .identifyingSpeakers: "Identifying speakers"
         case .finishing: "Finishing"
+        case .downloading: "Downloading"
+        case .readingDocument: "Reading document"
         }
     }
 }
@@ -31,6 +35,16 @@ public struct JobProgress: Sendable, Equatable {
     public init(stage: PipelineStage, fraction: Double) {
         self.stage = stage
         self.fraction = fraction
+    }
+
+    /// The share of a download in a link job's overall progress: the same slice a local file spends importing and
+    /// preparing audio (the pipeline's own stages start at 0.02–0.15), so the system progress never goes backwards.
+    public static let downloadShare = 0.15
+
+    /// `fraction` as a share of the whole job, for the system progress UI. The row shows `fraction` with its stage
+    /// ("Downloading · 42%"); a link job's download fills only the first `downloadShare` of the whole.
+    public var overallFraction: Double {
+        stage == .downloading ? fraction * Self.downloadShare : fraction
     }
 }
 

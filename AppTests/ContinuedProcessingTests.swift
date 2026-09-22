@@ -47,7 +47,13 @@ final class ContinuedProcessingTests: XCTestCase {
         let types = try XCTUnwrap(
             Bundle.main.object(forInfoDictionaryKey: "CFBundleDocumentTypes") as? [[String: Any]])
         let contentTypes = types.flatMap { ($0["LSItemContentTypes"] as? [String]) ?? [] }
-        XCTAssertEqual(Set(contentTypes), ["public.audio", "public.movie"])
+        // M1.5 audio and video, plus M5 documents (PDF, Word, RTF, HTML, Markdown, plain text).
+        XCTAssertEqual(
+            Set(contentTypes),
+            [
+                "public.audio", "public.movie", "com.adobe.pdf", "org.openxmlformats.wordprocessingml.document",
+                "public.rtf", "public.html", "net.daringfireball.markdown", "public.plain-text",
+            ])
         XCTAssertTrue(types.allSatisfy { ($0["LSHandlerRank"] as? String) == "Alternate" })
         XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "LSSupportsOpeningDocumentsInPlace") as? Bool, false)
     }

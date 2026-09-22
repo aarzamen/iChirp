@@ -1,0 +1,68 @@
+# ChirpIngest
+
+> M5 (plan 014). How things other than a picked audio file get into Parakeet: links (Apple Podcasts, feeds, direct
+> media, YouTube captions) and documents (PDF, text, RTF, HTML, DOCX). Depends on `ChirpCore` and Apple frameworks
+> only (Foundation, PDFKit, Vision, CoreGraphics); **no third-party dependency**.
+
+## Rules
+
+- **Network only on a person's tap.** Nothing here runs by itself. Classification (`LinkClassifier`) is pure string
+  work; every request (`IngestHTTPClient`, `MediaDownloader`) is started by Transcribe in the Paste a link sheet or a
+  Retry. Only the link and ids derived from it leave the phone, never user content
+  ([spec/12 network surfaces](../../../spec/12-privacy.md#network-surfaces)).
+- **Ephemeral sessions.** No cookies are stored, nothing is cached to disk.
+- **Downloads never hold a speech-scheduler slot.** They finish first; the transcription pipeline starts afterwards.
+- **Logs** carry sizes, statuses, extensions and error types; never links, titles, file names or document text.
+
+## Files
+
+### Links
+
+- `Links/LinkClassifier.swift`: `LinkKind` (Apple Podcasts episode or show, feed, direct media, YouTube, web link,
+  unsupported with a reason) from pasted text. Platforms that need yt-dlp (X, TikTok, Instagram, Facebook, Vimeo,
+  SoundCloud, Twitch, Spotify) and formats iOS cannot decode (Ogg, Opus, WebM) are refused up front with a clear
+  message.
+- `Links/YouTubeURLValidator.swift`, `Links/PodcastURLValidator.swift`: ports of upstream's validators.
+- `Links/IngestHTTPClient.swift`: small requests (lookup, feeds, captions) and `probe(_:)`, which learns a web
+  link's content type (HEAD, else a one-byte ranged GET) before anything is downloaded. `IngestNetworkError` words
+  failures for the person.
+- `Links/MediaDownloader.swift`: `MediaDownloading` on a `URLSession` data task. The body streams into
+  `media/<id>/download.part` (with `download.part.json`: URL, ETag / Last-Modified, total), with byte progress and
+  cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. The finished
+  file becomes `<stem>.<ext>` (extension from the link, else the content type). A web page or text answer is refused
+  (`MediaDownloadError.notMedia`).
+- `Links/PodcastEpisodeResolver.swift`: port of upstream's resolver. The iTunes lookup
+  (`lookup?id=<show>&entity=podcastEpisode&limit=200`) matches an episode link's `?i=` against `trackId`; an episode
+  older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug; a show link takes the
+  latest episode; `latestEpisode(inFeed:)` serves feed links. Only the show id (and Apple's feed URL) is requested.
+- `Links/YouTubeCaptionFetcher.swift`: captions by the youtube-transcript-api method (credited, re-implemented): watch
+  page → `INNERTUBE_API_KEY` (passing the consent page with a one-request cookie) → `/youtubei/v1/player` as the
+  ANDROID client → the best track (manual in a preferred language first) → timed text, classic or srv3, unescaped.
+  Errors (`YouTubeCaptionError`) say what happened and suggest sharing the file instead. **No audio**: YouTube audio
+  is an open owner decision (plan 014).
+- `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
+  `itunes:duration`), plus the channel title.
+
+### Documents
+
+- `Documents/DocumentTextExtractor.swift`: `DocumentTextExtracting` (the protocol `ChirpFeatures` uses),
+  `ExtractedDocument` (text, PDF pages, a plausible title), `DocumentExtractionError` (unsupported, unreadable,
+  password-protected, no text, damaged; each worded for the person) and `DocumentTextExtractor`, which dispatches by
+  `DocumentFormat`. `tidy` collapses blank runs; `plausibleTitle` drops file names and placeholders ("Untitled",
+  "Microsoft Word - …").
+- `Documents/PDFTextExtractor.swift`: PDFKit per page. A page whose text layer has fewer than 20 visible characters is
+  rendered (crop box, rotation applied, ~2,200 px long side, on white) and read with `PageTextRecognizing`; the longer
+  result wins. Pages record `textLayer`, `ocr` or `empty`. Cancellable between pages.
+- `Documents/PageTextRecognizer.swift`: `VisionPageTextRecognizer`, Vision's `RecognizeDocumentsRequest` (paragraphs
+  in reading order), falling back to `RecognizeTextRequest` lines. On-device, so allowed for clinical items.
+- `Documents/TextDocumentReaders.swift`: `PlainTextReader` (TXT and Markdown: UTF-8, BOM-marked UTF-16, else
+  Windows-1252; binary refused; a Markdown `# ` or setext heading is the title), `HTMLTextReader` (a small converter,
+  not WebKit: `NSAttributedString`'s HTML import must run on the main thread and loads WebKit; blocks become line
+  breaks, list items bullets, cells tabs; scripts, styles and comments are dropped; `<title>` is the title; nothing is
+  fetched) and `RichTextReader` (RTF through `NSAttributedString`, UIKit on iOS / AppKit on the Mac test host).
+- `Documents/DOCXReader.swift`: unzips `word/document.xml` and reads `w:p` / `w:t` (with `w:tab`, `w:br`), skipping
+  tracked deletions and field codes; the title from `docProps/core.xml`. Apple's DOCX importer is macOS-only.
+- `Documents/ZipArchiveReader.swift`: a read-only ZIP central-directory reader on Foundation (stored and deflated
+  entries via `NSData.decompressed(using: .zlib)`, CRC-32 checked, ZIP64 and encryption refused, 128 MB per entry).
+  It replaces ZIPFoundation, so M5 adds **no dependency** (nothing new in `THIRD_PARTY_LICENSES.md`).
+- `Support/HTMLEntities.swift`: character-reference decoding for HTML documents and YouTube caption text.

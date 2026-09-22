@@ -3,6 +3,7 @@ import ChirpCore
 import ChirpEngineFluidAudio
 import ChirpExport
 import ChirpFeatures
+import ChirpIngest
 import ChirpStore
 import Foundation
 import Observation
@@ -35,6 +36,10 @@ import Observation
     let speechSettings: SpeechSettingsViewModel
     /// Where iOS copies files other apps hand to Parakeet (nil only if the Documents folder cannot be found).
     let inbox: IncomingFileInbox?
+    /// M5: podcast, media and YouTube links (network only on the person's Transcribe or Retry).
+    let linkIngest: LinkIngestService
+    /// M5: PDF, Word, RTF, HTML, Markdown and text documents, read on this iPhone.
+    let documents: DocumentImportPipeline
     /// Submits the background keep-alive requests for user-started jobs and downloads (M1.5).
     let continuedProcessing: SystemContinuedProcessingScheduler?
     /// The Parakeet version the speech engine was built with.
@@ -110,6 +115,13 @@ import Observation
         dictation.onStateChange = { [weak liveActivity, weak dictation] state in
             liveActivity?.update(for: state, recordedSeconds: dictation?.recordedSeconds ?? 0)
         }
+        let ingestHTTP = IngestHTTPClient()
+        self.linkIngest = LinkIngestService(
+            paths: paths, store: store, http: ingestHTTP, downloader: MediaDownloader(),
+            podcasts: PodcastEpisodeResolver(http: ingestHTTP), captions: YouTubeCaptionFetcher(http: ingestHTTP),
+            onProgress: jobCenter.progressHandler)
+        self.documents = DocumentImportPipeline(
+            paths: paths, store: store, extractor: DocumentTextExtractor(), onProgress: jobCenter.progressHandler)
         let inbox = IncomingFileInbox.appDefault()
         self.inbox = inbox
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
@@ -180,20 +192,72 @@ import Observation
 
     /// A file another app handed to Parakeet (Share sheet → Parakeet, Files → Open in). iOS has already copied it into
     /// `Documents/Inbox/`; it is imported like a picked file and that copy is deleted once the import settles.
-    /// Parakeet declares no URL scheme, so anything but a file URL is ignored.
+    /// Parakeet declares no URL scheme, so anything but a file URL is ignored. M5: documents (PDF, Word, text…) go to
+    /// the document path; audio and video to the transcription pipeline.
     func openIncoming(_ url: URL) {
         guard url.isFileURL else {
             logger.notice("open_url_ignored reason=not_a_file")
             return
         }
-        logger.notice("open_url_file inbox=\(self.inbox?.contains(url) ?? false, privacy: .public)")
-        importFiles([url])
+        let kind = IncomingFileInbox.kind(of: url)
+        logger.notice(
+            "open_url_file inbox=\(self.inbox?.contains(url) ?? false, privacy: .public) kind=\(kind == .document ? "document" : "media", privacy: .public)"
+        )
+        switch kind {
+        case .document: importDocuments([url])
+        case .media: importFiles([url])
+        }
+    }
+
+    // MARK: - M5 ingest
+
+    /// Reads each document as its own tracked job (after launch housekeeping, like `importFiles`).
+    func importDocuments(_ urls: [URL]) {
+        Task {
+            await launch()
+            jobCenter.start(filesAt: urls, importer: documents)
+        }
+    }
+
+    /// The Paste a link sheet's model. A podcast or media link's row continues as a tracked job: the download (never in
+    /// a speech-scheduler slot), then the unchanged file pipeline.
+    func makeLinkImportViewModel() -> LinkImportViewModel {
+        LinkImportViewModel(service: linkIngest) { [weak self] id, source in
+            self?.startLinkJob(id, title: source.title ?? "Download") { linkIngest in
+                await linkIngest.download(id: id, from: source.downloadURL)
+            }
+        }
+    }
+
+    /// Runs `download` then, once the file is in place, the transcription, as one tracked job with its own background
+    /// request.
+    private func startLinkJob(
+        _ id: UUID, title: String, download: @escaping @Sendable (LinkIngestService) async -> LinkDownloadResult
+    ) {
+        let linkIngest = self.linkIngest
+        let pipeline = self.pipeline
+        jobCenter.startTracked(id, title: title) {
+            await LinkIngestService.downloadThenTranscribe(await download(linkIngest)) {
+                await pipeline.process(id: id)
+            }
+        }
     }
 
     /// Re-runs a failed, cancelled or interrupted row (a person's tap, so it also gets a background request titled
     /// after the row).
     func retry(_ id: UUID) {
         let item = library.items.first { $0.id == id }
+        if let item, item.isDocument {
+            // M5: a document re-reads its kept source.
+            jobCenter.retry(id, title: item.displayTitle, importer: documents)
+            return
+        }
+        if let item, LinkIngestService.needsDownload(item) {
+            // M5: a link whose download never finished downloads again (resuming when the server allows), then
+            // transcribes.
+            startLinkJob(id, title: item.displayTitle) { linkIngest in await linkIngest.retryDownload(id: id) }
+            return
+        }
         if item?.sourceType == .dictation {
             // A dictation's recording is already 16 kHz: the dictation final pass (no speaker labels), no clipboard.
             let dictation = self.dictation

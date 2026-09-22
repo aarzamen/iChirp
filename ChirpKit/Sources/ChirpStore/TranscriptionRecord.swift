@@ -39,6 +39,11 @@ struct TranscriptionRecord: Codable, Equatable, Sendable {
     var derivedSnippet: String?
     var isFavorite: Bool
     var privacyClass: String
+    // Added by migration `v6-documents` (M5); NULL on every earlier row. `documentPages` is JSON TEXT.
+    var sourceURL: String?
+    var sourceTitle: String?
+    var documentFormat: String?
+    var documentPages: String?
 }
 
 extension TranscriptionRecord: FetchableRecord, PersistableRecord {
@@ -76,6 +81,10 @@ extension TranscriptionRecord {
         derivedSnippet = transcription.derivedSnippet
         isFavorite = transcription.isFavorite
         privacyClass = transcription.privacyClass.rawValue
+        sourceURL = transcription.sourceURL
+        sourceTitle = transcription.sourceTitle
+        documentFormat = transcription.documentFormat?.rawValue
+        documentPages = try Self.encodeJSON(transcription.documentPages)
     }
 
     /// Decodes this row back into a `Transcription`.
@@ -125,6 +134,11 @@ extension TranscriptionRecord {
         transcription.derivedTitle = derivedTitle
         transcription.derivedSnippet = derivedSnippet
         transcription.isFavorite = isFavorite
+        transcription.sourceURL = sourceURL
+        transcription.sourceTitle = sourceTitle
+        // An unknown format (a newer build wrote it) reads as nil; writing the row back keeps the stored value.
+        transcription.documentFormat = documentFormat.flatMap(DocumentFormat.init(rawValue:))
+        transcription.documentPages = try Self.decodeJSON([DocumentPage].self, from: documentPages)
         return transcription
     }
 
@@ -155,6 +169,11 @@ extension TranscriptionRecord {
         }
         if PrivacyClass(rawValue: stored.privacyClass) == nil, privacyClass == Self.fallbackPrivacyClass.rawValue {
             result.privacyClass = stored.privacyClass
+        }
+        if let storedFormat = stored.documentFormat, DocumentFormat(rawValue: storedFormat) == nil,
+            documentFormat == nil
+        {
+            result.documentFormat = storedFormat
         }
         return result
     }

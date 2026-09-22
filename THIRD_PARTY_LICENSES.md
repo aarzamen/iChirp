@@ -41,6 +41,20 @@ record the result here before shipping an IPA to anyone else.
   the user's own key and server. No SDK is linked; the adapters are ports of MacParakeet's GPL-3.0 code. Model
   weights run on the provider's or the user's own machine under their own licenses.
 
+## Ingest (M5): methods, system frameworks and remote services
+
+M5 adds **no Swift package dependency**. DOCX files are unzipped by ChirpIngest's own Foundation-based
+`ZipArchiveReader` instead of ZIPFoundation.
+
+- **youtube-transcript-api** (MIT, <https://github.com/jdepoix/youtube-transcript-api>): the caption-fetching method
+  (watch page → `INNERTUBE_API_KEY` → `/youtubei/v1/player` as the ANDROID client → caption `baseUrl`) is re-implemented
+  in Swift in `ChirpIngest/Links/YouTubeCaptionFetcher.swift`. No code is copied; credited here and in the file header.
+- **PDFKit, Vision** (`RecognizeDocumentsRequest`, `RecognizeTextRequest`), **CoreGraphics** and
+  `NSAttributedString` RTF import: Apple system frameworks, not redistributed; used on device for document text.
+- **Remote services reached on the person's tap only** (no content sent, only the link or ids from it): the iTunes
+  Lookup API (`itunes.apple.com/lookup`), podcast RSS feeds and audio hosts, and YouTube (watch page, player API,
+  caption track). YouTube's terms forbid automated access; see the owner decision recorded in plan 014.
+
 ## Models downloaded at run time (not in the repo or the app bundle)
 
 The app downloads these from Hugging Face the first time the user asks for them in Settings. They are stored in the

@@ -19,6 +19,7 @@
 │ ChirpText ───────► ChirpCore                                                    │
 │ ChirpStore ──────► ChirpCore, GRDB                                              │
 │ ChirpAudio ──────► ChirpCore (+ AVFoundation)                                   │
+│ ChirpIngest ─────► ChirpCore (+ URLSession, PDFKit, Vision; M5 links and docs)  │
 │ ChirpEngineFluidAudio ─► ChirpCore, FluidAudio (exact 0.16.1)                   │
 │ ChirpCore ───────► Foundation, OSLog only                                       │
 └────────────────────────────────────────────────────────────────────────────────┘

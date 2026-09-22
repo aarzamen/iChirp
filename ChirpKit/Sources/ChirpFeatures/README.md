@@ -15,6 +15,9 @@ pipeline's `Task`s and publishes its progress to the UI.
 ## What's here
 
 - `FileTranscriptionPipeline.swift`: the `FileTranscriptionPipeline` actor plus `PipelineStage` and `JobProgress`.
+  M5 adds the stages `downloading` (a link's media) and `readingDocument`, and `JobProgress.overallFraction`: a
+  download fills only the first `downloadShare` (0.15) of a link job's system progress, so it never goes backwards
+  when transcription starts.
   - `importFile(from:sourceType:audioTrackOrdinal:)` copies the file (security-scoped, never moved) into
     `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the person's
     audio-track choice (nil: automatic). `process` decodes that track on every run, Retry included.
@@ -39,6 +42,28 @@ pipeline's `Task`s and publishes its progress to the UI.
   waits in `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
   (the choice for multi-track files, automatic for the rest) or `cancelAudioTrackSelection(_:)` drops it (its files
   count as settled). Later batches queue behind it. Contract: `spec/contracts/file-transcription-audio-tracks-v1.md`.
+  M5 (additive): `start(filesAt:importer:)` and `retry(_:title:importer:)` run any `ItemImporting` (documents) the
+  same way, and `startTracked(_:title:work:)` tracks work for an existing row (a link's download, then its
+  transcription) with its own background request, cancellable by `cancel(id)`.
+- `DocumentImportPipeline.swift` (M5): documents, an `ItemImporting` the job center runs. `importItem(from:)` copies
+  the file into `media/<id>/source.<ext>` and inserts a `.processing` `.document` row with its `documentFormat`
+  (nothing left behind on failure; unsupported types throw); `process(id:)` extracts on device through
+  `DocumentTextExtracting` with `.readingDocument` page progress, derives title and snippet, and saves with
+  `savePreservingUserMetadata`; `retry(id:)` re-extracts from the kept source. No engine, no scheduler slot, no network.
+- `LinkImportViewModel.swift` (M5): the Paste a link sheet. `text` is classified locally on every change (`kind`);
+  `transcribe()` is the one networked action: podcast and media links get their row and continue as a tracked job
+  (`startMediaJob`, wired by the app to `startTracked`), YouTube links finish in the sheet; errors stay in the sheet
+  (`phase == .failed`) with no row created. `reset()` clears it for another link.
+- `IncomingFileInbox.swift` also answers `kind(of:)` (M5): documents (and any other plain text) versus media, for
+  routing a shared file.
+- `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
+  (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:)` inserts the `.processing`
+  row with `sourceURL` / `sourceTitle`, `download(id:from:)` fetches into `media/<id>/source.<ext>` with
+  `.downloading` progress and records the file (failure → `failed` with a message, cancel → `cancelled`, partial file
+  kept), and `retryDownload(id:)` resumes it. `importCaptions(videoID:link:)` (Step 3) stores a YouTube video's captions as a
+  `.completed` `.url` row (words timed across each caption, segments, `engine` `youtube.captions`, no audio); no row
+  on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
+  pipeline then runs unchanged. Downloads never hold a speech-scheduler slot.
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
   title, completion) are the two protocols the app implements over `BackgroundTasks`

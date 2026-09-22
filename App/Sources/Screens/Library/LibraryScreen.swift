@@ -23,7 +23,7 @@ struct LibraryScreen: View {
             .background(Tokens.Color.ground)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: UUID.self) { id in
-                TranscriptScreen(id: id, environment: environment)
+                LibraryItemScreen(id: id, environment: environment)
             }
         }
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
@@ -201,10 +201,10 @@ struct LibraryScreen: View {
     }
 
     private func row(_ item: Transcription) -> some View {
-        TranscriptionRow(
+        LibraryItemRow(
             item: item,
             progress: environment.jobCenter.progress[item.id],
-            style: .full,
+            compact: false,
             onOpen: { path.append(item.id) },
             onRetry: { environment.retry(item.id) }
         )
@@ -226,7 +226,7 @@ struct LibraryScreen: View {
             .tint(Tokens.Color.favorite)
         }
         .confirmationDialog(
-            "Delete transcript and its audio?",
+            item.isDocument ? "Delete this document?" : "Delete transcript and its audio?",
             isPresented: Binding(
                 get: { pendingDelete?.id == item.id },
                 set: { if !$0 { pendingDelete = nil } }),
@@ -237,7 +237,10 @@ struct LibraryScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("“\(item.displayTitle)” and its audio will be removed from this iPhone. This can’t be undone.")
+            Text(
+                item.isDocument
+                    ? "“\(item.displayTitle)” and its copy of the file will be removed from this iPhone. This can’t be undone."
+                    : "“\(item.displayTitle)” and its audio will be removed from this iPhone. This can’t be undone.")
         }
         .contextMenu {
             Button {

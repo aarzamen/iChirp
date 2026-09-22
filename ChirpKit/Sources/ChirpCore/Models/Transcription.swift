@@ -46,6 +46,17 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
     public var isFavorite: Bool
     public var privacyClass: PrivacyClass
 
+    // M5 provenance and documents (migration `v6-documents`); nil on every earlier row.
+    // Contract: `spec/contracts/document-items-v1.md`.
+    /// The link the person pasted or shared (podcast, media or YouTube link). Nil for files, dictations and documents.
+    public var sourceURL: String?
+    /// The title the source itself published: a podcast episode's or YouTube video's title, or a document's own title.
+    public var sourceTitle: String?
+    /// A document's format; nil for audio items.
+    public var documentFormat: DocumentFormat?
+    /// A PDF's text page by page, each marked text layer, OCR or empty; nil for other items.
+    public var documentPages: [DocumentPage]?
+
     /// Creates a new row. Every property not listed here starts empty: optionals are nil, `isFavorite` is
     /// false and `updatedAt` equals `createdAt`.
     public init(
@@ -74,10 +85,13 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
         self.privacyClass = privacyClass
     }
 
-    /// titleOverride ?? non-empty derivedTitle ?? fileName without extension
+    /// titleOverride ?? non-empty sourceTitle (M5) ?? non-empty derivedTitle ?? fileName without extension
     public var displayTitle: String {
         if let override = Self.nonBlank(titleOverride) {
             return override
+        }
+        if let published = Self.nonBlank(sourceTitle) {
+            return published
         }
         if let derived = Self.nonBlank(derivedTitle) {
             return derived
