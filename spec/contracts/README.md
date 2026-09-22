@@ -41,10 +41,10 @@ Each contract document includes:
   storage and the where-content-goes guarantees (M4).
 - [Deliverables v1](deliverables-v1.md): templates, immutable versions, deliverables, the metadata-only run ledger
   and the single generation path (M4).
+- [Meeting Session v1](meeting-session-v1.md): a meeting's `media/<id>/` folder, `recording.lock` and its states,
+  crash recovery and the retention safety predicates (M3).
 
 ## Candidate contracts (write them with their milestone)
 
 - Share-extension inbox manifest in the App Group (M1.5).
-- `recording.lock` and meeting session folder (M3, port of upstream `meeting-artifacts-v1` and
-  `meeting-recovery-retention`).
 - App Intents and URL-scheme parameters (`ichirp://…`) once they are public automation surfaces (M2).

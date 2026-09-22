@@ -11,6 +11,8 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 
 - `ChirpCore.AppPaths` (root, database URL, per-item media directory, relative/absolute mapping).
 - `FileTranscriptionPipeline.importFile` (copies the source) and `process` (writes and deletes the normalized WAV).
+- `MeetingRecorder` and `MeetingCoordinator` (M3) write `meeting.caf`, `recording.lock` and `chunks/` (the
+  [meeting session contract](meeting-session-v1.md) owns those files and their deletion rules).
 - `DictationRecorder` (M2) writes `media/<id>/dictation.wav`; the dictation coordinator creates the folder, inserts
   the row pointing at it, and removes the folder only when the person cancels (discard) the dictation.
 - `FileTranscriptionPipeline.sweepOrphanedTemporaryAudio()` at launch (deletes `normalized-16k.wav` left by a killed
@@ -22,7 +24,8 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 
 - `TranscriptViewModel.mediaURL` (the player), retry and re-transcription.
 - `TranscriptionStoring` rows (`mediaRelativePath`).
-- Future: meeting sessions (M3), the share-extension inbox (M1.5), backups and restore.
+- Meeting recovery and retention (M3, [meeting-session-v1](meeting-session-v1.md)).
+- Future: the share-extension inbox (M1.5), backups and restore.
 
 ## Stable fields
 
@@ -33,6 +36,9 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
     └── <UUID>/                                AppPaths.mediaDirectory(for: id); <UUID> = id.uuidString
         ├── source.<ext>                       the imported file; <ext> is the original file's extension
         ├── dictation.wav                      M2 (additive): a dictation recording, 16 kHz mono Float32 WAV
+        ├── meeting.caf                        M3 (additive): a meeting recording, 16 kHz mono 16-bit PCM CAF
+        ├── recording.lock                     M3 (additive): the meeting session lock (meeting-session-v1)
+        ├── chunks/                            M3 (additive): temporary live-preview chunks of a recording meeting
         └── normalized-16k.wav                 temporary decode for the engine (see below)
 ```
 
