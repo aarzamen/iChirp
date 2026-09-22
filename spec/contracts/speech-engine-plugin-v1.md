@@ -12,14 +12,17 @@ an engine that breaks them corrupts transcripts silently.
 ## Producers
 
 - `ChirpKit/Sources/ChirpCore/Engines/` — `EngineDescriptor.swift`, `ModelAssets.swift`, `SpeechEngine.swift`,
-  `LanguageModel.swift`, `StructureModel.swift`, `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
-- Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1; every
-  future `ChirpEngine<Provider>` target.
+  `LiveSpeechSession.swift` (M2), `LanguageModel.swift`, `StructureModel.swift`, `EngineCatalog.swift`
+  (`PrivacyRoutingPolicy`).
+- Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
+  `ParakeetEngine` is also a `LiveSpeechSessionProviding` since M2 (tail-window preview); every future
+  `ChirpEngine<Provider>` target.
 
 ## Consumers
 
-- `ChirpFeatures`: `FileTranscriptionPipeline` (M1), `SpeechSettingsViewModel` (download/delete/status), later the
-  dictation and meeting coordinators.
+- `ChirpFeatures`: `FileTranscriptionPipeline` (M1), `SpeechSettingsViewModel` (download/delete/status), the M2
+  `DictationCoordinator` (live session for display, then `transcribe` with purpose `.dictation`), later the
+  meeting coordinator.
 - `App/`: `AppEnvironment` (the only place that constructs engines) and the DEBUG smoke runner.
 - Test fakes in `ChirpFeaturesTests` (`FakeSpeech`, `FakeDiarizer`), which must behave like a conforming engine.
 
@@ -51,6 +54,9 @@ an engine that breaks them corrupts transcripts silently.
     file, non-decreasing `startMs`, `endMs >= startMs`, confidence 0…1, `speakerId` nil), `language` (BCP-47 or nil;
     do not guess), `engineID` (= `descriptor.id`), `engineVariant` (e.g. `v3`).
   - Progress values are in 0…1 and never decrease.
+  - `options.purpose` (M2, additive, default `.file`) says what the text is for. An engine may tune for `.dictation`
+    (Parakeet appends 0.5 s of trailing silence to a clip that still fits one model window, decoded in memory; the
+    recorded file is never changed), but the result's shape and every rule above stay the same.
 - Core ML engines run every inference inside `ANEInferenceGate`.
 - Conformers are `Sendable` (actors in practice); single-threaded C runtimes are confined to one actor.
 
@@ -59,6 +65,21 @@ an engine that breaks them corrupts transcripts silently.
   - `segments` sorted chronologically, with ids renumbered `S1`…`Sn` in order of first speech;
   - `speakers` with the same ids and labels `Speaker 1`…`Speaker n`.
 - "No speech detected" returns empty output, not an error. Any thrown error is treated as non-fatal by the pipeline.
+
+**`LiveSpeechSession` / `LiveSpeechSessionProviding`** (M2, additive)
+- `makeLiveSession(scheduler:options:)` returns a running session, or nil when the engine cannot preview now (no
+  model on disk); it **never downloads**. Engines without a live mode simply do not conform.
+- The session takes 16 kHz mono samples in order (`append`) and publishes hypothesis texts on `updates`. A
+  tail-window engine's text covers its recent window; a streaming engine's is a cumulative partial. Callers
+  stabilize them for display (`ChirpText.LiveTranscriptStabilizer`).
+- **Display-only.** No live text is ever copied, pasted or saved; the kept text comes from `transcribe(fileAt:…)`
+  over the recorded file. A test pins this (`DictationCoordinatorTests`).
+- Every pass runs through the given `SpeechJobScheduler` on `.dictation` (the interactive slot), at most one at a
+  time: a pass is skipped, never queued, while another runs.
+- `finish()` / `cancel()` stop taking audio, cancel and **await** the work in flight, and end `updates`. After it
+  returns nothing of the session runs, so the final pass gets the engine at once.
+- Failed passes are dropped (display-only); they never fail the recording.
+- This is the seam for M7 streaming engines (Nemotron, Parakeet EOU): a coordinator never special-cases an engine.
 
 **Routing**
 - Before any engine processes an item, callers check `PrivacyRoutingPolicy.allows(_:for:host:userOverride:)`
@@ -90,6 +111,10 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
 - `ParakeetEngineNotDownloadedTests` (`assetStatus() == .notDownloaded`; `transcribe` throws `modelNotDownloaded`).
 - `WordTimingParityTests` (engine-internal word builder equals ChirpText's).
 - `ANEInferenceGateTests` (ported from upstream).
+- `TailWindowPreviewSessionTests` (single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
+  interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
+  `.dictation` purpose uses it, `.file` never does).
+- `ModelAssetLifecycleTests.testACancelledWaiterStopsWaitingWhileTheSharedLoadContinues`.
 - `ParakeetEngineIntegrationTests` (gated by `CHIRP_MODEL_TESTS=1`: real transcription, monotonic timestamps,
   diarization returns at least one speaker).
 - `FileTranscriptionPipelineTests.testMissingModelFailsWithActionableMessage` and

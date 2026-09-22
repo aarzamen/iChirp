@@ -29,6 +29,9 @@ pipeline directly.
   trailing action extraction → snippet expansion → whitespace/insertion-style cleanup).
 - `CustomWordReplacer.swift`: pre-compiled, reusable custom-word regex replacement (internal — the
   pipeline's own step 2 and `ChirpTextTests` exercise it via `@testable import`).
+- `LiveTranscriptStabilizer.swift` (M2): port of upstream's display stabilizer — commits all but the last 3 words
+  of each live update, append-only, aligned on up to 6 normalized words; `committedText` / `tentativeText` let the
+  Dictating screen dim the tail. Display-only: it never touches copied text. Tests keep upstream's names.
 - `TextRefinement.swift`: `CleanupMode`-aware wrapper — `.clean` runs the full pipeline, `.raw`
   unconditionally returns `nil` (no processing, no trailing-action extraction; see "What to know before
   editing").

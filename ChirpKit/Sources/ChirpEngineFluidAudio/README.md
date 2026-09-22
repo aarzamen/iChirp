@@ -35,7 +35,15 @@ Then read `ParakeetEngine.swift`.
   `ParakeetWorker`) from an idle pool; all of them share one read-only `AsrModels`. A manager whose transcription
   threw or was cancelled is dropped, never returned to the pool. It transcribes a 16 kHz mono file with a fresh
   `TdtDecoderState` inside the gate, forwards that manager's chunk progress for files longer than 15 s, and maps a
-  BCP-47 `languageHint` onto FluidAudio's v3 script filter.
+  BCP-47 `languageHint` onto FluidAudio's v3 script filter. M2: a `.dictation`-purpose call decodes a clip that still
+  fits one model window into memory and appends 0.5 s of silence (`paddedDictationSamples`, upstream issue #562);
+  `transcribePreview` runs one in-memory preview window; `makeLiveSession` (`LiveSpeechSessionProviding`) returns a
+  `TailWindowPreviewSession`, or nil without the model.
+- `TailWindowPreviewSession.swift`: the M2 live preview (port of upstream `DictationService`'s tail-window loop):
+  a 1 s ticker, the last 15 s, single-flight (a tick during a pass is skipped, never queued), each pass through
+  `SpeechJobScheduler.run(.dictation)`, cancelled and awaited on finish. Display-only.
+- `SharedTaskWait.swift`: `awaitSharedTask`, a cancellable wait on a shared task (the model load), so a cancelled
+  job stops waiting at once while the load goes on for others.
 - `FluidAudioDiarizer.swift`: the `SpeakerDiarizing` actor. Holds upstream's `highAccuracyConfig`
   (`stepRatio 0.1`, `minSegmentDurationSeconds 0`, zero-vote re-embed), maps no-speech to an empty
   `DiarizationOutput`, renumbers speakers `S1…Sn` by first speech with `Speaker N` labels, and repairs a malformed
