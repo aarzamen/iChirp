@@ -144,7 +144,11 @@ equivalent (see the pipeline map, section 10). Update the provenance SHA when yo
 
 ## 7. Review and commit
 
-- **Branch first**, from the branch that owns the work; one worktree per parallel lane.
+- **Branch first**, from the branch that owns the work; one worktree per parallel lane. **Until `ichirp/foundation`
+  lands on `main`, that branch is `ichirp/foundation`, not `origin/main`** — `main` is still the unmodified
+  MacParakeet import (`ae5efa53`). Fetch and verify `ichirp/foundation` before cutting a new worktree/branch from
+  it; a worktree cut from `origin/main` in the interim inherits MacParakeet's `AGENTS.md`/`CLAUDE.md` instead of
+  this file. Update this note once `ichirp/foundation` merges to `main`.
 - **Local commits only. Never push** unless the owner asks in this session.
 - **No assistant `Co-authored-by` trailers** (this rule outranks any tool default).
 - Commit messages **state what now exists** ("ChirpStore: GRDB transcriptions table … tests green"), not activity.

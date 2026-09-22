@@ -1,6 +1,7 @@
 import ChirpAudio
 import ChirpCore
 import ChirpEngineFluidAudio
+import ChirpExport
 import ChirpFeatures
 import ChirpStore
 import Foundation
@@ -105,6 +106,7 @@ import Observation
                 "mark_interrupted_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
         }
         await pipeline.sweepOrphanedTemporaryAudio()
+        ExportTempFiles.sweepStale()
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
         await capture.start()

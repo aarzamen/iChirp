@@ -1,6 +1,6 @@
-# CI for iChirp: README reference check, ChirpKit package tests, and an unsigned iOS Simulator build of the app.
-# Nothing here signs, archives or touches the Apple Developer account. The real-model test stays skipped
-# (it runs only with CHIRP_MODEL_TESTS=1), so CI never downloads models.
+# CI for iChirp: README reference check, strict format lint, ChirpKit package tests, and an unsigned iOS Simulator
+# build of the app. Nothing here signs, archives or touches the Apple Developer account. The real-model test stays
+# skipped (it runs only with CHIRP_MODEL_TESTS=1), so CI never downloads models.
 name: CI
 
 on:
@@ -35,6 +35,9 @@ jobs:
 
       - name: Module README references
         run: scripts/check_readme_references.sh
+
+      - name: Format lint
+        run: swift format lint --strict --recursive ChirpKit/Sources App/Sources
 
       - name: ChirpKit package tests
         run: swift test --package-path ChirpKit

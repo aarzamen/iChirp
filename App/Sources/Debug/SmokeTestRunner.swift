@@ -159,7 +159,9 @@ import Observation
         if case .ready = await engine.assetStatus() { return }
         logger.notice("smoke_auto_download model=\(name, privacy: .public) (smoke mode is the only auto-download)")
         state = .running(step: "Downloading \(name) model")
-        try await engine.downloadAssets { _ in }
+        try await DownloadKeepAlive.shared.withKeepAlive {
+            try await engine.downloadAssets { _ in }
+        }
         logger.notice("smoke_download_done model=\(name, privacy: .public)")
     }
 

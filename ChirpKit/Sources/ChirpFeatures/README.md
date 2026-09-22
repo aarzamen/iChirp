@@ -27,7 +27,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   `lastImportError` is set when a file could not even be imported (`dismissImportError()` clears it).
   `progressHandler` is the pipeline's `onProgress`.
 - `LibraryViewModel.swift`: all rows from `observeAll()`, filter chips, search, "Today" / "Yesterday" / "MMM d"
-  sections, delete (row plus its `media/<id>/` folder), favorite, and `loadError` / `dismissLoadError()`.
+  sections, delete (row plus its `media/<id>/` folder and any `ExportTempFiles` export folder for it), favorite, and
+  `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
   `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` into
   `<tmp>/export-<id>/`, rename and favorite.

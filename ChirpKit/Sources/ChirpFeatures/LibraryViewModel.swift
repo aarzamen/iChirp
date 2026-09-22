@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpExport
 import Foundation
 import Observation
 
@@ -132,6 +133,7 @@ import Observation
     public func delete(_ id: UUID) async throws {
         try await store.delete(id: id)
         items.removeAll { $0.id == id }
+        ExportTempFiles.remove(for: id)
         let folder = paths.mediaDirectory(for: id)
         guard FileManager.default.fileExists(atPath: folder.path) else { return }
         do {

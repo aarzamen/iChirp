@@ -8,6 +8,8 @@
 #   scripts/run_device.sh --dry-run                # show the chosen device, team and build command; build nothing
 #   scripts/run_device.sh --print-device           # print only the chosen device identifier (used by device_smoke.sh)
 #   DEVELOPMENT_TEAM=<team> scripts/run_device.sh  # otherwise Config/Signing.local.xcconfig, else XM6E4PUXTU
+#   SMOKE_CONSOLE=1 scripts/run_device.sh          # launch with `devicectl ... --console` instead, backgrounded,
+#                                                   # streaming the app's stdout/stderr to .build/device-logs/
 #
 # Device selection never guesses between phones:
 #   1. DEVICE_ID=<identifier> in the environment;
@@ -216,12 +218,26 @@ fi
 #    devicectl (Swift ArgumentParser) otherwise parses app flags like "-ChirpNetCheck" as its own bundled short
 #    options ("-t" needs a value) and refuses to launch.
 LAUNCH_LOG="$LOG_DIR/launch.log"
-echo "Launching $BUNDLE_ID $* ..."
 APP_ARGS=()
 if [ "$#" -gt 0 ]; then APP_ARGS=(-- "$@"); fi
-if ! xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing \
-  --json-output "$LOG_DIR/launch.json" "$BUNDLE_ID" ${APP_ARGS[@]+"${APP_ARGS[@]}"} 2>&1 | tee "$LAUNCH_LOG"; then
-  fail_with_log "$LAUNCH_LOG" "devicectl launch"
+if [ "${SMOKE_CONSOLE:-0}" = "1" ]; then
+  # --console streams the launched process's stdout/stderr (including FluidAudio's Debug-only logging, invisible
+  # otherwise — final-review I3) instead of returning the usual --json-output result, and it blocks until the
+  # process exits. Run it backgrounded so this script still returns once the launch is under way; read
+  # $CONSOLE_LOG afterwards (or `tail -f` it live) for what the app printed.
+  CONSOLE_LOG="$LOG_DIR/console-$(date -u +%Y%m%dT%H%M%SZ).log"
+  echo "Launching $BUNDLE_ID $* with --console (background; log: $CONSOLE_LOG) ..."
+  nohup xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing --console \
+    "$BUNDLE_ID" ${APP_ARGS[@]+"${APP_ARGS[@]}"} >"$CONSOLE_LOG" 2>&1 &
+  echo $! >"$LOG_DIR/console.pid"
+  # Give devicectl a moment to attach and start the process before returning control to the caller.
+  sleep 2
+else
+  echo "Launching $BUNDLE_ID $* ..."
+  if ! xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing \
+    --json-output "$LOG_DIR/launch.json" "$BUNDLE_ID" ${APP_ARGS[@]+"${APP_ARGS[@]}"} 2>&1 | tee "$LAUNCH_LOG"; then
+    fail_with_log "$LAUNCH_LOG" "devicectl launch"
+  fi
 fi
 
 echo "Installed and launched $BUNDLE_ID on $DEVICE_NAME."
