@@ -35,10 +35,12 @@ final class ContinuedProcessingTests: XCTestCase {
         XCTAssertTrue(first.hasPrefix("com.aarzamen.ichirp.transcribe."))
     }
 
-    func testNoBackgroundModesAreDeclared() {
-        XCTAssertNil(
-            Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes"),
-            "continued-processing tasks need no UIBackgroundModes; adding one is an owner decision")
+    /// Continued-processing tasks (M1.5) need no background mode. The only one declared is `audio`, for M2 dictation
+    /// (plan 011 Step 8: a dictation started in the foreground keeps recording when the phone locks). Anything else,
+    /// `processing` included, is an owner decision.
+    func testOnlyTheDictationAudioBackgroundModeIsDeclared() {
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
+        XCTAssertEqual(modes, ["audio"], "adding a background mode is an owner decision")
     }
 
     func testAudioAndVideoDocumentTypesAreDeclared() throws {
