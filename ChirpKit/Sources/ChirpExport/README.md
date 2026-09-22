@@ -16,7 +16,7 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 - `ExportTempFiles.swift`: where a share-sheet export lives on disk (`<tmp>/export-<id>/`, the same path
   `ChirpFeatures.TranscriptViewModel.exportFile(_:)` writes into) and how it is cleaned up —
   `remove(for:)` deletes one id's folder (`LibraryViewModel.delete` calls this so a deleted row's export
-  does not keep transcript text around), and `sweepStale()` deletes every `export-*` folder under the
+  does not keep transcript text around), and `sweepStale()` deletes every `export-<UUID>` folder (a whole UUID, nothing else) under the
   temp directory (`AppEnvironment` calls this once at launch, covering a folder left by a killed
   process). Added for final-review Task 12b.
 

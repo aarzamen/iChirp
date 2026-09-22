@@ -2,67 +2,76 @@ import ChirpCore
 @testable import ChirpExport
 import XCTest
 
+/// Every test works in its own scratch folder: on the Mac the real temp directory is shared by all of the user's
+/// processes, and a sweep there could delete another app's files.
 final class ExportTempFilesTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ExportTempFilesTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
     private func makeExportDirectory(for id: UUID) throws -> URL {
-        let directory = ExportTempFiles.directory(for: id)
+        let directory = ExportTempFiles.directory(for: id, in: root)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data("transcript".utf8).write(to: directory.appendingPathComponent("transcript.txt"))
         return directory
     }
 
-    override func tearDown() {
-        // Belt-and-suspenders: remove anything a failed assertion left behind.
-        for id in trackedIDs {
-            try? FileManager.default.removeItem(at: ExportTempFiles.directory(for: id))
-        }
-        trackedIDs.removeAll()
-        super.tearDown()
+    private func makeFolder(named name: String) throws -> URL {
+        let folder = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
     }
 
-    private var trackedIDs: [UUID] = []
-
-    func testDirectoryMatchesTranscriptViewModelsFormat() {
+    func testDefaultDirectoryMatchesTranscriptViewModelsFormat() {
         let id = UUID()
-        trackedIDs.append(id)
-        let directory = ExportTempFiles.directory(for: id)
-
         XCTAssertEqual(
-            directory,
+            ExportTempFiles.directory(for: id),
             FileManager.default.temporaryDirectory.appendingPathComponent("export-\(id.uuidString)", isDirectory: true)
         )
     }
 
     func testRemoveDeletesOnlyThatIDsFolder() throws {
-        let doomed = UUID()
-        let kept = UUID()
-        trackedIDs.append(contentsOf: [doomed, kept])
-        let doomedDirectory = try makeExportDirectory(for: doomed)
-        let keptDirectory = try makeExportDirectory(for: kept)
+        let doomed = try makeExportDirectory(for: UUID())
+        let keptID = UUID()
+        let kept = try makeExportDirectory(for: keptID)
 
-        ExportTempFiles.remove(for: doomed)
+        ExportTempFiles.remove(for: UUID(uuidString: String(doomed.lastPathComponent.dropFirst(7)))!, in: root)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: doomedDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: keptDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: doomed.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path))
     }
 
     func testRemoveOfMissingFolderDoesNotThrow() {
-        let id = UUID()
-        // No directory created for `id` — remove must be a no-op, not a crash or a logged failure loop.
-        ExportTempFiles.remove(for: id)
+        // No directory exists for this id: remove must be a no-op.
+        ExportTempFiles.remove(for: UUID(), in: root)
     }
 
-    func testSweepStaleRemovesExportFoldersButLeavesOthers() throws {
-        let stale = UUID()
-        trackedIDs.append(stale)
-        let staleDirectory = try makeExportDirectory(for: stale)
-        let unrelated = FileManager.default.temporaryDirectory
-            .appendingPathComponent("not-an-export-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: unrelated) }
+    func testSweepStaleRemovesOnlyExportUUIDFolders() throws {
+        let stale = try makeExportDirectory(for: UUID())
+        let unrelated = try makeFolder(named: "not-an-export-\(UUID().uuidString)")
+        let otherAppsExport = try makeFolder(named: "export-settings-backup")
+        let almostUUID = try makeFolder(named: "export-\(UUID().uuidString)-extra")
 
-        ExportTempFiles.sweepStale()
+        ExportTempFiles.sweepStale(in: root)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: staleDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path), "sweep must only touch export-* folders")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+        for kept in [unrelated, otherAppsExport, almostUUID] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path), "\(kept.lastPathComponent) must survive")
+        }
+    }
+
+    func testExportFolderNameNeedsAWholeUUID() {
+        XCTAssertTrue(ExportTempFiles.isExportFolderName("export-\(UUID().uuidString)"))
+        XCTAssertFalse(ExportTempFiles.isExportFolderName("export-"))
+        XCTAssertFalse(ExportTempFiles.isExportFolderName("export-report"))
+        XCTAssertFalse(ExportTempFiles.isExportFolderName("exports-\(UUID().uuidString)"))
     }
 }
