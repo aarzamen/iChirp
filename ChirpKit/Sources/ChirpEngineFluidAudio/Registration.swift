@@ -12,4 +12,9 @@ public enum FluidAudioEngines {
             diarizer: FluidAudioDiarizer(gate: .shared)
         )
     }
+
+    /// M3: Silero voice activity for meeting live chunks (CPU only), in FluidAudio's default model cache.
+    public static func makeVoiceActivity() -> FluidAudioVoiceActivity {
+        FluidAudioVoiceActivity()
+    }
 }

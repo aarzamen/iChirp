@@ -20,6 +20,8 @@ Since M2 it also owns microphone capture and the audio session (see
   over `AVAudioEngineMicrophone`.
 - `DictationRecorder` — the `ChirpCore.AudioCapturing` conformer (M2): the
   shared stream into `media/<id>/dictation.wav`.
+- `MeetingRecorder` — the `ChirpCore.MeetingAudioCapturing` conformer (M3): the
+  shared stream into `media/<id>/meeting.caf`.
 
 ## What's here
 
@@ -151,6 +153,20 @@ read).
   anything under 0.3 s (`AudioCaptureError.tooShort`, file removed);
   `cancel()` deletes the file. Helpers: `Capture/CaptureBuffers.swift`.
 
+- `Capture/MeetingRecorder.swift` (M3) — port of upstream's
+  `MeetingAudioStorageWriter` for one microphone. Same capture plumbing as the
+  dictation recorder (copy off the render thread, channel 0 / downmix,
+  `SpeechRateConverter`), but `MeetingAudioWriter` stores **16 kHz mono 16-bit
+  PCM CAF** (`AVAudioFile` converts the Float32 buffers): a CAF that was never
+  closed reads back to its last buffer, with no repair (M3 Step 1,
+  `docs/research/2026-09-22-meeting-crash-format.md`). Pause drops buffers
+  (the microphone stays subscribed, so iOS keeps the app alive in the
+  background), mute writes zeros, and both change on the processing queue so
+  they land between two buffers. It refuses to overwrite an existing file and
+  never deletes one: `stop` keeps even a short recording and `cancel` only
+  closes it. A write failure (a full disk) is reported once as
+  `CaptureEvent.failed`; what was written stays readable.
+
 **Rules to keep.** Never restart an old engine: rebuild and re-tap (a
 restarted engine can run without delivering buffers — upstream's silent
 stall). Resume automatically only on `.shouldResume`. Tests never sleep:
@@ -160,7 +176,7 @@ stall). Resume automatically only on `.shouldResume`. Tests never sleep:
 
 - `scripts/check.sh ChirpAudioTests` — build, run this target's tests, lint.
   Capture only: `swift test --package-path ChirpKit --filter
-  "SharedMicrophoneStreamTests|AudioSessionControllerTests|DictationRecorderTests"`.
+  "SharedMicrophoneStreamTests|AudioSessionControllerTests|DictationRecorderTests|MeetingRecorderTests"`.
   `DictationRecorderTests` feeds the committed `say` fixture through the real
   stream on a fake engine and checks the WAV's rate, channels and duration
   (±1%). Real microphone

@@ -70,6 +70,13 @@ Then read `ParakeetEngine.swift`.
   `cannotConnectToHost`, `cannotFindHost`, `dnsLookupFailed` (directly or as an underlying error) and FluidAudio's
   `DownloadError.stalled` and `.rateLimited`.
 
+- `FluidAudioVoiceActivity.swift` (M3): Silero VAD (`VadManager`, **CPU only**, so the Neural Engine stays free
+  for Parakeet) behind `ChirpCore.VoiceActivityDetecting`: `assetStatus` checks
+  `<models root>/<Repo.vad.folderName>/silero-vad-unified-256ms-v6.2.1.mlmodelc`, `downloadAssets` fetches it
+  (about 2 MB; only when the person taps Download in Settings → Meetings), `makeStream` never downloads and hands
+  out a per-recording `FluidAudioVoiceActivityStream` (streaming state, upstream `fluidConfig`: 0.5 s silence,
+  0.15 s padding). `FluidAudioEngines.makeVoiceActivity()` builds it.
+
 ## What to know before editing
 
 - **FluidAudio is pinned exactly** (`exact: "0.16.1"` in `ChirpKit/Package.swift`). Bump it deliberately, never

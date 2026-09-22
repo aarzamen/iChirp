@@ -13,7 +13,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 
 - `Models/Transcript.swift`: word, speaker, diarization and transcript segment value types, ported from
   MacParakeet without the correction-only fields.
-- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`.
+- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`; M3 adds
+  `userNotes`, `isPartialAudio`, `audioRemovedAt` and `renameSpeaker(_:to:)` (roster and segment labels together).
 - `Models/PrivacyClass.swift`: `general` / `personal` (default) / `clinical` sensitivity classes, ordered by
   `strictness`, with `stricter(_:)`.
 - `Models/LanguageModelProvider.swift`: `LanguageModelProviderKind` (stable engine ids),
@@ -23,7 +24,7 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Secrets/SecretStoring.swift`: `SecretValue` (a redacted in-memory secret) and `SecretStoring` (Keychain in the
   app via `ChirpKeychain`, a fake in tests).
 - `Models/TranscriptionSettings.swift`: user preferences (`CleanupMode`, `ParakeetVariant`, speaker labels,
-  filler removal), with forgiving decoding.
+  filler removal, M3's `meetingAudioRetentionDays`, nil = keep forever), with forgiving decoding.
 - `Engines/EngineDescriptor.swift`: `EngineDescriptor`, `EngineKind` and `EngineLocality`, the static facts
   about an engine.
 - `Engines/ModelAssets.swift`: `ModelAssetStatus` and `ModelAssetManaging` (download, status, delete).
@@ -44,10 +45,24 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Pipeline/AudioTracks.swift`: `AudioTrackDescriptor` (zero-based ordinal, one-based `displayName`),
   `AudioTrackProbing` and `AudioTrackSelectionError` (M1.5; contract
   `spec/contracts/file-transcription-audio-tracks-v1.md`).
-- `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore.
+- `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore. M3 adds the
+  field-level `updateUserNotes`, `renameSpeaker` and `markAudioRemoved`, with fetch-and-update defaults in a
+  protocol extension so other conformers (fakes) keep compiling; real stores implement them atomically.
 - `Pipeline/AudioCapturing.swift`: the M2 microphone-recording contract (`AudioCapturing`, `CaptureUpdate`,
   `CaptureEvent`, `RecordedAudio`, `MicrophonePermission`, `AudioCaptureError`) implemented by ChirpAudio's
   `DictationRecorder`, and `SpeechAudio` (16 kHz, the 0.3 s minimum).
+- `Pipeline/MeetingAudioCapturing.swift` (M3): the meeting recorder contract (`start` into `meeting.caf`, pause
+  writes nothing, mute writes silence, `stop` and `cancel` never delete audio), implemented by ChirpAudio's
+  `MeetingRecorder`.
+- `Pipeline/SpeechWAVFile.swift` (M3): a Foundation-only 16 kHz mono Float32 WAV writer for a meeting's temporary
+  live-preview chunks.
+- `Models/MeetingSession.swift` (M3): `MeetingSessionFiles` (`recording.lock`, `meeting.caf`, `chunks/`),
+  `MeetingSessionState` (`recording`, `awaitingTranscription`), `MeetingSessionLock` (schema 1, `launchId` owner,
+  captured route and privacy class, notes decoded on their own) and `MeetingAudioRetention`. Contract:
+  `spec/contracts/meeting-session-v1.md`.
+- `Engines/VoiceActivity.swift` (M3): `VoiceActivityDetecting` (a `ModelAssetManaging` plug-in with a window size
+  that hands out a per-recording `VoiceActivityStream`, or nil when its model is not on disk), `VoiceActivityEvent`
+  and `VoiceActivityConfig` (upstream 0.5 s silence, 0.15 s padding). `EngineKind.voiceActivity` is additive.
 - `Scheduling/SpeechJobScheduler.swift`: the actor that serializes speech work into an interactive slot
   (dictation) and a prioritized background slot, with live-chunk backpressure.
 - `System/AppPaths.swift`: the on-disk layout (`ichirp.sqlite`, `media/<uuid>/`) and relative-path mapping.

@@ -103,6 +103,45 @@ pipeline's `Task`s and publishes its progress to the UI.
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
   `.answered` or `.failed(sentence)`.
 
+## Meetings (M3, `Meeting/`)
+
+Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-012-m3-meetings.md`.
+
+- `MeetingCoordinator.swift`: the Meeting screen's `@MainActor @Observable` model (`MeetingFlowState`: idle,
+  starting, recording, paused, interrupted, waitingForResume, stopping, saved, failed). Start writes
+  `recording.lock` **before** the recorder starts; Stop closes the audio, moves the lock to
+  `awaitingTranscription`, inserts the `.processing` meeting row with the notes, and runs the finalizer. Pause and
+  mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
+  after typing stops and at Stop. The only deletes: `discard()` (the screen confirms first), a start that failed
+  before any audio, and a recording under 0.3 s (the dictation rule). Low storage refuses to start under 200 MB and
+  warns under 1 GB.
+- `MeetingSessionLockStore.swift`: atomic `recording.lock` writes, reads (malformed notes lose only the notes; a
+  newer schema is opaque), `hasLockFile` (the retention barrier) and `discoverOrphans()` (locks from another app
+  launch; one store per launch, whose `launchId` it stamps).
+- `MeetingLiveChunking.swift`: `SpeechBoundaryMeetingLiveAudioChunker` (upstream VAD chunker: 2–10 s cuts on speech
+  end, 0.25 s overlap after a forced cut, silence windows dropped, fixed fallback after 3 VAD errors) and
+  `FixedMeetingLiveAudioChunker` (5 s / 1 s overlap) when the VAD model is not on disk.
+- `MeetingLiveTranscriber.swift`: each chunk (RMS above 0.00025) is written to `chunks/` and transcribed with
+  `SpeechEngine.transcribe(fileAt:)` inside `.meetingLiveChunk`; outcomes apply in order into
+  `MeetingTranscriptAssembler.swift` (words offset by the chunk start, de-duplicated by absolute `endMs`).
+  Display-only; a backpressure drop marks the preview lagging. `finish()` cancels and awaits every chunk.
+- `MeetingFinalizer.swift`: normalize `meeting.caf` → one `.meetingFinalize` job (transcribe, then diarize; a
+  diarization failure is not fatal) → `SpeakerMerger` → custom words only → title, snippet, segments →
+  `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the
+  row (`.failed`, Retry), the lock and the audio. Privacy routing is checked before any audio is prepared and again
+  inside the slot. Diarization shares the background slot with the final pass, so dictation's interactive slot is
+  never blocked; its cost is part of the finalize time.
+- `MeetingRecoveryService.swift`: `discoverPendingRecoveries()` (orphans whose row is missing, processing or
+  interrupted; a completed row only settles its leftover lock; failed rows are the Library's Retry), `recover`
+  (claims the lock for this launch, removes `chunks/`, inserts or reuses the row with the lock's notes and
+  `isPartialAudio` when the kill cut the recording, then finalizes) and `discard` (row and folder; after the
+  person confirms).
+- `MeetingAudioRetention.swift`: `MeetingAudioRetentionPolicy` (completed meetings with audio, no lock file, older
+  than N days; keep forever by default) and `MeetingAudioRetentionSweeper` (marks the row `audioRemovedAt` first,
+  then deletes `meeting.caf`; the transcript and notes stay).
+- `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
+  voice-activity model's status, explicit download and delete).
+
 ## Wiring (app composition root)
 
 ```swift
@@ -121,6 +160,17 @@ let dictation = DictationCoordinator(                      // M2
     speech: engines.speech, liveSessions: engines.speech, scheduler: scheduler, store: store, paths: paths,
     settings: settings, clipboard: SystemClipboard(), textRules: { /* custom words + snippets */ })
 await dictation.recoverOrphanedRecordings()                // at launch, after the interrupted sweep
+let lockStore = MeetingSessionLockStore(paths: paths)      // M3: one per launch
+let finalizer = MeetingFinalizer(paths: paths, store: store, normalizer: normalizer, speech: engines.speech,
+    diarizer: engines.diarizer, scheduler: scheduler, settings: settings, lockStore: lockStore,
+    customWords: { /* enabled custom words */ }, onProgress: jobs.progressHandler)
+let meeting = MeetingCoordinator(recorder: MeetingRecorder(stream: microphone, session: audioSession),
+    speech: engines.speech, voiceActivity: FluidAudioEngines.makeVoiceActivity(), scheduler: scheduler,
+    store: store, paths: paths, lockStore: lockStore, finalizer: finalizer)
+let recovery = MeetingRecoveryService(paths: paths, store: store, lockStore: lockStore, finalizer: finalizer,
+    normalizer: normalizer)
+await MeetingAudioRetentionSweeper(paths: paths, store: store, lockStore: lockStore, settings: settings).sweep()
+let pending = await recovery.discoverPendingRecoveries()   // at launch: the recovery sheet
 ```
 
 ## What to know before editing

@@ -115,7 +115,8 @@ names or the orphan rule is breaking: write `meeting-session-v2.md` and keep rea
   removed only after the completed save; discard deletes only after the call; failed final pass keeps lock and audio).
 - `MeetingRecoveryServiceTests` (fixture folders with synthetic audio: discovery, recover, discard, completed rows
   settled, this launch's session never offered).
-- `MeetingAudioRetentionTests` (locked or unfinished sessions never deleted; keep-forever default).
+- `MeetingAudioRetentionPolicyTests` and `MeetingAudioRetentionSweeperTests` (locked or unfinished sessions never
+  deleted; keep-forever default; the transcript stays).
 
 ## When this changes
 

@@ -32,7 +32,8 @@ an engine that breaks them corrupts transcripts silently.
 - `id` is a stable, reverse-dotted string persisted in `Transcription.engine` (e.g. `fluidaudio.parakeet-tdt`,
   `fluidaudio.offline-diarizer`). Never reuse or rename an id; a different model family gets a new id, a different
   build of the same family is an `engineVariant`.
-- `kind` ∈ `speech` · `diarization` · `language` · `structure`; `locality` ∈ `onDevice` · `localNetwork` · `cloud`.
+- `kind` ∈ `speech` · `diarization` · `language` · `structure` · `voiceActivity` (M3, additive: Silero VAD for
+  meeting live chunks, `ChirpCore.VoiceActivityDetecting`); `locality` ∈ `onDevice` · `localNetwork` · `cloud`.
 - `license` names the model weights' license (and the SDK's when useful); never empty.
 - `supportedLanguages` are BCP-47 tags; empty means unknown.
 

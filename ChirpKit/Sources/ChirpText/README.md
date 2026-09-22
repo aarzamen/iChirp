@@ -52,6 +52,10 @@ pipeline directly.
   `Models/TextRulesStoring.swift` (M2) is the persistence contract for words and snippets (`enabledCustomWords()`,
   `enabledSnippets()`, `TextRulesStoreError.duplicate`), implemented by `ChirpStore.GRDBTextRulesStore`.
 
+- `MeetingTranscriptVocabularyApplier.swift` (M3): the only text step meetings run (upstream rule): the person's
+  custom words applied to the raw text and to each word token, keeping timings, confidence and speakers. No filler
+  removal or snippets, which would corrupt a verbatim meeting record.
+
 ## What to know before editing
 
 - `TextRefinement.refine` is a deliberately reduced surface versus upstream's
