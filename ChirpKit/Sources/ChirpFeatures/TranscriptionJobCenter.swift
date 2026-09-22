@@ -95,7 +95,7 @@ import Observation
         guard !finished.contains(id) else { return }
         progress[id] = p
         if let token = tokenByJob[id] {
-            continuationByToken[token]?.update(token, fraction: p.fraction, stage: p.stage.displayName)
+            continuationByToken[token]?.update(token, fraction: p.overallFraction, stage: p.stage.displayName)
         }
     }
 
@@ -252,6 +252,58 @@ import Observation
         }
     }
 
+    // MARK: - Other importers and tracked work (M5)
+
+    /// Starts one tracked job per file for an importer other than the audio pipeline (M5 documents), under one
+    /// continued-processing request, exactly like `start(filesAt:pipeline:)` without the audio-track check: each file
+    /// is imported (its row exists), reported to `onImportSettled`, then processed.
+    public func start(filesAt urls: [URL], importer: any ItemImporting) {
+        guard !urls.isEmpty else { return }
+        let tokens = urls.map { _ in UUID() }
+        let continuation = beginContinuation(title: Self.title(for: urls), tokens: tokens)
+        for (url, token) in zip(urls, tokens) {
+            continuationByToken[token] = continuation
+            tasks[token] = Task { @MainActor [weak self] in
+                let id: UUID
+                do {
+                    id = try await importer.importItem(from: url)
+                } catch {
+                    self?.logger.error("import_failed error_type=\(error.logTypeName, privacy: .public)")
+                    self?.lastImportError = Self.readable(error)
+                    self?.tasks[token] = nil
+                    self?.onImportSettled?(url)
+                    self?.endContinuation(token, status: nil)
+                    return
+                }
+                self?.track(id, token: token)
+                self?.onImportSettled?(url)
+                let row = await importer.process(id: id)
+                self?.endContinuation(token, status: row?.status)
+                self?.finish(id)
+            }
+        }
+    }
+
+    /// Re-runs a failed, cancelled or interrupted row through `importer` (M5 documents), like `retry(_:title:pipeline:)`.
+    public func retry(_ id: UUID, title: String, importer: any ItemImporting) {
+        startTracked(id, title: title) { await importer.retry(id: id) }
+    }
+
+    /// Runs `work` as the tracked job of the existing row `id` (M5: a link's download followed by its transcription),
+    /// with its own continued-processing request titled `title`. `work` returns the row as it ended (nil: gone); it
+    /// is cancelled by `cancel(id)` or when the system expires the request. Does nothing while `id` has a job.
+    public func startTracked(_ id: UUID, title: String, work: @escaping @Sendable () async -> Transcription?) {
+        guard tokenByJob[id] == nil else { return }
+        let token = UUID()
+        track(id, token: token)
+        continuationByToken[token] = beginContinuation(title: title, tokens: [token])
+        tasks[token] = Task { @MainActor [weak self] in
+            let row = await work()
+            self?.endContinuation(token, status: row?.status)
+            self?.finish(id)
+        }
+    }
+
     /// Cancels `id`'s job; the pipeline marks the row `.cancelled` and keeps the source file.
     public func cancel(_ id: UUID) {
         guard let token = tokenByJob[id] else { return }
@@ -321,4 +373,14 @@ import Observation
         }
         return error.localizedDescription
     }
+}
+
+/// An importer the job center can run besides the audio pipeline (M5: `DocumentImportPipeline`). The same shape as
+/// `FileTranscriptionPipeline`: `importItem` copies the file in and creates the row (nothing is left behind when it
+/// throws), `process` runs a `.processing` row to its end, `retry` moves a failed, cancelled or interrupted row back and
+/// runs it again.
+public protocol ItemImporting: Sendable {
+    func importItem(from url: URL) async throws -> UUID
+    func process(id: UUID) async -> Transcription?
+    func retry(id: UUID) async -> Transcription?
 }

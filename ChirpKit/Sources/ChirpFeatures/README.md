@@ -15,6 +15,9 @@ pipeline's `Task`s and publishes its progress to the UI.
 ## What's here
 
 - `FileTranscriptionPipeline.swift`: the `FileTranscriptionPipeline` actor plus `PipelineStage` and `JobProgress`.
+  M5 adds the stages `downloading` (a link's media) and `readingDocument`, and `JobProgress.overallFraction`: a
+  download fills only the first `downloadShare` (0.15) of a link job's system progress, so it never goes backwards
+  when transcription starts.
   - `importFile(from:sourceType:audioTrackOrdinal:)` copies the file (security-scoped, never moved) into
     `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the person's
     audio-track choice (nil: automatic). `process` decodes that track on every run, Retry included.
@@ -39,6 +42,15 @@ pipeline's `Task`s and publishes its progress to the UI.
   waits in `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
   (the choice for multi-track files, automatic for the rest) or `cancelAudioTrackSelection(_:)` drops it (its files
   count as settled). Later batches queue behind it. Contract: `spec/contracts/file-transcription-audio-tracks-v1.md`.
+  M5 (additive): `start(filesAt:importer:)` and `retry(_:title:importer:)` run any `ItemImporting` (documents) the
+  same way, and `startTracked(_:title:work:)` tracks work for an existing row (a link's download, then its
+  transcription) with its own background request, cancellable by `cancel(id)`.
+- `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
+  (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:)` inserts the `.processing`
+  row with `sourceURL` / `sourceTitle`, `download(id:from:)` fetches into `media/<id>/source.<ext>` with
+  `.downloading` progress and records the file (failure → `failed` with a message, cancel → `cancelled`, partial file
+  kept), and `retryDownload(id:)` resumes it. `needsDownload(_:)` tells Retry which path a link row takes; the file
+  pipeline then runs unchanged. Downloads never hold a speech-scheduler slot.
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
   title, completion) are the two protocols the app implements over `BackgroundTasks`

@@ -32,6 +32,13 @@ public struct DownloadedFile: Sendable, Equatable {
     public var byteCount: Int64
     /// Whether the body continued an earlier partial download.
     public var resumed: Bool
+
+    public init(fileURL: URL, mimeType: String?, byteCount: Int64, resumed: Bool) {
+        self.fileURL = fileURL
+        self.mimeType = mimeType
+        self.byteCount = byteCount
+        self.resumed = resumed
+    }
 }
 
 public enum MediaDownloadError: Error, Equatable, LocalizedError {

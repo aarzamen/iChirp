@@ -34,7 +34,9 @@ let package = Package(
         .target(name: "ChirpKeychain", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         // M5: links, podcasts, downloads, YouTube captions and document text. Apple frameworks only, no new dependency.
         .target(name: "ChirpIngest", dependencies: ["ChirpCore"], exclude: ["README.md"]),
-        .target(name: "ChirpFeatures", dependencies: ["ChirpCore", "ChirpText", "ChirpExport"], exclude: ["README.md"]),
+        .target(
+            name: "ChirpFeatures", dependencies: ["ChirpCore", "ChirpText", "ChirpExport", "ChirpIngest"],
+            exclude: ["README.md"]),
         .target(name: "ChirpUI", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .testTarget(name: "ChirpCoreTests", dependencies: ["ChirpCore"]),
         .testTarget(name: "ChirpTextTests", dependencies: ["ChirpText"]),

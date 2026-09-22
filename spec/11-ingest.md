@@ -58,6 +58,12 @@ capability, an account change the owner must approve.
 
 ## Podcasts and direct media (M5)
 
+**Built (plan 014 Steps 1–2).** Paste a link → `LinkClassifier` (local) → on Transcribe, `LinkIngestService.resolve`
+(the lookup, the feed, or a content-type probe for other web links) → a `.processing` row with `sourceURL` →
+`MediaDownloader` into `media/<id>/source.<ext>` with byte progress ("Downloading · NN%"), cancel, and resume on
+Retry (`Range` + `If-Range`) → the unchanged file pipeline. A web page, an X/TikTok/Instagram/Facebook/Vimeo/
+SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a message that says what to do instead.
+
 - `https://itunes.apple.com/lookup?id=<showId>&entity=podcastEpisode&limit=200` returns episode audio URLs
   (`episodeUrl`), the feed (`feedUrl`) and ids (`trackId`). Looking up an episode id directly returns nothing, so match
   the `?i=` value from the share link against the show's episodes, with the RSS feed as a fallback (port of upstream

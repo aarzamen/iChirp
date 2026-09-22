@@ -31,3 +31,9 @@
   cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. The finished
   file becomes `<stem>.<ext>` (extension from the link, else the content type). A web page or text answer is refused
   (`MediaDownloadError.notMedia`).
+- `Links/PodcastEpisodeResolver.swift`: port of upstream's resolver. The iTunes lookup
+  (`lookup?id=<show>&entity=podcastEpisode&limit=200`) matches an episode link's `?i=` against `trackId`; an episode
+  older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug; a show link takes the
+  latest episode; `latestEpisode(inFeed:)` serves feed links. Only the show id (and Apple's feed URL) is requested.
+- `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
+  `itunes:duration`), plus the channel title.
