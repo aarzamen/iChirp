@@ -95,6 +95,13 @@ completed transcript reverted to `processing` by a stale favorite write), so
 `update(_:)` is only for rows nothing else can be writing. Ports upstream's
 `updateTitleOverride`, `updateFavorite` and `transitionStatus`.
 
+**JSON work never runs on the caller's actor.** Every method encodes
+(`TranscriptionRecord(_:)`) and decodes (`toTranscription()`) inside its GRDB
+`read`/`write` closure, on GRDB's own queues. A `@MainActor` caller such as the
+Transcript screen therefore never decodes an hour of word timings on the main
+thread, whatever the module's default isolation becomes. Keep new methods the
+same way.
+
 **`observeAll()` owns its `ValueObservation` lifecycle.** It schedules on a
 dedicated serial `DispatchQueue` (GRDB requires a serial queue for
 `.async(onQueue:)`, and this store isn't tied to `@MainActor`) and cancels

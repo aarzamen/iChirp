@@ -13,6 +13,9 @@ import Foundation
 import GRDB
 
 /// GRDB-backed `TranscriptionStoring`. `Sendable` via `DatabaseManager`'s GRDB `DatabaseWriter`.
+///
+/// All JSON encoding and decoding happens inside GRDB's database closures, on GRDB's own queues, never on the
+/// caller's actor: a long transcript's word timings are never decoded on the main thread.
 public final class GRDBTranscriptionStore: TranscriptionStoring {
     private let database: DatabaseManager
     /// Serial so `observeAll()` notifications never reorder; GRDB requires a serial queue here.
@@ -26,15 +29,14 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     }
 
     public func insert(_ transcription: Transcription) async throws {
-        let record = try TranscriptionRecord(transcription)
         try await database.writer.write { db in
-            try record.insert(db)
+            try TranscriptionRecord(transcription).insert(db)
         }
     }
 
     public func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
-        let output = try TranscriptionRecord(transcription)
-        return try await database.writer.write { db in
+        try await database.writer.write { db in
+            let output = try TranscriptionRecord(transcription)
             guard let current = try TranscriptionRecord.fetchOne(db, key: transcription.id) else {
                 // The row was deleted while the job ran: the user's delete wins, nothing is re-inserted.
                 return nil
@@ -52,8 +54,8 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     }
 
     public func update(_ transcription: Transcription) async throws {
-        let record = try TranscriptionRecord(transcription)
         try await database.writer.write { db in
+            let record = try TranscriptionRecord(transcription)
             let stored = try TranscriptionRecord.fetchOne(db, key: record.id)
             try record.keepingUnknownRawValues(of: stored).update(db)
         }
@@ -105,10 +107,9 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     }
 
     public func fetch(id: UUID) async throws -> Transcription? {
-        let record = try await database.writer.read { db in
-            try TranscriptionRecord.fetchOne(db, key: id)
+        try await database.writer.read { db in
+            try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()
         }
-        return try record?.toTranscription()
     }
 
     /// Newest first. A row this build cannot read is skipped and logged, never fatal to the list (`decodeRows`).
