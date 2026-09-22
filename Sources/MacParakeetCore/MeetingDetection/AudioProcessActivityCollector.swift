@@ -1,3 +1,4 @@
+#if os(macOS)
 import CoreAudio
 import Foundation
 import OSLog
@@ -244,3 +245,28 @@ public final class AudioProcessActivityCollector: @unchecked Sendable {
         )
     }
 }
+#else
+import Foundation
+
+public final class AudioProcessActivityCollector: @unchecked Sendable {
+    public typealias SnapshotHandler = @Sendable (ProcessAudioSnapshot) -> Void
+
+    public init(
+        selfProcessID: Int32 = getpid(),
+        selfBundleID: String? = Bundle.main.bundleIdentifier
+    ) {}
+
+    public func start(handler: @escaping SnapshotHandler) {}
+    public func stop() {}
+    public func snapshot() -> ProcessAudioSnapshot {
+        ProcessAudioSnapshot(processes: [])
+    }
+    public static func currentSnapshot(
+        selfProcessID: Int32 = getpid(),
+        selfBundleID: String? = Bundle.main.bundleIdentifier
+    ) -> ProcessAudioSnapshot {
+        ProcessAudioSnapshot(processes: [])
+    }
+}
+#endif
+

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Carbon
 import Foundation
 import OSLog
@@ -60,34 +61,20 @@ struct PasteShortcutKeyResolver {
             }
         }
 
-        logger.error("Failed to resolve virtual keycode for character '\(String(character), privacy: .public)'; falling back to QWERTY keycode \(fallbackKeyCode, privacy: .public)")
+        logger.error("Failed to resolve dynamic virtual keycode for character \(String(character), privacy: .public); falling back to QWERTY keycode \(fallbackKeyCode, privacy: .public)")
         return fallbackKeyCode
     }
 
-    private static func qwertyFallbackKeyCode(for character: Character) -> CGKeyCode {
-        switch String(character).lowercased() {
-        case "c": return 0x08
-        case "v": return 0x09
-        default: return 0x09
-        }
-    }
-
     private static func liveKeyboardLayout() -> KeyboardLayoutLookupResult {
-        guard let layoutSourceRef = TISCopyCurrentKeyboardLayoutInputSource() else {
+        guard let inputSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
             return .missingInputSource
         }
-        let layoutSource = layoutSourceRef.takeRetainedValue()
 
-        guard let layoutDataRef = TISGetInputSourceProperty(layoutSource, kTISPropertyUnicodeKeyLayoutData) else {
+        guard let layoutProperty = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData) else {
             return .missingLayoutData
         }
 
-        let layoutData = Unmanaged<CFData>.fromOpaque(layoutDataRef).takeUnretainedValue()
-        guard CFDataGetBytePtr(layoutData) != nil else {
-            return .inaccessibleLayoutBytes
-        }
-
-        return .data(layoutData)
+        return .data(unsafeBitCast(layoutProperty, to: CFData.self))
     }
 
     private static func translatedCharacter(
@@ -100,28 +87,40 @@ struct PasteShortcutKeyResolver {
             return nil
         }
 
-        let keyboardLayout = UnsafeRawPointer(layoutBytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        let layout = layoutBytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { $0 }
         var deadKeyState: UInt32 = 0
-        var length = 0
-        var chars = [UniChar](repeating: 0, count: 4)
+        var actualStringLength: Int = 0
+        var unicodeString: [UniChar] = [0, 0, 0, 0]
 
         let status = UCKeyTranslate(
-            keyboardLayout,
+            layout,
             keyCode,
             UInt16(kUCKeyActionDown),
             modifierKeyState,
             keyboardType,
-            UInt32(kUCKeyTranslateNoDeadKeysMask),
+            UInt32(kUCKeyTranslateNoDeadKeysBit),
             &deadKeyState,
-            chars.count,
-            &length,
-            &chars
+            4,
+            &actualStringLength,
+            &unicodeString
         )
 
-        guard status == noErr, length > 0 else {
+        guard status == noErr, actualStringLength > 0 else {
             return nil
         }
 
-        return chars[0]
+        return unicodeString[0]
+    }
+
+    private static func qwertyFallbackKeyCode(for character: Character) -> CGKeyCode {
+        switch character.lowercased() {
+        case "c":
+            return 8
+        case "v":
+            return 9
+        default:
+            return 9
+        }
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import AVFoundation
 import CoreMedia
 import Darwin
@@ -676,4 +677,5 @@ extension SystemAudioStream {
         handleStreamStoppedWithError(error)
     }
 }
+#endif
 #endif

@@ -1,4 +1,6 @@
+#if os(macOS)
 import ApplicationServices
+#endif
 import Foundation
 
 public protocol AccessibilityServiceProtocol: Sendable {
@@ -45,6 +47,7 @@ public enum AccessibilityServiceError: Error, LocalizedError, Equatable {
     }
 }
 
+#if os(macOS)
 protocol AccessibilityBackend: Sendable {
     func isTrusted() -> Bool
     func focusedElement() -> AXUIElement?
@@ -221,3 +224,15 @@ public final class AccessibilityService: AccessibilityServiceProtocol, @unchecke
         return text
     }
 }
+#else
+public final class AccessibilityService: AccessibilityServiceProtocol, Sendable {
+    public init() {}
+    public func getSelectedTextWithSource(maxCharacters: Int?) throws -> (String, AccessibilitySelectionSource) {
+        throw AccessibilityServiceError.unsupportedElement
+    }
+    public func getSelectedText(maxCharacters: Int?) throws -> String {
+        throw AccessibilityServiceError.unsupportedElement
+    }
+}
+#endif
+

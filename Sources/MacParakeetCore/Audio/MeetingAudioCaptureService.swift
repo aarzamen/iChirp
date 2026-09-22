@@ -53,7 +53,9 @@ extension MeetingSystemAudioCapturing {
     }
 }
 
+#if os(macOS)
 extension SystemAudioStream: MeetingSystemAudioCapturing {}
+#endif
 
 public actor MeetingAudioCaptureService {
     public typealias EventHandler = @Sendable (MeetingAudioCaptureEvent) -> Void
@@ -149,10 +151,14 @@ public actor MeetingAudioCaptureService {
         self.diagnosticSink = { AudioCaptureDiagnostics.append($0) }
         self.micHealthObserver = MeetingMicHealthTelemetryObserver()
         self.systemAudioCaptureFactory = {
+            #if os(macOS)
             guard #available(macOS 14.2, *) else {
                 throw MeetingAudioError.unsupportedPlatform
             }
             return SystemAudioStream()
+            #else
+            throw MeetingAudioError.unsupportedPlatform
+            #endif
         }
     }
 

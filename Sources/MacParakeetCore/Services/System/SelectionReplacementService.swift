@@ -1,8 +1,11 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Carbon
+#endif
 import Foundation
 import OSLog
+
 
 // MARK: - Public Types
 
@@ -50,6 +53,7 @@ public enum SelectionReplacementError: Error, LocalizedError, Sendable {
     }
 }
 
+#if os(macOS)
 // MARK: - Backend Protocol
 
 protocol SelectionReplacementBackend: Sendable {
@@ -425,3 +429,16 @@ struct SystemSelectionReplacementBackend: SelectionReplacementBackend, @unchecke
         pasteboard.writeObjects(items)
     }
 }
+#else
+public actor SelectionReplacementService {
+    public init() {}
+    public func replace(
+        with newText: String,
+        in context: SelectionCaptureResult,
+        mode: SelectionReplacementMode = .replaceSelection
+    ) async throws -> SelectionReplacementPath {
+        throw SelectionReplacementError.allPathsFailed
+    }
+}
+#endif
+

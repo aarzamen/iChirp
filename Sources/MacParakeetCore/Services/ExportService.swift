@@ -1,4 +1,9 @@
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 import Foundation
 
 public protocol ExportServiceProtocol: Sendable {
@@ -240,6 +245,7 @@ public final class ExportService: ExportServiceProtocol, Sendable {
     /// when called from SwiftUI button actions on MainActor.
     /// Must be called on MainActor (uses NSTextStorage, NSLayoutManager, NSGraphicsContext).
     @MainActor public func exportToPDF(transcription: Transcription, url: URL) throws {
+        #if os(macOS)
         let attrString = try buildRichTranscript(transcription: transcription)
 
         // US Letter with 1-inch margins
@@ -307,10 +313,23 @@ public final class ExportService: ExportServiceProtocol, Sendable {
 
             yOffset += textHeight
         }
+        #elseif os(iOS)
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792))
+        let data = renderer.pdfData { ctx in
+            ctx.beginPage()
+            let text = preferredText(transcription: transcription)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 12)
+            ]
+            (text as NSString).draw(in: CGRect(x: 72, y: 72, width: 468, height: 648), withAttributes: attributes)
+        }
+        try data.write(to: url, options: .atomic)
+        #endif
     }
 
     /// Export transcription as DOCX file
     @MainActor public func exportToDocx(transcription: Transcription, url: URL) throws {
+        #if os(macOS)
         let attrString = try buildRichTranscript(transcription: transcription)
         let range = NSRange(location: 0, length: attrString.length)
         
@@ -319,6 +338,10 @@ public final class ExportService: ExportServiceProtocol, Sendable {
             documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML]
         )
         try data.write(to: url, options: .atomic)
+        #else
+        let text = preferredText(transcription: transcription)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        #endif
     }
 
     /// Format word timestamps as SRT subtitle string
@@ -635,6 +658,7 @@ public final class ExportService: ExportServiceProtocol, Sendable {
 
     // MARK: - Rich Text (AppKit)
 
+    #if os(macOS)
     /// Concrete text colors for exported PDF/DOCX documents.
     ///
     /// Exported files are standalone artifacts rendered on a white page, so they
@@ -754,6 +778,7 @@ public final class ExportService: ExportServiceProtocol, Sendable {
 
         return result
     }
+    #endif
 
     func pdfPageTextTransform(pageHeight: CGFloat, margin: CGFloat) -> CGAffineTransform {
         CGAffineTransform(translationX: margin, y: pageHeight - margin)

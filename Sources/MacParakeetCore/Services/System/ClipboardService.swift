@@ -1,5 +1,9 @@
+#if os(macOS)
 import AppKit
 import Carbon
+#elseif os(iOS)
+import UIKit
+#endif
 import Foundation
 import OSLog
 
@@ -34,6 +38,7 @@ public enum ClipboardServiceError: LocalizedError {
     }
 }
 
+#if os(macOS)
 protocol ClipboardEventPosting {
     @MainActor
     func simulatePaste(using pasteShortcutKeyResolver: PasteShortcutKeyResolver) throws
@@ -376,5 +381,39 @@ public final class ClipboardService: ClipboardServiceProtocol {
             pasteboard.writeObjects(items)
         }
     }
-
 }
+#else
+@MainActor
+public final class ClipboardService: ClipboardServiceProtocol {
+    private let logger = Logger(subsystem: "com.macparakeet.core", category: "ClipboardService")
+
+    public init() {}
+
+    public func pasteText(_ text: String) async throws {
+        _ = await copyToClipboard(text)
+    }
+
+    public func pasteText(_ text: String, restoresClipboard: Bool) async throws {
+        _ = await copyToClipboard(text)
+    }
+
+    @discardableResult
+    public func pasteTextWithAction(_ text: String, postPasteAction: KeyAction?) async throws -> Bool {
+        _ = await copyToClipboard(text)
+        return false
+    }
+
+    @discardableResult
+    public func pasteTextWithAction(_ text: String, postPasteAction: KeyAction?, restoresClipboard: Bool) async throws -> Bool {
+        _ = await copyToClipboard(text)
+        return false
+    }
+
+    @discardableResult
+    public func copyToClipboard(_ text: String) async -> Bool {
+        UIPasteboard.general.string = text
+        return true
+    }
+}
+#endif
+

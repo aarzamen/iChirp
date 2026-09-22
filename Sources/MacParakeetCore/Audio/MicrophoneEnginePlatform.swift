@@ -1,5 +1,7 @@
 import AVFoundation
+#if os(macOS)
 import CoreAudio
+#endif
 import Foundation
 import os
 
@@ -67,6 +69,12 @@ public extension MicrophoneEnginePlatform {
     ) {}
 
     func setUnexpectedStopHandler(_ handler: (@Sendable () -> Void)?) {}
+}
+
+public enum MicrophoneStartupReadinessResult: Equatable, Sendable {
+    case ready
+    case timedOut
+    case cancelled
 }
 
 /// The tap is installed during idle preparation, but the callback requested by
@@ -299,7 +307,7 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
     func waitForUsableBuffer(
         timeout: TimeInterval,
         isCancelled: @escaping @Sendable () -> Bool
-    ) -> AVAudioEngineMicrophonePlatform.StartupReadinessResult {
+    ) -> MicrophoneStartupReadinessResult {
         guard timeout > 0 else {
             if isCancelled() { return .cancelled }
             return hasReceivedUsableBuffer() ? .ready : .timedOut
@@ -476,6 +484,7 @@ struct DefaultInputChangeBurstCoalescer {
 ///   walks the resolved attempt list (selected → implicit systemDefault →
 ///   builtIn) and recreates the engine on every failed attempt before trying
 ///   the next — the same fallback shape `MicrophoneCapture` uses today.
+#if os(macOS)
 public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @unchecked Sendable {
     public typealias DeviceAttemptsBuilder = @Sendable () -> [MeetingInputDeviceAttempt]
     public typealias InputDeviceSetter = @Sendable (AudioDeviceID, AVAudioEngine) -> Bool
@@ -488,11 +497,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         ) throws -> Void
     typealias LifecycleDiagnosticsFactory =
         @Sendable (AudioEngineLifecycleSnapshot.Operation, Bool, AVAudioFrameCount) -> AudioEngineLifecycleDiagnostics
-    enum StartupReadinessResult: Equatable {
-        case ready
-        case timedOut
-        case cancelled
-    }
+    typealias StartupReadinessResult = MicrophoneStartupReadinessResult
 
     private let logger = Logger(
         subsystem: "com.macparakeet.core",
@@ -2352,6 +2357,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         }
     }
 }
+#endif
 
 public enum AVAudioEngineMicrophonePlatformError: Error, Equatable, LocalizedError {
     case deviceSetFailed(MeetingInputDeviceAttempt)
@@ -2378,3 +2384,5 @@ public enum AVAudioEngineMicrophonePlatformError: Error, Equatable, LocalizedErr
         }
     }
 }
+
+

@@ -1,7 +1,9 @@
 import AVFoundation
-import CoreAudio
 import Foundation
 import OSLog
+
+#if os(macOS)
+import CoreAudio
 
 /// Provides CoreAudio device enumeration and selection for audio input.
 ///
@@ -395,3 +397,54 @@ public enum AudioDeviceManager {
         return bufferList.contains { $0.mNumberChannels > 0 }
     }
 }
+#else
+import Foundation
+
+public enum AudioDeviceManager {
+    public struct InputDevice: Sendable, CustomStringConvertible {
+        public let id: AudioDeviceID
+        public let uid: String
+        public let name: String
+        public let transportType: UInt32
+
+        public init(
+            id: AudioDeviceID,
+            uid: String,
+            name: String,
+            transportType: UInt32
+        ) {
+            self.id = id
+            self.uid = uid
+            self.name = name
+            self.transportType = transportType
+        }
+
+        public var isBuiltIn: Bool { true }
+        public var isBluetooth: Bool { false }
+        public var transportLabel: String { "built-in" }
+        public var description: String { "\(name) (id=\(id), uid=\(uid), transport=\(transportLabel))" }
+    }
+
+    public static func inputDevices() -> [InputDevice] { [] }
+    public static func normalizedUID(_ uid: String?) -> String? {
+        let trimmed = uid?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    public static func builtInMicrophone() -> AudioDeviceID? { nil }
+    public static func defaultInputDevice() -> AudioDeviceID? { nil }
+    public static func defaultInputDeviceInfo() -> InputDevice? { nil }
+    public static func inputDeviceID(forUID uid: String) -> AudioDeviceID? { nil }
+    public static func setInputDevice(_ deviceID: AudioDeviceID, on engine: AVAudioEngine) -> Bool { true }
+    public static func currentInputDevice(of engine: AVAudioEngine) -> AudioDeviceID? { nil }
+    public static func deviceUID(_ deviceID: AudioDeviceID) -> String? { nil }
+    public static func deviceID(forUID uid: String) -> AudioDeviceID? { nil }
+    public static func deviceName(_ deviceID: AudioDeviceID) -> String? { nil }
+    public static func transportType(_ deviceID: AudioDeviceID) -> UInt32 { kAudioDeviceTransportTypeBuiltIn }
+    public static func isBluetoothTransportType(_ transport: UInt32) -> Bool { false }
+    public static func bluetoothInputState(_ deviceID: AudioDeviceID) -> Bool? { nil }
+    public static func isBluetoothInput(_ deviceID: AudioDeviceID) -> Bool { false }
+    public static func deviceInfo(_ deviceID: AudioDeviceID) -> InputDevice? { nil }
+    public static func subDeviceTransport(_ deviceID: AudioDeviceID) -> UInt32? { nil }
+}
+#endif
+

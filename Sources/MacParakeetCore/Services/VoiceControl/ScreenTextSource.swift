@@ -28,6 +28,7 @@ public actor VisionScreenTextReader: ScreenTextReading {
 
     public init() {}
 
+#if os(macOS)
     public static var hasScreenRecordingAccess: Bool { CGPreflightScreenCaptureAccess() }
     public static func requestScreenRecordingAccess() -> Bool { CGRequestScreenCaptureAccess() }
 
@@ -43,6 +44,14 @@ public actor VisionScreenTextReader: ScreenTextReading {
         lastThumbnail = thumbnail; lastWindow = window; lastBlocks = blocks
         return blocks
     }
+#else
+    public static var hasScreenRecordingAccess: Bool { false }
+    public static func requestScreenRecordingAccess() -> Bool { false }
+
+    public func read(window: CGRect) async -> [ScreenTextBlock] {
+        return []
+    }
+#endif
 
     private static func recognize(_ image: CGImage, window: CGRect) -> [ScreenTextBlock] {
         let request = VNRecognizeTextRequest()

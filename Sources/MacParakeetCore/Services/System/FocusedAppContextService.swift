@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import Foundation
 
 public protocol FocusedAppContextProviding: Sendable {
@@ -11,6 +13,7 @@ public struct FocusedAppContextService: FocusedAppContextProviding {
 
     @MainActor
     public func currentContext() -> AppPromptContext? {
+        #if os(macOS)
         guard let app = NSWorkspace.shared.frontmostApplication else {
             return nil
         }
@@ -19,5 +22,9 @@ public struct FocusedAppContextService: FocusedAppContextProviding {
             bundleIdentifier: app.bundleIdentifier,
             displayName: app.localizedName
         )
+        #else
+        return nil
+        #endif
     }
 }
+

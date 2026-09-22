@@ -89,6 +89,7 @@ let appTestDependencies: [Target.Dependency] = [
     "MacParakeet",
     "MacParakeetCore",
     "MacParakeetViewModels",
+    "MacParakeetMobileUI",
     "MacParakeetObjCShims",
 ] + streamingMarkdownTargetDependencies + (enableMLXLocalLLM ? [
     "MacParakeetLocalLLM"
@@ -114,13 +115,16 @@ let package = Package(
     platforms: [
         // Note: SPM doesn't support patch-level versions for macOS 14, but the app
         // documents macOS 14.2+ and enforces it at runtime.
-        .macOS(.v14)
+        .macOS(.v14),
+        .iOS(.v17)
     ],
     products: [
         .executable(name: "MacParakeet", targets: ["MacParakeet"]),
         .executable(name: "macparakeet-cli", targets: ["CLI"]),
+        .executable(name: "MacParakeetMobile", targets: ["MacParakeetMobile"]),
         .library(name: "MacParakeetCore", targets: ["MacParakeetCore"]),
-        .library(name: "MacParakeetViewModels", targets: ["MacParakeetViewModels"])
+        .library(name: "MacParakeetViewModels", targets: ["MacParakeetViewModels"]),
+        .library(name: "MacParakeetMobileUI", targets: ["MacParakeetMobileUI"])
     ],
     dependencies: packageDependencies,
     targets: [
@@ -175,6 +179,25 @@ let package = Package(
             name: "MacParakeetViewModels",
             dependencies: ["MacParakeetCore"],
             path: "Sources/MacParakeetViewModels"
+        ),
+        // Mobile UI library (iOS 17+)
+        .target(
+            name: "MacParakeetMobileUI",
+            dependencies: [
+                "MacParakeetCore",
+                "MacParakeetViewModels",
+            ] + streamingMarkdownTargetDependencies,
+            path: "Sources/MacParakeetMobileUI"
+        ),
+        // Mobile iOS App executable target
+        .executableTarget(
+            name: "MacParakeetMobile",
+            dependencies: [
+                "MacParakeetCore",
+                "MacParakeetViewModels",
+                "MacParakeetMobileUI"
+            ] + streamingMarkdownTargetDependencies,
+            path: "Sources/MacParakeetMobile"
         ),
         // Tests
         .testTarget(

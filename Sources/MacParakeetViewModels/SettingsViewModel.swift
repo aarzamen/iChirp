@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 import Foundation
 import MacParakeetCore
 import OSLog
@@ -951,7 +953,7 @@ public final class SettingsViewModel {
         },
         permissionPollingInterval: Duration = .seconds(2),
         calendarService: CalendarServicing = CalendarService.shared,
-        openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }
+        openURL: @escaping (URL) -> Bool = { PlatformWorkspace.open($0) }
     ) {
         AutoSaveService.migrateLegacyMeetingSettingsIfNeeded(defaults: defaults)
         self.defaults = defaults

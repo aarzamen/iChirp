@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import Foundation
 
 public protocol FrontmostApplicationProviding: Sendable {
@@ -11,6 +13,7 @@ public struct NSWorkspaceFrontmostApplicationProvider: FrontmostApplicationProvi
 
     @MainActor
     public func currentFrontmostApplication() -> MeetingStartContext.FrontmostApplication? {
+        #if os(macOS)
         guard let app = NSWorkspace.shared.frontmostApplication else {
             return nil
         }
@@ -23,5 +26,9 @@ public struct NSWorkspaceFrontmostApplicationProvider: FrontmostApplicationProvi
             return nil
         }
         return frontmost
+        #else
+        return nil
+        #endif
     }
 }
+

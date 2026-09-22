@@ -214,8 +214,12 @@ public final class TranscriptionRepository: TranscriptionRepositoryProtocol, @un
         self.notifyShareStopQueued = {
             // Synthetic in-memory libraries must not wake a running app's outbox.
             guard !isInMemory else { return }
+            #if os(macOS)
             DistributedNotificationCenter.default().postNotificationName(
                 .macParakeetShareStopQueued, object: nil, userInfo: nil, deliverImmediately: true)
+            #else
+            NotificationCenter.default.post(name: .macParakeetShareStopQueued, object: nil)
+            #endif
         }
     }
 

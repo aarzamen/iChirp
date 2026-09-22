@@ -127,7 +127,11 @@ enum DesignSystem {
         static let meetingPillBadgeBackground = Color.black.opacity(0.8)
 
         // Sidebar
+        #if os(macOS)
         static let contentBackground = Color(nsColor: .textBackgroundColor)
+        #else
+        static let contentBackground = Color(uiColor: .systemBackground)
+        #endif
     }
 
     // MARK: - Spacing
@@ -242,10 +246,18 @@ struct ShadowStyle {
 extension Color {
     /// Creates a color that adapts to light/dark mode.
     init(light: Color, dark: Color) {
+        #if os(macOS)
         self.init(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             return isDark ? NSColor(dark) : NSColor(light)
         })
+        #elseif os(iOS)
+        self.init(uiColor: UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+        })
+        #else
+        self = light
+        #endif
     }
 }
 

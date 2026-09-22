@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Foundation
 
@@ -62,3 +63,5 @@ public enum VoiceControlAppActivation {
         }
     }
 }
+#endif
+

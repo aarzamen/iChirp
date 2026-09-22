@@ -1,9 +1,22 @@
+#if os(macOS)
 import AppKit
 import Carbon
 import CoreGraphics
+#endif
 import Foundation
 import OSLog
 
+public enum StreamingCursorError: Error, Equatable {
+    case eventSourceUnavailable
+    case eventCreationFailed
+    case partialInsert
+}
+
+public protocol StreamingCursorInserting: Sendable {
+    func insert(_ text: String) async throws
+}
+
+#if os(macOS)
 /// Marks Unicode HID events posted by streaming insertion so hotkey taps ignore them.
 public enum StreamingCursorEventMarker {
     public static let userData: Int64 = 0x4D50_5343
@@ -17,15 +30,6 @@ public enum StreamingCursorEventMarker {
     }
 }
 
-public enum StreamingCursorError: Error, Equatable {
-    case eventSourceUnavailable
-    case eventCreationFailed
-    case partialInsert
-}
-
-public protocol StreamingCursorInserting: Sendable {
-    func insert(_ text: String) async throws
-}
 
 protocol StreamingCursorEventPosting: Sendable {
     func typeUnicode(_ text: String) throws
@@ -353,3 +357,11 @@ public enum StreamingCursorInputSource {
         return CFBooleanGetValue(flag)
     }
 }
+#else
+public final class StreamingCursorInserter: StreamingCursorInserting {
+    public init() {}
+    public func insert(_ text: String) async throws {}
+    public static func allowsStreaming() -> Bool { false }
+}
+#endif
+

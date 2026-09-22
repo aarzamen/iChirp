@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 import AVFoundation
 import Foundation
 import MacParakeetCore
@@ -343,11 +345,13 @@ public final class DictationHistoryViewModel {
         guard let audioPath = dictation.audioPath,
               FileManager.default.fileExists(atPath: audioPath) else { return }
         let sourceURL = URL(fileURLWithPath: audioPath)
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.nameFieldStringValue = sourceURL.lastPathComponent
         panel.allowedContentTypes = [.audio]
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         try? FileManager.default.copyItem(at: sourceURL, to: destination)
+        #endif
     }
 
     public func copyToClipboard(_ dictation: Dictation) {
@@ -355,8 +359,7 @@ public final class DictationHistoryViewModel {
         // — copying a row showing raw text should copy raw text, not the
         // suppressed cleaned version.
         let text = dictation.displayText
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        PlatformPasteboard.copy(text)
         Telemetry.send(.copyToClipboard(source: .history))
 
         copiedResetTask?.cancel()

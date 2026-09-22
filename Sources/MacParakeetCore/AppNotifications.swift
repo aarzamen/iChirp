@@ -51,4 +51,8 @@ public extension Notification.Name {
     static let macParakeetDictationPreviewTextSizeDidChange = Notification.Name("macparakeet.dictationPreviewTextSizeDidChange")
     /// Posted after a cancelled dictation is transcribed and saved to History.
     static let macParakeetDictationHistoryDidChange = Notification.Name("macparakeet.dictationHistoryDidChange")
+    /// Posted by App Intents or Action Button to trigger mobile dictation.
+    static let macParakeetStartMobileDictation = Notification.Name("macparakeet.startMobileDictation")
+    /// Posted by App Intents or Action Button to trigger mobile meeting recording.
+    static let macParakeetStartMobileMeeting = Notification.Name("macparakeet.startMobileMeeting")
 }

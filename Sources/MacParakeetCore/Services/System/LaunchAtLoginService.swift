@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import ServiceManagement
+#endif
 
 public enum LaunchAtLoginStatus: Equatable, Sendable {
     case enabled
@@ -61,6 +63,7 @@ public protocol LaunchAtLoginControlling {
     func setEnabled(_ enabled: Bool) throws -> LaunchAtLoginStatus
 }
 
+#if os(macOS)
 public final class LaunchAtLoginService: LaunchAtLoginControlling {
     private let bundle: Bundle
     private let serviceProvider: () -> SMAppService
@@ -145,3 +148,15 @@ public final class LaunchAtLoginService: LaunchAtLoginControlling {
         }
     }
 }
+#else
+public final class LaunchAtLoginService: LaunchAtLoginControlling {
+    public init() {}
+    public func currentStatus() -> LaunchAtLoginStatus {
+        .unsupported
+    }
+    public func setEnabled(_ enabled: Bool) throws -> LaunchAtLoginStatus {
+        throw LaunchAtLoginError.unsupportedEnvironment
+    }
+}
+#endif
+

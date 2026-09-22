@@ -1,10 +1,74 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Carbon
+#endif
 import Foundation
 import OSLog
 
 // MARK: - Result Types
+
+#if os(macOS)
+/// `@unchecked Sendable` wrapper around an `AXUIElement` reference.
+public struct AXFocusedElement: @unchecked Sendable {
+    public let element: AXUIElement
+
+    public init(_ element: AXUIElement) {
+        self.element = element
+    }
+}
+
+/// Snapshot of the pasteboard items captured before a clipboard hijack.
+public struct PasteboardSnapshot: @unchecked Sendable {
+    public let items: [NSPasteboardItem]?
+    public let originalChangeCount: Int
+    public let temporaryChangeCount: Int?
+
+    public init(
+        items: [NSPasteboardItem]?,
+        originalChangeCount: Int,
+        temporaryChangeCount: Int? = nil
+    ) {
+        self.items = items
+        self.originalChangeCount = originalChangeCount
+        self.temporaryChangeCount = temporaryChangeCount
+    }
+
+    /// Empty placeholder — useful for tests and the `.empty` no-op path.
+    public static let none = PasteboardSnapshot(items: nil, originalChangeCount: 0)
+
+    public func withTemporaryChangeCount(_ changeCount: Int) -> PasteboardSnapshot {
+        PasteboardSnapshot(
+            items: items,
+            originalChangeCount: originalChangeCount,
+            temporaryChangeCount: changeCount
+        )
+    }
+}
+#else
+public struct AXFocusedElement: @unchecked Sendable {
+    public init() {}
+}
+
+public struct PasteboardSnapshot: @unchecked Sendable {
+    public static let none = PasteboardSnapshot()
+    public init() {}
+    public func withTemporaryChangeCount(_ changeCount: Int) -> PasteboardSnapshot { self }
+}
+#endif
+
+/// The app that owned the selection when the Transform was triggered.
+public struct SelectionCaptureTarget: Sendable, Equatable {
+    public let processIdentifier: pid_t
+    public let bundleIdentifier: String
+    public let localizedName: String?
+
+    public init(processIdentifier: pid_t, bundleIdentifier: String, localizedName: String? = nil) {
+        self.processIdentifier = processIdentifier
+        self.bundleIdentifier = bundleIdentifier
+        self.localizedName = localizedName
+    }
+}
 
 /// Source of a successful selection read. Used by `TransformExecutor` to pick
 /// the right replacement path: an `.ax` capture can attempt an AX-write first,
@@ -73,63 +137,8 @@ public enum SelectionCaptureError: Error, LocalizedError, Sendable {
     }
 }
 
-/// `@unchecked Sendable` wrapper around an `AXUIElement` reference. `AXUIElement`
-/// is a CFType that the AX framework treats as thread-safe for the read/write
-/// calls the spike uses (`AXUIElementCopyAttributeValue` /
-/// `AXUIElementSetAttributeValue`). Wrapping it lets the result type cross
-/// actor boundaries without further annotation.
-public struct AXFocusedElement: @unchecked Sendable {
-    public let element: AXUIElement
 
-    public init(_ element: AXUIElement) {
-        self.element = element
-    }
-}
-
-/// The app that owned the selection when the Transform was triggered.
-public struct SelectionCaptureTarget: Sendable, Equatable {
-    public let processIdentifier: pid_t
-    public let bundleIdentifier: String
-    public let localizedName: String?
-
-    public init(processIdentifier: pid_t, bundleIdentifier: String, localizedName: String? = nil) {
-        self.processIdentifier = processIdentifier
-        self.bundleIdentifier = bundleIdentifier
-        self.localizedName = localizedName
-    }
-}
-
-/// Snapshot of the pasteboard items captured before a clipboard hijack. Held
-/// opaquely so callers don't have to know about AppKit types. `@unchecked
-/// Sendable` because `NSPasteboardItem` is not Sendable but our usage is
-/// effectively immutable after capture.
-public struct PasteboardSnapshot: @unchecked Sendable {
-    public let items: [NSPasteboardItem]?
-    public let originalChangeCount: Int
-    public let temporaryChangeCount: Int?
-
-    public init(
-        items: [NSPasteboardItem]?,
-        originalChangeCount: Int,
-        temporaryChangeCount: Int? = nil
-    ) {
-        self.items = items
-        self.originalChangeCount = originalChangeCount
-        self.temporaryChangeCount = temporaryChangeCount
-    }
-
-    /// Empty placeholder — useful for tests and the `.empty` no-op path.
-    public static let none = PasteboardSnapshot(items: nil, originalChangeCount: 0)
-
-    public func withTemporaryChangeCount(_ changeCount: Int) -> PasteboardSnapshot {
-        PasteboardSnapshot(
-            items: items,
-            originalChangeCount: originalChangeCount,
-            temporaryChangeCount: changeCount
-        )
-    }
-}
-
+#if os(macOS)
 // MARK: - Backend Protocol (for testability)
 
 /// Minimal protocol the capture service depends on. Production wires up a
@@ -440,3 +449,13 @@ struct SystemSelectionCaptureBackend: SelectionCaptureBackend, @unchecked Sendab
         pasteboard.writeObjects(items)
     }
 }
+#else
+public actor SelectionCaptureService {
+    public init() {}
+    public func captureSelection() async -> SelectionCaptureResult {
+        .empty
+    }
+    func restoreClipboardCaptureIfCurrent(_ result: SelectionCaptureResult) async {}
+}
+#endif
+

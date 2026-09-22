@@ -1,5 +1,7 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
+#endif
 import Foundation
 
 public enum NativeVoiceControlError: Error, LocalizedError, Sendable, Equatable {
@@ -18,6 +20,7 @@ public enum NativeVoiceControlError: Error, LocalizedError, Sendable, Equatable 
     }
 }
 
+#if os(macOS)
 /// Actual AX handles never leave this actor. An ID belongs to exactly one snapshot.
 /// Synchronous AX IPC uses a short messaging timeout and never runs on MainActor.
 public actor NativeVoiceControlAdapter: VoiceControlAdapter {
@@ -1023,3 +1026,19 @@ struct LiveAXTreeSource: AXTreeSource {
             text: role == kAXStaticTextRole ? (at(8) as? String) : nil)
     }
 }
+#else
+public actor NativeVoiceControlAdapter: VoiceControlAdapter {
+    public init() {}
+    public func observe() async throws -> VoiceControlSnapshot {
+        throw NativeVoiceControlError.unsupported
+    }
+    public func execute(
+        action: VoiceControlAction,
+        snapshot: VoiceControlSnapshot,
+        authority: ActionAuthority
+    ) async throws -> VoiceControlReceipt {
+        throw NativeVoiceControlError.unsupported
+    }
+}
+#endif
+

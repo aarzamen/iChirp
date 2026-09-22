@@ -1,3 +1,4 @@
+#if os(macOS)
 import CoreMediaIO
 import Foundation
 import OSLog
@@ -223,3 +224,18 @@ public final class CameraActivityCollector: @unchecked Sendable {
         )
     }
 }
+#else
+import Foundation
+
+public final class CameraActivityCollector: @unchecked Sendable {
+    public typealias StateHandler = @Sendable (Bool) -> Void
+
+    public init() {}
+    public func start(handler: @escaping StateHandler) {}
+    public func stop() {}
+    public func cameraRunning() -> Bool { false }
+    public static func currentCameraRunning() -> Bool { false }
+    public static func cameraRunning(deviceStates: [Bool]) -> Bool { false }
+}
+#endif
+

@@ -153,6 +153,7 @@ public final class LocalCLIConfigStore: @unchecked Sendable {
     }
 }
 
+#if os(macOS)
 // MARK: - Executor
 
 public final class LocalCLIExecutor: Sendable {
@@ -1188,3 +1189,22 @@ public final class LocalCLIExecutor: Sendable {
         return components.isEmpty ? nil : components.joined(separator: ":")
     }
 }
+#else
+public final class LocalCLIExecutor: Sendable {
+    public init() {}
+
+    public func execute(
+        systemPrompt: String,
+        userPrompt: String,
+        config: LocalCLIConfig
+    ) async throws -> String {
+        throw LocalCLIError.executionFailed("Local CLI execution is not supported on iOS.")
+    }
+
+    public func testConnection(config: LocalCLIConfig) async throws {
+        throw LocalCLIError.executionFailed("Local CLI execution is not supported on iOS.")
+    }
+}
+#endif
+
+

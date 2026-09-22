@@ -22,8 +22,13 @@ public actor AudioProcessor: AudioProcessorProtocol {
     /// Allocates an unstarted shared stream so the recorder API stays valid;
     /// no Core Audio engine starts until `startCapture()` runs.
     public init() {
+        #if os(iOS)
+        let platform = IOSMicrophoneEnginePlatform()
+        #else
+        let platform = AVAudioEngineMicrophonePlatform()
+        #endif
         let stream = SharedMicrophoneStream(
-            platform: AVAudioEngineMicrophonePlatform()
+            platform: platform
         )
         self.recorder = AudioRecorder(sharedStream: stream)
         self.converter = AudioFileConverter()
