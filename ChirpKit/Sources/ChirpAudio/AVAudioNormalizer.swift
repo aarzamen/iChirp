@@ -1,6 +1,8 @@
 // Replaces upstream Audio/AudioFileConverter.swift (FFmpeg subprocess) with AVAssetReader.
 // iChirp has no bundled FFmpeg binary on iOS, so normalization goes through AVFoundation's
 // native decode path instead of shelling out to a subprocess.
+// Audio-track selection (M1.5): semantics from upstream Audio/AudioFileConverter.swift (`-map 0:a:N`) and
+// Audio/FFmpegAudioTrackProbe.swift @ bbae9e0e, re-implemented over AVAsset's audio-track list, not a line port.
 
 import AVFoundation
 import ChirpCore
@@ -27,7 +29,7 @@ public enum AudioNormalizationError: Error, Equatable {
 ///
 /// The decode loop blocks its thread until the file is done, so it runs on `decodeQueue`, a dedicated
 /// dispatch queue, never on Swift's small cooperative thread pool or on the caller's actor.
-public struct AVAudioNormalizer: AudioNormalizing {
+public struct AVAudioNormalizer: AudioNormalizing, AudioTrackProbing {
     private static let targetSampleRate: Double = 16_000
     private static let targetChannelCount: AVAudioChannelCount = 1
 
@@ -41,6 +43,14 @@ public struct AVAudioNormalizer: AudioNormalizing {
     /// `@concurrent`: always runs off the caller's actor, whatever the module's default isolation becomes.
     @concurrent
     public func normalize(sourceURL: URL, outputURL: URL) async throws -> NormalizedAudio {
+        try await normalize(sourceURL: sourceURL, outputURL: outputURL, audioTrackOrdinal: nil)
+    }
+
+    /// Decodes the audio track with this zero-based ordinal among the file's audio tracks (nil: the first one, as
+    /// `normalize(sourceURL:outputURL:)`). An ordinal the file lacks throws `AudioTrackSelectionError.trackMissing`;
+    /// it never falls back to another track.
+    @concurrent
+    public func normalize(sourceURL: URL, outputURL: URL, audioTrackOrdinal: Int?) async throws -> NormalizedAudio {
         try Task.checkCancellation()
         let asset = AVURLAsset(url: sourceURL)
 
@@ -50,12 +60,16 @@ public struct AVAudioNormalizer: AudioNormalizing {
         } catch {
             throw AudioNormalizationError.readerFailed(error.localizedDescription)
         }
-        guard let firstTrack = audioTracks.first else {
+        guard !audioTracks.isEmpty else {
             throw AudioNormalizationError.noAudioTrack
+        }
+        let ordinal = audioTrackOrdinal ?? 0
+        guard audioTracks.indices.contains(ordinal) else {
+            throw AudioTrackSelectionError.trackMissing(ordinal: ordinal, trackCount: audioTracks.count)
         }
 
         // A hand-off, not sharing: after this line the track is only touched on the decode queue.
-        nonisolated(unsafe) let track = firstTrack
+        nonisolated(unsafe) let track = audioTracks[ordinal]
         return try await Self.runOnDecodeQueue { isCancelled in
             try Self.decode(asset: asset, track: track, outputURL: outputURL, isCancelled: isCancelled)
         }
@@ -169,6 +183,36 @@ public struct AVAudioNormalizer: AudioNormalizing {
             }
         } onCancel: {
             cancelled.set()
+        }
+    }
+
+    /// The file's audio tracks in ordinal order (the order `normalize` indexes), with the language and enabled flag
+    /// the container records; empty when it has none. Reads metadata only, never decodes.
+    @concurrent
+    public func audioTracks(in sourceURL: URL) async throws -> [AudioTrackDescriptor] {
+        try Task.checkCancellation()
+        let asset = AVURLAsset(url: sourceURL)
+        let tracks: [AVAssetTrack]
+        do {
+            tracks = try await asset.loadTracks(withMediaType: .audio)
+        } catch {
+            throw AudioNormalizationError.readerFailed(error.localizedDescription)
+        }
+        var described: [(trackID: Int, language: String?, isEnabled: Bool)] = []
+        for track in tracks {
+            let language = try? await track.load(.languageCode)
+            let isEnabled = (try? await track.load(.isEnabled)) ?? true
+            described.append((Int(track.trackID), language, isEnabled))
+        }
+        // "Default" only means something when the file also has tracks it does not enable.
+        let marksADefault = described.contains { $0.isEnabled } && described.contains { !$0.isEnabled }
+        return described.enumerated().map { ordinal, track in
+            AudioTrackDescriptor(
+                ordinal: ordinal,
+                trackID: track.trackID,
+                languageCode: track.language,
+                isDefault: marksADefault && track.isEnabled
+            )
         }
     }
 

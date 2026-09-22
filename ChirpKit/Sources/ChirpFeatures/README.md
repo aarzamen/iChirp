@@ -14,8 +14,11 @@ pipeline's `Task`s and publishes its progress to the UI.
 ## What's here
 
 - `FileTranscriptionPipeline.swift`: the `FileTranscriptionPipeline` actor plus `PipelineStage` and `JobProgress`.
-  - `importFile(from:sourceType:)` copies the file (security-scoped, never moved) into `media/<id>/source.<ext>` on
-    the pipeline's file queue, then inserts a `.processing` row.
+  - `importFile(from:sourceType:audioTrackOrdinal:)` copies the file (security-scoped, never moved) into
+    `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the person's
+    audio-track choice (nil: automatic). `process` decodes that track on every run, Retry included.
+  - `audioTracks(in:)` lists a file's audio tracks (security-scoped, through the injected `trackProbe`; empty
+    without one) so a multi-track file can ask before import; `canInspectAudioTracks` says whether a probe exists.
   - `process(id:)` runs: privacy routing check → model check → audio-preparation permit (at most two jobs) →
     normalize to
     `media/<id>/normalized-16k.wav` → one scheduler
@@ -31,7 +34,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   `onImportSettled` is called once per incoming file after its import attempt ends (imported or not); the app uses
   it to delete iOS's temporary Inbox copy. Given a `ContinuedProcessingScheduling` at init, each `start(filesAt:)`
   and each `retry` (a person's action) also submits one background request; its expiration cancels that action's
-  jobs.
+  jobs. With a track probe, `start(filesAt:)` first lists every file's audio tracks; a batch with a multi-track file
+  waits in `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
+  (the choice for multi-track files, automatic for the rest) or `cancelAudioTrackSelection(_:)` drops it (its files
+  count as settled). Later batches queue behind it. Contract: `spec/contracts/file-transcription-audio-tracks-v1.md`.
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
   title, completion) are the two protocols the app implements over `BackgroundTasks`
@@ -62,7 +68,8 @@ pipeline's `Task`s and publishes its progress to the UI.
 ```swift
 let jobs = TranscriptionJobCenter(continuedProcessing: SystemContinuedProcessingScheduler())  // nil in tests
 let pipeline = FileTranscriptionPipeline(
-    paths: paths, store: store, normalizer: normalizer, speech: engines.speech, diarizer: engines.diarizer,
+    paths: paths, store: store, normalizer: normalizer, trackProbe: normalizer,   // AVAudioNormalizer is both
+    speech: engines.speech, diarizer: engines.diarizer,
     scheduler: scheduler, settings: settings, onProgress: jobs.progressHandler)
 _ = try await store.markStaleProcessingAsInterrupted()     // at launch, then:
 await pipeline.sweepOrphanedTemporaryAudio()
@@ -131,6 +138,10 @@ LibraryViewModel(store: store, paths: paths)               // paths: delete remo
   their real progress to the system and cancels them on expiration. A refused request (the Simulator, or the system
   under load) changes nothing about the job. Every ending stays one of `completed`, `failed`, `cancelled` or, after a
   kill, `interrupted` (spec/05 "M1.5: continued processing").
+- **A track choice is made before anything exists** (M1.5). Two or more audio tracks: no row, no copy, no work and
+  no background request until the person picks; the request is submitted by that tap. A file whose tracks cannot be
+  read never asks: it imports as in M1 and its row reports the real error. A stored ordinal the file lacks fails the
+  row (`AudioTrackSelectionError.trackMissing`); nothing falls back to another track.
 - **Settings are read once per job.** A clean-up or speaker-label change applies to the next job. A
   `parakeetVariant` change is only saved here; the app must rebuild its engines (`FluidAudioEngines.makeDefault`)
   and the pipeline for it to take effect.

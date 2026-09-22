@@ -1,5 +1,6 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Database/DatabaseManager.swift @ bbae9e0e
-// Changes: trimmed to the single "v1-transcriptions" migration iChirp M1 needs; kept the
+// Changes: trimmed to the "v1-transcriptions" migration iChirp M1 needs plus M1.5's "v2-audio-track-ordinal" (upstream
+// "v0.29-transcription-audio-track": one nullable integer column); kept the
 // WAL-via-DatabasePool / foreign-keys-on / 5s-busy-timeout configuration and the inline
 // DatabaseMigrator pattern (migrations are never edited after install; add a new one instead).
 
@@ -77,6 +78,14 @@ public final class DatabaseManager: Sendable {
                 on: "transcriptions",
                 columns: ["createdAt"]
             )
+        }
+
+        // M1.5 audio-track selection (spec/contracts/file-transcription-audio-tracks-v1.md): additive and nullable.
+        // NULL is automatic selection, which is what every earlier row had.
+        migrator.registerMigration("v2-audio-track-ordinal") { db in
+            try db.alter(table: "transcriptions") { t in
+                t.add(column: "audioTrackOrdinal", .integer)
+            }
         }
 
         return migrator

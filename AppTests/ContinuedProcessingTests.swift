@@ -1,3 +1,4 @@
+import ChirpCore
 import ChirpFeatures
 import Foundation
 import XCTest
@@ -60,5 +61,18 @@ final class ContinuedProcessingTests: XCTestCase {
         #else
         throw XCTSkip("Simulator-only check")
         #endif
+    }
+
+    // MARK: - Audio-track picker copy (M1.5 Step 4)
+
+    func testPickerMessageNamesTheFileAndTheBatchRule() {
+        let tracks = [AudioTrackDescriptor(ordinal: 0), AudioTrackDescriptor(ordinal: 1)]
+        let single = TranscriptionJobCenter.AudioTrackSelectionRequest(
+            id: UUID(), fileName: "Talk.mov", fileCount: 1, tracks: tracks)
+        XCTAssertEqual(
+            AudioTrackPickerSheet.message(for: single), "“Talk.mov” has 2 audio tracks. Parakeet transcribes one.")
+        let batch = TranscriptionJobCenter.AudioTrackSelectionRequest(
+            id: UUID(), fileName: "Talk.mov", fileCount: 3, tracks: tracks)
+        XCTAssertTrue(AudioTrackPickerSheet.message(for: batch).contains("every file in this import"))
     }
 }

@@ -13,6 +13,12 @@
   immediately with status `processing`. The original file is never modified.
 - Supported: anything AVFoundation can read (m4a, mp3, wav, aiff, caf, mp4, mov, …). A file with no audio track fails
   with a clear message.
+- **M1.5:** other apps can hand files to Parakeet (Share sheet → Parakeet, Files → Open in); they import the same
+  way ([`11-ingest.md`](11-ingest.md#share-sheet-m15)).
+- **M1.5: files with several audio tracks.** Before anything is imported, a file with two or more audio tracks asks
+  "Choose an audio track" (Track 1 — English (Default), Track 2 — Spanish, …). One choice covers every multi-track
+  file in that import; single-track files never ask. Cancel imports nothing. Retry reuses the choice. Contract:
+  [`contracts/file-transcription-audio-tracks-v1.md`](contracts/file-transcription-audio-tracks-v1.md).
 
 ### Transcribe
 

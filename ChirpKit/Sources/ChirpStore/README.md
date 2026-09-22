@@ -16,8 +16,9 @@ conformer in this package.
 
 - `DatabaseManager.swift` — connection setup (`init(url:)` for a file-backed
   `DatabasePool`, `inMemory()` for tests) and the migrator. The single source
-  of truth for the `transcriptions` schema; currently one migration,
-  `v1-transcriptions`.
+  of truth for the `transcriptions` schema; migrations `v1-transcriptions` and
+  `v2-audio-track-ordinal` (M1.5: one nullable integer column, `audioTrackOrdinal`;
+  NULL is automatic track selection, so every earlier row reads unchanged).
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
@@ -37,6 +38,12 @@ conformer in this package.
 `migrator.registerMigration("vX-name") { db in ... }` block registered once,
 in order, inside `DatabaseManager.migrator`. To change the schema, register a
 *new* migration — don't rewrite `v1-transcriptions`.
+
+**Older builds and parallel lanes share databases.** GRDB ignores applied
+migrations it does not know, so an M1 build opens a database migrated by
+M1.5, and its record simply leaves the extra column alone. Lanes that add
+migrations in parallel give them distinct names (`v2-<slug>`); both run,
+in registration order, whichever landed first.
 
 **Never compare UUIDs with raw SQL strings.** GRDB's `UUID` encoding is not
 guaranteed to equal `uuid.uuidString`; a raw `WHERE id = '<uuidString>'` can

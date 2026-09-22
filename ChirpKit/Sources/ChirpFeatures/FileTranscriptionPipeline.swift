@@ -87,6 +87,8 @@ public actor FileTranscriptionPipeline {
     private let paths: AppPaths
     private let store: any TranscriptionStoring
     private let normalizer: any AudioNormalizing
+    /// Lists a file's audio tracks before import (M1.5 track picker); nil: every file is automatic selection.
+    private let trackProbe: (any AudioTrackProbing)?
     private let speech: any SpeechEngine
     private let diarizer: (any SpeakerDiarizing)?
     private let scheduler: SpeechJobScheduler
@@ -109,10 +111,13 @@ public actor FileTranscriptionPipeline {
     ///   - customWords: read once per job, only when the clean-up mode is `.clean`.
     ///   - onProgress: called from this actor and from engine callbacks, on no particular thread. UI owners hop
     ///     to their actor (see `TranscriptionJobCenter.progressHandler`).
+    ///   - trackProbe: lists a file's audio tracks so a multi-track file can ask for a choice before import (M1.5).
+    ///     Nil (the default) imports every file with automatic selection.
     public init(
         paths: AppPaths,
         store: any TranscriptionStoring,
         normalizer: any AudioNormalizing,
+        trackProbe: (any AudioTrackProbing)? = nil,
         speech: any SpeechEngine,
         diarizer: (any SpeakerDiarizing)?,
         scheduler: SpeechJobScheduler,
@@ -124,6 +129,7 @@ public actor FileTranscriptionPipeline {
         self.paths = paths
         self.store = store
         self.normalizer = normalizer
+        self.trackProbe = trackProbe
         self.speech = speech
         self.diarizer = diarizer
         self.scheduler = scheduler
@@ -133,13 +139,36 @@ public actor FileTranscriptionPipeline {
         self.onProgress = onProgress
     }
 
+    // MARK: - Audio tracks (M1.5)
+
+    /// Whether `audioTracks(in:)` can list tracks (a probe was injected). Callers skip the pre-import check otherwise.
+    public nonisolated var canInspectAudioTracks: Bool { trackProbe != nil }
+
+    /// The file's audio tracks, read (security-scoped) before anything is imported, so a file with two or more can
+    /// ask the person which one to transcribe before any row or work exists. Empty without a probe. Throws when the
+    /// file cannot be read; callers then import it as usual and the job reports the real error on its row.
+    public func audioTracks(in url: URL) async throws -> [AudioTrackDescriptor] {
+        guard let trackProbe else { return [] }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+        }
+        return try await trackProbe.audioTracks(in: url)
+    }
+
     // MARK: - Import
 
     /// Copies (security-scoped) into media/<id>/source.<ext>, inserts a processing row, returns its id. Does not transcribe.
     ///
     /// The user's file is copied, never moved. On failure nothing is left behind: the new media folder is removed
     /// and no row exists. A duration that cannot be read is not an error (`durationMs` stays nil until `process`).
-    public func importFile(from url: URL, sourceType: Transcription.SourceType = .file) async throws -> UUID {
+    /// `audioTrackOrdinal` records the person's track choice for a multi-track file (nil: automatic); every run of
+    /// the row, Retry included, decodes that track.
+    public func importFile(
+        from url: URL,
+        sourceType: Transcription.SourceType = .file,
+        audioTrackOrdinal: Int? = nil
+    ) async throws -> UUID {
         let id = UUID()
         let directory = paths.mediaDirectory(for: id)
         let fileManager = FileManager.default
@@ -170,6 +199,7 @@ public actor FileTranscriptionPipeline {
                 sourceType: sourceType,
                 fileName: url.lastPathComponent,
                 mediaRelativePath: relativePath,
+                audioTrackOrdinal: audioTrackOrdinal,
                 fileSizeBytes: size,
                 durationMs: durationMs,
                 status: .processing
@@ -331,7 +361,8 @@ public actor FileTranscriptionPipeline {
         try Task.checkCancellation()
         report(id, .normalizing, 0.05)
         try? FileManager.default.removeItem(at: normalizedURL)
-        let normalized = try await normalizer.normalize(sourceURL: sourceURL, outputURL: normalizedURL)
+        let normalized = try await normalizer.normalize(
+            sourceURL: sourceURL, outputURL: normalizedURL, audioTrackOrdinal: row.audioTrackOrdinal)
         report(id, .normalizing, 0.15)
         try Task.checkCancellation()
 

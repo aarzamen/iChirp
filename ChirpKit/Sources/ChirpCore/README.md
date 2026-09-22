@@ -27,7 +27,12 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Engines/StructureModel.swift`: the M6 extraction and embedding contract. No conformers yet.
 - `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
   each privacy class.
-- `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`.
+- `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`, including the M1.5
+  `normalize(sourceURL:outputURL:audioTrackOrdinal:)` requirement (a default implementation keeps other
+  normalizers compiling).
+- `Pipeline/AudioTracks.swift`: `AudioTrackDescriptor` (zero-based ordinal, one-based `displayName`),
+  `AudioTrackProbing` and `AudioTrackSelectionError` (M1.5; contract
+  `spec/contracts/file-transcription-audio-tracks-v1.md`).
 - `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore.
 - `Scheduling/SpeechJobScheduler.swift`: the actor that serializes speech work into an interactive slot
   (dictation) and a prioritized background slot, with live-chunk backpressure.

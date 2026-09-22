@@ -12,11 +12,38 @@ import Observation
 /// leaves the app, with the system's progress UI. The jobs start at once either way; the request is only a keep-alive
 /// and a progress surface (`BackgroundContinuation`). When the system expires it (or the person taps Cancel in the
 /// Live Activity), that action's jobs are cancelled: their rows end `cancelled`, never lost.
+///
+/// **Audio tracks (M1.5).** When the pipeline can list tracks, `start(filesAt:)` first checks every file. If any has
+/// two or more audio tracks, nothing is imported yet: `pendingAudioTrackSelection` asks the person to choose, and
+/// `selectAudioTrack(_:for:)` starts the batch with that choice for its multi-track files (single-track files stay
+/// automatic), while `cancelAudioTrackSelection(_:)` drops the batch. Contract:
+/// `spec/contracts/file-transcription-audio-tracks-v1.md`.
 @MainActor @Observable public final class TranscriptionJobCenter {
+    /// A choice the person must make before a batch with a multi-track file is imported.
+    public struct AudioTrackSelectionRequest: Identifiable, Equatable, Sendable {
+        public let id: UUID
+        /// The first multi-track file's name; its tracks are the ones offered.
+        public let fileName: String
+        /// How many files the batch holds; the choice applies to each of its multi-track files.
+        public let fileCount: Int
+        public let tracks: [AudioTrackDescriptor]
+
+        public var isBatch: Bool { fileCount > 1 }
+
+        public init(id: UUID, fileName: String, fileCount: Int, tracks: [AudioTrackDescriptor]) {
+            self.id = id
+            self.fileName = fileName
+            self.fileCount = fileCount
+            self.tracks = tracks
+        }
+    }
+
     /// Progress of every running job, by transcription id. A job's entry disappears when it ends.
     public private(set) var progress: [UUID: JobProgress] = [:]
     /// The last import that failed before a row existed (unreadable or missing file), for an alert.
     public private(set) var lastImportError: String?
+    /// The track choice the app must ask for now, or nil. Batches that arrive meanwhile wait their turn.
+    public private(set) var pendingAudioTrackSelection: AudioTrackSelectionRequest?
 
     /// Running jobs by an internal token (the transcription id is unknown until the import step returns).
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
@@ -24,6 +51,16 @@ import Observation
     /// The continued-processing bridge of each running job's user action, by job token.
     @ObservationIgnored private var continuationByToken: [UUID: BackgroundContinuation] = [:]
     @ObservationIgnored private let continuedProcessing: (any ContinuedProcessingScheduling)?
+    /// Batches waiting for a track choice, oldest first; the first is `pendingAudioTrackSelection`.
+    @ObservationIgnored private var pendingBatches: [PendingBatch] = []
+
+    private struct PendingBatch {
+        let request: AudioTrackSelectionRequest
+        let urls: [URL]
+        /// Indices into `urls` of the files with two or more audio tracks.
+        let multiTrack: Set<Int>
+        let pipeline: FileTranscriptionPipeline
+    }
     /// Ids whose job ended. A progress hop that arrives after `finish` must not bring the entry back.
     @ObservationIgnored private var finished: Set<UUID> = []
     @ObservationIgnored private let logger = Log.logger("jobs")
@@ -79,17 +116,101 @@ import Observation
     /// Starts one tracked job per file, in order, for files the person handed over in one action (a multi-select
     /// pick, or a file shared from another app). Each file is its own row and its own job; the action gets one
     /// continued-processing request titled after the file (or "N files").
+    ///
+    /// When the pipeline can list audio tracks, every file is checked first; a batch with a multi-track file waits
+    /// for `selectAudioTrack(_:for:)` before anything is imported. A file whose tracks cannot be read is imported as
+    /// usual, and its job reports the real error on its row.
     public func start(filesAt urls: [URL], pipeline: FileTranscriptionPipeline) {
         guard !urls.isEmpty else { return }
+        guard pipeline.canInspectAudioTracks else {
+            launch(urls, audioTrackOrdinal: nil, multiTrack: [], pipeline: pipeline)
+            return
+        }
+        let token = UUID()
+        tasks[token] = Task { @MainActor [weak self] in
+            var multiTrack: Set<Int> = []
+            var offered: (url: URL, tracks: [AudioTrackDescriptor])?
+            for (index, url) in urls.enumerated() {
+                let tracks = (try? await pipeline.audioTracks(in: url)) ?? []
+                guard tracks.count > 1 else { continue }
+                multiTrack.insert(index)
+                if offered == nil { offered = (url, tracks) }
+            }
+            guard let self else { return }
+            self.tasks[token] = nil
+            if let offered {
+                let request = AudioTrackSelectionRequest(
+                    id: UUID(), fileName: offered.url.lastPathComponent, fileCount: urls.count, tracks: offered.tracks)
+                self.enqueue(PendingBatch(request: request, urls: urls, multiTrack: multiTrack, pipeline: pipeline))
+            } else {
+                self.launch(urls, audioTrackOrdinal: nil, multiTrack: [], pipeline: pipeline)
+            }
+        }
+    }
+
+    /// The person chose `ordinal` for the pending request `requestID`: starts that batch, with the choice for its
+    /// multi-track files and automatic selection for the rest. A choice for a request no longer shown, or a track
+    /// it does not offer, does nothing.
+    public func selectAudioTrack(_ ordinal: Int, for requestID: UUID) {
+        guard let batch = pendingBatches.first, batch.request.id == requestID,
+            batch.request.tracks.contains(where: { $0.ordinal == ordinal })
+        else {
+            return
+        }
+        dequeue()
+        logger.notice(
+            "audio_track_chosen ordinal=\(ordinal, privacy: .public) files=\(batch.urls.count, privacy: .public) multi_track=\(batch.multiTrack.count, privacy: .public)"
+        )
+        launch(batch.urls, audioTrackOrdinal: ordinal, multiTrack: batch.multiTrack, pipeline: batch.pipeline)
+    }
+
+    /// The person dismissed the track choice for `requestID`: the whole batch is dropped (nothing was imported) and
+    /// each file counts as settled, so the app can delete iOS's Inbox copies.
+    public func cancelAudioTrackSelection(_ requestID: UUID) {
+        guard let batch = pendingBatches.first, batch.request.id == requestID else { return }
+        dequeue()
+        logger.notice("audio_track_choice_cancelled files=\(batch.urls.count, privacy: .public)")
+        for url in batch.urls {
+            onImportSettled?(url)
+        }
+    }
+
+    private func enqueue(_ batch: PendingBatch) {
+        pendingBatches.append(batch)
+        if pendingAudioTrackSelection == nil {
+            pendingAudioTrackSelection = batch.request
+        }
+    }
+
+    private func dequeue() {
+        pendingBatches.removeFirst()
+        pendingAudioTrackSelection = pendingBatches.first?.request
+    }
+
+    /// Starts the batch's jobs under one continued-processing request. `audioTrackOrdinal` applies only to the files
+    /// at `multiTrack`; the others are automatic.
+    private func launch(
+        _ urls: [URL],
+        audioTrackOrdinal: Int?,
+        multiTrack: Set<Int>,
+        pipeline: FileTranscriptionPipeline
+    ) {
         let tokens = urls.map { _ in UUID() }
         let continuation = beginContinuation(title: Self.title(for: urls), tokens: tokens)
-        for (url, token) in zip(urls, tokens) {
-            startJob(fileAt: url, token: token, continuation: continuation, pipeline: pipeline)
+        for (index, (url, token)) in zip(urls, tokens).enumerated() {
+            startJob(
+                fileAt: url,
+                audioTrackOrdinal: multiTrack.contains(index) ? audioTrackOrdinal : nil,
+                token: token,
+                continuation: continuation,
+                pipeline: pipeline
+            )
         }
     }
 
     private func startJob(
         fileAt url: URL,
+        audioTrackOrdinal: Int?,
         token: UUID,
         continuation: BackgroundContinuation?,
         pipeline: FileTranscriptionPipeline
@@ -98,7 +219,7 @@ import Observation
         tasks[token] = Task { @MainActor [weak self] in
             let id: UUID
             do {
-                id = try await pipeline.importFile(from: url)
+                id = try await pipeline.importFile(from: url, audioTrackOrdinal: audioTrackOrdinal)
             } catch {
                 self?.logger.error(
                     "import_failed error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"

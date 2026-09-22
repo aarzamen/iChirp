@@ -8,7 +8,7 @@ import XCTest
 /// a picked file and that temporary copy is deleted once the import settles. Nothing outside the inbox is deleted.
 @MainActor
 final class IncomingFileInboxTests: XCTestCase {
-    private var base: URL!
+    nonisolated(unsafe) private var base: URL!
 
     override func setUpWithError() throws {
         base = FileManager.default.temporaryDirectory

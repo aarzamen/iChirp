@@ -59,10 +59,12 @@ import Observation
         self.diarizer = engines.diarizer
         self.scheduler = scheduler
         self.jobCenter = jobCenter
+        let normalizer = AVAudioNormalizer()
         self.pipeline = FileTranscriptionPipeline(
             paths: paths,
             store: store,
-            normalizer: AVAudioNormalizer(),
+            normalizer: normalizer,
+            trackProbe: normalizer,
             speech: engines.speech,
             diarizer: engines.diarizer,
             scheduler: scheduler,

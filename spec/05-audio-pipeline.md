@@ -10,8 +10,10 @@ it with AVFoundation, producing the same output the engines expect.
 
 `AVAudioNormalizer` (conforms to `ChirpCore.AudioNormalizing`):
 
-1. Open the file as an `AVURLAsset` and take the first audio track (choosing another track is an M1.5 option; the
-   upstream semantics are "one-based for users, zero-based ordinal among audio tracks only").
+1. Open the file as an `AVURLAsset` and take its first audio track, or, since M1.5, the track with the row's
+   `audioTrackOrdinal` (zero-based among audio tracks only; people see it one-based). An ordinal the file lacks fails
+   the job and never falls back. `audioTracks(in:)` lists the tracks, from metadata only, so a multi-track file can
+   ask the person before import ([`contracts/file-transcription-audio-tracks-v1.md`](contracts/file-transcription-audio-tracks-v1.md)).
 2. Read it with `AVAssetReader` + `AVAssetReaderAudioMixOutput`, output settings Linear PCM, **16 kHz, 1 channel,
    Float32**, little-endian, interleaved.
 3. Stream the sample buffers into an `AVAudioFile` WAV at `media/<id>/normalized-16k.wav`. Never load the whole file

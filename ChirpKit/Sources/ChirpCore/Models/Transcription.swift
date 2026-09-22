@@ -21,6 +21,9 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
     public var fileName: String
     /// Relative to `AppPaths.root`, e.g. "media/<id>/source.m4a".
     public var mediaRelativePath: String?
+    /// The zero-based audio track the person chose in a multi-track file; nil means automatic (the first track, and
+    /// every row from before M1.5). Reused by Retry. See `spec/contracts/file-transcription-audio-tracks-v1.md`.
+    public var audioTrackOrdinal: Int?
     public var fileSizeBytes: Int?
     public var durationMs: Int?
     public var rawTranscript: String?
@@ -51,6 +54,7 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
         sourceType: SourceType = .file,
         fileName: String,
         mediaRelativePath: String? = nil,
+        audioTrackOrdinal: Int? = nil,
         fileSizeBytes: Int? = nil,
         durationMs: Int? = nil,
         status: Status = .processing,
@@ -62,6 +66,7 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
         self.sourceType = sourceType
         self.fileName = fileName
         self.mediaRelativePath = mediaRelativePath
+        self.audioTrackOrdinal = audioTrackOrdinal
         self.fileSizeBytes = fileSizeBytes
         self.durationMs = durationMs
         self.status = status

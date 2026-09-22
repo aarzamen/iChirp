@@ -1,3 +1,4 @@
+import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
@@ -40,6 +41,20 @@ struct RootTabView: View {
             selection = .capture
             environment.openIncoming(url)
         }
+        .sheet(item: pendingTrackChoice) { request in
+            // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
+            AudioTrackPickerSheet(
+                request: request,
+                onChoose: { environment.jobCenter.selectAudioTrack($0, for: request.id) },
+                onCancel: { environment.jobCenter.cancelAudioTrackSelection(request.id) }
+            )
+        }
+    }
+
+    /// The job center's pending track choice. Read-only: the sheet cannot be swiped away, and choosing or cancelling
+    /// goes through the job center, which then shows the next pending choice or nil.
+    private var pendingTrackChoice: Binding<TranscriptionJobCenter.AudioTrackSelectionRequest?> {
+        Binding(get: { environment.jobCenter.pendingAudioTrackSelection }, set: { _ in })
     }
 
     /// The canvas draws outline glyphs; the tab bar would otherwise switch to the filled variants.
