@@ -1,7 +1,7 @@
 # 05 - Audio Pipeline
 
-> Status: ACTIVE — M1 file decoding and storage govern code now; the capture and background sections are PROPOSAL
-> (M1.5–M3) and are refined by their executor plans.
+> Status: ACTIVE — M1 file decoding and storage, and the M1.5 continued-processing section, govern code now; the
+> capture sections are PROPOSAL (M2–M3) and are refined by their executor plans.
 
 ## M1: decoding imported files (ChirpAudio)
 
@@ -32,11 +32,40 @@ de-duplication at the seams), so a two-hour file does not need two hours of samp
 | Situation | iOS behavior | iChirp plan |
 |---|---|---|
 | File job, app in foreground | Runs normally | M1 |
-| File job, user leaves the app | Short grace period, then suspended | M1: request background time and tell the user a long file pauses; M1.5: `BGContinuedProcessingTask` (submitted from a user action, reports `Progress`, shows a system Live Activity with cancel) |
+| File job, user leaves the app | Short grace period, then suspended | **M1.5 (built):** `BGContinuedProcessingTask`, submitted from the user action, reports real `Progress`, and the system shows a Live Activity with Cancel (below) |
+| Model download, user leaves the app | Same | **M1.5 (built):** the Settings Download tap gets its own continued-processing request; the M1 keep-alive (`DownloadKeepAlive`) remains as the fallback |
 | Recording (dictation, meeting) in background | Allowed with the `audio` background mode **if started in the foreground** | M2/M3 |
 | Neural Engine work in background, iOS 26 | No documented restriction | Parakeet keeps running |
 | Neural Engine work in background, **iOS 27** | Blocked unless the app has `com.apple.developer.background-tasks.continued-processing.inference` | Plan for CPU fallback when backgrounded; measure on the device; ask the owner before requesting the entitlement (account change) |
 | GPU (Metal, MLX) in background | Not allowed on iPhone | Language models on GPU run only in the foreground |
+
+### M1.5: continued processing (ACTIVE)
+
+Verified against the iOS 26.5 SDK headers and WWDC25 session 227 (plan 010, "Refinement").
+
+- **One request per user action.** An import (one file or a multi-select), a file opened from another app, a Retry,
+  or a Settings model Download each submit one `BGContinuedProcessingTaskRequest`, strategy `.queue`, from the
+  foreground. A batch shares one request whose progress is the mean of its jobs' fractions, so a file queued behind
+  a long one never makes the task look stuck.
+- **Identifiers** are `<bundle id>.transcribe.<UUID>` or `<bundle id>.download.<UUID>`, derived from the running bundle
+  id and never reused (registering an identifier twice kills the app). `project.yml` permits them with the wildcards
+  `$(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*` and `….download.*` in `BGTaskSchedulerPermittedIdentifiers`. The
+  launch handler is registered right before `submit`, on the main queue.
+- **No `UIBackgroundModes`, no entitlement.** Parakeet runs on the CPU and Neural Engine; only background GPU
+  (`requiredResources = .gpu`) needs an entitlement, and it is not requested.
+- **The job stays authoritative.** Jobs start at once whether or not the system accepts the request; the task is a
+  keep-alive and a progress surface only (`ChirpFeatures.BackgroundContinuation`, bridged in
+  `App/Sources/Support/ContinuedProcessing.swift`). Progress is the pipeline's real `JobProgress` (1000 units,
+  never decreasing); the subtitle reads "Transcribing · 42%" or "1 of 3 done · 42%". Nothing is simulated.
+- **Every ending is terminal.** All jobs completed → `setTaskCompleted(success: true)`; any failed, cancelled or
+  missing → `false`. A request the system never started is withdrawn. Expiration (the person taps Cancel in the Live
+  Activity, or the system expires the task) cancels that action's jobs, so their rows end `cancelled`; if the
+  process is suspended before that write lands, or the person force-quits the app (no callback), the next launch
+  marks the row `interrupted`. Either way Retry works and the source is kept. After expiration the task completes
+  once the jobs end, or after a 5-second grace.
+- **Refused requests** (the Simulator always answers `unavailable`, code 1) leave the job running in the foreground
+  exactly as in M1; a refused download falls back to `DownloadKeepAlive`.
+- **Neural Engine in the background:** see the table above; plan 010 Step 3 measures it on the owner's phone.
 
 ## M2: capture for dictation (PROPOSAL)
 

@@ -644,3 +644,101 @@ func waitUntil(
         }
     }
 }
+
+// MARK: - Continued processing (M1.5 background)
+
+/// Stands in for `BGContinuedProcessingTask`: records every progress value, title update and completion.
+@MainActor
+final class FakeContinuedTask: ContinuedProcessingTask {
+    let progress = Progress(totalUnitCount: 0)
+    let requestID: String
+    private(set) var expirationHandler: (@MainActor () -> Void)?
+    private(set) var subtitles: [String] = []
+    private(set) var titles: [String] = []
+    private(set) var completions: [Bool] = []
+    private let units = UnitLog()
+    private var observation: NSKeyValueObservation?
+
+    private final class UnitLog: Sendable {
+        let values = Mutex<[Int64]>([])
+    }
+
+    init(requestID: String) {
+        self.requestID = requestID
+        observation = progress.observe(\.completedUnitCount, options: [.new]) { [units] progress, _ in
+            units.values.withLock { $0.append(progress.completedUnitCount) }
+        }
+    }
+
+    /// Every `completedUnitCount` value the task was given, in order.
+    var reportedUnits: [Int64] { units.values.withLock { $0 } }
+
+    func setExpirationHandler(_ handler: @escaping @MainActor () -> Void) {
+        expirationHandler = handler
+    }
+
+    func updateTitle(_ title: String, subtitle: String) {
+        titles.append(title)
+        subtitles.append(subtitle)
+    }
+
+    func setTaskCompleted(success: Bool) {
+        completions.append(success)
+    }
+
+    /// What the system does when the person taps Cancel in the Live Activity (or it expires the task).
+    func expire() {
+        expirationHandler?()
+    }
+}
+
+/// Stands in for `BGTaskScheduler`: records submissions and withdrawals, and starts a task only when the test says.
+@MainActor
+final class FakeContinuedProcessingScheduler: ContinuedProcessingScheduling {
+    struct Submission: Equatable {
+        var id: String
+        var kind: ContinuedProcessingKind
+        var title: String
+        var subtitle: String
+    }
+
+    /// When true, `submit` refuses like the Simulator (`BGTaskScheduler.Error.unavailable`).
+    var refuses = false
+    private(set) var submissions: [Submission] = []
+    private(set) var withdrawn: [String] = []
+    private(set) var tasks: [String: FakeContinuedTask] = [:]
+    private var launchHandlers: [String: @MainActor (any ContinuedProcessingTask) -> Void] = [:]
+
+    func submit(
+        _ kind: ContinuedProcessingKind,
+        title: String,
+        subtitle: String,
+        onStart: @escaping @MainActor (any ContinuedProcessingTask) -> Void
+    ) -> String? {
+        guard !refuses else { return nil }
+        let id = "com.aarzamen.ichirp.\(kind.rawValue).\(UUID().uuidString)"
+        submissions.append(Submission(id: id, kind: kind, title: title, subtitle: subtitle))
+        launchHandlers[id] = onStart
+        return id
+    }
+
+    func withdraw(_ requestID: String) {
+        withdrawn.append(requestID)
+        launchHandlers[requestID] = nil
+    }
+
+    /// The system starts the request (the launch handler runs). Returns nil if it was withdrawn or never submitted.
+    @discardableResult func start(_ requestID: String) -> FakeContinuedTask? {
+        guard let handler = launchHandlers.removeValue(forKey: requestID) else { return nil }
+        let task = FakeContinuedTask(requestID: requestID)
+        tasks[requestID] = task
+        handler(task)
+        return task
+    }
+
+    /// Starts the only (or last) submitted request.
+    @discardableResult func startLast() -> FakeContinuedTask? {
+        guard let last = submissions.last else { return nil }
+        return start(last.id)
+    }
+}

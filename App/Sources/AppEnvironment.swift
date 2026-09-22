@@ -25,6 +25,8 @@ import Observation
     let speechSettings: SpeechSettingsViewModel
     /// Where iOS copies files other apps hand to Parakeet (nil only if the Documents folder cannot be found).
     let inbox: IncomingFileInbox?
+    /// Submits the background keep-alive requests for user-started jobs and downloads (M1.5).
+    let continuedProcessing: SystemContinuedProcessingScheduler?
     /// The Parakeet version the speech engine was built with.
     let runningVariant: ParakeetVariant
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
@@ -47,7 +49,9 @@ import Observation
         let settingsValue = settings.load()
         let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
         let scheduler = SpeechJobScheduler()
-        let jobCenter = TranscriptionJobCenter()
+        let continuedProcessing = SystemContinuedProcessingScheduler()
+        let jobCenter = TranscriptionJobCenter(continuedProcessing: continuedProcessing)
+        self.continuedProcessing = continuedProcessing
         self.store = store
         self.settings = settings
         self.runningVariant = settingsValue.parakeetVariant
@@ -143,9 +147,52 @@ import Observation
         importFiles([url])
     }
 
-    /// Re-runs a failed, cancelled or interrupted row.
+    /// Re-runs a failed, cancelled or interrupted row (a person's tap, so it also gets a background request titled
+    /// after the row).
     func retry(_ id: UUID) {
-        jobCenter.retry(id, pipeline: pipeline)
+        let title = library.items.first { $0.id == id }?.displayTitle ?? "Transcription"
+        jobCenter.retry(id, title: title, pipeline: pipeline)
+    }
+
+    // MARK: - Model downloads (Settings)
+
+    func downloadSpeechModel() {
+        let speech = speechSettings
+        downloadModel(title: "Parakeet speech model") { onProgress in
+            await speech.downloadSpeechModel(onProgress: onProgress)
+        }
+    }
+
+    func downloadDiarizer() {
+        let speech = speechSettings
+        downloadModel(title: "Speaker model") { onProgress in
+            await speech.downloadDiarizer(onProgress: onProgress)
+        }
+    }
+
+    /// Runs a Settings Download tap under its own continued-processing request, so the download keeps going with the
+    /// phone locked and shows in the system's progress UI; Cancel there cancels it. When the system refuses the request
+    /// (the Simulator always does) it falls back to the M1 keep-alive (`DownloadKeepAlive`).
+    private func downloadModel(
+        title: String,
+        _ download: @escaping @MainActor (_ onProgress: @escaping @MainActor (Double) -> Void) async -> Bool
+    ) {
+        let item = UUID()
+        let continuation = BackgroundContinuation(
+            scheduler: continuedProcessing, kind: .modelDownload, title: title, subtitle: "Downloading", items: [item])
+        let submitted = continuation.begin()
+        let task = Task { @MainActor in
+            let ready: Bool
+            if submitted {
+                ready = await download { fraction in
+                    continuation.update(item, fraction: fraction, stage: "Downloading")
+                }
+            } else {
+                ready = await DownloadKeepAlive.shared.withKeepAlive { await download { _ in } }
+            }
+            continuation.end(item, succeeded: ready)
+        }
+        continuation.onExpiration = { task.cancel() }
     }
 
     /// Deletes a row and its audio after the user confirmed: cancels its job first, then deletes.

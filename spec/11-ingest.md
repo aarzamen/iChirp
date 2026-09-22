@@ -42,6 +42,8 @@ M4 template (summary, meeting notes, SOAP note, …). It has no player and no SR
 - The Inbox copy is temporary and not user data: `TranscriptionJobCenter.onImportSettled` deletes it
   (`IncomingFileInbox.removeIfInside`) once its import settled or the track picker was dismissed. Nothing outside
   `Documents/Inbox/` is ever deleted. The imported `media/<id>/source.<ext>` is the user's copy.
+- Opening a file is a person's action in the foreground, so its job also gets a continued-processing request and
+  keeps running with the phone locked ([spec/05](05-audio-pipeline.md#m15-continued-processing-active)).
 - Not covered by "Open in": sharing a web URL (links arrive in M5), and importing without opening the app. Those are
   the gaps the extension below would close.
 

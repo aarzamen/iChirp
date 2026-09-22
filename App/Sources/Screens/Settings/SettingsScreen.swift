@@ -79,9 +79,7 @@ struct SettingsScreen: View {
                 status: speech.speechStatus,
                 approximateDownloadBytes: ParakeetEngine.descriptor(for: running).approximateDownloadBytes,
                 runsOn: "Neural Engine",
-                onDownload: {
-                    Task { await DownloadKeepAlive.shared.withKeepAlive { await speech.downloadSpeechModel() } }
-                },
+                onDownload: { environment.downloadSpeechModel() },
                 onDelete: { Task { await speech.deleteSpeechModel() } }
             )
             SettingsRow(
@@ -120,9 +118,7 @@ struct SettingsScreen: View {
                     status: speech.diarizerStatus,
                     approximateDownloadBytes: FluidAudioDiarizer.engineDescriptor.approximateDownloadBytes,
                     runsOn: "Neural Engine",
-                    onDownload: {
-                        Task { await DownloadKeepAlive.shared.withKeepAlive { await speech.downloadDiarizer() } }
-                    },
+                    onDownload: { environment.downloadDiarizer() },
                     onDelete: { Task { await speech.deleteDiarizer() } }
                 )
             }

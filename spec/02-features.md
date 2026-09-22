@@ -26,8 +26,9 @@
   Settings → Speech model", and Capture shows a banner with a button that jumps to Settings.
 - Speaker labels run only when the setting is on and the diarizer model is downloaded. A diarization failure never
   fails the job: the transcript is kept without speakers.
-- A job killed with the app comes back as **Interrupted** with Retry. Until M1.5 a long file pauses when the app
-  leaves the foreground, and the UI says so.
+- A job killed with the app comes back as **Interrupted** with Retry. Since M1.5 a job keeps running after the person
+  leaves the app or locks the phone, shown in the system's progress Live Activity; tapping Cancel there cancels it
+  (the row becomes `cancelled`, with Retry). See [`05-audio-pipeline.md`](05-audio-pipeline.md#background-execution).
 - Cancel is available while a job runs; the row becomes `cancelled`.
 
 ### Library

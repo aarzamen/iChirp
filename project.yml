@@ -41,6 +41,11 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.movie]
+        # M1.5 Step 2: BGContinuedProcessingTask identifiers, <bundle id>.<kind>.<UUID> (wildcard suffix, iOS 26).
+        # No UIBackgroundModes and no entitlement: CPU/Neural Engine work needs neither; only background GPU would.
+        BGTaskSchedulerPermittedIdentifiers:
+          - $(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*
+          - $(PRODUCT_BUNDLE_IDENTIFIER).download.*
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"
