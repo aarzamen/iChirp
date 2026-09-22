@@ -22,7 +22,9 @@ struct ModelLease<Runtime: Sendable>: Sendable {
 /// - A download requested during a delete waits for the delete to finish, then starts fresh.
 actor ModelAssetLifecycle<Runtime: Sendable> {
     struct Hooks: Sendable {
-        /// Names the model in `.modelNotDownloaded` and the in-use error.
+        /// The engine's `EngineDescriptor.id`, carried by `.modelNotDownloaded` as the engine contract requires.
+        var engineID: String
+        /// Names the model in the in-use error the owner reads.
         var displayName: String
         /// Every file the local load needs is on disk (and from the pinned revision).
         var modelsPresent: @Sendable () -> Bool
@@ -166,7 +168,7 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         let startGeneration = generation
         if isLoaded { return }
         guard deletion == nil, downloadJob == nil, hooks.modelsPresent() else {
-            throw SpeechEngineError.modelNotDownloaded(hooks.displayName)
+            throw SpeechEngineError.modelNotDownloaded(hooks.engineID)
         }
         let job: Job<Runtime>
         if let loadJob {
@@ -189,7 +191,7 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
             _ = try await job.task.value
         } catch {
             if error is StaleLoad || generation != startGeneration {
-                throw SpeechEngineError.modelNotDownloaded(hooks.displayName)
+                throw SpeechEngineError.modelNotDownloaded(hooks.engineID)
             }
             throw SpeechEngineError.mapping(error)
         }
@@ -200,7 +202,7 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         try await prepare()
         // Re-check after the suspension: a delete may have run between the load finishing and this resumption.
         guard deletion == nil, let loaded, loaded.generation == generation else {
-            throw SpeechEngineError.modelNotDownloaded(hooks.displayName)
+            throw SpeechEngineError.modelNotDownloaded(hooks.engineID)
         }
         leaseCount += 1
         return loaded

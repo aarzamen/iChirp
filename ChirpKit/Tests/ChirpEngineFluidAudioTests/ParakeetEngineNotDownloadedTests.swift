@@ -4,7 +4,7 @@ import XCTest
 @testable import ChirpEngineFluidAudio
 
 /// With an empty models root nothing may be downloaded implicitly: status reports `.notDownloaded` and every
-/// inference entry point throws `.modelNotDownloaded`, leaving the directory untouched.
+/// inference entry point throws `.modelNotDownloaded(<engine id>)`, leaving the directory untouched.
 final class ParakeetEngineNotDownloadedTests: XCTestCase {
     private func makeEmptyModelsRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
@@ -18,17 +18,19 @@ final class ParakeetEngineNotDownloadedTests: XCTestCase {
         try XCTUnwrap(Bundle.module.url(forResource: "two-voices-16k", withExtension: "wav", subdirectory: "Fixtures"))
     }
 
+    /// The contract (`spec/contracts/speech-engine-plugin-v1.md`) says the error carries the engine id, not the
+    /// display name.
     private func assertModelNotDownloaded(
-        _ operation: () async throws -> Void, file: StaticString = #filePath, line: UInt = #line
+        engineID: String, _ operation: () async throws -> Void, file: StaticString = #filePath, line: UInt = #line
     ) async {
         do {
             try await operation()
             XCTFail("Expected SpeechEngineError.modelNotDownloaded", file: file, line: line)
         } catch let error as SpeechEngineError {
-            guard case .modelNotDownloaded(let name) = error else {
+            guard case .modelNotDownloaded(let carried) = error else {
                 return XCTFail("Expected .modelNotDownloaded, got \(error)", file: file, line: line)
             }
-            XCTAssertFalse(name.isEmpty, file: file, line: line)
+            XCTAssertEqual(carried, engineID, file: file, line: line)
         } catch {
             XCTFail("Expected SpeechEngineError, got \(error)", file: file, line: line)
         }
@@ -52,10 +54,10 @@ final class ParakeetEngineNotDownloadedTests: XCTestCase {
         let fixture = try fixtureURL()
         let engine = ParakeetEngine(variant: .v3, modelsRoot: root)
 
-        await assertModelNotDownloaded {
+        await assertModelNotDownloaded(engineID: ParakeetEngine.engineID) {
             _ = try await engine.transcribe(fileAt: fixture, options: SpeechTranscriptionOptions(), progress: { _ in })
         }
-        await assertModelNotDownloaded { try await engine.prepare() }
+        await assertModelNotDownloaded(engineID: ParakeetEngine.engineID) { try await engine.prepare() }
         XCTAssertEqual(try contents(of: root), [], "transcribe must never download models silently")
         let status = await engine.assetStatus()
         XCTAssertEqual(status, .notDownloaded)
@@ -68,8 +70,9 @@ final class ParakeetEngineNotDownloadedTests: XCTestCase {
 
         let status = await diarizer.assetStatus()
         XCTAssertEqual(status, .notDownloaded)
-        await assertModelNotDownloaded { _ = try await diarizer.diarize(fileAt: fixture) }
-        await assertModelNotDownloaded { try await diarizer.prepare() }
+        let diarizerID = FluidAudioDiarizer.engineDescriptor.id
+        await assertModelNotDownloaded(engineID: diarizerID) { _ = try await diarizer.diarize(fileAt: fixture) }
+        await assertModelNotDownloaded(engineID: diarizerID) { try await diarizer.prepare() }
         XCTAssertEqual(try contents(of: root), [], "diarize must never download models silently")
     }
 

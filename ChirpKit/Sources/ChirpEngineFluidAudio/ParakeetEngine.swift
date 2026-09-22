@@ -93,6 +93,7 @@ public actor ParakeetEngine: SpeechEngine {
         let directory = FluidAudioModelLocations.parakeetDirectory(in: modelsRoot, variant: variant)
         let version = FluidAudioModelLocations.asrVersion(for: variant)
         return ModelAssetLifecycle<ParakeetRuntime>.Hooks(
+            engineID: engineID,
             displayName: descriptor(for: variant).displayName,
             modelsPresent: { FluidAudioModelLocations.parakeetModelsExist(in: modelsRoot, variant: variant) },
             bytesOnDisk: { FluidAudioModelLocations.byteSize(of: directory) },

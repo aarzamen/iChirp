@@ -104,6 +104,7 @@ final class ParakeetWorkerPoolTests: XCTestCase {
 
         func engine(in root: URL) -> ParakeetEngine {
             let hooks = ModelAssetLifecycle<ParakeetRuntime>.Hooks(
+                engineID: ParakeetEngine.engineID,
                 displayName: "Fake Parakeet",
                 modelsPresent: { self.isPresent },
                 bytesOnDisk: { 0 },

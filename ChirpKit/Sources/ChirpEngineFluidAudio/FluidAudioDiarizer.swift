@@ -82,6 +82,7 @@ public actor FluidAudioDiarizer: SpeakerDiarizing {
     static func liveHooks(modelsRoot: URL) -> ModelAssetLifecycle<OfflineDiarizerModels>.Hooks {
         let directory = FluidAudioModelLocations.diarizerDirectory(in: modelsRoot)
         return ModelAssetLifecycle<OfflineDiarizerModels>.Hooks(
+            engineID: engineDescriptor.id,
             displayName: engineDescriptor.displayName,
             modelsPresent: { FluidAudioModelLocations.diarizerModelsExist(in: modelsRoot) },
             bytesOnDisk: { FluidAudioModelLocations.byteSize(of: directory) },
@@ -107,7 +108,7 @@ public actor FluidAudioDiarizer: SpeakerDiarizing {
         func model(_ name: String, _ computeUnits: MLComputeUnits) throws -> MLModel {
             let url = directory.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else {
-                throw SpeechEngineError.modelNotDownloaded(engineDescriptor.displayName)
+                throw SpeechEngineError.modelNotDownloaded(engineDescriptor.id)
             }
             let configuration = MLModelConfiguration()
             configuration.computeUnits = computeUnits

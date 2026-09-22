@@ -38,6 +38,7 @@ final class ModelAssetLifecycleTests: XCTestCase {
 
         func hooks() -> ModelAssetLifecycle<Int>.Hooks {
             ModelAssetLifecycle<Int>.Hooks(
+                engineID: "fake.model",
                 displayName: "Fake model",
                 modelsPresent: { self.isPresent },
                 bytesOnDisk: { 42 },

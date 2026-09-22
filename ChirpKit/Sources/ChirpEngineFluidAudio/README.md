@@ -58,8 +58,9 @@ Then read `ParakeetEngine.swift`.
   network. `prepare`, `transcribe` and `diarize` load strictly from local files, so never call
   `AsrModels.load`, `AsrModels.downloadAndLoad` or `OfflineDiarizerModels.load`: those go through
   `ModelHub.loadModels`, which downloads missing files and purges and re-downloads a cache that fails to load.
-  Loading throws `SpeechEngineError.modelNotDownloaded` while the files are missing, while a download is in
-  flight, and while a delete runs.
+  Loading throws `SpeechEngineError.modelNotDownloaded(<engine id>)` (the descriptor id, as the engine contract
+  says, never the display name) while the files are missing, while a download is in flight, and while a delete
+  runs.
 - **One `AsrManager` per concurrent job.** A manager has exactly one progress stream and one progress session.
   Two jobs on one manager trap in `AsyncStreamBuffer` ("attempt to await next() on more than one task"), or leak
   progress into each other. `ChirpCore`'s scheduler runs an interactive and a background job at once, so the
