@@ -48,12 +48,19 @@ the MacParakeet copyright holder's permission for the App Store.
 cd /Users/ama/Documents/GitHub/iChirp
 scripts/run_device.sh                       # build Debug, install, launch
 scripts/run_device.sh -SomeLaunchArgument   # extra arguments are passed to the app at launch
-DEVICE_ID=<id> scripts/run_device.sh        # pick a specific device when several are paired
+scripts/run_device.sh --dry-run             # show the chosen device and commands, build nothing
+DEVICE_ID=<id> scripts/run_device.sh        # target one specific device for this run
 ```
+
+**Which phone it targets.** The script never guesses between phones. It uses, in order: `DEVICE_ID` from the
+environment; then `Config/Device.local` (gitignored, one line `DEVICE_ID=<identifier>`; copy
+`Config/Device.local.example`, which holds the owner's iPhone 17 Pro); then the one iPhone that `xcrun devicectl list
+devices` shows as "available (paired)" or "connected". If more than one iPhone is reachable and neither is set, it
+stops and lists them (name, model, identifier). `scripts/device_smoke.sh` uses the same choice.
 
 What the script does:
 
-1. Picks the first paired, available iPhone from `xcrun devicectl list devices` (or `DEVICE_ID`).
+1. Chooses the device as described above.
 2. Regenerates the project (`scripts/gen.sh`).
 3. Builds the Debug app for that device with automatic signing and team `XM6E4PUXTU`, using the profiles already on
    this Mac (the team's wildcard profile covers `com.aarzamen.ichirp`). It passes **no** provisioning flags.

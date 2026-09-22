@@ -9,6 +9,7 @@ DerivedData/
 xcuserdata/
 .swiftpm/
 Config/Signing.local.xcconfig
+Config/Device.local
 # Agent / private state
 .claude/
 .codex/
