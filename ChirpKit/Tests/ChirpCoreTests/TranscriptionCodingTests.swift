@@ -123,5 +123,13 @@ final class TranscriptionCodingTests: XCTestCase {
         XCTAssertEqual(decoded.parakeetVariant, .v3)
         XCTAssertTrue(decoded.speakerLabelsEnabled)
         XCTAssertTrue(decoded.removeUmFiller)
+        // M2 fields: a pre-M2 blob keeps the dictation audio and polishes, and both round-trip.
+        XCTAssertTrue(decoded.keepDictationAudio)
+        XCTAssertTrue(decoded.dictationPolishAfter)
+        var dictation = TranscriptionSettings()
+        dictation.keepDictationAudio = false
+        dictation.dictationPolishAfter = false
+        XCTAssertEqual(
+            try JSONDecoder().decode(TranscriptionSettings.self, from: JSONEncoder().encode(dictation)), dictation)
     }
 }

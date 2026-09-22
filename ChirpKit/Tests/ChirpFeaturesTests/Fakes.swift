@@ -372,6 +372,7 @@ actor FakeSpeech: SpeechEngine {
     private(set) var prepareCalls = 0
     private(set) var downloadCalls = 0
     private(set) var transcribedURLs: [URL] = []
+    private(set) var transcribedOptions: [SpeechTranscriptionOptions] = []
     /// Whether the normalized file existed when `transcribe` was called.
     private(set) var inputExistedAtTranscribe: [Bool] = []
 
@@ -465,6 +466,7 @@ actor FakeSpeech: SpeechEngine {
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
         transcribedURLs.append(url)
+        transcribedOptions.append(options)
         inputExistedAtTranscribe.append(FileManager.default.fileExists(atPath: url.path))
         progress(0.25)
         if let hold = transcriptionHold {

@@ -20,6 +20,10 @@ import Observation
     let settings: UserDefaultsSettingsStore
     /// The one owner of the audio session: dictation and the transcript player go through it (M2).
     let audioSession: AudioSessionController
+    /// The one microphone stream per process (M2).
+    let microphone: SharedMicrophoneStream
+    /// Dictation: microphone → live preview → final Parakeet pass → clipboard (M2).
+    let dictation: DictationCoordinator
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -54,7 +58,10 @@ import Observation
         let continuedProcessing = SystemContinuedProcessingScheduler()
         let jobCenter = TranscriptionJobCenter(continuedProcessing: continuedProcessing)
         self.continuedProcessing = continuedProcessing
-        self.audioSession = AudioSessionController(platform: LiveAudioSessionPlatform.shared)
+        let audioSession = AudioSessionController(platform: LiveAudioSessionPlatform.shared)
+        self.audioSession = audioSession
+        let microphone = SharedMicrophoneStream(engine: AVAudioEngineMicrophone(), session: audioSession)
+        self.microphone = microphone
         self.store = store
         self.settings = settings
         self.runningVariant = settingsValue.parakeetVariant
@@ -73,6 +80,16 @@ import Observation
             scheduler: scheduler,
             settings: settings,
             onProgress: jobCenter.progressHandler
+        )
+        self.dictation = DictationCoordinator(
+            capture: DictationRecorder(stream: microphone, session: audioSession),
+            speech: engines.speech,
+            liveSessions: engines.speech,
+            scheduler: scheduler,
+            store: store,
+            paths: paths,
+            settings: settings,
+            clipboard: SystemClipboard()
         )
         self.library = LibraryViewModel(store: store, paths: paths)
         self.capture = CaptureViewModel(store: store)
@@ -121,6 +138,8 @@ import Observation
                 "mark_interrupted_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
         }
         await pipeline.sweepOrphanedTemporaryAudio()
+        // A dictation recorded by a process that was killed before stopping becomes an interrupted row (never deleted).
+        await dictation.recoverOrphanedRecordings()
         ExportTempFiles.sweepStale()
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
@@ -155,7 +174,14 @@ import Observation
     /// Re-runs a failed, cancelled or interrupted row (a person's tap, so it also gets a background request titled
     /// after the row).
     func retry(_ id: UUID) {
-        let title = library.items.first { $0.id == id }?.displayTitle ?? "Transcription"
+        let item = library.items.first { $0.id == id }
+        if item?.sourceType == .dictation {
+            // A dictation's recording is already 16 kHz: the dictation final pass (no speaker labels), no clipboard.
+            let dictation = self.dictation
+            Task { await dictation.retry(transcriptionID: id) }
+            return
+        }
+        let title = item?.displayTitle ?? "Transcription"
         jobCenter.retry(id, title: title, pipeline: pipeline)
     }
 
