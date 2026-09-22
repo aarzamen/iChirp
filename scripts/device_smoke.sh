@@ -5,6 +5,9 @@
 # Usage: scripts/device_smoke.sh
 #   DEVICE_ID=<identifier> scripts/device_smoke.sh     # same device choice as scripts/run_device.sh
 #   SMOKE_TIMEOUT_S=900 scripts/device_smoke.sh        # wait longer than the default 600 s
+#   SMOKE_CONSOLE=1 scripts/device_smoke.sh            # also launch with `devicectl ... --console`, backgrounded,
+#                                                       # saving the app's stdout/stderr (including FluidAudio's
+#                                                       # Debug-only download logging) to .build/device-logs/
 #
 # The first run downloads ~0.5 GB of models on the phone: keep it unlocked and on Wi-Fi.
 # Needs the app's DEBUG smoke runner (launch argument -ChirpSmoke transcribe-sample).
