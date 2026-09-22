@@ -79,7 +79,10 @@ From the [Gemini port review](../docs/reviews/2026-09-22-gemini-ios-review.md), 
   Job kinds: `dictation` (interactive slot), `meetingFinalize` (0), `meetingLiveChunk` (1), `fileTranscription` (2).
   A running file job is never preempted. More than 120 pending live chunks drop the oldest.
 - **Live route and final route** (upstream ADR-016 and ADR-026, from M2): the live route serves dictation preview and
-  meeting preview; the final route produces the stored transcript. A final job snapshots its engine selection when
+  meeting preview; the final route produces the stored transcript. **M2 (built):** Parakeet's live route is
+  `TailWindowPreviewSession` (every ~1 s, the last 15 s, one pass at a time, each through `.dictation`); a dictation
+  finishes (cancels and drains) its live session before the final pass, which runs `.dictation` over
+  `media/<id>/dictation.wav` with purpose `.dictation` (0.5 s trailing pad for short clips). A final job snapshots its engine selection when
   it is queued, and a meeting holds a lease that blocks engine switches until it finishes.
 
 ## Model management

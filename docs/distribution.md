@@ -63,7 +63,9 @@ What the script does:
 1. Chooses the device as described above.
 2. Regenerates the project (`scripts/gen.sh`).
 3. Builds the Debug app for that device with automatic signing and team `XM6E4PUXTU`, using the profiles already on
-   this Mac (the team's wildcard profile covers `com.aarzamen.ichirp`). It passes **no** provisioning flags.
+   this Mac (the team's wildcard profile covers `com.aarzamen.ichirp`). It passes **no** provisioning flags. Since
+   M2 the app embeds a widget extension, `com.aarzamen.ichirp.widgets` (the dictation Live Activity and Control),
+   with **no** capabilities, entitlements or App Group, so the same wildcard profile should sign it too.
 4. Installs the Debug `.app` with `xcrun devicectl device install app`, then launches it with
    `xcrun devicectl device process launch --terminate-existing com.aarzamen.ichirp`.
 
@@ -76,6 +78,7 @@ Trust the install message from `devicectl`, not just "build succeeded".
 | "Unlock your iPhone and rerun." | The phone is locked | Unlock it, rerun |
 | No paired device found | Not paired, not on the same network, or Developer Mode off | Redo one-time setup steps 1–2 |
 | `No profiles for 'com.aarzamen.ichirp' were found` or a stale profile | The Mac lacks a matching profile | **Owner:** `scripts/gen.sh`, open `iChirp.xcodeproj` in Xcode, target iChirp → Signing & Capabilities → Team "Aaron Arzamendi (XM6E4PUXTU)", Automatic; choose the phone and press Run once. Then rerun the script |
+| `No profiles for 'com.aarzamen.ichirp.widgets' were found` (M2) | The widget extension has no matching profile on this Mac | **Owner:** the same one-time Xcode GUI Run as above; Automatic signing also covers target iChirpWidgets. Agents never register the App ID |
 | `No Account for Team "434HG698U6"` | Wrong team value somewhere | Use `XM6E4PUXTU` in `Config/Signing.local.xcconfig` |
 | "ambiguous" signing identity | Two Apple Development certificates share one name | Sign by SHA-1 (see the warning file); ask the owner before changing build settings |
 | A new capability or entitlement is needed | Profiles must change on the developer account | Stop; the owner decides and does it |

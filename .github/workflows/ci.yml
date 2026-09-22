@@ -37,7 +37,7 @@ jobs:
         run: scripts/check_readme_references.sh
 
       - name: Format lint
-        run: swift format lint --strict --recursive ChirpKit/Sources App/Sources
+        run: swift format lint --strict --recursive ChirpKit/Sources App/Sources App/Shared Widgets
 
       - name: ChirpKit package tests
         run: swift test --package-path ChirpKit

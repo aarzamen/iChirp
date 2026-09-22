@@ -19,6 +19,12 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
     public var speakerLabelsEnabled: Bool = true
     public var parakeetVariant: ParakeetVariant = .v3
     public var removeUmFiller: Bool = true
+    /// M2: keep each dictation's recording (`media/<id>/dictation.wav`) for playback and Retry. Off deletes it after a
+    /// successful final pass. On by default: never lose what the person said.
+    public var keepDictationAudio: Bool = true
+    /// M2: the Dictating screen's "Polish after" toggle, remembered between dictations. On runs the deterministic
+    /// Clean pipeline (custom words, snippets, filler removal) on the copied text even when `cleanupMode` is Raw.
+    public var dictationPolishAfter: Bool = true
 
     public init() {}
 
@@ -36,6 +42,12 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
         }
         if let value = try? container.decodeIfPresent(Bool.self, forKey: .removeUmFiller) {
             removeUmFiller = value
+        }
+        if let value = try? container.decodeIfPresent(Bool.self, forKey: .keepDictationAudio) {
+            keepDictationAudio = value
+        }
+        if let value = try? container.decodeIfPresent(Bool.self, forKey: .dictationPolishAfter) {
+            dictationPolishAfter = value
         }
     }
 }

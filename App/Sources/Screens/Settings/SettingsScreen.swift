@@ -4,7 +4,7 @@ import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
-/// Tab 4 (canvas `Settings.dc.html`): Capture (M2 placeholders), Speech (real model management), Privacy, Text,
+/// Tab 4 (canvas `Settings.dc.html`): Capture (M2: trigger help, stop mode, keep audio), Speech (real model management), Privacy, Text,
 /// About (the build stamp) and, in DEBUG builds, Diagnostics.
 struct SettingsScreen: View {
     @Environment(AppEnvironment.self) private var environment
@@ -47,23 +47,57 @@ struct SettingsScreen: View {
         } message: {
             Text(environment.speechSettings.lastError ?? "")
         }
-        .task { await environment.speechSettings.refresh() }
+        .task {
+            await environment.speechSettings.refresh()
+            await environment.textRules.load()
+        }
     }
 
     // MARK: - Capture (M2)
 
     private var captureGroup: some View {
-        SettingsGroup(title: "Capture") {
-            // Values are "Not built yet", not the canvas's illustrative "Action Button" / "Double tap" /
-            // "Tap to stop": nothing is actually configured until M2 (AGENTS §4 honest UI, final-review Lane C 6).
-            PlaceholderRow(
-                title: "Dictation trigger", value: "Not built yet", placeholder: .dictationTrigger,
-                open: { placeholder = $0 })
-            PlaceholderRow(
-                title: "Back Tap", value: "Not built yet", placeholder: .backTap, open: { placeholder = $0 })
-            PlaceholderRow(
-                title: "Stop mode", value: "Not built yet", placeholder: .stopMode, open: { placeholder = $0 })
+        @Bindable var speech = environment.speechSettings
+        return SettingsGroup(
+            title: "Capture",
+            footer:
+                "With “Keep dictation audio” off, a dictation’s recording is deleted as soon as its text is saved, so "
+                + "it cannot be played back or retried."
+        ) {
+            helpRow(title: "Dictation trigger", value: "Action Button", topic: .actionButton)
+            helpRow(title: "Back Tap", value: "How to set up", topic: .backTap)
+            SettingsRow(
+                title: "Stop mode",
+                caption: "Tap Stop & copy, or press the Action Button again. Stopping when you stop speaking is not "
+                    + "built yet."
+            ) {
+                Text("Tap to stop")
+                    .chirpFont(15)
+                    .foregroundStyle(Tokens.Color.secondary)
+            }
+            SettingsRow(title: "Keep dictation audio", caption: "For playback and Retry in the Library") {
+                Toggle("Keep dictation audio", isOn: $speech.settingsValue.keepDictationAudio)
+                    .labelsHidden()
+                    .tint(Tokens.Color.success)
+            }
         }
+    }
+
+    /// Opens the steps for a trigger iOS lets only the person assign.
+    private func helpRow(title: String, value: String, topic: DictationTriggerHelpScreen.Topic) -> some View {
+        NavigationLink {
+            DictationTriggerHelpScreen(topic: topic)
+        } label: {
+            SettingsRow(title: title) {
+                Text(value)
+                    .chirpFont(15)
+                    .foregroundStyle(Tokens.Color.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Tokens.Color.mutedText)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Speech
@@ -193,8 +227,9 @@ struct SettingsScreen: View {
         return SettingsGroup(
             title: "Text",
             footer:
-                "Raw keeps Parakeet’s text exactly as recognized. Clean removes fillers like “um” and tidies "
-                + "spacing, and will apply your custom words once they arrive in M2. Applies to the next transcription."
+                "Raw keeps Parakeet’s text exactly as recognized. Clean removes fillers like “um”, tidies spacing "
+                + "and applies your custom words and snippets. Applies to the next transcription; a dictation with "
+                + "“Polish after” is always cleaned."
         ) {
             SettingsRow(title: "Clean-up") {
                 Picker("Clean-up", selection: $speech.settingsValue.cleanupMode) {
@@ -205,8 +240,21 @@ struct SettingsScreen: View {
                 .frame(width: 140)
                 .labelsHidden()
             }
-            PlaceholderRow(
-                title: "Custom words & snippets", value: "None", placeholder: .customWords, open: { placeholder = $0 })
+            NavigationLink {
+                TextRulesScreen(model: environment.textRules)
+            } label: {
+                SettingsRow(title: "Custom words & snippets") {
+                    Text(environment.textRules.count == 0 ? "None" : "\(environment.textRules.count)")
+                        .chirpFont(15)
+                        .monospacedDigit()
+                        .foregroundStyle(Tokens.Color.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Tokens.Color.mutedText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 }

@@ -14,7 +14,7 @@ struct TranscriptScreen: View {
     let id: UUID
 
     @State private var model: TranscriptViewModel
-    @State private var player = AudioPlayerModel()
+    @State private var player: AudioPlayerModel
     @State private var hasLoaded = false
     @State private var placeholder: Placeholder?
     @State private var shareItem: ShareItem?
@@ -26,6 +26,7 @@ struct TranscriptScreen: View {
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
         _model = State(initialValue: environment.makeTranscriptViewModel(id: id))
+        _player = State(initialValue: AudioPlayerModel(session: environment.audioSession))
     }
 
     var body: some View {

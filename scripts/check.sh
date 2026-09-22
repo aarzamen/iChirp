@@ -10,4 +10,4 @@ if [ "$#" -ge 1 ]; then
   swift test --package-path ChirpKit --filter "$1"
 fi
 
-swift format lint --strict --recursive ChirpKit/Sources App/Sources
+swift format lint --strict --recursive ChirpKit/Sources App/Sources App/Shared Widgets

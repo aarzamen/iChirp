@@ -65,6 +65,12 @@ final class ParakeetWorkerPoolTests: XCTestCase {
                 ])
         }
 
+        func transcribe(
+            _ samples: [Float], decoderState: inout TdtDecoderState, language: Language?
+        ) async throws -> ASRResult {
+            try await transcribe(URL(fileURLWithPath: "/dev/null"), decoderState: &decoderState, language: language)
+        }
+
         func cleanup() {
             events.append("cleanup-\(id)")
         }

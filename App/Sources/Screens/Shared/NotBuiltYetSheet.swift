@@ -16,10 +16,6 @@ struct Placeholder: Identifiable, Equatable {
 }
 
 extension Placeholder {
-    static let dictation = Placeholder(
-        id: "dictation", title: "Dictate", milestone: "M2",
-        summary: "Press the Action Button, or tap to go hands-free. Clean text lands on your clipboard.",
-        systemImage: "waveform")
     static let pasteLink = Placeholder(
         id: "paste-link", title: "Paste a link", milestone: "M5",
         summary: "Paste a YouTube, podcast or X link and Parakeet transcribes it on this iPhone.",
@@ -40,28 +36,11 @@ extension Placeholder {
         id: "transform", title: "Transform", milestone: "M4",
         summary: "Rewrite a transcript with Polish, Distill, Decide or your own Transforms.",
         systemImage: "sparkles")
-    static let dictationTrigger = Placeholder(
-        id: "dictation-trigger", title: "Dictation trigger", milestone: "M2",
-        summary: "Choose how dictation starts: the Action Button, a Shortcut, or the Dictate card.",
-        systemImage: "button.programmable")
-    static let backTap = Placeholder(
-        id: "back-tap", title: "Back Tap", milestone: "M2",
-        summary: "Back Tap is an iPhone Accessibility setting that runs a Shortcut. M2 adds the Parakeet shortcut "
-            + "and shows how to assign it.",
-        systemImage: "hand.tap")
-    static let stopMode = Placeholder(
-        id: "stop-mode", title: "Stop mode", milestone: "M2",
-        summary: "Choose whether dictation stops when you tap or when you stop speaking.",
-        systemImage: "stop.circle")
     static let cloudModels = Placeholder(
         id: "cloud-models", title: "Cloud models", milestone: "M4",
         summary: "Optionally let Ask and Transforms use a cloud model you set up. Off by default; clinical items "
             + "stay on device.",
         systemImage: "cloud")
-    static let customWords = Placeholder(
-        id: "custom-words", title: "Custom words & snippets", milestone: "M2",
-        summary: "Teach Parakeet names and terms, and expand short phrases into longer text.",
-        systemImage: "character.book.closed")
     static let gridLayout = Placeholder(
         id: "grid-layout", title: "Grid layout", milestone: "M8",
         summary: "Browse the Library as a grid of covers.",

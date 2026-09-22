@@ -27,8 +27,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Engines/EngineDescriptor.swift`: `EngineDescriptor`, `EngineKind` and `EngineLocality`, the static facts
   about an engine.
 - `Engines/ModelAssets.swift`: `ModelAssetStatus` and `ModelAssetManaging` (download, status, delete).
-- `Engines/SpeechEngine.swift`: `SpeechEngine`, `SpeakerDiarizing`, their options, results and
-  `SpeechEngineError`.
+- `Engines/SpeechEngine.swift`: `SpeechEngine`, `SpeakerDiarizing`, their options (including the M2
+  `SpeechTranscriptionPurpose`), results and `SpeechEngineError`.
+- `Engines/LiveSpeechSession.swift`: `LiveSpeechSession` and `LiveSpeechSessionProviding` (M2): display-only live
+  text, the seam for streaming engines (contract `spec/contracts/speech-engine-plugin-v1.md`).
 - `Engines/LanguageModel.swift`: the M4 text-generation contract (`LanguageModel` with `endpointHost`,
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
@@ -43,6 +45,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `AudioTrackProbing` and `AudioTrackSelectionError` (M1.5; contract
   `spec/contracts/file-transcription-audio-tracks-v1.md`).
 - `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore.
+- `Pipeline/AudioCapturing.swift`: the M2 microphone-recording contract (`AudioCapturing`, `CaptureUpdate`,
+  `CaptureEvent`, `RecordedAudio`, `MicrophonePermission`, `AudioCaptureError`) implemented by ChirpAudio's
+  `DictationRecorder`, and `SpeechAudio` (16 kHz, the 0.3 s minimum).
 - `Scheduling/SpeechJobScheduler.swift`: the actor that serializes speech work into an interactive slot
   (dictation) and a prioritized background slot, with live-chunk backpressure.
 - `System/AppPaths.swift`: the on-disk layout (`ichirp.sqlite`, `media/<uuid>/`) and relative-path mapping.

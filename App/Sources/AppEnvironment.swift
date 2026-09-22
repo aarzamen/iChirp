@@ -18,6 +18,16 @@ import Observation
     let diarizer: FluidAudioDiarizer
     let scheduler: SpeechJobScheduler
     let settings: UserDefaultsSettingsStore
+    /// The one owner of the audio session: dictation and the transcript player go through it (M2).
+    let audioSession: AudioSessionController
+    /// The one microphone stream per process (M2).
+    let microphone: SharedMicrophoneStream
+    /// Dictation: microphone → live preview → final Parakeet pass → clipboard (M2).
+    let dictation: DictationCoordinator
+    /// Custom words and snippets (M2): the editor in Settings → Text; Clean reads them for files and dictations.
+    let textRules: TextRulesViewModel
+    /// The dictation Live Activity (M2), driven by the coordinator's state.
+    let liveActivity: DictationLiveActivity
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -45,6 +55,7 @@ import Observation
         self.paths = paths
         let database = try DatabaseManager(url: paths.databaseURL)
         let store = GRDBTranscriptionStore(database: database)
+        let textRulesStore = GRDBTextRulesStore(database: database)
         let settings = UserDefaultsSettingsStore()
         let settingsValue = settings.load()
         let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
@@ -52,6 +63,10 @@ import Observation
         let continuedProcessing = SystemContinuedProcessingScheduler()
         let jobCenter = TranscriptionJobCenter(continuedProcessing: continuedProcessing)
         self.continuedProcessing = continuedProcessing
+        let audioSession = AudioSessionController(platform: LiveAudioSessionPlatform.shared)
+        self.audioSession = audioSession
+        let microphone = SharedMicrophoneStream(engine: AVAudioEngineMicrophone(), session: audioSession)
+        self.microphone = microphone
         self.store = store
         self.settings = settings
         self.runningVariant = settingsValue.parakeetVariant
@@ -69,17 +84,41 @@ import Observation
             diarizer: engines.diarizer,
             scheduler: scheduler,
             settings: settings,
+            customWords: { (try? await textRulesStore.enabledCustomWords()) ?? [] },
             onProgress: jobCenter.progressHandler
         )
+        self.dictation = DictationCoordinator(
+            capture: DictationRecorder(stream: microphone, session: audioSession),
+            speech: engines.speech,
+            liveSessions: engines.speech,
+            scheduler: scheduler,
+            store: store,
+            paths: paths,
+            settings: settings,
+            clipboard: SystemClipboard(),
+            textRules: { await DictationTextRules.enabled(in: textRulesStore) }
+        )
+        self.textRules = TextRulesViewModel(store: textRulesStore)
+        let liveActivity = DictationLiveActivity(
+            modelName: settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2")
+        self.liveActivity = liveActivity
         self.library = LibraryViewModel(store: store, paths: paths)
         self.capture = CaptureViewModel(store: store)
         self.speechSettings = SpeechSettingsViewModel(
             speech: engines.speech, diarizer: engines.diarizer, settings: settings)
+        let dictation = self.dictation
+        dictation.onStateChange = { [weak liveActivity, weak dictation] state in
+            liveActivity?.update(for: state, recordedSeconds: dictation?.recordedSeconds ?? 0)
+        }
         let inbox = IncomingFileInbox.appDefault()
         self.inbox = inbox
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }
+
+    /// The process's one environment: the scene shows it, and the App Intents (Action Button, Control, Shortcuts) use
+    /// it even when they launched the app before any scene existed.
+    static let shared: AppLaunchState = make()
 
     /// Builds the environment in Application Support, or describes why it could not.
     static func make() -> AppLaunchState {
@@ -118,6 +157,8 @@ import Observation
                 "mark_interrupted_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
         }
         await pipeline.sweepOrphanedTemporaryAudio()
+        // A dictation recorded by a process that was killed before stopping becomes an interrupted row (never deleted).
+        await dictation.recoverOrphanedRecordings()
         ExportTempFiles.sweepStale()
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
@@ -152,7 +193,14 @@ import Observation
     /// Re-runs a failed, cancelled or interrupted row (a person's tap, so it also gets a background request titled
     /// after the row).
     func retry(_ id: UUID) {
-        let title = library.items.first { $0.id == id }?.displayTitle ?? "Transcription"
+        let item = library.items.first { $0.id == id }
+        if item?.sourceType == .dictation {
+            // A dictation's recording is already 16 kHz: the dictation final pass (no speaker labels), no clipboard.
+            let dictation = self.dictation
+            Task { await dictation.retry(transcriptionID: id) }
+            return
+        }
+        let title = item?.displayTitle ?? "Transcription"
         jobCenter.retry(id, title: title, pipeline: pipeline)
     }
 

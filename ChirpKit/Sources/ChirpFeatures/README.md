@@ -59,8 +59,26 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
-  `settingsValue`, which saves on every set.
+  `settingsValue`, which saves on every set — only the fields Settings edits, onto the freshest stored value, so the
+  dictation screen's "Polish after" (M2) is never overwritten by an older copy.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
+- `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
+  effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
+  done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
+  cancels nothing, Retry from `failed`.
+- `Dictation/DictationCoordinator.swift` (M2): the `@MainActor @Observable` dictation coordinator and view model.
+  Start checks the model and the microphone permission, records into `media/<id>/dictation.wav` through
+  `ChirpCore.AudioCapturing`, warms the model, and shows display-only live text from a `LiveSpeechSession` through
+  `LiveTranscriptStabilizer` (`committedText` / `tentativeText`), plus real levels and recorded seconds. Stop finishes
+  the recording, **finishes (cancels and drains) the live session**, inserts a `.processing` `dictation` row, runs
+  the final pass (`scheduler.run(.dictation)`, purpose `.dictation`), refines with `TextRefinement` (Clean when
+  "Polish after" is on, else the saved clean-up mode; custom words and snippets from `textRules`), saves, and copies
+  the text through `ClipboardWriting`. Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
+  under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
+  (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
+- `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
+  add (trimmed; a blank replacement is none), edit, on/off, delete, readable errors for empty fields and duplicates;
+  `DictationTextRules.enabled(in:)` reads the enabled lists for a dictation.
 - `SettingsStore.swift`: `SettingsStoring` and `UserDefaultsSettingsStore`, a JSON blob under
   `ichirp.transcriptionSettings` that falls back to the defaults when missing or unreadable.
 - `LanguageModelProviderStore.swift`: `LanguageModelProviderStoring` and `UserDefaultsLanguageModelProviderStore`
@@ -98,6 +116,11 @@ await pipeline.sweepOrphanedTemporaryAudio()
 jobs.onImportSettled = { url in inbox?.removeIfInside(url) } // inbox = IncomingFileInbox.appDefault()
 jobs.start(filesAt: pickedOrSharedURLs, pipeline: pipeline) // per user action
 LibraryViewModel(store: store, paths: paths)               // paths: delete removes media/<id>/ too
+let dictation = DictationCoordinator(                      // M2
+    capture: DictationRecorder(stream: microphone, session: audioSession),
+    speech: engines.speech, liveSessions: engines.speech, scheduler: scheduler, store: store, paths: paths,
+    settings: settings, clipboard: SystemClipboard(), textRules: { /* custom words + snippets */ })
+await dictation.recoverOrphanedRecordings()                // at launch, after the interrupted sweep
 ```
 
 ## What to know before editing
@@ -202,7 +225,7 @@ The M4 tests on their own: `swift test --package-path ChirpKit --filter
 `DeliverableServiceRoutingTests.testFullPrivacyMatrix` prints the 24-row routing matrix it checked.
 
 This runs the package build, the ChirpFeatures tests (pipeline, job center, Library/Capture, Transcript, Speech
-settings, `UserDefaultsSettingsStore`, and the store races: `FakeStore.holdNext(_:)` parks a store call at its entry
+settings, dictation coordinator and flow state machine, `UserDefaultsSettingsStore`, and the store races: `FakeStore.holdNext(_:)` parks a store call at its entry
 so a test can land another writer exactly there) and the strict lint. The tests use fakes for every protocol and suspend
 the fake engine with explicit signals, never sleeps. After touching cancellation, progress or observation, run
 them repeatedly:

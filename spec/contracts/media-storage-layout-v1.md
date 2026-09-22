@@ -11,6 +11,8 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 
 - `ChirpCore.AppPaths` (root, database URL, per-item media directory, relative/absolute mapping).
 - `FileTranscriptionPipeline.importFile` (copies the source) and `process` (writes and deletes the normalized WAV).
+- `DictationRecorder` (M2) writes `media/<id>/dictation.wav`; the dictation coordinator creates the folder, inserts
+  the row pointing at it, and removes the folder only when the person cancels (discard) the dictation.
 - `FileTranscriptionPipeline.sweepOrphanedTemporaryAudio()` at launch (deletes `normalized-16k.wav` left by a killed
   process; never a source file).
 - `ChirpStore.DatabaseManager` (the database file).
@@ -30,6 +32,7 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 └── media/
     └── <UUID>/                                AppPaths.mediaDirectory(for: id); <UUID> = id.uuidString
         ├── source.<ext>                       the imported file; <ext> is the original file's extension
+        ├── dictation.wav                      M2 (additive): a dictation recording, 16 kHz mono Float32 WAV
         └── normalized-16k.wav                 temporary decode for the engine (see below)
 ```
 
@@ -42,6 +45,11 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   temporary: nothing may depend on it, and cleanup may delete it at any time. The source file stays until the user
   deletes the transcript.
 - Deleting a transcript deletes exactly its `media/<UUID>/` folder and its row, nothing else.
+- `dictation.wav` (M2, additive) is the dictation's source: `mediaRelativePath` points at it, playback and Retry read
+  it, and it is written at 16 kHz already, so the file pipeline never has to normalize it for the final pass. It is
+  kept until the person deletes the transcript, unless they turned off "Keep dictation audio" (Settings → Capture),
+  in which case it is deleted right after a successful final pass and `mediaRelativePath` becomes nil. A dictation
+  the person cancels leaves no row and no folder. Recordings shorter than 0.3 s are rejected and their file removed.
 - `Documents/Inbox/` (outside the root) is where iOS copies a file another app opens in Parakeet (M1.5 "Open in").
   That copy is temporary, never referenced by a row, and deleted once its import settles
   (`IncomingFileInbox.removeIfInside`, which touches nothing outside that folder).
@@ -65,6 +73,8 @@ recoverable step.
   deleted, source kept), `testSweepDeletesOnlyOrphanedNormalizedAudio` (orphaned WAVs only).
 - `LibraryViewModelTests.testDeleteRemovesRowAndItsMediaFolder` (exactly the item's folder).
 - `IncomingFileInboxTests` (only files inside `Documents/Inbox/` are deleted; the imported copy stays).
+- `DictationRecorderTests` (the WAV's format and duration; a too-short recording and a cancelled one leave no file)
+  and `DictationCoordinatorTests` (cancel leaves no row or folder; failure keeps the audio; the keep-audio setting).
 
 ## When this changes
 

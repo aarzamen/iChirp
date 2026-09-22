@@ -110,17 +110,21 @@ final class AppScreenLogicTests: XCTestCase {
     }
 
     func testPlaceholdersNameTheirMilestones() {
-        XCTAssertTrue(Placeholder.dictation.summary.hasPrefix("Press the Action Button, or tap to go hands-free."))
-        XCTAssertFalse(Placeholder.dictation.summary.contains("Hold"))
-        XCTAssertEqual(Placeholder.dictation.badge, "Not built yet — milestone M2")
+        XCTAssertEqual(Placeholder.pasteLink.badge, "Not built yet — milestone M5")
         XCTAssertEqual(Placeholder.pasteLink.milestone, "M5")
         XCTAssertEqual(Placeholder.recordMeeting.milestone, "M3")
         XCTAssertEqual(Placeholder.notes.milestone, "M3")
         XCTAssertEqual(Placeholder.ask.milestone, "M4")
         XCTAssertEqual(Placeholder.transform.milestone, "M4")
         XCTAssertEqual(Placeholder.cloudModels.milestone, "M4")
-        XCTAssertEqual(Placeholder.dictationTrigger.milestone, "M2")
-        XCTAssertEqual(Placeholder.backTap.milestone, "M2")
+    }
+
+    /// M2: a dictation row being finalized says "Transcribing" (it never queues); a file still says it waits.
+    func testProcessingDictationRowSaysTranscribing() {
+        let dictation = Transcription(sourceType: .dictation, fileName: "Dictation.wav", status: .processing)
+        let file = Transcription(sourceType: .file, fileName: "Memo.m4a", status: .processing)
+        XCTAssertEqual(Formatting.statusLine(for: dictation, progress: nil), "Transcribing")
+        XCTAssertEqual(Formatting.statusLine(for: file, progress: nil), "Waiting to start")
     }
 
     func testTransformsListMatchesTheCanvasSet() {

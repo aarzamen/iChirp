@@ -10,7 +10,9 @@
 `DatabaseManager` — owns the GRDB `DatabaseWriter` (a `DatabasePool` on disk,
 a `DatabaseQueue` in memory) and runs migrations on init. `GRDBTranscriptionStore`
 takes a `DatabaseManager` and is the only `ChirpCore.TranscriptionStoring`
-conformer in this package.
+conformer in this package. `GRDBTextRulesStore` (M2) is the
+`ChirpText.TextRulesStoring` conformer (custom words and snippets); this is why
+ChirpStore depends on ChirpText.
 
 ## What's here
 
@@ -18,7 +20,8 @@ conformer in this package.
   `DatabasePool`, `inMemory()` for tests) and the migrator. The single source
   of truth for the schema: `v1-transcriptions`, then `v2-audio-track-ordinal` (M1.5: one nullable integer column,
   `audioTrackOrdinal`; NULL is automatic track selection, so every earlier row reads unchanged), then
-  `v3-language-models` (M4).
+  `v3-language-models` (M4), then `v4-dictation-text` (M2: the `custom_words` and `text_snippets` tables with
+  upstream's columns and unique `COLLATE NOCASE` indexes on `word` and `"trigger"`).
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
@@ -45,6 +48,10 @@ conformer in this package.
   edit or delete wins), user templates and versions, soft delete, deliverables
   (insert, list, field-level text edit, raise-only privacy class), and the run
   ledger.
+- `GRDBTextRulesStore.swift` (M2) — custom words and snippets: sorted
+  case-insensitively, `save` inserts or replaces by id, a unique-index
+  violation becomes `TextRulesStoreError.duplicate`, deletes by id set. Private
+  `CustomWordRecord` / `TextSnippetRecord` mirror the ChirpText models.
 
 ## What to know before editing
 

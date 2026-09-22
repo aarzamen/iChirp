@@ -16,9 +16,13 @@ targets:
     sources:
       - path: App/Sources
       - path: App/Resources
+      # M2: the Live Activity attributes and App Intents shared with the widget extension.
+      - path: App/Shared
     dependencies:
       - package: ChirpKit
         products: [ChirpCore, ChirpText, ChirpExport, ChirpStore, ChirpAudio, ChirpEngineFluidAudio, ChirpFeatures, ChirpUI]
+      # M2: the widget extension (Live Activity + Control), embedded in the app.
+      - target: iChirpWidgets
     info:
       path: App/Info.plist
       properties:
@@ -44,10 +48,17 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.movie]
         # M1.5 Step 2: BGContinuedProcessingTask identifiers, <bundle id>.<kind>.<UUID> (wildcard suffix, iOS 26).
-        # No UIBackgroundModes and no entitlement: CPU/Neural Engine work needs neither; only background GPU would.
+        # No entitlement: CPU/Neural Engine work needs none; only background GPU would.
         BGTaskSchedulerPermittedIdentifiers:
           - $(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*
           - $(PRODUCT_BUNDLE_IDENTIFIER).download.*
+        # M2: dictation records the microphone on this iPhone only (never uploaded).
+        # M2 Step 8: a dictation keeps recording when the person locks the phone or switches apps. It must start in
+        # the foreground (iOS rule); the Action Button and Controls bring Parakeet forward to start it.
+        UIBackgroundModes: [audio]
+        # M2: the dictation Live Activity (Lock Screen and Dynamic Island), started by the app while recording.
+        NSSupportsLiveActivities: true
+        NSMicrophoneUsageDescription: Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"
@@ -57,6 +68,39 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     postBuildScripts:
+      - name: Stamp Build Identity
+        script: "\"${SRCROOT}/scripts/stamp_build_identity.sh\""
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
+  # M2 widget extension: the dictation Live Activity and the Dictate Control. A plain bundle id with no capabilities,
+  # entitlements or App Group (the app starts and updates the activity itself).
+  iChirpWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: App/Shared
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Parakeet
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        ChirpGitCommit: unknown
+        ChirpGitBranch: unknown
+        ChirpGitDirty: "0"
+        ChirpBuildDateUTC: unknown
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(inherited).widgets
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SKIP_INSTALL: YES
+    postBuildScripts:
+      # Same stamp as the app, so the extension's CFBundleVersion matches its parent's (App Store rule).
       - name: Stamp Build Identity
         script: "\"${SRCROOT}/scripts/stamp_build_identity.sh\""
         basedOnDependencyAnalysis: false

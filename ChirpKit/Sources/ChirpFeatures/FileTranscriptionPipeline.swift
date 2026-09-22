@@ -94,7 +94,7 @@ public actor FileTranscriptionPipeline {
     private let scheduler: SpeechJobScheduler
     private let settings: any SettingsStoring
     private let privacyRouting: PrivacyRoutingPolicy
-    private let customWords: @Sendable () -> [CustomWord]
+    private let customWords: @Sendable () async -> [CustomWord]
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private let logger = Log.logger("pipeline")
     /// Ids with a `process` in flight; a second `process` for the same id is refused so two runs never share
@@ -108,7 +108,8 @@ public actor FileTranscriptionPipeline {
     /// - Parameters:
     ///   - privacyRouting: which engine localities may process each privacy class. The default trusts no
     ///     local-network host.
-    ///   - customWords: read once per job, only when the clean-up mode is `.clean`.
+    ///   - customWords: read once per job, only when the clean-up mode is `.clean` (M2: the app reads the enabled words
+    ///     from `TextRulesStoring`).
     ///   - onProgress: called from this actor and from engine callbacks, on no particular thread. UI owners hop
     ///     to their actor (see `TranscriptionJobCenter.progressHandler`).
     ///   - trackProbe: lists a file's audio tracks so a multi-track file can ask for a choice before import (M1.5).
@@ -123,7 +124,7 @@ public actor FileTranscriptionPipeline {
         scheduler: SpeechJobScheduler,
         settings: any SettingsStoring,
         privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
-        customWords: @escaping @Sendable () -> [CustomWord] = { [] },
+        customWords: @escaping @Sendable () async -> [CustomWord] = { [] },
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
         self.paths = paths
@@ -412,7 +413,8 @@ public actor FileTranscriptionPipeline {
         try Task.checkCancellation()
 
         apply(output, to: &transcription, audioDurationMs: normalized.durationMs)
-        complete(&transcription, settings: settingsValue)
+        let words = settingsValue.cleanupMode == .clean ? await customWords() : []
+        complete(&transcription, settings: settingsValue, customWords: words)
         return transcription
     }
 
@@ -556,9 +558,10 @@ public actor FileTranscriptionPipeline {
     }
 
     /// Clean-up, derived title and snippet, durable segments (port of upstream `completeTranscription` for files).
-    private func complete(_ transcription: inout Transcription, settings: TranscriptionSettings) {
+    private func complete(
+        _ transcription: inout Transcription, settings: TranscriptionSettings, customWords words: [CustomWord]
+    ) {
         let rawText = transcription.rawTranscript ?? ""
-        let words = settings.cleanupMode == .clean ? customWords() : []
         transcription.cleanTranscript = TextRefinement().refine(
             rawText: rawText,
             mode: settings.cleanupMode,

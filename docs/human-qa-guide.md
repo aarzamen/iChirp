@@ -114,6 +114,68 @@ Guardrails and regression
 Screenshots to attach
 - [ ] The Lock Screen Live Activity mid-job; the audio-track sheet; the completed long row.
 
+## M2 checklist (dictation)
+
+> Preconditions: the iPhone 17 Pro runs the `m2/dictation` build (Settings → About shows its commit; install with
+> `scripts/run_device.sh`); the speech model is downloaded; Console.app streams the phone with the filter
+> `subsystem:com.aarzamen.ichirp`. Use throwaway, non-clinical sentences only (never dictate PHI while testing).
+
+Dictating screen
+- [ ] Capture → tap **Dictate**. First time only: iOS asks for the microphone; Allow. The night screen shows
+      "DICTATING", "Parakeet v3 · on device", a moving waveform and a timer that counts up.
+- [ ] Speak for about 20 seconds. Within about 2 seconds the words appear; the last few are dimmer and may change,
+      the earlier ones never jump around.
+- [ ] Tap **Stop & copy**: "FINISHING", then "COPIED" with the final text (it may differ from the live preview —
+      that is expected: the copied text is the more accurate final pass). Open Notes and paste: the pasted text is
+      exactly the text shown under "Copied to your clipboard".
+- [ ] Tap Done: Capture's Recent shows a Dictation row ("Dictation · 0:20 · time"); open it: the transcript and a
+      working player (the recording).
+- [ ] Polish after on: say "um, send the report, um, tomorrow" → the copied text has no "um". Polish after off:
+      the copied text is Parakeet's raw text. The toggle is remembered next time.
+- [ ] Settings → Text → Custom words & snippets → Add word "kubernetes", replacement "Kubernetes"; add snippet
+      "my sign off" → "Best, Aaron". Dictate "kubernetes is up, my sign off" with Polish after on: both apply.
+- [ ] Tap Dictate and immediately Stop & copy (under half a second): "That was too short to transcribe…", no Recent
+      row.
+- [ ] Dictate a few seconds of silence, Stop & copy: "Didn’t catch that — no speech was recognized." with Retry; the
+      Library row is Failed and keeps its audio.
+- [ ] Cancel while recording: the screen closes, no Recent row appears.
+- [ ] Airplane mode on: dictation still works end to end (nothing uses the network).
+
+Action Button, Control, Live Activity (Step 7)
+- [ ] Settings app → Action Button → Controls → Choose a Control → Parakeet → Dictate. From the Home Screen, press
+      the Action Button: Parakeet opens on the Dictating screen and records; the Dynamic Island shows the red waveform
+      and a running time.
+- [ ] Open Notes, press the Action Button (Parakeet opens and records), speak, press it again: "Copied"; switch back
+      to Notes and paste.
+- [ ] Lock the phone, press the Action Button: note whether it records from the Lock Screen (it may ask to unlock
+      first — iOS opens the app). Record the behavior in the plan's Step 7 notes.
+- [ ] While recording, go Home, long-press the Dynamic Island: "Dictating", time, **Stop & copy**. Tap it: the island
+      shows "Copied" for a few seconds, and the text is on the clipboard (paste in Notes).
+- [ ] The Lock Screen shows the same Live Activity while recording, with Stop & copy.
+- [ ] Settings → Action Button → Shortcut → Parakeet → Dictate works the same way. Siri: "Dictate with Parakeet".
+- [ ] Back Tap: Accessibility → Touch → Back Tap → Double Tap → Dictate (Parakeet); double-tap the back to start and
+      again to stop.
+- [ ] Control Center → add the Parakeet "Dictate" control; tap it to start and again to stop.
+
+Interruptions and routes (the recording must never be lost)
+- [ ] Dictate, then call the phone from another phone: the screen says "Paused — a call…"; decline the call. Either
+      it resumes by itself, or it shows **Resume**; tap it and keep talking. Stop & copy: the text has both halves.
+- [ ] Dictate, answer a call, hang up, then Stop & copy: the audio before the call is transcribed and kept.
+- [ ] Dictate with the phone's microphone, then put in AirPods mid-sentence: recording continues (Console shows
+      `engine_rebuilt reason=configuration_change`), and the text after the switch is present.
+- [ ] Take AirPods out mid-dictation: recording continues on the phone's microphone.
+- [ ] Play a transcript in the Library, then start a dictation (Action Button): playback pauses and does not
+      resume by itself; the dictation records normally.
+- [ ] Force-quit Parakeet while dictating, reopen: the Library shows an Interrupted dictation with Retry (its audio
+      was kept); Retry transcribes what was recorded, or fails readably if the file was cut off.
+
+Background (Step 8 research note)
+- [ ] Start dictating, lock the phone, speak for 20 seconds, unlock, Stop & copy: the audio from while it was
+      locked is in the text (`UIBackgroundModes: audio` keeps recording).
+- [ ] Start dictating, press Stop & copy and lock the phone at once: note whether the final pass finishes while
+      locked (Console `dictation_done`) and how long it took. Record the result in
+      `docs/research/2026-09-22-m2-background-final-pass.md`.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

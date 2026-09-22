@@ -118,7 +118,8 @@ enum Formatting {
         case .completed:
             return nil
         case .processing:
-            return progress.map(Self.progress) ?? "Waiting to start"
+            // A dictation's final pass starts the moment it stops (it has no queued stage).
+            return progress.map(Self.progress) ?? (item.sourceType == .dictation ? "Transcribing" : "Waiting to start")
         case .failed:
             let message = item.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return message.isEmpty ? "Transcription failed" : message

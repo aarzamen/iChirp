@@ -12,6 +12,8 @@ Application Support/iChirp/
 ├── ichirp.sqlite                 GRDB database (WAL mode, so also -wal and -shm files)
 └── media/<transcription uuid>/
     ├── source.<ext>              the imported file, copied in; kept for playback
+    ├── dictation.wav             M2: a dictation's recording (16 kHz mono Float32); kept unless the person turned
+    │                             off "Keep dictation audio"
     └── normalized-16k.wav        temporary decode for the engine; deleted when the job finishes
 ```
 
@@ -86,18 +88,23 @@ import ──► processing ──► completed
   `cancelled` or `interrupted` rows back to `processing`.
 - Deleting a transcript is a user action with a confirmation, and removes its `media/<id>/` folder too.
 
-## `custom_words` (model now, table with its editor)
+## `custom_words` and `text_snippets` (migration `v4-dictation-text`, M2)
 
-The `CustomWord` model is ported into ChirpText in M1 with upstream's fields (a word or phrase, an optional
-replacement, an enabled flag), and the clean-up pipeline already accepts a list of them
-([`07-text-processing.md`](07-text-processing.md)). In M1 that list is empty. The `custom_words` table, its store and
-the Settings editor arrive together, as one migration, with the first milestone that lets the user edit words (M2).
+Upstream's tables and columns, in one migration (the parallel M4 lane owns `v3-language-models`):
+
+- `custom_words`: `id`, `word`, `replacement` (nullable), `source` (`manual` · `learned`), `isEnabled`, `createdAt`,
+  `updatedAt`; unique on `word COLLATE NOCASE`.
+- `text_snippets`: `id`, `trigger`, `expansion`, `isEnabled`, `useCount`, `action` (nullable, `return`),
+  `createdAt`, `updatedAt`; unique on `"trigger" COLLATE NOCASE`.
+
+`ChirpStore.GRDBTextRulesStore` implements `ChirpText.TextRulesStoring`; the Settings → Text editor
+(`TextRulesViewModel`) edits them. Clean reads the enabled ones: the file pipeline's `customWords` closure and the
+dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processing.md)).
 
 ## Planned tables (each lands with its milestone, as a new migration)
 
 | Milestone | Table or change | Purpose |
 |---|---|---|
-| M2 | `text_snippets` | Trigger phrase → expansion, as upstream |
 | M3 | meeting columns (`userNotes`, audio retention) | Meeting notes and retention |
 | M4 | `prompts`, `prompt_versions`, `deliverables`, `llm_runs` | Templates, generated documents, a metadata-only run ledger (never content) |
 | M5 | source metadata columns | Link, podcast and document provenance |

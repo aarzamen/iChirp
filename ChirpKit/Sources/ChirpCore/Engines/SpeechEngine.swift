@@ -1,12 +1,24 @@
 import Foundation
 
+/// What a transcription is for. Engines may tune for it; the result's shape never changes.
+public enum SpeechTranscriptionPurpose: String, Sendable, Equatable {
+    /// An imported file or a meeting: any length.
+    case file
+    /// A dictation's final pass (M2): usually a short clip that ends right after the last word. Parakeet appends
+    /// 0.5 s of silence to a clip that fits one model window so the last word is not clipped (upstream STTRuntime).
+    case dictation
+}
+
 /// Per-call options for `SpeechEngine.transcribe`.
 public struct SpeechTranscriptionOptions: Sendable, Equatable {
     /// BCP-47 hint; nil lets the engine detect the language.
     public var languageHint: String?
+    /// Added in M2 (additive; defaults to `.file`).
+    public var purpose: SpeechTranscriptionPurpose
 
-    public init(languageHint: String? = nil) {
+    public init(languageHint: String? = nil, purpose: SpeechTranscriptionPurpose = .file) {
         self.languageHint = languageHint
+        self.purpose = purpose
     }
 }
 

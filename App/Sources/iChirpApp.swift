@@ -3,7 +3,7 @@ import SwiftUI
 
 @main
 struct iChirpApp: App {
-    @State private var launchState = AppEnvironment.make()
+    @State private var launchState = AppEnvironment.shared
 
     var body: some Scene {
         WindowGroup {

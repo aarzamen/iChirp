@@ -115,4 +115,77 @@ final class SpeechJobSchedulerTests: XCTestCase {
         XCTAssertEqual(SpeechJobKind.fileTranscription.priorityRank, 2)
         XCTAssertEqual(SpeechJobKind.allCases.filter(\.usesInteractiveSlot), [.dictation])
     }
+
+    // MARK: - M2 carried item: a cancel racing a slot grant
+
+    /// Releases a held job and cancels the next one in both orders, many times. Whatever wins, the waiting job either
+    /// throws `CancellationError` without running or runs exactly once, and the slot is never leaked: a later job
+    /// always gets it and nothing stays pending.
+    func testCancelRacingASlotGrantNeverLeaksTheSlot() async throws {
+        let scheduler = SpeechJobScheduler()
+        for iteration in 0..<200 {
+            let release = AsyncStream<Void>.makeStream()
+            let holderStarted = AsyncStream<Void>.makeStream()
+            let holder = Task {
+                try await scheduler.run(.dictation) {
+                    holderStarted.continuation.yield()
+                    for await _ in release.stream { break }
+                }
+            }
+            for await _ in holderStarted.stream { break }
+            let ran = Log()
+            let waiter = Task { try await scheduler.run(.dictation) { await ran.add("ran") } }
+            while await scheduler.pendingCount() == 0 { await Task.yield() }
+
+            if iteration.isMultiple(of: 2) {
+                waiter.cancel()
+                release.continuation.yield()
+            } else {
+                release.continuation.yield()
+                waiter.cancel()
+            }
+            try await holder.value
+            let outcome = await waiter.result
+            let runs = await ran.items.count
+            switch outcome {
+            case .success:
+                XCTAssertEqual(runs, 1, "iteration \(iteration)")
+            case .failure(let error):
+                XCTAssertTrue(error is CancellationError, "iteration \(iteration): \(error)")
+                XCTAssertEqual(runs, 0, "a cancelled waiter never runs, iteration \(iteration)")
+            }
+            let next = try await scheduler.run(.dictation) { "free" }
+            XCTAssertEqual(next, "free")
+            let pending = await scheduler.pendingCount()
+            XCTAssertEqual(pending, 0)
+        }
+    }
+
+    /// A job cancelled after it was granted the slot but before its task resumed gives the slot back without running.
+    func testGrantedButAlreadyCancelledJobReleasesTheSlotForTheNextWaiter() async throws {
+        let scheduler = SpeechJobScheduler()
+        let release = AsyncStream<Void>.makeStream()
+        let holderStarted = AsyncStream<Void>.makeStream()
+        let holder = Task {
+            try await scheduler.run(.fileTranscription) {
+                holderStarted.continuation.yield()
+                for await _ in release.stream { break }
+            }
+        }
+        for await _ in holderStarted.stream { break }
+        let ran = Log()
+        let cancelled = Task { try await scheduler.run(.fileTranscription) { await ran.add("cancelled-job") } }
+        while await scheduler.pendingCount() < 1 { await Task.yield() }
+        let third = Task { try await scheduler.run(.fileTranscription) { await ran.add("third") } }
+        while await scheduler.pendingCount() < 2 { await Task.yield() }
+
+        cancelled.cancel()
+        release.continuation.yield()
+        try await holder.value
+        _ = await cancelled.result
+        try await third.value
+        let items = await ran.items
+        XCTAssertTrue(items.contains("third"), "the next waiter got the slot")
+        XCTAssertLessThanOrEqual(items.filter { $0 == "cancelled-job" }.count, 1)
+    }
 }

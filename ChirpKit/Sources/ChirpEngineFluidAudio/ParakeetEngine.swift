@@ -1,6 +1,8 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/STT/STTRuntime.swift @ bbae9e0e
 // Parakeet TDT download (~L1875), load (~L2330: one AsrManager per concurrent job over shared read-only models) and
-// file transcription (~L700–L760) as one ChirpCore engine; models load from local files only.
+// file transcription (~L700–L760) as one ChirpCore engine; models load from local files only. M2 adds the dictation
+// trailing-silence pad (~L660–L830, `paddedDictationSamples`) and the tail-window preview's in-memory pass
+// (`transcribeParakeetPreview`, ~L1223).
 
 import AVFoundation
 import ChirpCore
@@ -11,6 +13,9 @@ import Foundation
 protocol ParakeetWorker: Actor {
     var transcriptionProgressStream: AsyncThrowingStream<Double, any Error> { get async }
     func transcribe(_ url: URL, decoderState: inout TdtDecoderState, language: Language?) async throws -> ASRResult
+    /// 16 kHz mono samples held in memory (the live preview window, a padded short dictation).
+    func transcribe(_ samples: [Float], decoderState: inout TdtDecoderState, language: Language?) async throws
+        -> ASRResult
     func cleanup()
 }
 
@@ -169,11 +174,19 @@ public actor ParakeetEngine: SpeechEngine {
         options: SpeechTranscriptionOptions,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
+        // A short dictation is decoded into memory and padded with 0.5 s of silence (upstream issue #562), so the
+        // decoder emits a last word that lands right on the end of the recording. Long clips keep the URL path.
+        let input: ParakeetInput
+        if options.purpose == .dictation, let padded = await Self.paddedDictationSamples(of: url) {
+            input = .samples(padded)
+        } else {
+            input = .file(url)
+        }
         let lease = try await lifecycle.acquire()
         let worker = checkOutWorker(for: lease)
         do {
             let result = try await transcribe(
-                url, with: worker, decoderLayers: lease.runtime.decoderLayerCount, options: options,
+                input, with: worker, decoderLayers: lease.runtime.decoderLayerCount, options: options,
                 progress: progress)
             checkIn(worker, for: lease)
             await lifecycle.release(lease)
@@ -187,15 +200,24 @@ public actor ParakeetEngine: SpeechEngine {
         }
     }
 
+    /// What one inference reads: a file (disk-backed chunking for long audio) or samples already in memory.
+    enum ParakeetInput: Sendable {
+        case file(URL)
+        case samples([Float])
+    }
+
     private func transcribe(
-        _ url: URL,
+        _ input: ParakeetInput,
         with worker: any ParakeetWorker,
         decoderLayers: Int,
         options: SpeechTranscriptionOptions,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
         progress(0)
-        let progressTask = await Self.forwardChunkProgress(of: worker, for: url, to: progress)
+        var progressTask: Task<Void, Never>?
+        if case .file(let url) = input {
+            progressTask = await Self.forwardChunkProgress(of: worker, for: url, to: progress)
+        }
         defer { progressTask?.cancel() }
 
         try Task.checkCancellation()
@@ -203,7 +225,12 @@ public actor ParakeetEngine: SpeechEngine {
         let language = Self.fluidAudioLanguage(forHint: options.languageHint, variant: variant)
         // Gate only the CoreML inference call; model loading and progress plumbing stay outside it.
         let result = try await gate.withExclusiveAccess {
-            try await worker.transcribe(url, decoderState: &decoderState, language: language)
+            switch input {
+            case .file(let url):
+                try await worker.transcribe(url, decoderState: &decoderState, language: language)
+            case .samples(let samples):
+                try await worker.transcribe(samples, decoderState: &decoderState, language: language)
+            }
         }
         try Task.checkCancellation()
 
@@ -223,6 +250,56 @@ public actor ParakeetEngine: SpeechEngine {
             engineID: Self.engineID,
             engineVariant: variant.rawValue
         )
+    }
+
+    // MARK: - Live preview (M2)
+
+    /// One preview pass: the window's text, or "" when nothing was recognized. Same lease and worker pool as a file
+    /// job; no progress, no word timings. Display-only (spec/contracts/speech-engine-plugin-v1.md).
+    func transcribePreview(_ window: [Float], options: SpeechTranscriptionOptions) async throws -> String {
+        let lease = try await lifecycle.acquire()
+        let worker = checkOutWorker(for: lease)
+        do {
+            try Task.checkCancellation()
+            var decoderState = TdtDecoderState.make(decoderLayers: lease.runtime.decoderLayerCount)
+            let language = Self.fluidAudioLanguage(forHint: options.languageHint, variant: variant)
+            let result = try await gate.withExclusiveAccess {
+                try await worker.transcribe(window, decoderState: &decoderState, language: language)
+            }
+            checkIn(worker, for: lease)
+            await lifecycle.release(lease)
+            return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            await lifecycle.release(lease)
+            throw SpeechEngineError.mapping(error)
+        }
+    }
+
+    // MARK: - Dictation pad (M2)
+
+    /// Trailing silence appended to a short dictation before its final pass (upstream
+    /// `STTRuntime.dictationTrailingSilenceSeconds`).
+    static let dictationTrailingSilenceSeconds = 0.5
+
+    /// The recording's samples plus 0.5 s of silence when the **padded** clip still fits one model window; nil
+    /// (keep the disk-backed URL path) for a long, empty or unreadable file, or one not at 16 kHz mono. The length
+    /// is checked before reading, so a long file is never loaded into memory. `@concurrent`: file reading stays off
+    /// the engine actor.
+    @concurrent
+    static func paddedDictationSamples(of url: URL) async -> [Float]? {
+        let padCount = Int(dictationTrailingSilenceSeconds * Double(ASRConstants.sampleRate))
+        guard let file = try? AVAudioFile(forReading: url),
+            file.processingFormat.sampleRate == Double(ASRConstants.sampleRate),
+            file.processingFormat.channelCount == 1,
+            file.length > 0, file.length + Int64(padCount) <= Int64(ASRConstants.maxModelSamples),
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
+            (try? file.read(into: buffer)) != nil,
+            let data = buffer.floatChannelData?[0], buffer.frameLength > 0
+        else { return nil }
+        var samples = Array(UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
+        samples.append(contentsOf: repeatElement(0, count: padCount))
+        return samples
     }
 
     // MARK: - Worker pool
@@ -282,5 +359,22 @@ public actor ParakeetEngine: SpeechEngine {
         guard variant == .v3, let hint else { return nil }
         guard let primary = hint.split(whereSeparator: { $0 == "-" || $0 == "_" }).first else { return nil }
         return Language(rawValue: primary.lowercased())
+    }
+}
+
+// MARK: - LiveSpeechSessionProviding (M2)
+
+extension ParakeetEngine: LiveSpeechSessionProviding {
+    /// A tail-window preview (every ~1 s over the last 15 s), or nil when the model is not on disk. Never downloads.
+    public func makeLiveSession(
+        scheduler: SpeechJobScheduler, options: SpeechTranscriptionOptions
+    ) async -> (any LiveSpeechSession)? {
+        guard case .ready = await assetStatus() else { return nil }
+        let session = TailWindowPreviewSession(scheduler: scheduler) { [weak self] window in
+            guard let self else { return "" }
+            return try await self.transcribePreview(window, options: options)
+        }
+        await session.startTicking()
+        return session
     }
 }

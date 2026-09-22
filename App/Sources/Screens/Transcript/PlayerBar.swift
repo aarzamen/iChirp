@@ -1,4 +1,5 @@
 import AVFoundation
+import ChirpAudio
 import ChirpCore
 import ChirpUI
 import Observation
@@ -6,6 +7,10 @@ import SwiftUI
 
 /// Plays a transcript's source media with `AVAudioPlayer`: play/pause, seek, and speed 1× → 1.5× → 2× → 0.75×.
 /// The time readout polls the player while it plays; it never invents progress.
+///
+/// The audio session goes through the app's one `AudioSessionController` (never `AVAudioSession` directly), so a
+/// dictation that starts pauses playback instead of fighting it. It pauses (and stays paused) on an interruption and
+/// when headphones are unplugged, as Apple's playback guidelines ask.
 @MainActor @Observable final class AudioPlayerModel {
     static let rates: [Float] = [1, 1.5, 2, 0.75]
 
@@ -19,7 +24,31 @@ import SwiftUI
     @ObservationIgnored private var loadedURL: URL?
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var sessionActive = false
+    @ObservationIgnored private let session: AudioSessionController
+    @ObservationIgnored private var sessionObserver: AudioSessionController.ObserverToken?
     @ObservationIgnored private let logger = Log.logger("player")
+
+    init(session: AudioSessionController) {
+        self.session = session
+        sessionObserver = session.observe(.playback) { [weak self] event in
+            Task { @MainActor in self?.handle(event) }
+        }
+    }
+
+    isolated deinit {
+        if let sessionObserver { session.removeObserver(sessionObserver) }
+    }
+
+    private func handle(_ event: AudioSessionEvent) {
+        switch event {
+        case .interruptionBegan, .routeChanged(.oldDeviceUnavailable), .mediaServicesLost, .mediaServicesReset:
+            if isPlaying { pause() }
+            if event == .mediaServicesReset || event == .interruptionBegan { sessionActive = false }
+        case .interruptionEnded, .routeChanged:
+            // Never auto-resume: the person presses play again.
+            break
+        }
+    }
 
     /// Opens `url` (nil hides the player). Re-opening the same file keeps the position.
     func load(_ url: URL?) {
@@ -52,8 +81,7 @@ import SwiftUI
     }
 
     func play() {
-        guard let player else { return }
-        activateSession()
+        guard let player, activateSession() else { return }
         if player.currentTime >= player.duration - 0.05 {
             player.currentTime = 0
         }
@@ -119,22 +147,22 @@ import SwiftUI
         }
     }
 
-    private func activateSession() {
-        guard !sessionActive else { return }
+    /// False when the session could not be had (for example while dictating); `play()` then does nothing.
+    private func activateSession() -> Bool {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio)
-            try session.setActive(true)
+            try session.reactivate(for: .playback)
             sessionActive = true
+            return true
         } catch {
             logger.error("session_activate_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
+            return false
         }
     }
 
     private func deactivateSession() {
         guard sessionActive else { return }
         sessionActive = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        session.deactivate(for: .playback)
     }
 }
 

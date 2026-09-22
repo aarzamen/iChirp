@@ -183,7 +183,8 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
     // MARK: - Runtime
 
     /// Loads the runtime for the current generation from local files. Idempotent; concurrent callers share one
-    /// load.
+    /// load. A caller cancelled while the load runs stops waiting at once (`CancellationError`); the load itself
+    /// continues for the other callers and the next `prepare`.
     func prepare() async throws {
         let startGeneration = generation
         if isLoaded { return }
@@ -208,8 +209,10 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
             loadJob = job
         }
         do {
-            _ = try await job.task.value
+            // Cancellable for this caller only: a cancelled job stops waiting at once, the load goes on for others.
+            _ = try await awaitSharedTask(job.task)
         } catch {
+            if error is CancellationError { throw error }
             if error is StaleLoad || generation != startGeneration {
                 throw SpeechEngineError.modelNotDownloaded(hooks.engineID)
             }

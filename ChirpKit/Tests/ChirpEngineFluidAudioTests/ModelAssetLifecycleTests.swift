@@ -183,6 +183,30 @@ final class ModelAssetLifecycleTests: XCTestCase {
         XCTAssertEqual(assets.loadCount, 1)
     }
 
+    /// M2 carried item: a job cancelled while it waits on a model load someone else started stops waiting at once
+    /// (it does not appear to hang until the load ends); the load itself continues for the other callers.
+    func testACancelledWaiterStopsWaitingWhileTheSharedLoadContinues() async throws {
+        let assets = FakeAssets(present: true, loadBlocks: true)
+        let lifecycle = ModelAssetLifecycle(hooks: assets.hooks(), network: .testing())
+        let first = Task { try await lifecycle.prepare() }
+        let cancelled = Task { try await lifecycle.prepare() }
+        await waitUntil { assets.loadCount == 1 }
+
+        cancelled.cancel()
+        do {
+            try await cancelled.value
+            XCTFail("the cancelled waiter must not wait for the load")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        XCTAssertFalse(assets.events.contains("load-end"), "returned while the load was still running")
+
+        await assets.loadLatch.open()
+        try await first.value
+        try await lifecycle.prepare()
+        XCTAssertEqual(assets.loadCount, 1, "the load was shared and not restarted")
+    }
+
     // MARK: - Network: retries, offline, readable failures
 
     /// A download hook that plays back one outcome per attempt (nil succeeds and makes the files present), reporting
