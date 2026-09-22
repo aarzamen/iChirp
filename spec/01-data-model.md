@@ -74,7 +74,12 @@ import ──► processing ──► completed
 ```
 
 - `savePreservingUserMetadata` writes pipeline output in one transaction while keeping `titleOverride` and
-  `isFavorite` that the user changed while the job ran (port of upstream's method of the same name).
+  `isFavorite` that the user changed while the job ran (port of upstream's method of the same name). It never
+  inserts: a row deleted during its job stays deleted.
+- Every other write that can race a job is field-level and atomic (`updateTitleOverride`, `updateFavorite`,
+  `transitionStatus(from:to:)`): one transaction reads the current row and changes only those fields, so a rename,
+  a star or a failure mark can never overwrite a transcript that landed meanwhile. Retry moves only `failed`,
+  `cancelled` or `interrupted` rows back to `processing`.
 - Deleting a transcript is a user action with a confirmation, and removes its `media/<id>/` folder too.
 
 ## `custom_words` (model now, table with its editor)

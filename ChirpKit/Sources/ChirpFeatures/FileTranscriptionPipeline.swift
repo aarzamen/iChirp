@@ -47,6 +47,8 @@ public actor FileTranscriptionPipeline {
     /// The error shown on a row when the speech model is missing.
     public static let modelMissingMessage = "Download the Parakeet speech model in Settings → Speech model"
     static let normalizedFileName = "normalized-16k.wav"
+    /// The statuses `retry` accepts.
+    static let retryableStatuses: Set<Transcription.Status> = [.failed, .cancelled, .interrupted]
 
     /// Pipeline failures that are not engine errors.
     public enum PipelineError: Error, Equatable, LocalizedError {
@@ -108,7 +110,6 @@ public actor FileTranscriptionPipeline {
     /// and no row exists. A duration that cannot be read is not an error (`durationMs` stays nil until `process`).
     public func importFile(from url: URL, sourceType: Transcription.SourceType = .file) async throws -> UUID {
         let id = UUID()
-        onProgress(id, JobProgress(stage: .importing, fraction: 0.02))
         let directory = paths.mediaDirectory(for: id)
         let fileManager = FileManager.default
         let fileExtension = url.pathExtension
@@ -140,6 +141,8 @@ public actor FileTranscriptionPipeline {
                 status: .processing
             )
             try await store.insert(row)
+            // Reported only once the row exists, so a failed import never leaves a progress entry behind.
+            onProgress(id, JobProgress(stage: .importing, fraction: 0.02))
             logger.info("imported id=\(id, privacy: .public) ext=\(fileExtension, privacy: .public)")
             return id
         } catch {
@@ -167,8 +170,9 @@ public actor FileTranscriptionPipeline {
     /// refinement → derive title/snippet → savePreservingUserMetadata → delete normalized WAV. On error: status .failed + errorMessage.
     /// On cancellation: status .cancelled.
     ///
-    /// Returns the row as saved (`.completed`, `.failed` or `.cancelled`), or nil when there is no row (never
-    /// imported, or deleted by the user meanwhile — a deleted row is never recreated) or this id is already running.
+    /// Runs only for a `.processing` row; any other row is returned unchanged. Returns the row as saved (`.completed`,
+    /// `.failed` or `.cancelled`), or nil when there is no row (never imported, or deleted by the user meanwhile — a
+    /// deleted row is never recreated) or this id is already running.
     @discardableResult public func process(id: UUID) async -> Transcription? {
         guard !running.contains(id) else {
             logger.notice("process_ignored_already_running id=\(id, privacy: .public)")
@@ -180,6 +184,13 @@ public actor FileTranscriptionPipeline {
         guard let row = await storedRow(id) else {
             logger.error("process_missing_row id=\(id, privacy: .public)")
             return nil
+        }
+        // A job runs only for a `.processing` row (a fresh import, or one `retry` moved back to processing).
+        guard row.status == .processing else {
+            logger.notice(
+                "process_ignored_not_processing id=\(id, privacy: .public) status=\(row.status.rawValue, privacy: .public)"
+            )
+            return row
         }
         let normalizedURL = paths.mediaDirectory(for: id)
             .appendingPathComponent(Self.normalizedFileName, isDirectory: false)
@@ -202,20 +213,23 @@ public actor FileTranscriptionPipeline {
         }
     }
 
-    /// Resets the row to `.processing` (clearing its error) and runs `process(id:)` again from the stored source file.
-    /// Earlier transcript fields stay until the new run replaces them, so a failed retry loses nothing.
+    /// Moves a `.failed`, `.cancelled` or `.interrupted` row back to `.processing` (clearing its error) and runs
+    /// `process(id:)` again from the stored source file. Returns nil, changing nothing, for any other status or a
+    /// missing row. Earlier transcript fields stay until the new run replaces them, so a failed retry loses nothing.
     @discardableResult public func retry(id: UUID) async -> Transcription? {
         guard !running.contains(id) else {
             logger.notice("retry_ignored_already_running id=\(id, privacy: .public)")
             return nil
         }
-        guard var row = await storedRow(id) else { return nil }
-        row.status = .processing
-        row.errorMessage = nil
-        row.updatedAt = Date()
-        let reset = row
         do {
-            try await Self.detached { [store] in try await store.update(reset) }
+            let reset = try await Self.detached { [store] in
+                try await store.transitionStatus(
+                    id: id, from: Self.retryableStatuses, to: .processing, errorMessage: nil)
+            }
+            guard reset != nil else {
+                logger.notice("retry_refused id=\(id, privacy: .public) reason=missing_or_not_retryable")
+                return nil
+            }
         } catch {
             let reason = error.localizedDescription
             logger.error(
@@ -224,6 +238,36 @@ public actor FileTranscriptionPipeline {
             return nil
         }
         return await process(id: id)
+    }
+
+    // MARK: - Temporary audio
+
+    /// Deletes `media/<id>/normalized-16k.wav` for every id without a job running in this process: leftovers of a
+    /// process that was killed mid-job. Call at launch, next to `markStaleProcessingAsInterrupted()`. Source files and
+    /// folders whose name is not a transcription id are never touched. Returns how many files it deleted.
+    @discardableResult public func sweepOrphanedTemporaryAudio() async -> Int {
+        let mediaRoot = paths.root.appendingPathComponent("media", isDirectory: true)
+        let fileManager = FileManager.default
+        guard let names = try? fileManager.contentsOfDirectory(atPath: mediaRoot.path) else { return 0 }
+        var removed = 0
+        // No `await` below: `running` cannot change while the sweep runs on this actor.
+        for name in names {
+            guard let id = UUID(uuidString: name), !running.contains(id) else { continue }
+            let wav = mediaRoot.appendingPathComponent(name, isDirectory: true)
+                .appendingPathComponent(Self.normalizedFileName, isDirectory: false)
+            guard fileManager.fileExists(atPath: wav.path) else { continue }
+            do {
+                try fileManager.removeItem(at: wav)
+                removed += 1
+            } catch {
+                logger.error(
+                    "sweep_delete_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
+            }
+        }
+        if removed > 0 {
+            logger.notice("sweep_removed_orphaned_audio count=\(removed, privacy: .public)")
+        }
+        return removed
     }
 
     // MARK: - Stages
@@ -373,17 +417,15 @@ public actor FileTranscriptionPipeline {
 
     // MARK: - Persistence
 
-    /// Saves the completed row unless the user deleted it meanwhile. Runs outside the job's cancellation so a
-    /// finished transcript is never half-written.
+    /// Saves the completed row; the store keeps the user's rename and favorite and never re-inserts a row the user
+    /// deleted meanwhile (nil). Runs outside the job's cancellation so a finished transcript is never half-written.
     private func saveCompleted(_ transcription: Transcription) async throws -> Transcription? {
         let id = transcription.id
         let store = self.store
-        let saved: Transcription? = try await Self.detached {
-            guard try await store.fetch(id: id) != nil else { return nil }
-            return try await store.savePreservingUserMetadata(transcription)
-        }
+        let saved = try await Self.detached { try await store.savePreservingUserMetadata(transcription) }
         guard let saved else {
             logger.notice("process_row_deleted_during_job id=\(id, privacy: .public)")
+            removeMediaDirectoryIfEmpty(for: id)
             return nil
         }
         onProgress(id, JobProgress(stage: .finishing, fraction: 1))
@@ -391,9 +433,9 @@ public actor FileTranscriptionPipeline {
         return saved
     }
 
-    /// Writes a terminal `.failed` / `.cancelled` status onto the current stored row (keeping any rename or favorite
-    /// made during the job). Runs outside the job's cancellation, because the store refuses writes from a cancelled
-    /// task. Returns nil when the row no longer exists.
+    /// Moves the row from `.processing` to a terminal `.failed` / `.cancelled` status, changing only the status and
+    /// message (a rename or favorite made during the job stays). Runs outside the job's cancellation, because the store
+    /// refuses writes from a cancelled task. Returns the row as stored, or nil when it no longer exists.
     private func markEnded(
         _ id: UUID,
         fallback: Transcription,
@@ -402,14 +444,15 @@ public actor FileTranscriptionPipeline {
     ) async -> Transcription? {
         let store = self.store
         do {
-            return try await Self.detached {
-                guard var current = try await store.fetch(id: id) else { return nil }
-                current.status = status
-                current.errorMessage = message
-                current.updatedAt = Date()
-                try await store.update(current)
-                return current
+            if let ended = try await Self.detached({
+                try await store.transitionStatus(id: id, from: [.processing], to: status, errorMessage: message)
+            }) {
+                return ended
             }
+            // Gone, or no longer processing: report the row as it is.
+            let current = await storedRow(id)
+            if current == nil { removeMediaDirectoryIfEmpty(for: id) }
+            return current
         } catch {
             logger.error(
                 "status_write_failed id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
@@ -419,6 +462,17 @@ public actor FileTranscriptionPipeline {
             unsaved.errorMessage = message
             return unsaved
         }
+    }
+
+    /// After the user deleted a row mid-job: drops its media folder if the job left it empty (never a non-empty one).
+    private func removeMediaDirectoryIfEmpty(for id: UUID) {
+        let directory = paths.mediaDirectory(for: id)
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: directory.appendingPathComponent(Self.normalizedFileName, isDirectory: false))
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: directory.path), contents.isEmpty else {
+            return
+        }
+        try? fileManager.removeItem(at: directory)
     }
 
     private func storedRow(_ id: UUID) async -> Transcription? {

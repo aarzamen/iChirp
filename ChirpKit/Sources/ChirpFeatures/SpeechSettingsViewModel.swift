@@ -49,6 +49,11 @@ import Observation
         }
     }
 
+    /// Clears `lastError` (the alert's dismiss action).
+    public func dismissError() {
+        lastError = nil
+    }
+
     public func downloadSpeechModel() async {
         lastError = nil
         speechDownloadActive = true

@@ -156,6 +156,47 @@ final class TranscriptViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.transcription?.isFavorite, true)
     }
 
+    func testRenameAndFavoriteLandingAfterCompletionKeepTranscript() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let viewModel = TranscriptViewModel(id: id, store: h.store, paths: h.paths, settings: h.settings)
+        await viewModel.load()
+        XCTAssertEqual(viewModel.transcription?.status, .processing)
+        let write = await h.store.holdNext([.updateTitleOverride, .update])
+
+        let rename = Task { try await viewModel.rename("Budget review") }
+        await write.entered.wait()
+        let completed = await h.pipeline.process(id: id)
+        XCTAssertEqual(completed?.status, .completed)
+        write.release.fire()
+        try await rename.value
+        try await viewModel.toggleFavorite()
+
+        let fetched = await h.store.row(id)
+        let row = try XCTUnwrap(fetched)
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.titleOverride, "Budget review")
+        XCTAssertTrue(row.isFavorite)
+        XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText)
+        XCTAssertEqual(viewModel.transcription, row, "the screen shows the row as stored, transcript included")
+        XCTAssertFalse(viewModel.paragraphs.isEmpty)
+        let wholeRowUpdates = await h.store.wholeRowUpdates
+        XCTAssertEqual(wholeRowUpdates, 0)
+    }
+
+    func testRenameOfDeletedRowThrowsNotLoaded() async throws {
+        let row = completedRow()
+        let (viewModel, store, _) = await makeViewModel(row)
+        try await store.delete(id: row.id)
+
+        do {
+            try await viewModel.rename("Anything")
+            XCTFail("expected notLoaded")
+        } catch {
+            XCTAssertEqual(error as? TranscriptViewModel.TranscriptError, .notLoaded)
+        }
+    }
+
     func testLoadOfMissingRowLeavesTranscriptionNil() async {
         let store = FakeStore()
         let viewModel = TranscriptViewModel(

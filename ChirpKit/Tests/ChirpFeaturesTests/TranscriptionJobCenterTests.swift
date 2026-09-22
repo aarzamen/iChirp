@@ -89,8 +89,13 @@ final class TranscriptionJobCenterTests: XCTestCase {
         await center.waitUntilIdle()
 
         XCTAssertNotNil(center.lastImportError)
+        XCTAssertTrue(center.progress.isEmpty, "a failed import leaves no stuck progress entry: \(center.progress)")
         let rows = try await h.store.fetchAll()
         XCTAssertTrue(rows.isEmpty)
+        XCTAssertTrue(h.recorder.events.isEmpty, "no progress is reported before the row exists")
+
+        center.dismissImportError()
+        XCTAssertNil(center.lastImportError)
     }
 
     func testProgressHandlerHopsToTheMainActor() async {

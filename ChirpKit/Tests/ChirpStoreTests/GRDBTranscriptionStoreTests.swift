@@ -160,7 +160,8 @@ final class GRDBTranscriptionStoreTests: XCTestCase {
         pipelineOutput.titleOverride = nil
         pipelineOutput.isFavorite = false
 
-        let saved = try await store.savePreservingUserMetadata(pipelineOutput)
+        let savedValue = try await store.savePreservingUserMetadata(pipelineOutput)
+        let saved = try XCTUnwrap(savedValue)
 
         XCTAssertEqual(saved.titleOverride, "Edited While Processing")
         XCTAssertTrue(saved.isFavorite)
@@ -172,15 +173,138 @@ final class GRDBTranscriptionStoreTests: XCTestCase {
         XCTAssertEqual(fetched?.isFavorite, true)
     }
 
-    func testSavePreservingUserMetadataInsertsWhenNoStoredRowExists() async throws {
+    func testSavePreservingUserMetadataReturnsNilAndDoesNotInsertWhenNoStoredRowExists() async throws {
         let store = try makeStore()
         let transcription = makeSample()
 
         let saved = try await store.savePreservingUserMetadata(transcription)
 
-        XCTAssertEqual(saved, transcription)
+        XCTAssertNil(saved, "a row deleted while its job ran must not be resurrected")
         let fetched = try await store.fetch(id: transcription.id)
-        XCTAssertEqual(fetched, transcription)
+        XCTAssertNil(fetched)
+        let all = try await store.fetchAll()
+        XCTAssertTrue(all.isEmpty)
+    }
+
+    // MARK: - Field-level updates
+
+    func testUpdateFavoriteChangesOnlyFavoriteAndUpdatedAt() async throws {
+        let store = try makeStore()
+        var original = makeSample(status: .completed)
+        original.isFavorite = false
+        original.titleOverride = "Keep me"
+        try await store.insert(original)
+
+        let updatedValue = try await store.updateFavorite(id: original.id, isFavorite: true)
+        let updated = try XCTUnwrap(updatedValue)
+
+        XCTAssertTrue(updated.isFavorite)
+        XCTAssertGreaterThan(updated.updatedAt, original.updatedAt)
+        let fetchedValue = try await store.fetch(id: original.id)
+        let fetched = try XCTUnwrap(fetchedValue)
+        XCTAssertEqual(fetched, updated)
+        var expected = original
+        expected.isFavorite = true
+        expected.updatedAt = fetched.updatedAt
+        XCTAssertEqual(fetched, expected, "no other field changes")
+    }
+
+    func testUpdateTitleOverrideChangesOnlyTitleAndClears() async throws {
+        let store = try makeStore()
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+
+        let renamedValue = try await store.updateTitleOverride(id: original.id, titleOverride: "Board call")
+        let renamed = try XCTUnwrap(renamedValue)
+        XCTAssertEqual(renamed.titleOverride, "Board call")
+        var expected = original
+        expected.titleOverride = "Board call"
+        expected.updatedAt = renamed.updatedAt
+        XCTAssertEqual(renamed, expected, "no other field changes")
+
+        let clearedValue = try await store.updateTitleOverride(id: original.id, titleOverride: nil)
+        let cleared = try XCTUnwrap(clearedValue)
+        XCTAssertNil(cleared.titleOverride)
+        let fetched = try await store.fetch(id: original.id)
+        XCTAssertNil(fetched?.titleOverride)
+    }
+
+    func testFieldUpdatesOnMissingRowReturnNilAndInsertNothing() async throws {
+        let store = try makeStore()
+        let missing = UUID()
+
+        let favorite = try await store.updateFavorite(id: missing, isFavorite: true)
+        let title = try await store.updateTitleOverride(id: missing, titleOverride: "x")
+        let status = try await store.transitionStatus(
+            id: missing, from: [.processing], to: .failed, errorMessage: "boom")
+
+        XCTAssertNil(favorite)
+        XCTAssertNil(title)
+        XCTAssertNil(status)
+        let all = try await store.fetchAll()
+        XCTAssertTrue(all.isEmpty)
+    }
+
+    func testTransitionStatusFromMatchingStatusSetsStatusAndMessageOnly() async throws {
+        let store = try makeStore()
+        var original = makeSample(status: .processing)
+        original.titleOverride = "Renamed during job"
+        try await store.insert(original)
+
+        let failedValue = try await store.transitionStatus(
+            id: original.id, from: [.processing], to: .failed, errorMessage: "Engine failed")
+        let failed = try XCTUnwrap(failedValue)
+
+        XCTAssertEqual(failed.status, .failed)
+        XCTAssertEqual(failed.errorMessage, "Engine failed")
+        var expected = original
+        expected.status = .failed
+        expected.errorMessage = "Engine failed"
+        expected.updatedAt = failed.updatedAt
+        XCTAssertEqual(failed, expected, "no other field changes")
+        let fetched = try await store.fetch(id: original.id)
+        XCTAssertEqual(fetched, failed)
+
+        let retriedValue = try await store.transitionStatus(
+            id: original.id, from: [.failed, .cancelled, .interrupted], to: .processing, errorMessage: nil)
+        let retried = try XCTUnwrap(retriedValue)
+        XCTAssertEqual(retried.status, .processing)
+        XCTAssertNil(retried.errorMessage)
+    }
+
+    func testTransitionStatusFromMismatchedStatusReturnsNilAndLeavesRowUnchanged() async throws {
+        let store = try makeStore()
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+
+        let result = try await store.transitionStatus(
+            id: original.id, from: [.processing], to: .failed, errorMessage: "late failure")
+
+        XCTAssertNil(result)
+        let fetched = try await store.fetch(id: original.id)
+        XCTAssertEqual(fetched, original, "a completed row is not overwritten by a stale status write")
+    }
+
+    func testFavoriteAfterCompletionKeepsPipelineOutput() async throws {
+        // The race a whole-row update loses: the user favorites a row the pipeline has just completed.
+        let store = try makeStore()
+        var processing = makeSample(status: .processing)
+        processing.rawTranscript = nil
+        processing.wordTimestamps = nil
+        processing.isFavorite = false
+        try await store.insert(processing)
+        var completed = processing
+        completed.status = .completed
+        completed.rawTranscript = "final transcript"
+        _ = try await store.savePreservingUserMetadata(completed)
+
+        _ = try await store.updateFavorite(id: processing.id, isFavorite: true)
+
+        let fetchedValue = try await store.fetch(id: processing.id)
+        let fetched = try XCTUnwrap(fetchedValue)
+        XCTAssertEqual(fetched.status, .completed)
+        XCTAssertEqual(fetched.rawTranscript, "final transcript")
+        XCTAssertTrue(fetched.isFavorite)
     }
 
     // MARK: - observeAll

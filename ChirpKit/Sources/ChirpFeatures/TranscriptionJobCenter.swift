@@ -30,6 +30,11 @@ import Observation
         }
     }
 
+    /// Clears `lastImportError` (the alert's dismiss action).
+    public func dismissImportError() {
+        lastImportError = nil
+    }
+
     /// Records `p` for `id`, unless that job already finished.
     public func update(_ id: UUID, _ p: JobProgress) {
         guard !finished.contains(id) else { return }

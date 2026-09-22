@@ -48,6 +48,9 @@ final class SpeechSettingsViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.lastError, "The speech model is in use. Try again when transcription finishes.")
         XCTAssertEqual(viewModel.speechStatus, .ready(bytesOnDisk: 480_000_000))
+
+        viewModel.dismissError()
+        XCTAssertNil(viewModel.lastError)
     }
 
     func testDeleteSpeechModelClearsErrorAndRefreshes() async {

@@ -119,6 +119,11 @@ import Observation
         observation = nil
     }
 
+    /// Clears `loadError` (the alert's dismiss action).
+    public func dismissLoadError() {
+        loadError = nil
+    }
+
     // MARK: - Mutations
 
     /// Deletes the row, then its `media/<id>/` folder (source audio included). Call only after the user confirmed.
@@ -140,13 +145,13 @@ import Observation
         }
     }
 
+    /// Flips the star with a field-level store write, so it can never overwrite a job's output that lands meanwhile.
     public func toggleFavorite(_ id: UUID) async throws {
-        guard var row = try await store.fetch(id: id) else { return }
-        row.isFavorite.toggle()
-        row.updatedAt = Date()
-        try await store.update(row)
+        guard let current = try await store.fetch(id: id),
+            let updated = try await store.updateFavorite(id: id, isFavorite: !current.isFavorite)
+        else { return }
         if let index = items.firstIndex(where: { $0.id == id }) {
-            items[index] = row
+            items[index] = updated
         }
     }
 

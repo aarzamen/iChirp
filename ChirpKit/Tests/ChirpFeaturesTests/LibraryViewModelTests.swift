@@ -180,6 +180,69 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.items.map(\.id), [second.id, first.id])
     }
 
+    func testLoadErrorIsSurfacedAndDismissable() async {
+        let store = FakeStore()
+        await store.failFetchAll(with: FakeError(message: "database is locked"))
+        let viewModel = LibraryViewModel(store: store, paths: AppPaths(root: FileManager.default.temporaryDirectory))
+        await viewModel.start()
+        addTeardownBlock { @MainActor in viewModel.stop() }
+
+        XCTAssertEqual(viewModel.loadError, "database is locked")
+        viewModel.dismissLoadError()
+        XCTAssertNil(viewModel.loadError)
+    }
+
+    // MARK: - Races with a running job
+
+    func testFavoriteDuringPipelineCompletionKeepsTranscriptAndFavorite() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let viewModel = LibraryViewModel(store: h.store, paths: h.paths)
+        await viewModel.start()
+        addTeardownBlock { @MainActor in viewModel.stop() }
+        let save = await h.store.holdNext([.savePreservingUserMetadata])
+
+        let job = Task { await h.pipeline.process(id: id) }
+        await save.entered.wait()
+        try await viewModel.toggleFavorite(id)
+        save.release.fire()
+        _ = await job.value
+
+        let fetched = await h.store.row(id)
+        let row = try XCTUnwrap(fetched)
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertTrue(row.isFavorite)
+        XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText)
+        XCTAssertEqual(row.wordTimestamps?.count, FakeSpeech.helloWords.count)
+        let wholeRowUpdates = await h.store.wholeRowUpdates
+        XCTAssertEqual(wholeRowUpdates, 0)
+    }
+
+    func testFavoriteWriteLandingAfterCompletionKeepsTranscript() async throws {
+        // The interleaving a fetch → whole-row update loses: the view model reads the processing row, the job
+        // completes, then the view model's write lands.
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let viewModel = LibraryViewModel(store: h.store, paths: h.paths)
+        await viewModel.start()
+        addTeardownBlock { @MainActor in viewModel.stop() }
+        let write = await h.store.holdNext([.updateFavorite, .update])
+
+        let toggle = Task { try await viewModel.toggleFavorite(id) }
+        await write.entered.wait()
+        let completed = await h.pipeline.process(id: id)
+        XCTAssertEqual(completed?.status, .completed)
+        write.release.fire()
+        try await toggle.value
+
+        let fetched = await h.store.row(id)
+        let row = try XCTUnwrap(fetched)
+        XCTAssertEqual(row.status, .completed, "the favorite write must not revert the row to processing")
+        XCTAssertTrue(row.isFavorite)
+        XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText)
+        XCTAssertNotNil(row.transcriptSegments)
+    }
+
     // MARK: - Capture
 
     func testCaptureRecentShowsNewestThree() async throws {

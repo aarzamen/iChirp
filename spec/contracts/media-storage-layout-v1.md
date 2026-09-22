@@ -11,6 +11,8 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 
 - `ChirpCore.AppPaths` (root, database URL, per-item media directory, relative/absolute mapping).
 - `FileTranscriptionPipeline.importFile` (copies the source) and `process` (writes and deletes the normalized WAV).
+- `FileTranscriptionPipeline.sweepOrphanedTemporaryAudio()` at launch (deletes `normalized-16k.wav` left by a killed
+  process; never a source file).
 - `ChirpStore.DatabaseManager` (the database file).
 - The Library delete flow (removes the row and its media folder).
 
@@ -57,7 +59,8 @@ recoverable step.
 
 - `AppPathsTests.testDatabaseURLLivesInRoot`, `testMediaRelativePathRoundTrips`, `testRelativePathOutsideRootIsNil`.
 - `FileTranscriptionPipelineTests.testProcessProducesCompletedTranscriptWithSpeakersAndSegments` (normalized WAV
-  deleted, source kept).
+  deleted, source kept), `testSweepDeletesOnlyOrphanedNormalizedAudio` (orphaned WAVs only).
+- `LibraryViewModelTests.testDeleteRemovesRowAndItsMediaFolder` (exactly the item's folder).
 
 ## When this changes
 

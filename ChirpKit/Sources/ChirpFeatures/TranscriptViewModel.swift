@@ -78,25 +78,22 @@ import Observation
     }
 
     /// Sets the user's title; a blank title removes the override (the derived title or file name shows again).
+    /// A field-level store write, so it never overwrites a job's output that lands meanwhile.
     public func rename(_ title: String) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        try await mutate { $0.titleOverride = trimmed.isEmpty ? nil : trimmed }
+        guard let updated = try await store.updateTitleOverride(id: id, titleOverride: trimmed.isEmpty ? nil : trimmed)
+        else { throw TranscriptError.notLoaded }
+        apply(updated)
     }
 
     public func toggleFavorite() async throws {
-        try await mutate { $0.isFavorite.toggle() }
+        guard let current = try await store.fetch(id: id),
+            let updated = try await store.updateFavorite(id: id, isFavorite: !current.isFavorite)
+        else { throw TranscriptError.notLoaded }
+        apply(updated)
     }
 
     // MARK: - Helpers
-
-    /// Applies `change` to the freshest stored row (not the possibly stale copy on screen) and saves it.
-    private func mutate(_ change: (inout Transcription) -> Void) async throws {
-        guard var row = try await store.fetch(id: id) else { throw TranscriptError.notLoaded }
-        change(&row)
-        row.updatedAt = Date()
-        try await store.update(row)
-        apply(row)
-    }
 
     private func apply(_ row: Transcription?) {
         transcription = row

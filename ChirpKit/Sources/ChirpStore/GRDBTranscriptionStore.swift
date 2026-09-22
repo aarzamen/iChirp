@@ -1,6 +1,8 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Database/TranscriptionRepository.swift @ bbae9e0e
 // Changes: ports the intent of `savePreservingUserMetadata` (merge titleOverride + isFavorite
-// from the stored row onto pipeline output, inside one write transaction) onto ChirpCore's
+// from the stored row onto pipeline output, inside one write transaction; a missing row is not
+// re-inserted, upstream throws `recordingDeleted`, here it returns nil) and of the field-level
+// `updateTitleOverride` / `updateFavorite` / `transitionStatus` onto ChirpCore's
 // `TranscriptionStoring` protocol and the trimmed `Transcription` shape. Every lookup goes
 // through GRDB's record APIs (`fetchOne(key:)`, `filter(Column(...) == ...)`) — never raw SQL
 // string comparison against a UUID, which silently misses rows (see Database/README.md).
@@ -26,21 +28,19 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         }
     }
 
-    public func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription {
+    public func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
         try await database.writer.write { db in
             guard let currentRecord = try TranscriptionRecord.fetchOne(db, key: transcription.id) else {
-                // No stored row to preserve metadata from: insert the incoming value as-is.
-                let record = try TranscriptionRecord(transcription)
-                try record.insert(db)
-                return transcription
+                // The row was deleted while the job ran: the user's delete wins, nothing is re-inserted.
+                return nil
             }
             let current = try currentRecord.toTranscription()
             var merged = transcription
             merged.titleOverride = current.titleOverride
             merged.isFavorite = current.isFavorite
-            let mergedRecord = try TranscriptionRecord(merged)
-            try mergedRecord.save(db)
-            return merged
+            try TranscriptionRecord(merged).update(db)
+            // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
+            return try TranscriptionRecord.fetchOne(db, key: merged.id)?.toTranscription()
         }
     }
 
@@ -48,6 +48,51 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         let record = try TranscriptionRecord(transcription)
         try await database.writer.write { db in
             try record.update(db)
+        }
+    }
+
+    public func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            row.titleOverride = titleOverride
+            return true
+        }
+    }
+
+    public func updateFavorite(id: UUID, isFavorite: Bool) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            row.isFavorite = isFavorite
+            return true
+        }
+    }
+
+    public func transitionStatus(
+        id: UUID,
+        from: Set<Transcription.Status>,
+        to: Transcription.Status,
+        errorMessage: String?
+    ) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            guard from.contains(row.status) else { return false }
+            row.status = to
+            row.errorMessage = errorMessage
+            return true
+        }
+    }
+
+    /// One write transaction: reads the stored row, applies `change`, bumps `updatedAt`, saves and returns it as stored.
+    /// Returns nil without writing when the row is gone or `change` returns false.
+    private func modify(
+        id: UUID,
+        _ change: @escaping @Sendable (inout Transcription) -> Bool
+    ) async throws -> Transcription? {
+        try await database.writer.write { db in
+            guard let record = try TranscriptionRecord.fetchOne(db, key: id) else { return nil }
+            var row = try record.toTranscription()
+            guard change(&row) else { return nil }
+            row.updatedAt = Date()
+            try TranscriptionRecord(row).update(db)
+            // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
+            return try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()
         }
     }
 

@@ -47,11 +47,23 @@ enum FakeStoreError: Error {
     case notFound(UUID)
 }
 
-/// In-memory `TranscriptionStoring`. Like GRDB's async accessors, every call throws `CancellationError` when the
-/// calling task is already cancelled, so the pipeline must write its terminal status outside a cancelled task.
+/// In-memory `TranscriptionStoring` with the same semantics as `GRDBTranscriptionStore`: field-level writes are atomic
+/// against the current row, `savePreservingUserMetadata` never inserts, and, like GRDB's async accessors, every call
+/// throws `CancellationError` when the calling task is already cancelled.
+///
+/// `holdNext(_:)` parks the next call to one of the given methods at its entry, before it reads any state, so a test
+/// can interleave another writer exactly there (the actor stays reentrant while a call is parked).
 actor FakeStore: TranscriptionStoring {
+    enum Call: Hashable, Sendable {
+        case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, transitionStatus
+    }
+
     private var rows: [UUID: Transcription] = [:]
     private var observers: [UUID: AsyncStream<[Transcription]>.Continuation] = [:]
+    private var pendingHold: (calls: Set<Call>, hold: Hold)?
+    private var fetchAllError: FakeError?
+    /// Whole-row `update` calls. Code that can race a job must use the field-level methods instead.
+    private(set) var wholeRowUpdates = 0
 
     init(rows: [Transcription] = []) {
         for row in rows {
@@ -66,23 +78,59 @@ actor FakeStore: TranscriptionStoring {
         publish()
     }
 
-    func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription {
+    func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
+        await parkIfHeld(.savePreservingUserMetadata)
         try Task.checkCancellation()
+        guard let current = rows[transcription.id] else { return nil }
         var merged = transcription
-        if let current = rows[transcription.id] {
-            merged.titleOverride = current.titleOverride
-            merged.isFavorite = current.isFavorite
-        }
+        merged.titleOverride = current.titleOverride
+        merged.isFavorite = current.isFavorite
         rows[merged.id] = merged
         publish()
         return merged
     }
 
     func update(_ transcription: Transcription) async throws {
+        await parkIfHeld(.update)
         try Task.checkCancellation()
+        wholeRowUpdates += 1
         guard rows[transcription.id] != nil else { throw FakeStoreError.notFound(transcription.id) }
         rows[transcription.id] = transcription
         publish()
+    }
+
+    func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription? {
+        await parkIfHeld(.updateTitleOverride)
+        try Task.checkCancellation()
+        return modify(id) { row in
+            row.titleOverride = titleOverride
+            return true
+        }
+    }
+
+    func updateFavorite(id: UUID, isFavorite: Bool) async throws -> Transcription? {
+        await parkIfHeld(.updateFavorite)
+        try Task.checkCancellation()
+        return modify(id) { row in
+            row.isFavorite = isFavorite
+            return true
+        }
+    }
+
+    func transitionStatus(
+        id: UUID,
+        from: Set<Transcription.Status>,
+        to: Transcription.Status,
+        errorMessage: String?
+    ) async throws -> Transcription? {
+        await parkIfHeld(.transitionStatus)
+        try Task.checkCancellation()
+        return modify(id) { row in
+            guard from.contains(row.status) else { return false }
+            row.status = to
+            row.errorMessage = errorMessage
+            return true
+        }
     }
 
     func fetch(id: UUID) async throws -> Transcription? {
@@ -92,6 +140,7 @@ actor FakeStore: TranscriptionStoring {
 
     func fetchAll() async throws -> [Transcription] {
         try Task.checkCancellation()
+        if let fetchAllError { throw fetchAllError }
         return sortedRows()
     }
 
@@ -127,6 +176,32 @@ actor FakeStore: TranscriptionStoring {
     /// The stored row without the cancellation check, for assertions.
     func row(_ id: UUID) -> Transcription? {
         rows[id]
+    }
+
+    /// Parks the next call to any of `calls` at its entry: it fires `entered`, then waits for `release`.
+    func holdNext(_ calls: Set<Call>) -> Hold {
+        let hold = Hold()
+        pendingHold = (calls, hold)
+        return hold
+    }
+
+    func failFetchAll(with error: FakeError?) {
+        fetchAllError = error
+    }
+
+    private func parkIfHeld(_ call: Call) async {
+        guard let pending = pendingHold, pending.calls.contains(call) else { return }
+        pendingHold = nil
+        pending.hold.entered.fire()
+        await pending.hold.release.wait()
+    }
+
+    private func modify(_ id: UUID, _ change: (inout Transcription) -> Bool) -> Transcription? {
+        guard var row = rows[id], change(&row) else { return nil }
+        row.updatedAt = Date()
+        rows[id] = row
+        publish()
+        return row
     }
 
     private func addObserver(_ token: UUID, _ continuation: AsyncStream<[Transcription]>.Continuation) {
@@ -406,14 +481,18 @@ final class InMemorySettingsStore: SettingsStoring {
 }
 
 final class ProgressRecorder: Sendable {
-    private let events = Mutex<[(id: UUID, progress: JobProgress)]>([])
+    private let recorded = Mutex<[(id: UUID, progress: JobProgress)]>([])
 
     var handler: @Sendable (UUID, JobProgress) -> Void {
-        { [self] id, progress in events.withLock { $0.append((id, progress)) } }
+        { [self] id, progress in recorded.withLock { $0.append((id, progress)) } }
     }
 
     func progress(for id: UUID) -> [JobProgress] {
-        events.withLock { $0.filter { $0.id == id }.map(\.progress) }
+        recorded.withLock { $0.filter { $0.id == id }.map(\.progress) }
+    }
+
+    var events: [JobProgress] {
+        recorded.withLock { $0.map(\.progress) }
     }
 }
 

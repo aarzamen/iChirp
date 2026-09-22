@@ -329,11 +329,8 @@ final class FileTranscriptionPipelineTests: XCTestCase {
 
         let job = Task { await h.pipeline.process(id: id) }
         await hold.entered.wait()
-        let stored = await h.store.row(id)
-        var edited = try XCTUnwrap(stored)
-        edited.titleOverride = "Budget review"
-        edited.isFavorite = true
-        try await h.store.update(edited)
+        _ = try await h.store.updateTitleOverride(id: id, titleOverride: "Budget review")
+        _ = try await h.store.updateFavorite(id: id, isFavorite: true)
         hold.release.fire()
         let result = await job.value
 
@@ -401,6 +398,62 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertFalse(fileExists(h.normalizedURL(for: id)))
     }
 
+    func testDeleteRightBeforeCompletionSaveIsNotResurrected() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let save = await h.store.holdNext([.savePreservingUserMetadata])
+
+        let job = Task { await h.pipeline.process(id: id) }
+        await save.entered.wait()
+        try await h.store.delete(id: id)
+        save.release.fire()
+        let result = await job.value
+
+        XCTAssertNil(result)
+        let row = await h.store.row(id)
+        XCTAssertNil(row, "the completion save never re-inserts a row the user deleted")
+        let all = try await h.store.fetchAll()
+        XCTAssertTrue(all.isEmpty)
+        XCTAssertFalse(fileExists(h.normalizedURL(for: id)))
+    }
+
+    func testFailureKeepsRenameAndFavoriteMadeDuringJob() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let hold = await h.speech.holdNextTranscription()
+
+        let job = Task { await h.pipeline.process(id: id) }
+        await hold.entered.wait()
+        _ = try await h.store.updateTitleOverride(id: id, titleOverride: "Board call")
+        _ = try await h.store.updateFavorite(id: id, isFavorite: true)
+        await h.speech.failTranscription(with: FakeError(message: "engine hiccup"))
+        hold.release.fire()
+        let result = await job.value
+
+        let fetchedRow = await h.store.row(id)
+        let row = try XCTUnwrap(fetchedRow)
+        XCTAssertEqual(result, row)
+        XCTAssertEqual(row.status, .failed)
+        XCTAssertEqual(row.errorMessage, "engine hiccup")
+        XCTAssertEqual(row.titleOverride, "Board call", "marking the failure changes only status and message")
+        XCTAssertTrue(row.isFavorite)
+        let wholeRowUpdates = await h.store.wholeRowUpdates
+        XCTAssertEqual(wholeRowUpdates, 0, "the pipeline never writes a whole stale row")
+    }
+
+    func testProcessOfARowThatIsNotProcessingDoesNotRun() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let completed = await h.pipeline.process(id: id)
+        XCTAssertEqual(completed?.status, .completed)
+
+        let again = await h.pipeline.process(id: id)
+
+        XCTAssertEqual(again, completed, "a finished row is returned unchanged")
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(transcribeCalls, 1)
+    }
+
     func testSecondProcessOfARunningIdIsIgnored() async throws {
         let h = try PipelineHarness(testCase: self)
         let id = try await h.importSample()
@@ -465,5 +518,69 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         let h = try PipelineHarness(testCase: self)
         let result = await h.pipeline.retry(id: UUID())
         XCTAssertNil(result)
+    }
+
+    func testRetryOfACompletedRowIsRefused() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let completed = await h.pipeline.process(id: id)
+
+        let result = await h.pipeline.retry(id: id)
+
+        XCTAssertNil(result, "retry only moves failed, cancelled or interrupted rows back to processing")
+        let row = await h.store.row(id)
+        XCTAssertEqual(row, completed)
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(transcribeCalls, 1)
+    }
+
+    func testRetryOfAnInterruptedRowRuns() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let interruptedCount = try await h.store.markStaleProcessingAsInterrupted()
+        XCTAssertEqual(interruptedCount, 1)
+
+        let result = await h.pipeline.retry(id: id)
+
+        XCTAssertEqual(result?.status, .completed)
+        let wholeRowUpdates = await h.store.wholeRowUpdates
+        XCTAssertEqual(wholeRowUpdates, 0)
+    }
+
+    // MARK: - Orphaned temporary audio
+
+    func testSweepDeletesOnlyOrphanedNormalizedAudio() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let fileManager = FileManager.default
+        // A leftover from a killed process: its row is interrupted, its WAV is an orphan.
+        let orphan = try await h.importSample(named: "old.m4a")
+        try Data([1, 2, 3]).write(to: h.normalizedURL(for: orphan))
+        // A folder whose name is not a transcription id is never touched.
+        let stranger = h.root.appendingPathComponent("media/not-an-id", isDirectory: true)
+        try fileManager.createDirectory(at: stranger, withIntermediateDirectories: true)
+        let strangerWAV = stranger.appendingPathComponent("normalized-16k.wav")
+        try Data([1]).write(to: strangerWAV)
+        // A job running in this process keeps its WAV.
+        let running = try await h.importSample(named: "live.m4a")
+        let hold = await h.speech.holdNextTranscription()
+        let job = Task { await h.pipeline.process(id: running) }
+        await hold.entered.wait()
+
+        let removed = await h.pipeline.sweepOrphanedTemporaryAudio()
+
+        XCTAssertEqual(removed, 1)
+        XCTAssertFalse(fileExists(h.normalizedURL(for: orphan)))
+        XCTAssertTrue(fileExists(h.sourceURL(for: orphan)), "the sweep never touches source files")
+        XCTAssertTrue(fileExists(h.normalizedURL(for: running)), "a running job's WAV is not an orphan")
+        XCTAssertTrue(fileExists(strangerWAV))
+        hold.release.fire()
+        let result = await job.value
+        XCTAssertEqual(result?.status, .completed)
+    }
+
+    func testSweepWithNoMediaFolderReturnsZero() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let removed = await h.pipeline.sweepOrphanedTemporaryAudio()
+        XCTAssertEqual(removed, 0)
     }
 }
