@@ -50,8 +50,10 @@ Before any engine processes an item, the caller asks
 | Surface | When | What is sent | Milestone |
 |---|---|---|---|
 | Model downloads (Parakeet, diarizer) from Hugging Face | User taps Download in Settings (or the DEBUG smoke runner) | HTTP requests for model files; no user content | M1 |
-| Podcast lookup and media downloads | User pastes a link | The link / show id; no user content | M5 |
-| YouTube captions or audio | User pastes a YouTube link | Requests to YouTube; no user content | M5 |
+| Podcast lookup and media downloads | User pastes a link and taps Transcribe, or taps Retry | Apple Podcasts: the show id to `itunes.apple.com/lookup` (and, for an older episode, a GET of the show's RSS feed); feeds: a GET of the feed; other web links: a HEAD (or one-byte GET) to learn the content type; then a GET of the audio/video file (with `Range` on a resume). A fixed `Parakeet/1.0` user agent; no cookies kept; **no user content** | M5 (built) |
+| YouTube captions | User pastes a YouTube link and taps Transcribe | The video id: a GET of the watch page, a POST to YouTube's player API (`{"context": {"client": ANDROID}, "videoId": …}`), a GET of the caption track. A consent cookie only on that one retried request; nothing stored; **no user content** | M5 (built) |
+| YouTube audio | Not built: an owner decision ([plan 014](../docs/plans/2026-09-22-014-m5-ingest.md)) | — | — |
+| Documents (PDF, text, RTF, HTML, DOCX) | User imports or shares a document | **Nothing leaves the iPhone**: PDFKit, Vision OCR and the text readers run on device; HTML images and styles are never fetched | M5 (built) |
 | Cloud language models (Anthropic, OpenAI-compatible, Gemini) | User runs a template or Ask with a cloud provider | Transcript or document **text**, the template and any notes the user typed; **never audio** | M4 |
 | Home-network providers (Ollama, LM Studio) | Same, with a LAN provider | Same, over the local network | M4 |
 | Provider "Test connection" and model list (Settings → Models) | User taps Test or refreshes models | The API key in a header, a one-token "Hi" request, a model-list request; **no user content** | M4 |

@@ -76,6 +76,25 @@ struct FakePodcasts: PodcastResolving {
     }
 }
 
+struct FakeCaptions: YouTubeCaptionFetching {
+    var result: Result<YouTubeCaptions, YouTubeCaptionError>
+
+    static let sample = YouTubeCaptions(
+        videoID: "AAAAAAAAAAA", title: "A Synthetic Talk", lengthSeconds: 12,
+        track: YouTubeCaptionTrack(
+            baseURL: URL(string: "https://www.youtube.com/api/timedtext?v=AAAAAAAAAAA&lang=en")!, languageCode: "en",
+            name: "English", isGenerated: true),
+        cues: [
+            CaptionCue(startMs: 0, durationMs: 3_000, text: "hello and welcome to the synthetic talk"),
+            CaptionCue(startMs: 2_000, durationMs: 2_000, text: "today we test captions"),
+            CaptionCue(startMs: 6_000, durationMs: 1_000, text: "thanks"),
+        ])
+
+    func fetchCaptions(videoID: String, preferredLanguages: [String]) async throws -> YouTubeCaptions {
+        try result.get()
+    }
+}
+
 /// Collects progress events per id.
 final class LinkProgressLog: Sendable {
     private let events = Mutex<[(UUID, JobProgress)]>([])
@@ -114,11 +133,12 @@ final class LinkIngestServiceTests: XCTestCase {
     }
 
     private func makeService(
-        downloader: any MediaDownloading, podcasts: FakePodcasts = FakePodcasts()
+        downloader: any MediaDownloading, podcasts: FakePodcasts = FakePodcasts(),
+        captions: FakeCaptions = FakeCaptions(result: .success(FakeCaptions.sample))
     ) -> LinkIngestService {
         LinkIngestService(
             paths: paths, store: store, http: IngestHTTPClient(configuration: .ephemeral), downloader: downloader,
-            podcasts: podcasts, onProgress: log.handler)
+            podcasts: podcasts, captions: captions, preferredLanguages: { ["en"] }, onProgress: log.handler)
     }
 
     func testPodcastEpisodeResolvesCreatesARowAndDownloadsIntoItsFolder() async throws {
@@ -254,6 +274,66 @@ final class LinkIngestServiceTests: XCTestCase {
         let result = await LinkIngestService.downloadThenTranscribe(.ended(ended), transcribe: transcribe)
         XCTAssertEqual(result, ended)
         XCTAssertEqual(calls.withLock { $0 }, 1)
+    }
+
+    func testYouTubeCaptionsBecomeACompletedURLRowWithTimedWords() async throws {
+        let downloader = FakeMediaDownloader(.fail(FakeError(message: "never used")))
+        let service = makeService(downloader: downloader)
+        let link = URL(string: "https://youtu.be/AAAAAAAAAAA")!
+        guard
+            case .youtubeCaptions(let videoID, _) = try await service.resolve(
+                LinkClassifier.classify(link.absoluteString))
+        else {
+            return XCTFail("expected captions")
+        }
+        let id = try await service.importCaptions(videoID: videoID, link: link)
+        let stored = await store.row(id)
+        let row = try XCTUnwrap(stored)
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.sourceType, .url)
+        XCTAssertEqual(row.sourceURL, link.absoluteString)
+        XCTAssertEqual(row.displayTitle, "A Synthetic Talk")
+        XCTAssertNil(row.mediaRelativePath, "captions only: no audio")
+        XCTAssertEqual(row.engine, LinkIngestService.captionsEngineID)
+        XCTAssertEqual(row.engineVariant, "asr")
+        XCTAssertEqual(row.language, "en")
+        XCTAssertEqual(row.durationMs, 12_000)
+        XCTAssertEqual(
+            row.rawTranscript, "hello and welcome to the synthetic talk today we test captions thanks")
+        XCTAssertEqual(row.wordTimestamps?.count, 12)
+        XCTAssertFalse(row.transcriptSegments?.isEmpty ?? true)
+        XCTAssertTrue(downloader.urls.isEmpty, "no audio is downloaded")
+    }
+
+    func testVideoWithoutCaptionsCreatesNoRow() async throws {
+        let service = makeService(
+            downloader: FakeMediaDownloader(.fail(FakeError(message: "unused"))),
+            captions: FakeCaptions(result: .failure(.noCaptions)))
+        do {
+            _ = try await service.importCaptions(
+                videoID: "AAAAAAAAAAA", link: URL(string: "https://youtu.be/AAAAAAAAAAA")!)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertTrue(LinkIngestService.readable(error).contains("share the file to Parakeet"))
+        }
+        let rows = try await store.fetchAll()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testCaptionWordsAreMonotonicAndStayInsideTheirCue() {
+        let words = LinkIngestService.words(from: FakeCaptions.sample.cues)
+        XCTAssertEqual(words.first?.startMs, 0)
+        for (earlier, later) in zip(words, words.dropFirst()) {
+            XCTAssertLessThanOrEqual(earlier.endMs, later.startMs + 1, "\(earlier.word) → \(later.word)")
+            XCTAssertLessThan(later.startMs, later.endMs)
+        }
+        // The first cue overlaps the second (0–3 s vs 2 s): it is cut where the second begins.
+        let firstCueEnd = words.prefix(7).map(\.endMs).max()
+        XCTAssertEqual(firstCueEnd, 2_000)
+        XCTAssertEqual(words.last?.word, "thanks")
+        XCTAssertEqual(words.last?.startMs, 6_000)
+        XCTAssertEqual(words.last?.endMs, 7_000)
+        XCTAssertTrue(LinkIngestService.words(from: []).isEmpty)
     }
 
     func testDownloadShareKeepsSystemProgressMonotonic() {

@@ -71,16 +71,22 @@ public actor LinkIngestService {
     private let http: IngestHTTPClient
     private let downloader: any MediaDownloading
     private let podcasts: any PodcastResolving
+    private let captions: any YouTubeCaptionFetching
+    private let preferredLanguages: @Sendable () -> [String]
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private let logger = Log.logger("links")
 
-    /// - Parameter onProgress: download progress (`.downloading`), usually `TranscriptionJobCenter.progressHandler`.
+    /// - Parameters:
+    ///   - preferredLanguages: language codes for choosing a YouTube caption track (the device's languages).
+    ///   - onProgress: download progress (`.downloading`), usually `TranscriptionJobCenter.progressHandler`.
     public init(
         paths: AppPaths,
         store: any TranscriptionStoring,
         http: IngestHTTPClient,
         downloader: any MediaDownloading,
         podcasts: any PodcastResolving,
+        captions: any YouTubeCaptionFetching,
+        preferredLanguages: @escaping @Sendable () -> [String] = { Locale.preferredLanguages },
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
         self.paths = paths
@@ -88,6 +94,8 @@ public actor LinkIngestService {
         self.http = http
         self.downloader = downloader
         self.podcasts = podcasts
+        self.captions = captions
+        self.preferredLanguages = preferredLanguages
         self.onProgress = onProgress
     }
 
@@ -212,6 +220,74 @@ public actor LinkIngestService {
             }
             return .ended(await markEnded(id, status: .failed, message: Self.readable(error)))
         }
+    }
+
+    // MARK: - YouTube captions (M5 Step 3)
+
+    /// The engine id a caption row records (`Transcription.engine`); `engineVariant` is "manual" or "asr".
+    public static let captionsEngineID = "youtube.captions"
+
+    /// Fetches the video's captions (network, on the person's tap) and inserts a `.completed` `.url` row: the caption
+    /// words with timings spread across each caption, segments, the video's title, no audio. Throws a readable error,
+    /// with no row created, when the video has no usable captions.
+    public func importCaptions(videoID: String, link: URL) async throws -> UUID {
+        let fetched = try await captions.fetchCaptions(videoID: videoID, preferredLanguages: preferredLanguages())
+        let words = Self.words(from: fetched.cues)
+        guard !words.isEmpty else { throw YouTubeCaptionError.emptyTranscript }
+        let text = fetched.cues.map(\.text).joined(separator: " ")
+        let id = UUID()
+        let lastEnd = words.map(\.endMs).max() ?? 0
+        var row = Transcription(
+            id: id, sourceType: .url,
+            fileName: fetched.title.map(Self.sanitizedFileStem).flatMap { $0.isEmpty ? nil : $0 }
+                ?? "YouTube video",
+            durationMs: fetched.lengthSeconds.map { max($0 * 1000, lastEnd) } ?? lastEnd,
+            status: .completed)
+        row.sourceURL = link.absoluteString
+        row.sourceTitle = fetched.title
+        row.rawTranscript = text
+        row.wordTimestamps = words
+        row.language = fetched.track.languageCode.isEmpty ? nil : fetched.track.languageCode
+        row.engine = Self.captionsEngineID
+        row.engineVariant = fetched.track.isGenerated ? "asr" : "manual"
+        let title = TitleDeriver.derive(from: text) ?? ""
+        row.derivedTitle = title
+        row.derivedSnippet = SnippetDeriver.derive(from: text, excluding: title) ?? ""
+        let segments = FileTranscriptSegments.materialize(words: words)
+        row.transcriptSegments = segments.isEmpty ? nil : segments
+        try await store.insert(row)
+        logger.info(
+            "captions_row_created id=\(id, privacy: .public) words=\(words.count, privacy: .public) generated=\(fetched.track.isGenerated, privacy: .public)"
+        )
+        return id
+    }
+
+    /// Caption cues as words: each cue's words share its time span in proportion to their length. A cue that runs
+    /// past the next cue's start (automatic captions overlap) ends where the next begins, so times never go back.
+    public static func words(from cues: [CaptionCue]) -> [WordTimestamp] {
+        let sorted = cues.sorted { $0.startMs < $1.startMs }
+        var words: [WordTimestamp] = []
+        for (index, cue) in sorted.enumerated() {
+            let tokens = cue.text.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard !tokens.isEmpty else { continue }
+            let start = max(cue.startMs, words.last?.endMs ?? 0)
+            var end = cue.startMs + max(cue.durationMs, 1)
+            if index + 1 < sorted.count {
+                end = min(end, max(sorted[index + 1].startMs, start + 1))
+            }
+            end = max(end, start + tokens.count)
+            let span = Double(end - start)
+            let totalCharacters = Double(tokens.reduce(0) { $0 + $1.count })
+            var cursor = Double(start)
+            for token in tokens {
+                let length = span * Double(token.count) / totalCharacters
+                let wordStart = Int(cursor.rounded())
+                cursor += length
+                let wordEnd = max(wordStart + 1, Int(cursor.rounded()))
+                words.append(WordTimestamp(word: token, startMs: wordStart, endMs: min(wordEnd, end), confidence: 1))
+            }
+        }
+        return words
     }
 
     /// Whether Retry for `row` must download again (a link row whose media never arrived) rather than re-transcribe.

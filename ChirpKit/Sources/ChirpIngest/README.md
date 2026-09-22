@@ -35,6 +35,11 @@
   (`lookup?id=<show>&entity=podcastEpisode&limit=200`) matches an episode link's `?i=` against `trackId`; an episode
   older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug; a show link takes the
   latest episode; `latestEpisode(inFeed:)` serves feed links. Only the show id (and Apple's feed URL) is requested.
+- `Links/YouTubeCaptionFetcher.swift`: captions by the youtube-transcript-api method (credited, re-implemented): watch
+  page → `INNERTUBE_API_KEY` (passing the consent page with a one-request cookie) → `/youtubei/v1/player` as the
+  ANDROID client → the best track (manual in a preferred language first) → timed text, classic or srv3, unescaped.
+  Errors (`YouTubeCaptionError`) say what happened and suggest sharing the file instead. **No audio**: YouTube audio
+  is an open owner decision (plan 014).
 - `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
   `itunes:duration`), plus the channel title.
 

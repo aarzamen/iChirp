@@ -72,6 +72,13 @@ SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a messa
 
 ## YouTube (M5): ranked strategy
 
+**Built (plan 014 Step 3): captions only.** On Transcribe, `YouTubeCaptionFetcher` loads the watch page, reads
+`INNERTUBE_API_KEY`, asks `/youtubei/v1/player` as the ANDROID client, picks a track (manual in a preferred language,
+then automatic, then any), and reads its timed text. `LinkIngestService.importCaptions` stores a `.completed` `.url`
+row with the caption words (times spread across each caption), segments, the video title, `engine`
+`youtube.captions` and no audio. No captions, a bot check, age restriction or a changed page each fail with a
+message and no row. **YouTube audio is not built**; the options and the terms note wait for the owner in plan 014.
+
 1. **Captions first.** Port the youtube-transcript-api method (watch page → `INNERTUBE_API_KEY` → `/youtubei/v1/player`
    as the `ANDROID` client → caption `baseUrl`). No transcription needed; fails when a video has no captions.
 2. **Audio via YouTubeKit** (AAC stream, itag 140) behind a Settings toggle, `.local` mode only (its `.remote`

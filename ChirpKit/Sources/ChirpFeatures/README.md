@@ -54,7 +54,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:)` inserts the `.processing`
   row with `sourceURL` / `sourceTitle`, `download(id:from:)` fetches into `media/<id>/source.<ext>` with
   `.downloading` progress and records the file (failure → `failed` with a message, cancel → `cancelled`, partial file
-  kept), and `retryDownload(id:)` resumes it. `needsDownload(_:)` tells Retry which path a link row takes; the file
+  kept), and `retryDownload(id:)` resumes it. `importCaptions(videoID:link:)` (Step 3) stores a YouTube video's captions as a
+  `.completed` `.url` row (words timed across each caption, segments, `engine` `youtube.captions`, no audio); no row
+  on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
   pipeline then runs unchanged. Downloads never hold a speech-scheduler slot.
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
