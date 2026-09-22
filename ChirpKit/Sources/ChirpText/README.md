@@ -25,6 +25,9 @@ pipeline directly.
   pause).
 - `TranscriptCueBuilder.swift`: subtitle-style cues (up to 12 words / 800ms gap / 7s / speaker change);
   used by `ChirpExport` for SRT/VTT.
+- `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
+  templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
+  render empty and are logged `.private`.
 - `TextProcessingPipeline.swift`: the deterministic 5-step pipeline (filler removal → custom words →
   trailing action extraction → snippet expansion → whitespace/insertion-style cleanup).
 - `CustomWordReplacer.swift`: pre-compiled, reusable custom-word regex replacement (internal — the

@@ -75,6 +75,13 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         }
     }
 
+    public func updatePrivacyClass(id: UUID, privacyClass: PrivacyClass) async throws -> Transcription? {
+        try await modify(id: id) { row in
+            row.privacyClass = privacyClass
+            return true
+        }
+    }
+
     public func transitionStatus(
         id: UUID,
         from: Set<Transcription.Status>,

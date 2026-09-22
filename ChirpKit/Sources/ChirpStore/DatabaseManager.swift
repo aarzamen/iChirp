@@ -79,6 +79,11 @@ public final class DatabaseManager: Sendable {
             )
         }
 
+        // M4 (plan 013). A parallel M1.5 lane registers "v2-audio-track-ordinal"; the merge orders them.
+        migrator.registerMigration("v3-language-models") { db in
+            try LanguageModelSchema.create(db)
+        }
+
         return migrator
     }
 }
