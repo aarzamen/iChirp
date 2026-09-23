@@ -206,6 +206,13 @@ public protocol SpeechEngineAvailabilityReporting: Sendable {
     func unavailableReason() async -> String?
 }
 
+/// Optional for engines that hold a model in the app's memory: drops it (the next `prepare` loads it again from
+/// disk). The benchmark unloads between engines so each one's load time and peak memory are its own. Refused
+/// silently while a job is using the model. Additive to the plug-in contract.
+public protocol SpeechEngineUnloading: Sendable {
+    func unloadModels() async
+}
+
 /// The table of every speech engine build iChirp knows, one row per variant (upstream `SpeechEngineCapabilityRegistry`).
 /// Engines register instances in the app; this table is what Settings, the router and the benchmark read.
 public enum SpeechEngineCapabilityRegistry {

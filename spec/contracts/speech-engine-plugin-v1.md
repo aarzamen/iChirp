@@ -16,6 +16,7 @@ an engine that breaks them corrupts transcripts silently.
   `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `LanguageModel.swift`, `StructureModel.swift`,
   `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
 - Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
+  `ChirpEngineAppleSpeech` (`AppleSpeechEngine`) and `ChirpEngineWhisperKit` (`WhisperKitEngine`, one per variant) in M7;
   `ParakeetEngine` is also a `LiveSpeechSessionProviding` since M2 (tail-window preview); every future
   `ChirpEngine<Provider>` target.
 
@@ -59,7 +60,11 @@ an engine that breaks them corrupts transcripts silently.
   - `options.purpose` (M2, additive, default `.file`) says what the text is for. An engine may tune for `.dictation`
     (Parakeet appends 0.5 s of trailing silence to a clip that still fits one model window, decoded in memory; the
     recorded file is never changed), but the result's shape and every rule above stay the same.
-- Core ML engines run every inference inside `ANEInferenceGate`.
+- FluidAudio's Core ML engines run every inference inside `ANEInferenceGate`. The gate is internal to
+  `ChirpEngineFluidAudio` and does not serialize on iOS 26. WhisperKit (M7) serializes calls on its own pipeline
+  instead. Apple Speech runs in iOS's speech service.
+- `SpeechEngineUnloading` (M7, optional): `unloadModels()` drops a loaded model, and the next `prepare` loads it again
+  from disk. It is refused silently while a job holds the model.
 - Conformers are `Sendable` (actors in practice); single-threaded C runtimes are confined to one actor.
 
 **`SpeakerDiarizing`**

@@ -28,10 +28,13 @@ let package = Package(
         .library(name: "ChirpEngineNeedle", targets: ["ChirpEngineNeedle"]),
         // M7 (plan 016): Apple SpeechTranscriber.
         .library(name: "ChirpEngineAppleSpeech", targets: ["ChirpEngineAppleSpeech"]),
+        .library(name: "ChirpEngineWhisperKit", targets: ["ChirpEngineWhisperKit"]),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio", exact: "0.16.1"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
+        // M7 (plan 016): WhisperKit. MIT; exact pin (model folder names and the loader have changed between minors).
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift", exact: "1.1.0"),
     ],
     targets: [
         .target(name: "ChirpCore", exclude: ["README.md"]),
@@ -79,6 +82,12 @@ let package = Package(
         // M7 (plan 016): Apple SpeechTranscriber / SpeechAnalyzer (system framework, no package dependency).
         .target(name: "ChirpEngineAppleSpeech", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .testTarget(name: "ChirpEngineAppleSpeechTests", dependencies: ["ChirpEngineAppleSpeech"]),
+        // M7 (plan 016): WhisperKit (argmax-oss-swift); only the WhisperKit product is linked.
+        .target(
+            name: "ChirpEngineWhisperKit",
+            dependencies: ["ChirpCore", .product(name: "WhisperKit", package: "argmax-oss-swift")],
+            exclude: ["README.md"]),
+        .testTarget(name: "ChirpEngineWhisperKitTests", dependencies: ["ChirpEngineWhisperKit"]),
     ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : []),
     swiftLanguageModes: [.v6]
 )

@@ -36,7 +36,7 @@ targets:
         products: [ChirpEngineNeedle]
       # M7 (plan 016): speech engines beyond Parakeet.
       - package: ChirpKit
-        products: [ChirpEngineAppleSpeech]
+        products: [ChirpEngineAppleSpeech, ChirpEngineWhisperKit]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:

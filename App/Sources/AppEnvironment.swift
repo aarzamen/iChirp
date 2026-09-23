@@ -130,7 +130,10 @@ import Observation
         let settings = UserDefaultsSettingsStore()
         let settingsValue = settings.load()
         let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
-        let speechRouter = AppSpeechEngines.makeRouter(parakeet: engines.speech, store: UserDefaultsSpeechRouteStore())
+        let speechRouter = AppSpeechEngines.makeRouter(
+            parakeet: engines.speech,
+            modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true),
+            store: UserDefaultsSpeechRouteStore())
         self.speechRouter = speechRouter
         self.speechEngines = SpeechEnginesViewModel(router: speechRouter)
         let scheduler = SpeechJobScheduler()
