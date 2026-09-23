@@ -40,7 +40,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/run_device.sh [launch args]` | Build Debug, install and launch on the paired iPhone (`devicectl`) |
 | `scripts/device_smoke.sh` | On the phone: transcribes the bundled synthetic sample with Parakeet and asserts the words (`SMOKE PASS`) |
 | `scripts/device_llm_smoke.sh [model]` | On the phone: measures a small language model (`qwen3.5-2b`, `qwen3-4b`) on a synthetic SOAP note and asserts every number survived (`LLM SMOKE PASS`) |
-| `scripts/device_benchmark.sh [engines]` | On the phone: DEBUG ASR benchmark over the synthetic reference set (downloads missing models), prints WER, speed, load and peak memory per engine |
+| `scripts/device_benchmark.sh [engines]` | On the phone: DEBUG ASR benchmark over the synthetic reference set (downloads missing models), prints WER, speed, load and peak memory per engine, plus the memory available before each model load and the load's own peak |
 | `scripts/build_ipa.sh` | Ad-hoc-signed IPA for the optional SideStore fallback (`dist/`) |
 | `scripts/make_sample_audio.sh [--wav]` | Regenerates the synthetic two-voice sample with macOS `say` |
 | `scripts/make_benchmark_audio.sh [dir]` | Regenerates the M7 ASR benchmark reference set (`App/Resources/Benchmark`, known text) |

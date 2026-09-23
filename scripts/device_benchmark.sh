@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # On the iPhone: installs the Debug build, runs the DEBUG on-device ASR benchmark over the bundled synthetic reference
 # set, copies Documents/asr-device-benchmark.json off the phone and prints one line per engine (WER, × real time, load
-# time, peak memory). Exits non-zero when the run failed or any requested engine failed.
+# time, peak memory, the memory iOS let the app use right before the model load, and the peak during the load alone).
+# Exits non-zero when the run failed or any requested engine failed.
+#
+# Memory (fix/speech-memory-fit): "avail MB" is os_proc_available_memory() right before the engine's model load and
+# "load pk MB" the app's peak footprint during that load (on a first load, the Core ML compile). They replace the
+# registry's first-load peak placeholders (ChirpCore SpeechEngineCapabilities.swift, approximateFirstLoadPeakMemoryBytes).
+# An engine whose load would not fit is refused by the app with a sentence naming both numbers (outcome failed). If iOS
+# closes the app during a load anyway, the file stays "running" and names the engine (runningEngine) with its
+# "avail MB": this script then times out and prints that last file.
 #
 # Usage: scripts/device_benchmark.sh [engines]
 #   scripts/device_benchmark.sh                                   # parakeet,whisper-base,whisper-turbo,apple-speech
@@ -49,20 +57,35 @@ print(f"device:   {data.get('deviceModel', '?')} ({data.get('device', '?')})")
 print(f"build:    {data.get('build', '?')}")
 print(f"commit:   {data.get('buildSHA', '?')}")
 print(f"status:   {data.get('status')}" + (f" ({data.get('error')})" if data.get("error") else ""))
+running = data.get("runningEngine")
+if running:
+    print(f"running:  {running} (the file was written before this engine finished; if the run stopped here, iOS")
+    print("          most likely closed the app during its model load: see its avail MB)")
 print("")
-header = f"{'engine':<15}{'outcome':<10}{'WER':>8}{'x RT':>9}{'load ms':>10}{'peak MB':>10}{'dl ms':>9}  reason"
+
+def megabytes(value):
+    return number(value / 1048576 if isinstance(value, (int, float)) else None, '.0f')
+
+header = (
+    f"{'engine':<15}{'outcome':<10}{'WER':>8}{'x RT':>9}{'load ms':>10}{'peak MB':>10}"
+    f"{'avail MB':>10}{'load pk MB':>12}{'dl ms':>9}  reason"
+)
 print(header)
 print("-" * len(header))
 failed = []
 for engine in data.get("engines", []):
     wer = engine.get("wordErrorRate")
-    peak = engine.get("peakMemoryBytes")
+    outcome = engine.get("outcome", "?")
+    if running and engine.get("name") == running:
+        outcome = "RUNNING"
     print(
-        f"{engine.get('name', '?'):<15}{engine.get('outcome', '?'):<10}"
+        f"{engine.get('name', '?'):<15}{outcome:<10}"
         f"{(number(wer * 100, '.1f') + '%') if isinstance(wer, (int, float)) else '–':>8}"
         f"{number(engine.get('timesRealTime'), '.1f'):>9}"
         f"{number(engine.get('loadMs'), 'd'):>10}"
-        f"{number(peak / 1048576 if isinstance(peak, (int, float)) else None, '.0f'):>10}"
+        f"{megabytes(engine.get('peakMemoryBytes')):>10}"
+        f"{megabytes(engine.get('availableMemoryBeforeLoadBytes')):>10}"
+        f"{megabytes(engine.get('loadPeakMemoryBytes')):>12}"
         f"{number(engine.get('downloadMs'), 'd'):>9}"
         f"  {engine.get('reason') or ''}"
     )
@@ -71,6 +94,8 @@ for engine in data.get("engines", []):
 print("")
 print("WER: word error rate over the synthetic set (lower is better). x RT: audio length / transcription time")
 print("(higher is faster). load: model load after an unload. peak: the app's peak memory while the engine ran.")
+print("avail: memory iOS let the app use right before the model load (os_proc_available_memory). load pk: the app's")
+print("peak memory during the load alone (a first load includes the Core ML compile).")
 if data.get("status") != "completed":
     print(f"BENCH FAIL: {data.get('error') or 'status ' + str(data.get('status'))}", file=sys.stderr)
     sys.exit(1)
@@ -148,6 +173,9 @@ PY
     echo "  4. A slow first Whisper Large v3 Turbo compile: rerun with BENCH_TIMEOUT_S=3600." >&2
     if [ -s "$RESULT_LOCAL" ]; then
       echo "Last file seen (still running, or from an older build): $RESULT_LOCAL" >&2
+      # fix/speech-memory-fit: a run iOS ended during a model load still names the engine and its available memory.
+      echo "" >&2
+      print_report "$RESULT_LOCAL" >&2 || true
     elif [ -s "$COPY_LOG" ]; then
       echo "Last devicectl message: $(tail -1 "$COPY_LOG")" >&2
     fi

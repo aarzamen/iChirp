@@ -92,6 +92,8 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
         case skipped
         /// The download, the load or every recording failed (`reason`).
         case failed
+        /// fix/speech-memory-fit: ready to run, not measured yet (only in a checkpoint written while the run goes on).
+        case pending
     }
 
     public struct EngineReport: Codable, Sendable, Equatable {
@@ -115,6 +117,13 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
         public var loadMs: Int?
         /// The app's peak physical footprint while it loaded and ran.
         public var peakMemoryBytes: UInt64?
+        /// fix/speech-memory-fit: what iOS let the app use (`os_proc_available_memory`) right before this engine's
+        /// model load. Written in a checkpoint before the engine starts (a reading just before its run), then replaced
+        /// by the runner's reading inside the job, right before the load.
+        public var availableMemoryBeforeLoadBytes: UInt64?
+        /// fix/speech-memory-fit: the app's peak footprint during the load alone (on a first load, the Core ML
+        /// compile): the device number for the registry's first-load peak.
+        public var loadPeakMemoryBytes: UInt64?
         /// Recordings that failed.
         public var failures: Int
 
@@ -122,7 +131,8 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
             name: String, key: String, displayName: String, outcome: Outcome, reason: String? = nil,
             downloaded: Bool = false, downloadMs: Int? = nil, wordErrorRate: Double? = nil,
             realTimeFactor: Double? = nil, timesRealTime: Double? = nil, loadMs: Int? = nil,
-            peakMemoryBytes: UInt64? = nil, failures: Int = 0
+            peakMemoryBytes: UInt64? = nil, availableMemoryBeforeLoadBytes: UInt64? = nil,
+            loadPeakMemoryBytes: UInt64? = nil, failures: Int = 0
         ) {
             self.name = name
             self.key = key
@@ -136,6 +146,8 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
             self.timesRealTime = timesRealTime
             self.loadMs = loadMs
             self.peakMemoryBytes = peakMemoryBytes
+            self.availableMemoryBeforeLoadBytes = availableMemoryBeforeLoadBytes
+            self.loadPeakMemoryBytes = loadPeakMemoryBytes
             self.failures = failures
         }
     }
@@ -154,6 +166,10 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
     public var buildSHA: String
     public var startedAt: Date
     public var finishedAt: Date?
+    /// fix/speech-memory-fit: the engine (launch-argument name) whose run had started when this file was written; nil
+    /// once the run finished. A file left `running` with this set means the app stopped during that engine — for a
+    /// model load, most likely iOS closing the app for memory — and its entry keeps the memory available before it.
+    public var runningEngine: String?
     public var engines: [EngineReport]
     /// Every engine × recording result (the synthetic set's recognized text included).
     public var run: ASRBenchmarkRun?
@@ -197,6 +213,11 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
 /// prompt nobody can tap: `permission-needed`), downloads a missing model over the network (the controller asked for
 /// it with the launch argument), then runs `ASRBenchmarkRunner` over the synthetic reference set and reports WER,
 /// speed, load time and peak memory per engine. It never changes the saved routes and never shows UI.
+///
+/// fix/speech-memory-fit: each engine also reports the memory iOS let the app use right before its load and the peak
+/// during the load alone. The engines run one `ASRBenchmarkRunner` call at a time, with a `checkpoint` before each
+/// one (`runningEngine` and the reading just before it), so a file from a run iOS ended mid-load still says which
+/// engine was loading and with how much memory. A load the engine refuses as not fitting is that engine's reason.
 public struct ASRDeviceBenchmark: Sendable {
     public typealias Log = @Sendable (String) -> Void
 
@@ -208,11 +229,15 @@ public struct ASRDeviceBenchmark: Sendable {
     private let build: String
     private let buildSHA: String
     private let physicalMemoryBytes: UInt64
+    private let availableMemory: ASRBenchmarkRunner.MemoryReader
 
+    /// - Parameter availableMemory: what iOS lets the app use now (`MemoryProbe.availableBytes`), read for each
+    ///   engine's checkpoint (the runner takes its own reading right before the load).
     public init(
         router: SpeechEngineRouter, runner: ASRBenchmarkRunner, items: [ASRBenchmarkItem], device: String,
         deviceModel: String, build: String, buildSHA: String,
-        physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory
+        physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory,
+        availableMemory: @escaping ASRBenchmarkRunner.MemoryReader = { nil }
     ) {
         self.router = router
         self.runner = runner
@@ -222,6 +247,7 @@ public struct ASRDeviceBenchmark: Sendable {
         self.build = build
         self.buildSHA = buildSHA
         self.physicalMemoryBytes = physicalMemoryBytes
+        self.availableMemory = availableMemory
     }
 
     /// The report written before anything runs (status `running`), so a reader can tell "started" from "never ran".
@@ -232,8 +258,12 @@ public struct ASRDeviceBenchmark: Sendable {
     }
 
     /// Runs the request and returns the finished report (`completed`, or `failed` with `error` when nothing could be
-    /// measured at all). Cancellation ends it as `failed` ("cancelled").
-    public func run(_ request: ASRDeviceBenchmarkRequest, log: Log = { _ in }) async -> ASRDeviceBenchmarkReport {
+    /// measured at all). Cancellation ends it as `failed` ("cancelled"). `checkpoint` receives the report (status
+    /// `running`) before each engine's run and after its numbers are in; the app writes it to the results file.
+    public func run(
+        _ request: ASRDeviceBenchmarkRequest, log: Log = { _ in },
+        checkpoint: @Sendable (ASRDeviceBenchmarkReport) -> Void = { _ in }
+    ) async -> ASRDeviceBenchmarkReport {
         var report = placeholder(for: request, startedAt: Date())
         guard !items.isEmpty else {
             return finished(report, error: "the synthetic reference set is missing from this build")
@@ -253,15 +283,36 @@ public struct ASRDeviceBenchmark: Sendable {
             return failed ? finished(report, error: "no requested engine could run") : finished(report, error: nil)
         }
         log("bench_run engines=\(runnable.map(\.key.description).joined(separator: ",")) items=\(items.count)")
-        let results: [ASRBenchmarkResult]
-        do {
-            results = try await runner.run(engines: runnable, items: items)
-        } catch {
-            return finished(report, error: error is CancellationError ? "cancelled" : error.localizedDescription)
+        var results: [ASRBenchmarkResult] = []
+        for engine in runnable {
+            // A checkpoint first: if iOS ends the app during this engine's load, the file still says which one and
+            // how much memory it had.
+            let before = availableMemory()
+            report.runningEngine = reports.first { $0.key == engine.key.description }?.name
+            report.engines = report.engines.map {
+                var entry = $0
+                if entry.key == engine.key.description { entry.availableMemoryBeforeLoadBytes = before }
+                return entry
+            }
+            checkpoint(report)
+            let availableMB = before.map { String($0 / 1_048_576) } ?? "unknown"
+            log("bench_engine_start engine=\(engine.key.description) available_mb=\(availableMB)")
+            do {
+                results += try await runner.run(engines: [engine], items: items)
+            } catch {
+                report.runningEngine = nil
+                return finished(report, error: error is CancellationError ? "cancelled" : error.localizedDescription)
+            }
+            let summaries = ASRBenchmarkRun(
+                startedAt: report.startedAt, device: device, appBuild: build, results: results
+            ).summaries
+            report.engines = report.engines.map { Self.merging($0, summaries: summaries, results: results) }
+            report.runningEngine = nil
+            checkpoint(report)
         }
         let run = ASRBenchmarkRun(startedAt: report.startedAt, device: device, appBuild: build, results: results)
         report.run = run
-        report.engines = reports.map { Self.merging($0, summaries: run.summaries, results: results) }
+        report.engines = report.engines.map { Self.merging($0, summaries: run.summaries, results: results) }
         return finished(report, error: nil)
     }
 
@@ -305,6 +356,7 @@ public struct ASRDeviceBenchmark: Sendable {
             return (entry, nil)
         }
         if case .ready = await engine.assetStatus() {
+            entry.outcome = .pending
             return (entry, ASRBenchmarkEngine(key: key, name: displayName, engine: engine))
         }
         log("bench_download engine=\(name) (requested by -ChirpBenchmarkDevice; the only download without a tap)")
@@ -327,6 +379,7 @@ public struct ASRDeviceBenchmark: Sendable {
             return (entry, nil)
         }
         log("bench_download_done engine=\(name) ms=\(entry.downloadMs ?? 0)")
+        entry.outcome = .pending
         return (entry, ASRBenchmarkEngine(key: key, name: displayName, engine: engine))
     }
 
@@ -343,6 +396,9 @@ public struct ASRDeviceBenchmark: Sendable {
         merged.timesRealTime = summary.realTimeFactor.flatMap { $0 > 0 ? 1 / $0 : nil }
         merged.loadMs = summary.loadMs
         merged.peakMemoryBytes = summary.peakMemoryBytes
+        merged.availableMemoryBeforeLoadBytes =
+            summary.availableMemoryBeforeLoadBytes ?? entry.availableMemoryBeforeLoadBytes
+        merged.loadPeakMemoryBytes = summary.loadPeakMemoryBytes
         merged.failures = summary.failures
         if !own.isEmpty, summary.failures == own.count {
             merged.outcome = .failed

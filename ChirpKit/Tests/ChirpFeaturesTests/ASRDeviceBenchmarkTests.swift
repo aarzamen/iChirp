@@ -108,7 +108,8 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
                 .init(
                     name: "parakeet", key: "fluidaudio.parakeet-tdt:v3", displayName: "Parakeet v3",
                     outcome: .measured, wordErrorRate: 0.05, realTimeFactor: 0.02, timesRealTime: 50, loadMs: 800,
-                    peakMemoryBytes: 600_000_000)
+                    peakMemoryBytes: 600_000_000, availableMemoryBeforeLoadBytes: 5_800_000_000,
+                    loadPeakMemoryBytes: 550_000_000)
             ])
         let data = try report.encoded()
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -118,7 +119,10 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
         XCTAssertEqual(json["deviceModel"] as? String, "iPhone16,1")
         XCTAssertEqual(json["startedAt"] as? String, "1970-01-01T00:16:40Z")
         let engine = try XCTUnwrap((json["engines"] as? [[String: Any]])?.first)
-        for key in ["name", "outcome", "wordErrorRate", "timesRealTime", "loadMs", "peakMemoryBytes"] {
+        for key in [
+            "name", "outcome", "wordErrorRate", "timesRealTime", "loadMs", "peakMemoryBytes",
+            "availableMemoryBeforeLoadBytes", "loadPeakMemoryBytes",
+        ] {
             XCTAssertNotNil(engine[key], key)
         }
         XCTAssertEqual(try ASRDeviceBenchmarkReport.decode(data), report)
@@ -134,15 +138,16 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
 
     private func benchmark(
         _ engines: [(ASRDeviceBenchmarkRequest.Engine, ScriptedEngine)], items: [ASRBenchmarkItem],
-        router made: SpeechEngineRouter? = nil
+        router made: SpeechEngineRouter? = nil, availableMemory: @escaping @Sendable () -> UInt64? = { nil }
     ) -> ASRDeviceBenchmark {
         let router = made ?? Self.router(engines)
         let runner = ASRBenchmarkRunner(
             scheduler: SpeechJobScheduler(), normalizer: FakeNormalizer(), memory: { 500_000_000 },
-            workDirectory: folder, sampleInterval: .milliseconds(1))
+            availableMemory: availableMemory, workDirectory: folder, sampleInterval: .milliseconds(1))
         return ASRDeviceBenchmark(
             router: router, runner: runner, items: items, device: "Test · iOS 26", deviceModel: "Test",
-            build: "0.1.0 (1) · abc123", buildSHA: "abc123", physicalMemoryBytes: 12_000_000_000)
+            build: "0.1.0 (1) · abc123", buildSHA: "abc123", physicalMemoryBytes: 12_000_000_000,
+            availableMemory: availableMemory)
     }
 
     private static func router(
@@ -231,6 +236,35 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
         XCTAssertEqual(empty.error, "the synthetic reference set is missing from this build")
     }
 
+    // MARK: - fix/speech-memory-fit
+
+    func testEachEngineRecordsTheMemoryBeforeItsLoadAndACheckpointNamesTheEngineRunning() async throws {
+        let parakeet = ScriptedEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)
+        let base = ScriptedEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)
+        let checkpoints = LockedReports()
+        let report = await benchmark(
+            [(.parakeet, parakeet), (.whisperBase, base)], items: try referenceItems(),
+            availableMemory: { 5_800_000_000 }
+        )
+        .run(ASRDeviceBenchmarkRequest(engines: [.parakeet, .whisperBase]), checkpoint: { checkpoints.append($0) })
+
+        XCTAssertEqual(report.status, .completed)
+        XCTAssertNil(report.runningEngine)
+        for engine in report.engines {
+            XCTAssertEqual(engine.availableMemoryBeforeLoadBytes, 5_800_000_000, engine.name)
+            XCTAssertEqual(engine.loadPeakMemoryBytes, 500_000_000, engine.name)
+        }
+        // Before each engine: running, that engine named, its reading already in place (a file left by iOS ending
+        // the app mid-load still says which engine and how much memory). After each: its numbers, nothing running.
+        let all = checkpoints.all
+        XCTAssertEqual(all.map(\.runningEngine), ["parakeet", nil, "whisper-base", nil])
+        XCTAssertTrue(all.allSatisfy { $0.status == .running })
+        XCTAssertEqual(all[0].engines.first { $0.name == "parakeet" }?.availableMemoryBeforeLoadBytes, 5_800_000_000)
+        XCTAssertNil(all[0].engines.first { $0.name == "parakeet" }?.wordErrorRate)
+        XCTAssertEqual(all[1].engines.first { $0.name == "parakeet" }?.outcome, .measured)
+        XCTAssertEqual(all[2].engines.first { $0.name == "whisper-base" }?.outcome, .pending, "not measured yet")
+    }
+
     func testTheBenchmarkNeverChangesTheSavedRoutes() async throws {
         let parakeet = ScriptedEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)
         let base = ScriptedEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)
@@ -244,6 +278,16 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
         XCTAssertEqual(router.selection, before)
         XCTAssertEqual(saved.all, [], "nothing saved: the owner's routes are untouched")
     }
+}
+
+/// Thread-safe list of checkpointed reports.
+private final class LockedReports: @unchecked Sendable {
+    // @unchecked Sendable: `reports` is only touched while `lock` is held.
+    private let lock = NSLock()
+    private var reports: [ASRDeviceBenchmarkReport] = []
+
+    func append(_ report: ASRDeviceBenchmarkReport) { lock.withLock { reports.append(report) } }
+    var all: [ASRDeviceBenchmarkReport] { lock.withLock { reports } }
 }
 
 /// Thread-safe list of logged lines.

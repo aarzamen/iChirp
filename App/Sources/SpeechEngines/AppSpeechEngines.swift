@@ -45,7 +45,8 @@ enum AppSpeechEngines {
         router: SpeechEngineRouter, scheduler: SpeechJobScheduler, paths: AppPaths
     ) -> ASRBenchmarkViewModel {
         let runner = ASRBenchmarkRunner(
-            scheduler: scheduler, normalizer: AVAudioNormalizer(), memory: { MemoryProbe.physicalFootprintBytes() })
+            scheduler: scheduler, normalizer: AVAudioNormalizer(), memory: { MemoryProbe.physicalFootprintBytes() },
+            availableMemory: { MemoryProbe.availableBytes() })
         let referenceFolder = Bundle.main.resourceURL.flatMap {
             FileManager.default.fileExists(
                 atPath: $0.appendingPathComponent(ASRBenchmarkReferenceSet.manifestName).path)

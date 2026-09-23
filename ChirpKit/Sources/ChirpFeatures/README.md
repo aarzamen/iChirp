@@ -429,6 +429,10 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
       time with the app's other jobs.
     - `prepare` is timed once per engine, as load time after the unload.
     - Peak physical footprint is sampled every 100 ms by an injected reader (`MemoryProbe` in the app).
+    - fix/speech-memory-fit: right before each load, inside the job, it reads the injected `availableMemory`
+      (`os_proc_available_memory` in the app) into `availableMemoryBeforeLoadBytes`, and samples the footprint during
+      the load alone into `loadPeakMemoryBytes` (a first load includes the Core ML compile): the device numbers for
+      the registry's first-load peak placeholders. An engine's memory-fit refusal is that pass's error.
     - Privacy routing runs first: the synthetic set is `.general`, and a person's own file is treated as `.clinical`.
       An engine without its model is reported, never downloaded.
     - A person's own file keeps no recognized text.
@@ -442,11 +446,16 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   - `ASRDeviceBenchmark.run` skips an engine not in the build, over the memory budget, unavailable here, or waiting
     on a system permission prompt (`SpeechEnginePermissionReporting`: `permission-needed`, never waits on UI);
     downloads a missing model (the one download without a tap, asked for by the launch argument); then runs
-    `ASRBenchmarkRunner` over the synthetic set. It never reads or changes the saved routes.
-  - `ASRDeviceBenchmarkReport` (`ichirp.asr-device-benchmark/v1`): status, device model, build and commit, one line
-    per engine (outcome, reason, WER, × real time, load, peak memory, download time) and the full run. The app writes
-    it to `Documents/asr-device-benchmark.json` (`App/Sources/Debug/DeviceBenchmarkLaunch.swift`) and
-    `scripts/device_benchmark.sh` reads it.
+    `ASRBenchmarkRunner` over the synthetic set, one engine per call. It never reads or changes the saved routes.
+    fix/speech-memory-fit: before each engine it hands `checkpoint` a `running` report naming `runningEngine`, with
+    that engine's `availableMemoryBeforeLoadBytes` already filled from a reading just before its run (runnable
+    engines not measured yet are `pending`), and again once its numbers are in; the app writes each one, so a file
+    left by iOS ending the app mid-load still says which engine and how much memory it had.
+  - `ASRDeviceBenchmarkReport` (`ichirp.asr-device-benchmark/v1`): status, device model, build and commit,
+    `runningEngine`, one line per engine (outcome, reason, WER, × real time, load, peak memory, the memory available
+    before the load, the load's own peak, download time) and the full run. The app writes it to
+    `Documents/asr-device-benchmark.json` (`App/Sources/Debug/DeviceBenchmarkLaunch.swift`) and
+    `scripts/device_benchmark.sh` reads it (columns `avail MB` and `load pk MB`).
 - `ASRBenchmarkViewModel.swift`: the Benchmark screen.
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
   - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your

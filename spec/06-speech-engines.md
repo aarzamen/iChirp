@@ -98,7 +98,9 @@ state. An engine can be chosen for a route only when its model is on disk.
     synthetic reference set (5 `say` recordings with known text, `scripts/make_benchmark_audio.sh`) and any files the
     owner adds.
   - It reports word error rate (upstream's simple normalizer, corpus aggregate), real-time factor, load time after an
-    unload, and the app's peak physical footprint.
+    unload, and the app's peak physical footprint. fix/speech-memory-fit: also the memory iOS let the app use right
+    before each load and the peak during the load alone; the DEBUG device run (`scripts/device_benchmark.sh`) prints
+    both, and they replace the first-load peak placeholders.
   - Results go to one local JSON file and export as CSV and JSON. The Mac run is `CHIRP_BENCHMARK=1 swift test
     --filter ASRBenchmarkMacRunTests`. Numbers are in
     [`docs/research/2026-09-22-asr-engine-benchmarks.md`](../docs/research/2026-09-22-asr-engine-benchmarks.md).
