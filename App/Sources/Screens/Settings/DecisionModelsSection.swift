@@ -149,8 +149,9 @@ struct JevKeySheet: View {
         case .idle: EmptyView()
         case .checking: ProgressView()
         case .succeeded:
+            // F80: successInk, not success — success measures 3.06:1 as text, below 4.5:1.
             Label("Connected", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(Tokens.Color.success)
+                .foregroundStyle(Tokens.Color.successInk)
         case .failed:
             Label("Failed", systemImage: "xmark.circle.fill")
                 .foregroundStyle(AppColor.error)

@@ -176,10 +176,11 @@ struct ModelsSettingsScreen: View {
         return parts.joined(separator: " · ")
     }
 
+    /// F81: "Ready" already shows once, as the trailing badge (`onDeviceBadge`) — the caption doesn't repeat it.
     private func onDeviceCaption(_ availability: LanguageModelAvailability?) -> String {
         switch availability {
         case nil: "Checking…"
-        case .available?: "Ready. Runs on this iPhone; nothing leaves it."
+        case .available?: "Runs on this iPhone; nothing leaves it."
         case .unavailable(let reason)?: reason.message
         }
     }

@@ -66,7 +66,9 @@ struct SettingsScreen: View {
                 "With “Keep dictation audio” off, a dictation’s recording is deleted as soon as its text is saved, so "
                 + "it cannot be played back or retried."
         ) {
-            helpRow(title: "Dictation trigger", value: "Action Button", topic: .actionButton)
+            // F78: "How to set up", like Back Tap below — the value is a help link, not the trigger's name, and
+            // reading "Action Button" here looked like already-configured state.
+            helpRow(title: "Dictation trigger", value: "How to set up", topic: .actionButton)
             helpRow(title: "Back Tap", value: "How to set up", topic: .backTap)
             SettingsRow(
                 title: "Stop mode",
@@ -108,33 +110,11 @@ struct SettingsScreen: View {
     private var speechGroup: some View {
         @Bindable var speech = environment.speechSettings
         let running = environment.runningVariant
-        let selected = speech.settingsValue.parakeetVariant
+        // F76: "Speech engines" is the one entry point for Parakeet's status, size and Download/Delete now — its
+        // own "Engines" list already shows Parakeet correctly (it used to disagree here: a static "500 MB"
+        // estimate beside the Engines screen's real "On device · 483 MB"). Model version moved there too.
         return SettingsGroup(title: "Speech") {
-            SpeechEnginesSettingsLink()  // M7: live and final engines, Apple Speech, WhisperKit, benchmark
-            ModelAssetRow(
-                title: "Speech model",
-                value: Self.variantName(running),
-                status: speech.speechStatus,
-                approximateDownloadBytes: ParakeetEngine.descriptor(for: running).approximateDownloadBytes,
-                runsOn: "Neural Engine",
-                onDownload: { environment.downloadSpeechModel() },
-                onDelete: { Task { await speech.deleteSpeechModel() } }
-            )
-            SettingsRow(
-                title: "Model version",
-                caption: selected == running
-                    ? "v3: 25 European languages · v2: English only"
-                    : "Takes effect next time you open Parakeet",
-                captionColor: selected == running ? Tokens.Color.secondary : AppColor.accentText
-            ) {
-                Picker("Model version", selection: $speech.settingsValue.parakeetVariant) {
-                    Text("v3").tag(ParakeetVariant.v3)
-                    Text("v2").tag(ParakeetVariant.v2)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 120)
-                .labelsHidden()
-            }
+            SpeechEnginesSettingsLink()  // M7: live and final engines, Apple Speech, WhisperKit, benchmark, version
             SettingsRow(title: "Language") {
                 Text(running == .v3 ? "Automatic (25 languages)" : "English")
                     .chirpFont(15)
@@ -170,32 +150,34 @@ struct SettingsScreen: View {
         return "Download the speaker model below to label who spoke"
     }
 
-    static func variantName(_ variant: ParakeetVariant) -> String {
-        variant == .v3 ? "Parakeet v3" : "Parakeet v2"
-    }
-
     // MARK: - Privacy
 
     private var privacyGroup: some View {
-        SettingsGroup(title: "Privacy") {
+        let onDevice = allRoutesOnDevice
+        return SettingsGroup(title: "Privacy") {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
                         .fill(Tokens.Color.privacyBadgeFill)
-                    Image(systemName: "lock.fill")
+                    Image(systemName: onDevice ? "lock.fill" : "network")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Tokens.Color.privacyBadgeInk)
                 }
                 .frame(width: 34, height: 34)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Everything stays on this iPhone")
+                    // F74: this claim is only true while every configured route (a language-model provider, Jev,
+                    // the voice you read aloud with) is on-device — never shown unconditionally.
+                    Text(onDevice ? "Everything stays on this iPhone" : "Some settings can leave this iPhone")
                         .chirpFont(15.5)
                         .foregroundStyle(Tokens.Color.ink)
-                    Text("Audio, transcripts, notes — no account, no upload")
-                        .chirpFont(12.5)
-                        .foregroundStyle(Tokens.Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        onDevice
+                            ? "Audio, transcripts, notes — no account, no upload" : networkRoutesSummary
+                    )
+                    .chirpFont(12.5)
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -209,6 +191,33 @@ struct SettingsScreen: View {
             // Plan 019: Settings → Mac companion (host, port, pairing token in the Keychain, trusted).
             MacCompanionSettingsLink()
         }
+    }
+
+    /// True only while nothing configured can leave the phone: no language-model provider beyond Apple's
+    /// on-device model, Jev off, and no network voice provider (F74). Mirrors each route's own `EngineLocality`
+    /// rather than guessing.
+    private var allRoutesOnDevice: Bool {
+        let languageModelsOnDevice = environment.languageModels.providers.allSatisfy { $0.locality == .onDevice }
+        let voiceOnDevice = environment.voiceSettings.settings.provider == nil
+        return languageModelsOnDevice && voiceOnDevice && !environment.jevSettingsModel.isEnabled
+    }
+
+    /// What can leave the phone, for the caption when `allRoutesOnDevice` is false.
+    private var networkRoutesSummary: String {
+        var routes: [String] = []
+        for provider in environment.languageModels.providers where provider.locality != .onDevice {
+            routes.append(provider.displayName)
+        }
+        if environment.jevSettingsModel.isEnabled { routes.append("Jev") }
+        switch environment.voiceSettings.settings.provider {
+        case .companion?: routes.append("Mac companion voices")
+        case .xai?: routes.append("Grok voices")
+        case nil: break
+        }
+        guard !routes.isEmpty else {
+            return "A model or voice you set up can send text off this iPhone."
+        }
+        return "Can leave this iPhone: \(routes.joined(separator: ", ")). See Models and Voices below for when."
     }
 
     // MARK: - Text
@@ -228,7 +237,9 @@ struct SettingsScreen: View {
                     Text("Clean").tag(CleanupMode.clean)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 140)
+                // F77: no fixed width — a hard-coded pixel width squeezed this at accessibility Dynamic Type
+                // sizes; let it size to its own content instead.
+                .fixedSize()
                 .labelsHidden()
             }
             NavigationLink {

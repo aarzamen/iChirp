@@ -6,6 +6,8 @@ import SwiftUI
 struct SettingsGroup<Content: View>: View {
     let title: String
     var footer: String?
+    /// The footer's text color — `secondary` unless a caller needs to flag it (a failed connection test, F85).
+    var footerColor: Color = Tokens.Color.secondary
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -32,7 +34,7 @@ struct SettingsGroup<Content: View>: View {
             if let footer {
                 Text(footer)
                     .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
+                    .foregroundStyle(footerColor)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
                     .padding(.top, 8)
@@ -44,30 +46,49 @@ struct SettingsGroup<Content: View>: View {
 /// A label on the left, optional caption under it, and trailing content.
 struct SettingsRow<Trailing: View>: View {
     let title: String
+    /// The title's own text color — `ink` unless a caller needs to flag the row itself (a destructive action).
+    var titleColor: Color = Tokens.Color.ink
     var caption: String?
     var captionColor: Color = Tokens.Color.secondary
     @ViewBuilder let trailing: Trailing
 
+    // F77: at accessibility Dynamic Type sizes, a fixed-width trailing value (or a fixed-width segmented picker
+    // beside it) gets squeezed into a sliver and wraps awkwardly. `ViewThatFits` tries the canvas's side-by-side
+    // layout first and falls back to stacking the value under the title once it no longer fits the row.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .chirpFont(15.5)
-                    .foregroundStyle(Tokens.Color.ink)
-                if let caption {
-                    Text(caption)
-                        .chirpFont(12.5)
-                        .monospacedDigit()
-                        .foregroundStyle(captionColor)
-                        .fixedSize(horizontal: false, vertical: true)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                titleAndCaption
+                Spacer(minLength: 8)
+                trailing
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                titleAndCaption
+                HStack(spacing: 10) {
+                    trailing
                 }
             }
-            Spacer(minLength: 8)
-            trailing
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(minHeight: caption == nil ? 52 : 62)
+        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? nil : (caption == nil ? 52 : 62))
+    }
+
+    private var titleAndCaption: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .chirpFont(15.5)
+                .foregroundStyle(titleColor)
+            if let caption {
+                Text(caption)
+                    .chirpFont(12.5)
+                    .monospacedDigit()
+                    .foregroundStyle(captionColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

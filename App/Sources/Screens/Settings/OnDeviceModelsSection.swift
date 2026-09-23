@@ -97,10 +97,29 @@ extension OnDeviceModelsSection {
 /// The badge and the facts that decide whether a model fits: memory while in use, window, license, source.
 private struct LocalModelFacts: View {
     let option: LocalModelOption
+    // F81: the engineering line ("About 2.2 GB of memory in use · 32K-token window · Apache-2.0 ·
+    // Qwen/Qwen3.5-2B · Q4_K_M · llama.cpp") sat in the main row unconditionally; it now opens on request instead.
+    @State private var showsDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            badgeAndFacts
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("On device")
+                    .chirpFont(11.5, .bold)
+                    .foregroundStyle(Tokens.Color.privacyBadgeInk)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 22)
+                    .background(Capsule().fill(Tokens.Color.privacyBadgeFill))
+                Spacer(minLength: 0)
+                detailsToggle
+            }
+            .accessibilityElement(children: .combine)
+            if showsDetails {
+                Text(facts)
+                    .chirpFont(12)
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let caution = option.measurementCaution {
                 // Until the model's iPhone numbers are recorded (review I3b); louder for the quality tier.
                 Text(caution)
@@ -111,20 +130,23 @@ private struct LocalModelFacts: View {
         }
     }
 
-    private var badgeAndFacts: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("On device")
-                .chirpFont(11.5, .bold)
-                .foregroundStyle(Tokens.Color.privacyBadgeInk)
-                .padding(.horizontal, 8)
-                .frame(minHeight: 22)
-                .background(Capsule().fill(Tokens.Color.privacyBadgeFill))
-            Text(facts)
-                .chirpFont(12)
-                .foregroundStyle(Tokens.Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    private var detailsToggle: some View {
+        Button {
+            showsDetails.toggle()
+        } label: {
+            HStack(spacing: 3) {
+                Text("Details")
+                    .chirpFont(12.5, .semibold)
+                Image(systemName: showsDetails ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(AppColor.accentText)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityLabel(showsDetails ? "Hide details" : "Show details")
+        .accessibilityValue(facts)
     }
 
     private var facts: String {

@@ -81,7 +81,9 @@ import Observation
         }
     }
 
-    /// Why Listen cannot read yet (nil when it can try): shown in Settings → Voices' Test voice row.
+    /// Why Listen cannot read yet (nil when it can try): shown in Settings → Voices' Test voice row, and also in
+    /// Create's voice-message note (`CreateSheet.swift`) where "Settings → Voices" is real navigation guidance —
+    /// so this stays a standalone sentence naming where to go, rather than assuming a caller-specific "above".
     public var setupProblem: String? {
         switch settings.provider {
         case nil:

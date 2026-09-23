@@ -33,12 +33,17 @@ struct StructureModelsSettingsGroup: View {
                 }
             }
             SettingsRow(title: "Engine", caption: structure.engineCaption) {
+                // F86: "Needle" stays disabled (not selectable) while it isn't actually running — the caption
+                // beside it already says why ("Download Needle 3 below; the STUB runs until then."), so a tap here
+                // can't silently pick an engine nothing runs. "Rules (basic)", not the internal name "STUB".
                 Picker("Engine", selection: $structure.settingsValue.engine) {
                     Text("Needle").tag(StructureEngineChoice.needle)
-                    Text("STUB").tag(StructureEngineChoice.stub)
+                        .disabled(!structure.isNeedleReady)
+                    Text("Rules (basic)").tag(StructureEngineChoice.stub)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 150)
+                // F77: no fixed width; see `SettingsScreen`'s "Model version" picker.
+                .fixedSize()
                 .labelsHidden()
             }
             SettingsRow(
