@@ -7,7 +7,12 @@
 #   scripts/device_benchmark.sh                                   # parakeet,whisper-base,whisper-turbo,apple-speech
 #   scripts/device_benchmark.sh parakeet,whisper-base             # a subset (names: parakeet, whisper-base,
 #                                                                 # whisper-turbo, apple-speech, or all)
-#   DEVICE_ID=<identifier> scripts/device_benchmark.sh            # same device choice as scripts/run_device.sh
+#   DEVICE_ID=<identifier> scripts/device_benchmark.sh            # the device: DEVICE_ID, else Config/Device.local
+#                                                                 # — nothing else. This downloads models to the
+#                                                                 # phone, so it uses run_device.sh's
+#                                                                 # --print-pinned-device / PINNED_DEVICE_ONLY,
+#                                                                 # which never falls back to "the one reachable
+#                                                                 # iPhone".
 #   BENCH_TIMEOUT_S=3600 scripts/device_benchmark.sh              # wait longer than the default 1800 s
 #   scripts/device_benchmark.sh --report <file.json>              # print the table for a result file; no phone
 #
@@ -90,9 +95,11 @@ case "$ENGINES" in
   -*) echo "error: unknown option $ENGINES (see the usage at the top of this script)" >&2; exit 2 ;;
 esac
 
-# Same device rules as run_device.sh (DEVICE_ID, Config/Device.local, or the single reachable iPhone).
-DEVICE_ID="$(scripts/run_device.sh --print-device)"
+# This downloads models to the phone, so it never guesses the device: --print-pinned-device refuses, with a clear
+# message, instead of falling back to "the one reachable iPhone" the way plain --print-device would.
+DEVICE_ID="$(scripts/run_device.sh --print-pinned-device)"
 export DEVICE_ID
+export PINNED_DEVICE_ONLY=1
 
 mkdir -p .build/device-logs "$KEEP_DIR"
 scripts/run_device.sh -- -ChirpBenchmarkDevice "$ENGINES"

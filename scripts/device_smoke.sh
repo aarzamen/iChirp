@@ -3,7 +3,10 @@
 # sample, fetches Documents/smoke-result.json from the app container and asserts the words. Prints SMOKE PASS.
 #
 # Usage: scripts/device_smoke.sh
-#   DEVICE_ID=<identifier> scripts/device_smoke.sh     # same device choice as scripts/run_device.sh
+#   DEVICE_ID=<identifier> scripts/device_smoke.sh     # the device: DEVICE_ID, else Config/Device.local — nothing
+#                                                       # else. This downloads ~0.5 GB to the phone, so it uses
+#                                                       # run_device.sh's --print-pinned-device / PINNED_DEVICE_ONLY,
+#                                                       # which never falls back to "the one reachable iPhone".
 #   SMOKE_TIMEOUT_S=900 scripts/device_smoke.sh        # wait longer than the default 600 s
 #   SMOKE_CONSOLE=1 scripts/device_smoke.sh            # also launch with `devicectl ... --console`, backgrounded,
 #                                                       # saving the app's stdout/stderr (including FluidAudio's
@@ -23,9 +26,11 @@ COPY_LOG=".build/device-logs/smoke-copy.log"
 TIMEOUT_S="${SMOKE_TIMEOUT_S:-600}"
 POLL_S=10
 
-# Same device rules as run_device.sh (DEVICE_ID, Config/Device.local, or the single reachable iPhone).
-DEVICE_ID="$(scripts/run_device.sh --print-device)"
+# This downloads ~0.5 GB to the phone, so it never guesses the device: --print-pinned-device refuses, with a clear
+# message, instead of falling back to "the one reachable iPhone" the way plain --print-device would.
+DEVICE_ID="$(scripts/run_device.sh --print-pinned-device)"
 export DEVICE_ID
+export PINNED_DEVICE_ONLY=1
 
 scripts/run_device.sh -- -ChirpSmoke transcribe-sample
 
