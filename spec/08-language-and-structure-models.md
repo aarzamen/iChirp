@@ -153,12 +153,18 @@ Details: [`12-privacy.md`](12-privacy.md).
   `GRDBDeliverableStore` and the one `DeliverableService` (routing policy read from the provider store at every
   check), installs the built-in templates at launch, and owns `LanguageModelsViewModel` and
   `DeliverableLibraryViewModel`. `App/Sources/LanguageModels/AppLanguageModelFactory.swift` is the only app code that
-  imports `ChirpEngineAppleFM` / `ChirpEngineHTTPLLM`; engines are built right before a run or a test, with the key
-  read from the Keychain just then.
+  imports `ChirpEngineAppleFM` / `ChirpEngineHTTPLLM`, and `AppLocalLanguageModels.swift` the only one that imports
+  `ChirpEngineLlamaCpp` (M7; it also forwards memory warnings and backgrounding to the runtime); engines are built
+  right before a run or a test, with the key read from the Keychain just then.
 - **Settings → Models** (`ModelsSettingsScreen`, `ProviderEditorSheet`): the default model for Transform and Ask
   (Apple's on-device model unless a provider is picked), Apple's availability as a sentence, providers with locality
   derived from the address, the trusted switch only for a home-network host, key to the Keychain (a blank field keeps
   the stored key; the key is never shown), model list from the server, context window, Test connection, Delete.
+- **Settings → Models → Small models on this iPhone** (M7, `OnDeviceModelsSection`): Qwen3.5 2B (default) and Qwen3 4B
+  Instruct (quality) with an "On device" badge, download size, memory in use, window, license and source; Download
+  (explicit, SHA-256 checked, continued-processing progress) and Delete (asks first; a deleted default falls back to
+  Apple's model). A downloaded model joins "Use for Transform and Ask" as an on-device choice, so clinical items use it
+  with no confirmation.
 - **Transcript**: the privacy-class chip (through `DeliverableService.setPrivacyClass`), the Ask tab
   (`AskSessionViewModel`, one routed run per question) and the Transform sheet (`TransformRunHost` over
   `DeliverableRunViewModel`); **Transforms tab**: recent documents and templates.

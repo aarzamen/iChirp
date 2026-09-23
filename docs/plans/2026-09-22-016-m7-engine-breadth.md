@@ -22,7 +22,10 @@
   [ADR-004](../../spec/adr/004-engine-plugin-architecture.md), [speech-engine plug-in contract](../../spec/contracts/speech-engine-plugin-v1.md),
   [on-device runtimes research](../research/2026-09-22-on-device-runtimes.md)
 - **Planned at:** commit `bd8cfc7c`, 2026-09-22
-- **Status:** NOT STARTED
+- **Status:** IN PROGRESS — Step 5 (small language models) built on `lane/on-device-llm`: llama.cpp from pinned
+  source ([ADR-015](../../spec/adr/015-on-device-llm-llama-cpp.md)), Qwen3.5 2B default and Qwen3 4B Instruct 2507
+  quality tier (Apache-2.0; LFM2.5 dropped on license), MLX Swift spiked and not adopted; Mac numbers in
+  [the research note](../research/2026-09-22-on-device-llm.md), iPhone numbers pending. Other steps: their own lanes.
 
 ## Why this matters
 

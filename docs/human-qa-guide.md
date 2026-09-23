@@ -564,6 +564,57 @@ Simulator (agents): DEBUG launch arguments open the screens without taps: `-Chir
 -ChirpExtractFields -ChirpStructureEngine stub|needle`, `-ChirpVoiceCommands`, `-ChirpStructureEval stub,needle`
 (`App/Sources/Debug/StructurePreviewLaunch.swift`).
 
+## M7 checklist (small language models on this iPhone: Qwen through llama.cpp, ADR-015)
+
+> Preconditions: the Mac ran `scripts/build_llamacpp.sh` before the build (Settings → Models → Small models on this
+> iPhone shows two rows with Download, not "…is not in this build"); Wi-Fi and about 1.5 GB free for Qwen3.5 2B (2.7 GB
+> more for Qwen3 4B Instruct). Use only the synthetic visit below. Keep Parakeet on screen while a small model writes:
+> iOS stops GPU work in the background.
+
+```bash
+cat > ~/Desktop/synthetic-visit.txt <<'VISIT'
+Synthetic sick-call visit (invented for testing; not a real patient).
+Clinician: Good morning. What brings you in today?
+Patient: My throat has been really sore for three days, and I had a fever last night.
+Clinician: Any cough, runny nose or trouble swallowing?
+Patient: No cough. It hurts to swallow, though. No runny nose.
+Clinician: Your temperature is 38.4, heart rate 96, blood pressure 118 over 76.
+Clinician: The rapid strep test came back positive. So this looks like strep throat, streptococcal pharyngitis.
+Clinician: I'm going to start amoxicillin 500 milligrams by mouth twice a day for ten days.
+Patient: Okay, thank you.
+VISIT
+```
+
+Settings → Models
+- [ ] "Small models on this iPhone" lists **Qwen3.5 2B** (Default) and **Qwen3 4B Instruct** (Quality), each with an
+      "On device" badge, "Not downloaded · about 1.3 GB / 2.5 GB", memory in use, window (32K / 8K), Apache-2.0 and
+      the source line. Nothing downloads until you tap Download.
+- [ ] Download Qwen3.5 2B: the row and the system progress show the percentage, then "On device · 1.3 GB · GPU".
+      Airplane mode during a download → "Download failed: …" and Try again.
+- [ ] "Use for Transform and Ask" now lists Qwen3.5 2B ("On this iPhone"); tap it → check mark; Settings shows
+      "Models for Ask and Transforms · Qwen3.5 2B · on this iPhone".
+
+Clinical SOAP note on the phone
+- [ ] AirDrop or Files the synthetic visit into Parakeet, open it, set it to **Clinical** where offered, Transform → the
+      picker says it runs on this iPhone → SOAP note: **no clinical dialog**, the note streams, "Saved in Transforms",
+      chips "Runs on this iPhone" and "Clinical". Time the first words and the whole note.
+- [ ] Airplane mode on: the same SOAP note still runs (nothing leaves the phone).
+- [ ] Ask "What medication was started?" with Qwen3.5 2B → an answer naming amoxicillin, no dialog.
+- [ ] Start a long Transform, then swipe home: coming back shows "on-device models run only while Parakeet is on
+      screen…" and Retry works.
+- [ ] Quality tier: download Qwen3 4B Instruct and run the same SOAP note. If it refuses with "…needs about 4.2 GB of
+      memory and Parakeet can use about X GB…", write down X (that is the answer to the memory question, not a bug).
+
+Delete
+- [ ] Delete Qwen3.5 2B → asks first → the row returns to Download and the default falls back to "Apple on-device
+      model".
+
+Screenshots to attach
+- [ ] The Small models section (not downloaded, then ready); the SOAP note with its chips; any memory refusal.
+
+Simulator (agents): `UITests/M7OnDeviceLLMTourUITests.swift` walks Settings → Models → Download → default → SOAP
+note on a synthetic document (llama.cpp runs on the CPU there, so it proves wiring, not speed).
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo
