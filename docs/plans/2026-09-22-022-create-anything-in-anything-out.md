@@ -19,7 +19,7 @@
   the same." Treated as the approved design direction for this plan.
 - **Effort:** L (integration and UX on top of existing engines; little new engine code)
 - **Risk:** MEDIUM (UX coherence; privacy routing across chained steps)
-- **Status:** READY after wave 1 merges
+- **Status:** IN PROGRESS on `lane/create` (wave 2). Drift check passed 2026-09-22 (below).
 
 ## Why this matters
 
@@ -27,19 +27,37 @@ Every engine exists (Parakeet, diarization, links, documents, language models, t
 lives behind its own screen. The owner's goal is one coherent loop: bring anything in, shape it by voice, send
 anything out. This plan adds that loop without adding engines.
 
-## Current state (to confirm at drift check)
+## Current state (confirmed at drift check, 2026-09-22, `ichirp/foundation` @ f325b99c)
 
-- Inputs: Import audio/video (M1), Share → Parakeet (M1.5), Dictate (M2), Record Meeting (M3), Paste a link and
-  documents (M5). **Missing:** typed or pasted plain text as a first-class item.
-- Operations: Transform templates and Ask (M4), Needle extraction and voice commands (015), Jev suggestions (021).
-  **Missing:** editing a document by a spoken instruction; chaining steps in one go.
-- Outputs: transcript view, deliverables with Copy/Share, exports TXT/MD/SRT/VTT/JSON, Listen (020). **Missing:**
-  saving speech as an audio file ("voice message"); PDF/DOCX export (plan 017 items 1–2).
+Wave 1 is merged: 019 companion (69edb0fa), 020 voices (cc31e767), 015 Needle (dd161425), 021 Jev (2dc501b9) and
+review round 1 (e0adb563, which added `EffectivePrivacyClass`). Every name below exists in the live code.
+
+- **Inputs.** Capture (`App/Sources/Screens/Capture/CaptureScreen.swift`): the Dictate card (M2,
+  `DictationCoordinator`: final pass → `.dictation` row → clipboard; `waitForState(_:)` and `transcriptionID` let a
+  caller follow one dictation), the Paste a link tile (M5, `LinkImportViewModel` over `LinkIngestService`; the same
+  sheet's "Import a document" runs `DocumentImportPipeline`), Import audio (M1, `FileTranscriptionPipeline`) and
+  Record Meeting (M3). `Transcription.SourceType` is `file, dictation, meeting, url, podcast, document`: **no `text`**.
+  `sourceType` is a free `TEXT` column (v1), so a `text` case needs no schema change.
+- **Jobs.** `TranscriptionJobCenter.start(filesAt:…)` does not return row ids; `startTracked(_:title:work:)` tracks
+  work for a row that already exists (links use it), `progress[id]` is the real progress.
+- **Operations.** `DeliverableService` is the only path to a language model (`route` → `.allowed` or
+  `.needsOverride(PrivacyOverrideRequest)`, `confirmOverride` → a single-use `PrivacyOverride`, `generate`, `ask`),
+  routing every call on `EffectivePrivacyClass` (the transcript's class raised by its deliverables);
+  `DeliverableRunViewModel` drives one run for a screen and `.clinicalConfirmation(for:)` asks. Nine built-ins
+  (`summary`, `soap-note`, …). A deliverable's text is edited **in place** (`updateDeliverableText`, `editedAt`): no
+  versions. `DecisionService` (Jev) refuses clinical items outright. **Missing:** editing a document by an
+  instruction; chaining steps in one go.
+- **Outputs.** `TranscriptExporter` renders TXT, Markdown, SRT, VTT, JSON (PDF/DOCX were not ported: upstream's use
+  AppKit); documents offer TXT, Markdown, JSON. `VoicePlayer` (plan 020) plays chunks through `SpeechPlaybackEngine`
+  (temporary `tmp/speech-<id>/`); nothing is ever saved as a file. **Missing:** a voice message file; PDF/DOCX.
+- **Migrations.** `v1-transcriptions` … `v7-structured-results`. This plan's one migration is named exactly
+  **`v8-text-items`** (not v9 as first written): text items need no column, so it carries the append-only document
+  versions of Step 4 (a new table; nothing existing changes).
 
 ## Scope
 
-- **In:** a `text` source item (type or paste; `sourceType` addition with an additive migration named exactly
-  `v9-text-items` if a column is needed, otherwise none); the **Create** sheet; `CreateFlow` coordinator in
+- **In:** a `text` source item (type or paste; `sourceType` addition with an no column needed); the one additive migration, named
+  exactly `v8-text-items`, holds Step 4's document versions; the **Create** sheet; `CreateFlow` coordinator in
   ChirpFeatures; voice editing of deliverables with versions; voice-message export; PDF and DOCX export (plan 017
   items 1–2, pulled in here); the Capture screen redesign around Create; docs, QA checklist.
 - **Must not change:** privacy routing (every chained step routes on the item's current class; clinical never
@@ -48,6 +66,9 @@ anything out. This plan adds that loop without adding engines.
 - **Out:** keyboard extension, widgets with data, App Groups (account change — owner decision), iPad layout.
 
 ## Steps
+
+> **Execution order (drift check):** 1, 2, 5, 3, 4, 6. The Create sheet (Step 3) offers "Voice message", so the
+> voice-message writer (Step 5) lands before the sheet; each step is still its own commit.
 
 ### Step 1: Text items
 Capture → **Type or paste**: a plain editor that saves a `text` item into the Library (title from the first line),
