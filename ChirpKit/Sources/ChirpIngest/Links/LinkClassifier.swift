@@ -57,7 +57,7 @@ public enum LinkKind: Sendable, Equatable {
         case .directMedia:
             "Parakeet downloads the file and transcribes it on this iPhone."
         case .youtube:
-            "Parakeet fetches the video’s captions from YouTube. No audio is downloaded."
+            "Parakeet fetches the video’s captions from YouTube. Without captions, your Mac companion can get the audio."
         case .webLink:
             "Parakeet checks whether the link is audio or video, then downloads and transcribes it."
         case .unsupported(let reason):

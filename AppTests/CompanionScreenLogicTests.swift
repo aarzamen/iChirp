@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpFeatures
+import ChirpIngest
 import XCTest
 
 @testable import iChirp
@@ -18,5 +19,8 @@ final class CompanionScreenLogicTests: XCTestCase {
         XCTAssertTrue(text.contains("studio.local"))
         XCTAssertTrue(text.contains("Only the link leaves this iPhone"))
         XCTAssertTrue(PasteLinkSheet.companionConfirmation(host: nil).contains("the Mac companion"))
+        let youtube = LinkKind.youtube(videoID: "AAAAAAAAAAA", url: URL(string: "https://youtu.be/AAAAAAAAAAA")!)
+        XCTAssertTrue(PasteLinkSheet.privacyNote(for: youtube, viaMac: true).contains("goes to your Mac"))
+        XCTAssertTrue(PasteLinkSheet.privacyNote(for: youtube).contains("to fetch its captions"))
     }
 }

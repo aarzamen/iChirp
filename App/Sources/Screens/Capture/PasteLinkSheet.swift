@@ -338,7 +338,7 @@ struct PasteLinkSheet: View {
 
     private var privacyNote: some View {
         Label {
-            Text(Self.privacyNote(for: model.kind))
+            Text(Self.privacyNote(for: model.kind, viaMac: model.companionLink != nil))
                 .chirpFont(12.5)
                 .foregroundStyle(Tokens.Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -402,8 +402,10 @@ struct PasteLinkSheet: View {
         }
     }
 
-    static func privacyNote(for kind: LinkKind) -> String {
+    static func privacyNote(for kind: LinkKind, viaMac: Bool = false) -> String {
         switch kind {
+        case .youtube where viaMac:
+            "Only the video’s link goes to your Mac, which gets the audio from YouTube. It is transcribed on this iPhone."
         case .youtube:
             "Only the video’s link goes to YouTube, to fetch its captions. Nothing you have on this iPhone is sent."
         default:
