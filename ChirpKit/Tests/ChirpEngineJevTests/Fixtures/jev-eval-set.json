@@ -1,0 +1,588 @@
+{
+  "version": 1,
+  "note": "Invented, synthetic excerpts for the Jev live evaluation (plan 021). No real people, no real patients, no real recordings. Do not tune recipes to this set.",
+  "recordingKind": [
+    {
+      "id": "rk-meeting-01",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 4,
+      "durationSeconds": 1740,
+      "text": "Speaker 1: Okay, let's get started, thanks for joining. First item is the warehouse move. Speaker 2: We're still on track for the fifteenth, but the forklift rental fell through. Speaker 3: I can call the backup vendor this afternoon. Speaker 1: Great, please do. Next, the holiday schedule. Speaker 4: I sent a draft around yesterday; nobody has objected yet. Speaker 1: Let's call it final then."
+    },
+    {
+      "id": "rk-meeting-02",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 3,
+      "durationSeconds": 2400,
+      "text": "Speaker 1: Quick round of updates before we dig into the budget. Speaker 2: Design review is done, two open comments. Speaker 3: QA found a regression in the export screen, fix is in review. Speaker 1: Thanks. On the budget, we're about eight percent over on contractors. Speaker 2: That's the localization work, it should taper off next month. Speaker 1: Okay, let's revisit at the next sync."
+    },
+    {
+      "id": "rk-meeting-03",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 5,
+      "durationSeconds": 3300,
+      "text": "Speaker 1: Welcome to the weekly board prep. Speaker 2: The slides are ninety percent done. Speaker 3: I still need the hiring numbers from HR. Speaker 4: I'll send those by Wednesday. Speaker 5: Should we include the pilot results or wait for the full quarter? Speaker 1: Include them with a caveat. Speaker 2: Agreed. Speaker 1: Anything else? No? Then we're done early."
+    },
+    {
+      "id": "rk-meeting-04",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 3,
+      "durationSeconds": 1500,
+      "text": "Speaker 1: So the goal of this call is to align on the garden club's spring fair. Speaker 2: The hall is booked for the third Saturday. Speaker 3: We need volunteers for the plant stall and the raffle. Speaker 1: I'll post a sign-up sheet. Speaker 2: And the budget for flyers is fifty dollars, same as last year. Speaker 3: Sounds fine to me. Speaker 1: Great, let's meet again in two weeks."
+    },
+    {
+      "id": "rk-meeting-05",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 4,
+      "durationSeconds": 2100,
+      "text": "Speaker 1: Morning everyone, this is the incident retrospective for Tuesday's outage. Speaker 2: Timeline first: alerts fired at nine forty, we rolled back at ten fifteen. Speaker 3: Root cause was a config change without a canary. Speaker 4: Action for us is to require canaries on config pushes. Speaker 1: Who owns that? Speaker 3: I will. Speaker 1: Okay, let's also add a runbook entry."
+    },
+    {
+      "id": "rk-meeting-06",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 900,
+      "text": "Speaker 1: Thanks for making time for our one-on-one. How's the new project going? Speaker 2: Mostly good. The onboarding docs were a bit thin, so I've been writing notes as I go. Speaker 1: That's useful, could you share them with the team? Speaker 2: Sure. I also wanted to talk about the conference next month. Speaker 1: Let's look at the travel budget together on Friday."
+    },
+    {
+      "id": "rk-meeting-07",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 6,
+      "durationSeconds": 2700,
+      "text": "Speaker 1: Let's start the sprint planning. We have thirty points of capacity. Speaker 2: The search rewrite alone is thirteen. Speaker 3: Can we split it? Speaker 4: The indexing part could go first. Speaker 5: Then I'd pull in the two accessibility bugs. Speaker 6: I'm out Thursday and Friday, so count me for half. Speaker 1: Okay, that puts us at twenty-eight. Let's commit to that."
+    },
+    {
+      "id": "rk-meeting-08",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 3,
+      "durationSeconds": 1200,
+      "text": "Speaker 1: This is the monthly check-in for the community library project. Speaker 2: Donations are up, we received about two hundred books. Speaker 3: Shelving is the bottleneck; we need two more units. Speaker 1: Can we ask the hardware store for a discount? Speaker 2: I know the manager, I'll ask. Speaker 1: Good. Next month we should plan the reading hour."
+    },
+    {
+      "id": "rk-meeting-09",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 4,
+      "durationSeconds": 3000,
+      "text": "Speaker 1: Alright, everyone's here, let's go through the vendor proposals. Speaker 2: Vendor A is cheaper but their support hours are limited. Speaker 3: Vendor B includes weekend support. Speaker 4: Our peak traffic is on weekends, so B makes sense. Speaker 1: Let's shortlist B and ask for a revised quote. Speaker 2: I'll draft the email today."
+    },
+    {
+      "id": "rk-meeting-10",
+      "expected": "meeting",
+      "source": "audio",
+      "speakerCount": 3,
+      "durationSeconds": 1800,
+      "text": "Speaker 1: Kicking off the product review. Here's the new onboarding flow on screen. Speaker 2: The second step feels long. Speaker 3: We could move the permissions prompt later. Speaker 1: Good idea, we'll test both versions. Speaker 2: When does the experiment start? Speaker 1: Next Monday, and we'll review results in two weeks."
+    },
+    {
+      "id": "rk-dictation-01",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 95,
+      "text": "Note to self: pick up the dry cleaning on Thursday, call the plumber about the kitchen sink, and renew the car registration before the end of the month. Also remember to buy a birthday card for the neighbor's kid, the party is on Saturday."
+    },
+    {
+      "id": "rk-dictation-02",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 140,
+      "text": "Dear Ms. Example, thank you for your letter of the fourth. Comma. I am pleased to confirm that the shipment will arrive on Monday. Full stop. Please let me know if the delivery window works for your team. New paragraph. Kind regards, the operations desk."
+    },
+    {
+      "id": "rk-dictation-03",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 60,
+      "text": "Reminder for the grocery run: oat milk, two onions, a bag of rice, coffee filters, and something for dessert. Check if we still have olive oil before buying more."
+    },
+    {
+      "id": "rk-dictation-04",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 180,
+      "text": "Memo to the facilities team. Subject: parking lot resurfacing. Starting next Monday the east lot will be closed for three days. Staff should use the north lot or the overflow area behind building C. Signs will be posted by Friday. End of memo."
+    },
+    {
+      "id": "rk-dictation-05",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 75,
+      "text": "Journal entry. Today was calm. I went for a long walk by the river in the morning, finished the book I was reading, and made soup for dinner. Tomorrow I want to start the painting I've been putting off."
+    },
+    {
+      "id": "rk-dictation-06",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 120,
+      "text": "Draft email to the landlord: Hi, the heating in the back bedroom has stopped working again since Tuesday. Could someone come by this week? I'm home after four every day. Thanks."
+    },
+    {
+      "id": "rk-dictation-07",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 200,
+      "text": "Chapter three, first draft. The lighthouse keeper woke before dawn, as he always did, and climbed the spiral stairs counting each step. At the top he paused to watch the fog roll in from the sea, thick and grey, swallowing the rocks one by one."
+    },
+    {
+      "id": "rk-dictation-08",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 90,
+      "text": "Ideas for the blog post: why small gardens are easier to maintain, three herbs that grow on any windowsill, and how to start composting in an apartment. Maybe add a photo of the balcony planters."
+    },
+    {
+      "id": "rk-dictation-09",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 110,
+      "text": "Quick note for the report: sales in the northern region grew four percent quarter over quarter, mostly from the new store opening. The southern region was flat. I should double check the returns figure before sending."
+    },
+    {
+      "id": "rk-dictation-10",
+      "expected": "dictation",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 65,
+      "text": "To do tomorrow: finish the slide deck, reply to the three emails flagged yesterday, book a meeting room for Thursday, and water the office plants."
+    },
+    {
+      "id": "rk-lecture_or_talk-01",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 3000,
+      "text": "Good morning, class. Today we continue with photosynthesis. Last time we covered the light reactions. Now we turn to the Calvin cycle, which takes place in the stroma. Remember, the key enzyme here is RuBisCO, and it fixes carbon dioxide into a three-carbon molecule. Let's walk through the three phases one at a time."
+    },
+    {
+      "id": "rk-lecture_or_talk-02",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 2400,
+      "text": "Thank you all for coming tonight. My talk is about the history of the town's railway. In eighteen ninety the first station opened with a single platform. Within twenty years it had become the busiest junction in the county, carrying timber, wool and, eventually, tourists heading for the coast."
+    },
+    {
+      "id": "rk-lecture_or_talk-03",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 1800,
+      "text": "Welcome to this session on writing clear documentation. I'll cover three principles today. First, write for the reader who is in a hurry. Second, lead with the task, not the theory. Third, show a working example before you explain the edge cases. Let's start with the first principle."
+    },
+    {
+      "id": "rk-lecture_or_talk-04",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 3600,
+      "text": "Speaker 1: Before we begin, please hold questions until the end. Speaker 2: Thank you. Today's lecture covers supply and demand. When the price of a good rises, the quantity demanded usually falls. We draw this as a downward sloping curve. The supply curve, by contrast, slopes upward. Where they meet, we get the equilibrium price."
+    },
+    {
+      "id": "rk-lecture_or_talk-05",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 2700,
+      "text": "In this sermon I want to reflect on patience. We live in a time that rewards speed, and yet the most important things in our lives grow slowly: friendships, trust, wisdom. Consider the farmer who plants in spring and waits all summer for the harvest."
+    },
+    {
+      "id": "rk-lecture_or_talk-06",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 1500,
+      "text": "Hi everyone, and welcome to my conference talk on caching strategies. We'll look at three patterns: cache-aside, write-through and write-behind. For each I'll show when it helps, when it hurts, and a real benchmark from our staging cluster."
+    },
+    {
+      "id": "rk-lecture_or_talk-07",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 2100,
+      "text": "Today's museum tour begins in the east gallery. The paintings in this room date from the early seventeenth century. Notice how the artist uses light from a single window to model the faces. As we move to the next room, you'll see how this technique spread across the region."
+    },
+    {
+      "id": "rk-lecture_or_talk-08",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 3300,
+      "text": "Lecture twelve: introduction to graph algorithms. A graph is a set of vertices connected by edges. We'll start with breadth-first search, which explores neighbors level by level, and then compare it with depth-first search. Keep in mind the running time for both is linear in vertices plus edges."
+    },
+    {
+      "id": "rk-lecture_or_talk-09",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 1200,
+      "text": "Good evening and thank you for inviting me to speak at your gardening society. My topic is attracting pollinators. The single most useful thing you can do is plant a variety of flowers that bloom in different months, so bees always have something to feed on."
+    },
+    {
+      "id": "rk-lecture_or_talk-10",
+      "expected": "lecture_or_talk",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 2000,
+      "text": "This keynote is about the future of public transit. Cities that invested in frequent service saw ridership grow even when fares went up. Frequency, it turns out, matters more than speed or price. Let me show you three cities that learned this the hard way."
+    },
+    {
+      "id": "rk-interview-01",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1800,
+      "text": "Speaker 1: Can you tell us how you got started in woodworking? Speaker 2: My grandfather had a shed full of tools, and I spent every summer there. Speaker 1: What was the first thing you built? Speaker 2: A very wobbly birdhouse. Speaker 1: And what are you working on now? Speaker 2: A dining table from reclaimed oak."
+    },
+    {
+      "id": "rk-interview-02",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 2700,
+      "text": "Speaker 1: Thanks for coming in today. Could you walk me through your experience with data pipelines? Speaker 2: Sure. In my last role I maintained our nightly batch jobs and migrated them to a streaming system. Speaker 1: What was the hardest part? Speaker 2: Backfilling historical data without double counting. Speaker 1: How did you solve it?"
+    },
+    {
+      "id": "rk-interview-03",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 3600,
+      "text": "Speaker 1: Welcome back to the podcast. Today my guest is a marathon runner. What made you start running? Speaker 2: Honestly, a bet with my brother. Speaker 1: And how many marathons have you finished since? Speaker 2: Eleven. Speaker 1: What's your advice for beginners? Speaker 2: Go slower than you think you should."
+    },
+    {
+      "id": "rk-interview-04",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1500,
+      "text": "Speaker 1: For our oral history project, could you describe the street you grew up on? Speaker 2: It was narrow, with a bakery on the corner. Speaker 1: What do you remember about the bakery? Speaker 2: The smell of bread at six in the morning. Speaker 1: Did the neighborhood change much over the years? Speaker 2: Completely."
+    },
+    {
+      "id": "rk-interview-05",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1200,
+      "text": "Speaker 1: What drew you to this role? Speaker 2: I've followed your team's open-source work for years. Speaker 1: Tell me about a time you disagreed with a manager. Speaker 2: We disagreed on a release date; I shared data on bug counts and we moved it by a week. Speaker 1: How did that turn out?"
+    },
+    {
+      "id": "rk-interview-06",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 2400,
+      "text": "Speaker 1: You've just published your third novel. Where did the idea come from? Speaker 2: A newspaper clipping about a lighthouse that was sold at auction. Speaker 1: How long did it take to write? Speaker 2: About two years, with a lot of rewriting. Speaker 1: Who are your influences?"
+    },
+    {
+      "id": "rk-interview-07",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1800,
+      "text": "Speaker 1: For the customer research study, how often do you use the budgeting app? Speaker 2: Maybe twice a week. Speaker 1: What do you use it for most? Speaker 2: Checking how much I've spent on groceries. Speaker 1: Is there anything frustrating about it? Speaker 2: Categorizing transactions takes too long."
+    },
+    {
+      "id": "rk-interview-08",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 2100,
+      "text": "Speaker 1: Thanks for joining the show, chef. What's the secret to a good stock? Speaker 2: Patience, and roasting the bones first. Speaker 1: How did you get into cooking? Speaker 2: Washing dishes at a diner when I was sixteen. Speaker 1: What's next for your restaurant?"
+    },
+    {
+      "id": "rk-interview-09",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1500,
+      "text": "Speaker 1: As part of the user interviews, can you describe the last time you planned a trip? Speaker 2: I used three different sites to compare flights. Speaker 1: What made you choose the one you booked? Speaker 2: The price, mostly. Speaker 1: Did anything go wrong along the way?"
+    },
+    {
+      "id": "rk-interview-10",
+      "expected": "interview",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 2000,
+      "text": "Speaker 1: You coached the team to a championship this year. What changed from last season? Speaker 2: We focused on defense. Speaker 1: Were there doubts midway through? Speaker 2: After the losing streak in March, sure. Speaker 1: What did you tell the players then?"
+    },
+    {
+      "id": "rk-clinical_encounter-01",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 900,
+      "text": "Speaker 1: Hi, I'm the doctor seeing you today. What brings you in? Speaker 2: I've had a sore throat and a mild fever for three days. Speaker 1: Any cough or trouble swallowing? Speaker 2: A little trouble swallowing. Speaker 1: Let me take a look. Your tonsils are swollen. We'll do a quick strep test."
+    },
+    {
+      "id": "rk-clinical_encounter-02",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1200,
+      "text": "Speaker 1: How has your blood pressure been since we started the new medication? Speaker 2: The home readings are lower, mostly around one thirty over eighty. Speaker 1: Any dizziness? Speaker 2: Only when I stand up quickly. Speaker 1: Okay, let's keep the same dose and check your kidney function with a blood test."
+    },
+    {
+      "id": "rk-clinical_encounter-03",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1500,
+      "text": "Speaker 1: Tell me about the knee pain. Speaker 2: It started after I twisted it playing soccer last week. Speaker 1: Did you hear a pop? Speaker 2: I think so. Speaker 1: I'm going to press on a few spots and move the joint. There's some swelling on the inside. I'd like an MRI to look at the ligaments."
+    },
+    {
+      "id": "rk-clinical_encounter-04",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1100,
+      "text": "Speaker 1: Good afternoon, I'm the nurse practitioner. You're here for your diabetes follow-up? Speaker 2: Yes. Speaker 1: Your A1c came back at seven point two, a little better than last time. How's the diet going? Speaker 2: I've cut back on sweets. Speaker 1: That's great. Let's check your feet today."
+    },
+    {
+      "id": "rk-clinical_encounter-05",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 800,
+      "text": "Speaker 1: What seems to be the problem today? Speaker 2: I've had a rash on my arm for about a week, it itches. Speaker 1: Any new soaps or detergents? Speaker 2: Actually, yes, a new laundry detergent. Speaker 1: This looks like contact dermatitis. Let's stop the detergent and use a mild steroid cream."
+    },
+    {
+      "id": "rk-clinical_encounter-06",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1300,
+      "text": "Speaker 1: Thanks for coming in. You mentioned headaches on the intake form. Speaker 2: Yes, most afternoons for the past month. Speaker 1: Where is the pain? Speaker 2: Across the forehead. Speaker 1: How much sleep are you getting and how much screen time? Speaker 2: Not enough sleep, lots of screens. Speaker 1: Let's check your vision and talk about sleep habits."
+    },
+    {
+      "id": "rk-clinical_encounter-07",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 3,
+      "durationSeconds": 1600,
+      "text": "Speaker 1: Hello, I'm the pediatrician. What's going on with your son? Speaker 2: He's had an earache since last night and was pulling at his ear. Speaker 3: It hurts. Speaker 1: Let me look with the otoscope. The eardrum is red and bulging. This is an ear infection. We'll start an antibiotic and give something for the pain."
+    },
+    {
+      "id": "rk-clinical_encounter-08",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1000,
+      "text": "Speaker 1: You're here for the physical therapy evaluation for your shoulder. Speaker 2: Yes, it's been stiff since the fall. Speaker 1: Raise your arm as high as you can. Speaker 2: That's about it. Speaker 1: Your range of motion is limited to about ninety degrees. We'll start with gentle stretching exercises twice a day."
+    },
+    {
+      "id": "rk-clinical_encounter-09",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 1400,
+      "text": "Speaker 1: Tell me about your mood over the last two weeks. Speaker 2: I've been feeling low and tired, and I don't enjoy things like before. Speaker 1: How is your sleep and appetite? Speaker 2: I wake up very early and I'm not hungry. Speaker 1: Thank you for sharing that. Let's talk about some options, including counseling."
+    },
+    {
+      "id": "rk-clinical_encounter-10",
+      "expected": "clinical_encounter",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 700,
+      "text": "Speaker 1: What brings you to urgent care? Speaker 2: I cut my hand on a kitchen knife about an hour ago. Speaker 1: Let me see. The cut is about two centimeters and fairly clean. When was your last tetanus shot? Speaker 2: I'm not sure. Speaker 1: We'll clean it, close it with a few stitches and give you a booster."
+    },
+    {
+      "id": "rk-other-01",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 240,
+      "text": "Once upon a time, in a village at the edge of a great forest, there lived a small fox who loved to count the stars. Every night she climbed the tallest hill and started counting, but she always fell asleep before she reached one hundred."
+    },
+    {
+      "id": "rk-other-02",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 300,
+      "text": "And he takes the corner kick, it's headed toward the far post, the keeper punches it clear, picked up in midfield, a quick pass to the left wing, he's got space, crosses it in, and it's in the back of the net! What a finish!"
+    },
+    {
+      "id": "rk-other-03",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 120,
+      "text": "Hi, this is a message for the owner of the blue bicycle parked by the front gate. The building is repainting the fence on Friday, so please move it by Thursday evening. Thank you."
+    },
+    {
+      "id": "rk-other-04",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 420,
+      "text": "First, preheat the oven to one eighty. Then cream the butter and sugar until pale. Add the eggs one at a time, then fold in the flour. Pour the batter into the tin and bake for about forty minutes, until a skewer comes out clean."
+    },
+    {
+      "id": "rk-other-05",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 180,
+      "text": "Attention passengers: the train now arriving at platform two is the service to the coast, calling at all stations. Please stand back from the platform edge. The next service will depart in fifteen minutes."
+    },
+    {
+      "id": "rk-other-06",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 3,
+      "durationSeconds": 600,
+      "text": "Speaker 1: Happy birthday to you! Speaker 2: Make a wish! Speaker 3: Blow out the candles! Speaker 1: Who wants the first slice? Speaker 2: Me! Speaker 3: Can I have the one with the strawberry on top?"
+    },
+    {
+      "id": "rk-other-07",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 360,
+      "text": "In this guided meditation, find a comfortable seat and close your eyes. Breathe in slowly through the nose, and out through the mouth. Notice the weight of your body. With each breath out, let your shoulders drop a little more."
+    },
+    {
+      "id": "rk-other-08",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 150,
+      "text": "Testing, testing, one two three. Can you hear me at the back? Let me adjust the microphone. Okay, the sound check is done, we'll start in about ten minutes."
+    },
+    {
+      "id": "rk-other-09",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 2,
+      "durationSeconds": 500,
+      "text": "Speaker 1: Did you see the sunset last night? Speaker 2: I did, the whole sky was orange. Speaker 1: We should go to the beach this weekend. Speaker 2: If it doesn't rain. Speaker 1: Want a coffee? Speaker 2: Sure, the usual."
+    },
+    {
+      "id": "rk-other-10",
+      "expected": "other",
+      "source": "audio",
+      "speakerCount": 1,
+      "durationSeconds": 270,
+      "text": "Welcome to the automated weather line. Today will be mostly sunny with a high of twenty-two degrees. Tonight, clouds increase with a low of fourteen. Tomorrow, a chance of showers in the afternoon."
+    }
+  ],
+  "templateSuggestion": [
+    {
+      "id": "ts-meeting-notes-01",
+      "expected": "meeting-notes",
+      "text": "Speaker 1: Let's start the team meeting. Speaker 2: Updates from design: the new icons are done. Speaker 3: Engineering is blocked on the API change. Speaker 1: We discussed moving the launch; we decided to keep the date. Speaker 2: Next steps: I'll share the icons, and engineering will sync with the platform team tomorrow."
+    },
+    {
+      "id": "ts-meeting-notes-02",
+      "expected": "meeting-notes",
+      "text": "Speaker 1: Welcome to the neighborhood association meeting. Speaker 2: Treasurer's report: we have four hundred dollars in the account. Speaker 3: The streetlight on Elm is still out. Speaker 1: We voted to send a letter to the city. Speaker 2: Next meeting is the second Tuesday of next month."
+    },
+    {
+      "id": "ts-action-items-01",
+      "expected": "action-items",
+      "text": "Speaker 1: Okay, to wrap up, who's doing what? Speaker 2: I'll update the pricing page by Wednesday. Speaker 3: I'll email the three beta customers today. Speaker 4: I'll fix the login bug before Friday. Speaker 1: And I'll schedule the retro. Please each confirm your deadline in the channel."
+    },
+    {
+      "id": "ts-action-items-02",
+      "expected": "action-items",
+      "text": "Speaker 1: Before we leave: Maria owns the venue booking, due Monday. Speaker 2: Tom will order the catering by Thursday. Speaker 3: I'll print the badges the day before. Speaker 1: And someone needs to chase the speakers for slides. Speaker 2: I'll take that too, by next Friday."
+    },
+    {
+      "id": "ts-agenda-01",
+      "expected": "agenda",
+      "text": "Speaker 1: For next week's planning meeting, what should we cover? Speaker 2: The unfinished migration work, definitely. Speaker 3: And the open question about hiring a second designer. Speaker 1: We also deferred the decision on the conference booth. Speaker 2: Let's put that first since it has a deadline."
+    },
+    {
+      "id": "ts-agenda-02",
+      "expected": "agenda",
+      "text": "Speaker 1: We ran out of time today, so let's list what carries over to Thursday's session. Speaker 2: The budget review we didn't finish. Speaker 3: The customer complaint about invoices, still open. Speaker 1: And the proposal to switch vendors needs a decision. Speaker 2: Let's give each topic fifteen minutes."
+    },
+    {
+      "id": "ts-soap-note-01",
+      "expected": "soap-note",
+      "text": "Speaker 1: What brings you in today? Speaker 2: Burning when I urinate for two days and I need to go often. Speaker 1: Any fever or back pain? Speaker 2: No. Speaker 1: Your urine dip shows leukocytes and nitrites. This looks like a simple urinary tract infection. We'll start a short course of antibiotics and I'd like you to drink plenty of water."
+    },
+    {
+      "id": "ts-soap-note-02",
+      "expected": "soap-note",
+      "text": "Speaker 1: How's the asthma been? Speaker 2: I've needed my rescue inhaler three or four times a week. Speaker 1: Any night-time symptoms? Speaker 2: Once or twice. Speaker 1: Your lungs have a mild wheeze today. Let's add a daily controller inhaler and review your technique. Come back in six weeks."
+    },
+    {
+      "id": "ts-polish-01",
+      "expected": "polish",
+      "text": "Um, so, dear team, uh, I wanted to say, you know, thanks for all the hard work this quarter, it's been, like, a really tough one, and, um, I think we really pulled together, and, uh, yeah, I'm really proud, so, thanks again and, um, enjoy the long weekend."
+    },
+    {
+      "id": "ts-polish-02",
+      "expected": "polish",
+      "text": "Okay so the letter to the council should say that, um, we the residents of the building are, uh, concerned about the noise from the construction site starting at six a.m. which is, you know, earlier than allowed, and we'd like them to, um, enforce the start time, yeah."
+    },
+    {
+      "id": "ts-summary-01",
+      "expected": "summary",
+      "text": "Welcome to today's episode. We look at why honeybee colonies collapse. Researchers point to a combination of parasites, pesticides and poor nutrition. One long-running study found that colonies with access to diverse wildflowers were far more resilient. We also hear from a beekeeper who changed her practices after losing half her hives."
+    },
+    {
+      "id": "ts-summary-02",
+      "expected": "summary",
+      "text": "In today's lecture we covered the causes of the industrial revolution in Britain: access to coal, a growing population, new financial institutions, and an empire that supplied raw materials and markets. We also discussed why it did not start elsewhere at the same time, and the social costs it brought to workers in the cities."
+    },
+    {
+      "id": "ts-distill-01",
+      "expected": "distill",
+      "text": "So I've been thinking a lot about this, and I keep going back and forth, and there are so many angles, but really, when I strip it all away, what I keep coming back to is that we are spending too much time in meetings, and if we cut them in half we'd get our focus back, and I think that's really the point I'm trying to make, even though I've said it in many ways."
+    },
+    {
+      "id": "ts-distill-02",
+      "expected": "distill",
+      "text": "There's a lot to say about the move, the boxes, the truck that came late, the neighbors who helped, the kitchen that didn't fit our table, and the way the cat hid for three days, but honestly the main thing is that the new place is closer to work and we already feel less tired every evening, and that was the whole reason we moved."
+    },
+    {
+      "id": "ts-decide-01",
+      "expected": "decide",
+      "text": "Speaker 1: We need to choose between renting more office space or going hybrid. Speaker 2: Renting costs about forty thousand a year more. Speaker 3: Hybrid saves money but some people want the office. Speaker 1: Option three is a smaller satellite office. Speaker 2: We need to decide by the end of the month because the lease option expires."
+    },
+    {
+      "id": "ts-decide-02",
+      "expected": "decide",
+      "text": "Speaker 1: The question is whether we repair the old van or buy a new one. Speaker 2: The repair is about three thousand and it might last two more years. Speaker 3: A new van is twenty-five thousand but covered by warranty. Speaker 1: We also need it for the summer season, so timing matters. What do we do?"
+    },
+    {
+      "id": "ts-brief-01",
+      "expected": "brief",
+      "text": "Speaker 1: For those who couldn't make it, here's where things stand. Speaker 2: Bottom line, the launch is delayed by two weeks because of a supplier issue. Speaker 3: Everything else is on track. Speaker 1: The director will want the short version by tonight, so let's keep it to the headline, the reason and the new date."
+    },
+    {
+      "id": "ts-brief-02",
+      "expected": "brief",
+      "text": "Speaker 1: The regional manager wasn't on the call and wants a quick heads-up. Speaker 2: The main points: sales hit target, one store is short-staffed, and we need approval for weekend overtime. Speaker 1: Let's send her the essentials first and details only if she asks."
+    },
+    {
+      "id": "ts-none-01",
+      "expected": "none",
+      "text": "And the little rabbit hopped all the way home through the tall grass, past the old oak tree and over the stream, and when he got home his mother was waiting with a warm cup of carrot soup, and they sat together watching the moon rise over the hill. The end. Goodnight, sweetheart."
+    },
+    {
+      "id": "ts-none-02",
+      "expected": "none",
+      "text": "La la la, the sun is up, the birds are singing, la la la, let's go outside and play, la la la, the grass is green and the sky is blue, la la la."
+    }
+  ]
+}

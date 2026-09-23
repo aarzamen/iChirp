@@ -50,7 +50,8 @@ let package = Package(
         .testTarget(name: "ChirpEngineAppleFMTests", dependencies: ["ChirpEngineAppleFM"]),
         .testTarget(name: "ChirpEngineHTTPLLMTests", dependencies: ["ChirpEngineHTTPLLM"]),
         // ChirpFeatures too: the gated live eval runs the app's own recipes and window through the real engine.
-        .testTarget(name: "ChirpEngineJevTests", dependencies: ["ChirpEngineJev", "ChirpFeatures"]),
+        .testTarget(
+            name: "ChirpEngineJevTests", dependencies: ["ChirpEngineJev", "ChirpFeatures"], resources: [.copy("Fixtures")]),
         .testTarget(name: "ChirpKeychainTests", dependencies: ["ChirpKeychain"]),
         .testTarget(name: "ChirpIngestTests", dependencies: ["ChirpIngest"]),
         .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"]),
