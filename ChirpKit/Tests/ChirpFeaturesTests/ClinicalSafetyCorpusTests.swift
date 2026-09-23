@@ -179,6 +179,8 @@ final class ClinicalSafetyCorpusTests: XCTestCase {
         var cleanRight = 0
         for entry in corpus.entries where entry.copied == nil {
             let sentences = Self.sentences(entry.text)
+            let before = (asked, clean)
+            defer { print("CORPUS_NEEDLE | \(entry.id) | \(asked - before.0) answers | \(clean - before.1) clean |") }
             for (index, sentence) in sentences.enumerated() {
                 let following = sentences[(index + 1)..<min(index + 3, sentences.count)]
                 for candidate in Self.needleAnswers(for: sentence, expected: entry.expect ?? []) {

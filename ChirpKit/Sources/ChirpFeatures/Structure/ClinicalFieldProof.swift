@@ -31,7 +31,8 @@ public enum ClinicalFieldProof {
           DRUG      := the field's drug, said once; no other known drug anywhere in the sentence
           suffix    := a form or salt word (succinate, ER, inhaler, ...), a route word, "at", ",", ":" or "-"
           dose      := the field's dose tag: one amount and one unit (mg, mcg, g, units, mEq, mL)
-          after     := the field's frequency tag, then at most one duration tag, then words with no number
+          after     := the field's frequency tag, then at most one duration tag, then words with no number and no
+                       joining word (and, plus, or, also)
           Only the field's own dose, frequency and one duration may carry a number, in the order
           drug -> dose -> frequency -> duration. The dose is optional only when the sentence says no amount.
           The route said (PO, IV, IM, SC, SL, inhaled, topical; one route only) is the field's route, or "unknown"
@@ -49,16 +50,20 @@ public enum ClinicalFieldProof {
           VALUE     := one tag of the name's kind: a BP pair ("N/N" or "N over N"), a rate, a percent, a temperature
           vlead     := a word from vitalLeadWords (vitals, her, today, repeat, ...)
           words     := any words with no number in them
-          The field's kind is its value's name's kind: "pulse ox 94" is never a heart rate.
+          The field's kind is its value's name's kind: "pulse ox 94" is never a heart rate. Every number in the
+          sentence is one of these values, and no drug is named in it.
         EVERY CLINICAL FIELD
           - no flagged tag in the sentence;
           - each number is digits exactly as written, or spoken number words read as one number with no comma,
             ellipsis or period inside;
           - no disqualifier in the sentence or the next two: a correction cue (sorry, I mean, my mistake, that should
-            be, actually, rather, ...; a dose or bare number restated with no drug), a limit or condition (less than,
-            greater than, over, under, above, below, goal, target, if, unless, hold for, titrate, increase, taper, ...),
-            a range ("4 to 8", "25-50", between), a tablet, puff, spray or drop count, "each", a fraction, a
-            day-by-day schedule (day one, then, followed by, weekdays).
+            be, actually, rather, ...; a following dose with no drug right before it; a following bare number), a
+            limit or condition (less than, greater than, over, under, above, below, goal, target, if, unless, when,
+            hold for, up to, at least), a change over time (titrate, increase, decrease, taper, wean), a range
+            ("4 to 8", "25-50", between), a tablet, puff, spray or drop count, "each", a fraction, a day-by-day
+            schedule (day one, followed by, weekdays);
+          - in the field's own sentence also: "then", a negation (not, never, denies) and another time (yesterday,
+            previously, last).
         """
 
     /// Why `call` is not proven clean, or nil when it is (or when it is not a field: `none`).
@@ -332,8 +337,9 @@ public enum ClinicalFieldProof {
         for key in ["text", "substance", "reaction"] {
             guard let text = call.arguments[key]?.stringValue else { continue }
             if ProofWord.words(text).contains(where: \.isNumberBearing) {
-                return "a dose or vital written into a \(call.tool == "add_plan_item" ? "plan item" : "problem") is "
-                    + "not checked; record it as a medication or vital."
+                let kind = ["add_plan_item": "plan item", "add_allergy": "allergy"][call.tool] ?? "problem"
+                return "a dose or vital written into a\(kind == "allergy" ? "n" : "") \(kind) is not checked; record "
+                    + "it as a medication or vital."
             }
         }
         return nil

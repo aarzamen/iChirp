@@ -85,6 +85,15 @@ the live upstreams; the approach is unchanged:
 - **Risk:** HIGH (clinical extraction accuracy; a weeks-old runtime; Rust cross-compilation)
 - **Status:** IN PROGRESS — Steps 1–8 built on `lane/needle` (lane L3, 2026-09-22); Step 9 (Laya) not done; waiting
   on merge, the full gate and owner device QA
+- **Clinical safety, round 3 (`fix/needle-allowlist`, 2026-09-23):** two deny-list fix rounds did not converge (each
+  re-review found new phrasings giving a clean wrong number), so the clinical gate is now an **allow-list**: a
+  medication or vital field is clean only when `ClinicalFieldProof` proves it (a written grammar, exact numbers with
+  nothing stray, no disqualifier in the sentence or the next two, an unambiguous vital name), and
+  `StructuredResultGate.review` is the one place verdicts are decided. "Scratch that" applies only at a certain
+  sentence boundary; otherwise the text is left unchanged and marked. A 243-entry synthetic safety corpus pins "never
+  clean and wrong" for the STUB and for about 11,500 hand-built Needle answers. More fields go to review (the
+  30-sentence ordinary passage: 26 of 32 fields clean before, 9 after). Waiting on adversarial re-review 3, merge and
+  owner device QA.
 
 ## Current state
 
