@@ -14,6 +14,10 @@ pipeline directly.
 
 ## What's here
 
+- `WordErrorRate.swift` (M7, port of upstream `benchmarks/asr/score.py --simple`): the dependency-free normalizer
+  (lowercase, curly quotes folded, punctuation to spaces, edge apostrophes dropped) and the dynamic-programming
+  substitution, deletion and insertion counts. `corpus` sums counts across items, the standard aggregate. Upstream's
+  Whisper EnglishTextNormalizer (numbers, spellings) is not ported, so the benchmark's reference texts avoid numbers.
 - `WordTimingBuilder.swift`: merges sub-word token timings (`TokenTimingInput`, FluidAudio-free) into
   `WordTimestamp`s on the SentencePiece `▁` boundary.
 - `SpeakerMerger.swift`: assigns each word the diarization segment (`DiarizationSegmentRecord`) with the

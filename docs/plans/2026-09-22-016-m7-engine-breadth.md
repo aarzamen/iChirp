@@ -22,8 +22,14 @@
   [ADR-004](../../spec/adr/004-engine-plugin-architecture.md), [speech-engine plug-in contract](../../spec/contracts/speech-engine-plugin-v1.md),
   [on-device runtimes research](../research/2026-09-22-on-device-runtimes.md)
 - **Planned at:** commit `bd8cfc7c`, 2026-09-22
-- **Status:** IN PROGRESS — ASR lane (`lane/asr-engines`: Steps 1, 2, 4, 6; Step 3 optional). Step 5 (small
-  language models) is a separate lane.
+- **Status:** IN PROGRESS. The ASR lane (`lane/asr-engines`) has built Steps 1, 2, 4 and 6, with focused suites green
+  and lint clean. Step 3 (streaming live preview) is not built. Step 5 (small language models) is a separate lane.
+  - Open items: the controller's iPhone checks (Apple Speech on the device; WhisperKit Large v3 Turbo's peak memory;
+    benchmark numbers into [the benchmark doc](../research/2026-09-22-asr-engine-benchmarks.md)); the full package
+    suite once, at merge; `scripts/device_smoke.sh`.
+  - Step 6 is built as a Settings screen (Settings → Speech engines → Benchmark engines) with a DEBUG launch argument,
+    not a DEBUG-only screen. The research doc is `docs/research/2026-09-22-asr-engine-benchmarks.md` (Mac and
+    Simulator numbers). The existing `device-benchmarks.md` stays the smoke log.
 
 ## Drift check and refinement (ASR lane, at `f325b99c`)
 
@@ -60,6 +66,7 @@ Refinements (they add detail and change none of the plan's decisions):
 - **Apple Speech (Step 2).** `SpeechTranscriber` plus `SpeechAnalyzer` over the normalized WAV. Word timings come from
   `audioTimeRange`. Assets are handled through `AssetInventory`: `assetInstallationRequest` downloads and reserves the
   locale, and delete releases the reservation. A Mac probe needed no speech-recognition permission and no entitlement.
+  On iOS the app asks for Speech Recognition (an Info.plist usage string, not an entitlement).
   `DictationTranscriber` and custom vocabulary are deferred.
 - **WhisperKit (Step 4).** Package `argmax-oss-swift`, pinned exactly to `1.1.0` (MIT, checked 2026-09-22). Only the
   `WhisperKit` product is linked (it depends on `ArgmaxCore` alone). Two variants: `base` (147 MB) and
@@ -69,7 +76,7 @@ Refinements (they add detail and change none of the plan's decisions):
   iOS 26. The scheduler still runs background jobs one at a time.
 - **Benchmark (Step 6).** Results live in a JSON file in Application Support. No database table, so no migration.
   `v9-engine-benchmarks` is not used. The reference set is synthetic (`say`) with known text:
-  `scripts/make_benchmark_audio.sh` bundles it, and the Mac harness makes it at test time. The research doc is
+  `scripts/make_benchmark_audio.sh` bundles it, and the Mac harness reads the same files. The research doc is
   `docs/research/2026-09-22-asr-engine-benchmarks.md` (Mac numbers). The controller adds the iPhone numbers.
 
 ## Why this matters

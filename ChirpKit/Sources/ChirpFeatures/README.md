@@ -311,6 +311,31 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `Structure/StructureEvalViewModel.swift`: Settings → Structure models → Eval (run the STUB or Needle, save each run
   to `structured_eval_runs`, export).
 
+## ASR benchmark (M7 Step 6, `Benchmark/`)
+
+- `ASRBenchmark.swift`:
+  - `ASRBenchmarkItem`; `ASRBenchmarkReferenceSet`, which reads `asr-benchmark-reference.json` written by
+    `scripts/make_benchmark_audio.sh` and bundled from `App/Resources/Benchmark`.
+  - `ASRBenchmarkEngine`, `ASRBenchmarkResult` and `ASRBenchmarkRun`, whose per-engine `summaries` give corpus WER,
+    total audio ÷ total time as a real-time factor, load time and peak memory.
+  - `ASRBenchmarkRunner`:
+    - It normalizes each recording once, then for each engine: unload (`SpeechEngineUnloading`), then each recording
+      inside `SpeechJobScheduler.run(.fileTranscription)`, then unload again. Every engine and every job runs one at a
+      time with the app's other jobs.
+    - `prepare` is timed once per engine, as load time after the unload.
+    - Peak physical footprint is sampled every 100 ms by an injected reader (`MemoryProbe` in the app).
+    - Privacy routing runs first: the synthetic set is `.general`, and a person's own file is treated as `.clinical`.
+      An engine without its model is reported, never downloaded.
+    - A person's own file keeps no recognized text.
+  - `ASRBenchmarkExport`: CSV (RFC 4180) and JSON (`ichirp.asr-benchmark/v1`).
+- `ASRBenchmarkStore.swift`: an actor holding one JSON file (`<library>/benchmarks/asr-benchmark-runs.json`) with the
+  newest 20 runs. Before saving, it strips text from results without a reference. There is no database table and no
+  migration.
+- `ASRBenchmarkViewModel.swift`: the Benchmark screen.
+  - Engine choices with the reason an engine cannot run; ready engines are selected by default.
+  - The reference-set toggle, and added files copied from the importer.
+  - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
+
 ## Wiring (app composition root)
 
 M7: `speech` below is the app's `SpeechEngineRouter` (`AppSpeechEngines.makeRouter`), not Parakeet itself. Parakeet,

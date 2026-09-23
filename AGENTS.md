@@ -41,6 +41,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/device_smoke.sh` | On the phone: transcribes the bundled synthetic sample and asserts the words (`SMOKE PASS`) |
 | `scripts/build_ipa.sh` | Ad-hoc-signed IPA for the optional SideStore fallback (`dist/`) |
 | `scripts/make_sample_audio.sh [--wav]` | Regenerates the synthetic two-voice sample with macOS `say` |
+| `scripts/make_benchmark_audio.sh [dir]` | Regenerates the M7 ASR benchmark reference set (`App/Resources/Benchmark`, known text) |
 | `scripts/sync_upstream.sh <ref>` | Replaces `upstream/macparakeet/` with a newer MacParakeet ref and commits it |
 | `scripts/check_readme_references.sh` | Fails when a module README names a `.swift` file that no longer exists |
 | `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off) plus committed key/profile/.env/database files; run before merging a lane or pushing |
@@ -49,6 +50,8 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 
 Direct commands: `swift test --package-path ChirpKit --filter <Name>`; the real-model test runs only with
 `CHIRP_MODEL_TESTS=1 swift test --package-path ChirpKit --filter ParakeetEngineIntegrationTests` (downloads ~0.5 GB).
+M7 opt-ins: `CHIRP_APPLE_SPEECH_TESTS=1`, `CHIRP_WHISPER_TESTS=1` (engine integration tests) and `CHIRP_BENCHMARK=1`
+(`--filter ASRBenchmarkMacRunTests`, every engine over the reference set on the Mac).
 
 **Signing.** Read [`APPLE_DEVELOPER_WARNING.md`](APPLE_DEVELOPER_WARNING.md) before touching signing or build
 settings. The team is `XM6E4PUXTU` (never `434HG698U6`, which is a certificate user ID). Device scripts never pass
@@ -74,6 +77,7 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
 | `ChirpExport` | TXT, Markdown, SRT, VTT, JSON exporters |
 | `ChirpIngest` | M5: link classifier, podcast lookup, resumable media downloads, YouTube captions, document text (PDFKit, Vision OCR, RTF/HTML, DOCX). Apple frameworks only |
 | `ChirpEngineFluidAudio` | Parakeet speech engine and offline diarizer on FluidAudio, pinned **exact 0.16.1** |
+| `ChirpEngineAppleSpeech`, `ChirpEngineWhisperKit` | M7 speech engines: iOS `SpeechTranscriber`; Whisper on `argmax-oss-swift` **exact 1.1.0** |
 | `ChirpFeatures` | `@Observable` view models and the file-transcription pipeline; engines injected as protocols |
 | `ChirpUI` | Design tokens and shared SwiftUI components from the design canvas |
 

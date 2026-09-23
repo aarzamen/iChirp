@@ -88,6 +88,12 @@ let package = Package(
             dependencies: ["ChirpCore", .product(name: "WhisperKit", package: "argmax-oss-swift")],
             exclude: ["README.md"]),
         .testTarget(name: "ChirpEngineWhisperKitTests", dependencies: ["ChirpEngineWhisperKit"]),
+        // M7 Step 6: the opt-in Mac benchmark run (CHIRP_BENCHMARK=1) over every speech engine; engines meet only here.
+        .testTarget(
+            name: "ChirpBenchmarkTests",
+            dependencies: [
+                "ChirpFeatures", "ChirpAudio", "ChirpEngineFluidAudio", "ChirpEngineAppleSpeech", "ChirpEngineWhisperKit",
+            ]),
     ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : []),
     swiftLanguageModes: [.v6]
 )

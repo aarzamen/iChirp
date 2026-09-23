@@ -74,6 +74,23 @@ struct SpeechEnginesScreen: View {
                     }
                 }
 
+                SettingsGroup(
+                    title: "Compare",
+                    footer: "Runs the chosen engines one at a time over reference recordings with known words, or "
+                        + "your own files, and reports accuracy, speed, load time and memory."
+                ) {
+                    NavigationLink {
+                        ASRBenchmarkScreen()
+                    } label: {
+                        SettingsRow(title: "Benchmark engines") {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Tokens.Color.mutedText)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)

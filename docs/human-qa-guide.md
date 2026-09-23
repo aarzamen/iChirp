@@ -564,6 +564,43 @@ Simulator (agents): DEBUG launch arguments open the screens without taps: `-Chir
 -ChirpExtractFields -ChirpStructureEngine stub|needle`, `-ChirpVoiceCommands`, `-ChirpStructureEval stub,needle`
 (`App/Sources/Debug/StructurePreviewLaunch.swift`).
 
+## M7 checklist (speech engines: routes, Apple Speech, WhisperKit, benchmark)
+
+> Preconditions: a build from `lane/asr-engines` or later on the iPhone 17 Pro; Wi-Fi for the Whisper downloads
+> (Base about 150 MB, Large v3 Turbo about 650 MB); only synthetic speech (the bundled reference set or a `say` file).
+
+Speech engines and routes
+- [ ] Settings → Speech → Speech engines: the "Use" group shows **Live text: Parakeet v3** and **Transcripts: Parakeet
+      v3**. The Engines list shows Parakeet v3, Apple Speech, Whisper Base, Whisper Large v3 Turbo, and Whisper Large v3
+      marked "needs about 3.6 GB … more than this build's 2.5 GB model budget", with no Download button.
+- [ ] Apple Speech → Download: iOS asks once for Speech Recognition; the row ends "Ready · managed by iOS". Delete asks
+      first and says iOS may remove the model later.
+- [ ] Whisper Base → Download: progress, then "On device · about 150 MB". Only downloaded engines appear in the Live
+      text and Transcripts menus.
+- [ ] Transcripts → Whisper Base, then import a `say` file: the transcript is Whisper's; the Library row still works;
+      older transcripts still say Parakeet (Transcript → info).
+- [ ] Live text → Apple Speech, then dictate: live words appear (about once a second), Stop & copy copies the
+      **Transcripts** engine's text.
+- [ ] Start a meeting, then open Speech engines and pick another engine: the alert says it can't change during a
+      meeting. After Stop & save it can.
+- [ ] Airplane mode: every downloaded engine still transcribes (all on-device); Download says it needs a connection.
+
+Benchmark
+- [ ] Speech engines → Benchmark engines: only downloaded engines can be switched on; the reference set says "5
+      synthetic recordings with known words".
+- [ ] Run: the progress line names the engine and the recording; the phone stays usable; Stop ends it at once.
+- [ ] Latest results: one line per engine with WER, "× real time", load and peak memory; Export CSV and JSON opens the
+      share sheet with two files.
+- [ ] Add files… → pick a Voice Memo: its rows show speed and memory but no WER, and the exported JSON has no text for
+      it.
+
+Screenshots to attach
+- [ ] Speech engines (routes and engine list); the Benchmark screen with results.
+
+Device-only numbers (controller): Apple Speech works only on the phone (the Simulator lists it as unavailable);
+record Whisper Large v3 Turbo's peak memory and every engine's WER, speed and load time into
+`docs/research/2026-09-22-asr-engine-benchmarks.md`.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

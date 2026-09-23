@@ -62,6 +62,8 @@ import Observation
     let speechRouter: SpeechEngineRouter
     /// M7: Settings → Speech engines.
     let speechEngines: SpeechEnginesViewModel
+    /// M7: Settings → Speech engines → Benchmark.
+    let benchmark: ASRBenchmarkViewModel
     /// Where iOS copies files other apps hand to Parakeet (nil only if the Documents folder cannot be found).
     let inbox: IncomingFileInbox?
     /// M5: podcast, media and YouTube links (network only on the person's Transcribe or Retry).
@@ -137,6 +139,7 @@ import Observation
         self.speechRouter = speechRouter
         self.speechEngines = SpeechEnginesViewModel(router: speechRouter)
         let scheduler = SpeechJobScheduler()
+        self.benchmark = AppSpeechEngines.makeBenchmark(router: speechRouter, scheduler: scheduler, paths: paths)
         let continuedProcessing = SystemContinuedProcessingScheduler()
         let jobCenter = TranscriptionJobCenter(continuedProcessing: continuedProcessing)
         self.continuedProcessing = continuedProcessing

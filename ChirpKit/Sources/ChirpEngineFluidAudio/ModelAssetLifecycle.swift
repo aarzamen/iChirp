@@ -235,6 +235,16 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         leaseCount -= 1
     }
 
+    /// M7 (benchmark): drops the loaded runtime so the next `prepare` loads it again from local files. Refused (false)
+    /// while a job holds a lease, a load or a delete is in flight. Bumps the generation, so pooled workers built on
+    /// the old runtime are not reused.
+    @discardableResult func unload() -> Bool {
+        guard leaseCount == 0, loadJob == nil, deletion == nil, loaded != nil else { return false }
+        generation += 1
+        loaded = nil
+        return true
+    }
+
     // MARK: - Network
 
     /// The pre-flight path check, then the download hook, retried on `network.retryDelays` while the failure is
