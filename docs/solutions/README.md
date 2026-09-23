@@ -57,4 +57,7 @@ The test, script, lint rule or README line that now stops it from recurring (or 
 
 ## Index
 
-No entries yet. Add a line here for each new entry: `- [<title>](<category>/<slug>.md) — <one-line symptom>`.
+Add a line here for each new entry: `- [<title>](<category>/<slug>.md) — <one-line symptom>`.
+
+- [Pre-link a Rust static library so it can sit next to FluidAudio's](build-errors/two-rust-static-libraries-duplicate-rust-eh-personality.md)
+  — `duplicate symbol '_rust_eh_personality'` when a second Rust `staticlib` is linked

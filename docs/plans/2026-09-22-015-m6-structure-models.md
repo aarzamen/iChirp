@@ -83,7 +83,8 @@ the live upstreams; the approach is unchanged:
 - **Milestone:** M6 (Needle slice; Jev is plan 021)
 - **Effort:** L
 - **Risk:** HIGH (clinical extraction accuracy; a weeks-old runtime; Rust cross-compilation)
-- **Status:** EXECUTOR-READY
+- **Status:** IN PROGRESS — Steps 1–8 built on `lane/needle` (lane L3, 2026-09-22); Step 9 (Laya) not done; waiting
+  on merge, the full gate and owner device QA
 
 ## Current state
 
@@ -177,11 +178,15 @@ Try `convaiinnovations/laya` → Core ML with coremltools in a `uv` venv on the 
 
 ## Done criteria
 
-- [ ] needle-rs builds for iOS, simulator and macOS; CI builds the Needle target
-- [ ] SOAP fields and medications extract on device with gating, spans and review (simulator + opt-in real model)
-- [ ] Voice commands work in the simulator; the final-pass copy rule still holds (test)
-- [ ] Eval numbers recorded; STUB always labelled; ADR-012 pinned commit recorded; docs updated
-- [ ] Focused tests green; lint clean; `scripts/scan_secrets.sh` clean; everything committed; nothing pushed
+- [x] needle-rs builds for iOS, simulator and macOS; CI builds the Needle target (CI step added; not run by the lane)
+- [x] SOAP fields and medications extract with gating, spans and review (simulator + opt-in real model on the Mac;
+      **on the iPhone: owner device QA**)
+- [x] Voice commands work in the simulator (Try voice commands screen; live dictation needs a microphone: device QA);
+      the final-pass copy rule still holds (test)
+- [x] Eval numbers recorded ([needle-eval](../research/2026-09-22-needle-eval.md)); STUB always labelled; ADR-012
+      pinned commit recorded; docs updated
+- [x] Focused tests green; lint clean; secret scan clean (TruffleHog run by hand: `scripts/scan_secrets.sh` cannot
+      read a worktree's `.git` file); everything committed; nothing pushed
 
 ## STOP conditions
 

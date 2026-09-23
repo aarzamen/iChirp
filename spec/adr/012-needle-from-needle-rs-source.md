@@ -48,3 +48,8 @@ crate (`needle-c`), constrained decoding and the confidence probe. Needle 3's we
 - needle-rs is young (weeks old): pin the commit, keep the wrapper thin, and re-run the eval set on every bump.
 - Needle's base model is weak on indirect phrasing; every use keeps the deterministic numeric normalizer,
   confidence gating and a review step (plan 015).
+- **Measured 2026-09-22** ([needle-eval](../../docs/research/2026-09-22-needle-eval.md)): soap-meds argument accuracy
+  44.6%, field exact match 18%, 17 numeric hard fails in 48 sentences; commands 53–57%. That is below this ADR's ~90%
+  change-my-mind line, so Needle ships **experimental** (drafts only, labelled in the Eval view) until a fine-tune or
+  the FunctionGemma / 7B fallback beats it on the same eval. The tool schema must reach the model in its natural key
+  order (sorted keys cut accuracy to 2.7%).
