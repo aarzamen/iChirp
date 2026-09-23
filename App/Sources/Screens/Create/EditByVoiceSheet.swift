@@ -268,7 +268,8 @@ struct EditByVoiceSheet: View {
                     } label: {
                         Text(suggestion)
                             .chirpFont(13, .semibold)
-                            .foregroundStyle(AppColor.accentText)
+                            // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                            .foregroundStyle(AppColor.accentTextOnTint)
                             .padding(.horizontal, 12)
                             .frame(minHeight: 34)
                             .background(Capsule().fill(AppColor.tintFill))
@@ -430,7 +431,8 @@ struct EditByVoiceSheet: View {
         Button(action: action) {
             Text(title)
                 .chirpFont(15.5, .semibold)
-                .foregroundStyle(AppColor.accentText)
+                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(AppColor.accentTextOnTint)
                 .frame(maxWidth: .infinity, minHeight: 50)
                 .background(Capsule().fill(AppColor.tintFill))
         }

@@ -477,7 +477,8 @@ struct CreateRunView: View {
                 } label: {
                     Text("Create another")
                         .chirpFont(15.5, .semibold)
-                        .foregroundStyle(AppColor.accentText)
+                        // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                        .foregroundStyle(AppColor.accentTextOnTint)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(Capsule().fill(AppColor.tintFill))
                 }

@@ -72,7 +72,8 @@ struct ParagraphTagChip: View {
     var body: some View {
         Text(title)
             .chirpFont(11.5, .bold)
-            .foregroundStyle(AppColor.accentText)
+            // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+            .foregroundStyle(AppColor.accentTextOnTint)
             .padding(.horizontal, 8)
             .frame(minHeight: 22)
             .background(Capsule().fill(AppColor.tintFill))

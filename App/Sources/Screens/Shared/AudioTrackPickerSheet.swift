@@ -63,7 +63,8 @@ struct AudioTrackPickerSheet: View {
             Button(action: onCancel) {
                 Text("Cancel import")
                     .chirpFont(16, .semibold)
-                    .foregroundStyle(AppColor.accentText)
+                    // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                    .foregroundStyle(AppColor.accentTextOnTint)
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .background(
                         RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous)

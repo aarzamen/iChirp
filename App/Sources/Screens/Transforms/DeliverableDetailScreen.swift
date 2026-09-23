@@ -206,7 +206,8 @@ struct DeliverableDetailScreen: View {
         } label: {
             Label("Versions", systemImage: "clock.arrow.circlepath")
                 .chirpFont(14, .semibold)
-                .foregroundStyle(AppColor.accentText)
+                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(AppColor.accentTextOnTint)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
                 .background(Capsule().fill(AppColor.tintFill))

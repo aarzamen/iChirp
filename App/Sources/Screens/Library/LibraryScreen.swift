@@ -154,7 +154,8 @@ struct LibraryScreen: View {
         } label: {
             Text(filter.title)
                 .chirpFont(13.5, .semibold)
-                .foregroundStyle(selected ? AppColor.accentText : Tokens.Color.secondary)
+                // Text-safe ink on the selected chip's tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(selected ? AppColor.accentTextOnTint : Tokens.Color.secondary)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 14)
