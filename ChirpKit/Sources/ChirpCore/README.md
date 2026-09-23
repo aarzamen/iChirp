@@ -43,6 +43,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
   `ChirpEngineHTTPLLM`. Contract: `spec/contracts/language-model-plugin-v1.md`.
+- `Models/StructuredResult.swift` (M6): the evidence ledger's values (`StructuredRun`, `StructuredField` with its
+  `StructuredSourceSpan` and `StructuredVerdict`, `StructuredEvalRun`) and `StructuredResultStoring`
+  ([structured-results-v1](../../../spec/contracts/structured-results-v1.md)).
 - `Engines/StructureModel.swift`: the M6 extraction and embedding contract (`StructuredOutput` with the model hash and
   `isAbstention`, `StructureModelError`); conformers `NeedleStructureModel` and the STUB
   ([structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md)).

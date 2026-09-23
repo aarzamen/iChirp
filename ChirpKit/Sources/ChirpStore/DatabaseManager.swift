@@ -5,7 +5,8 @@
 // "v5-meetings" (user notes, partial audio, audio removed; upstream's meeting columns, trimmed); kept the
 // WAL-via-DatabasePool / foreign-keys-on / 5s-busy-timeout configuration and the inline
 // DatabaseMigrator pattern (migrations are never edited after install; add a new one instead). M5 adds "v6-documents"
-// (link and document provenance columns, new in iChirp; "v5" belongs to the M3 meetings lane).
+// (link and document provenance columns, new in iChirp; "v5" belongs to the M3 meetings lane). M6 adds
+// "v7-structured-results" (structure-model runs, fields and eval runs; new tables, new in iChirp).
 
 import Foundation
 import GRDB
@@ -145,6 +146,12 @@ public final class DatabaseManager: Sendable {
                 // JSON TEXT: [DocumentPage] (number, text, method).
                 t.add(column: "documentPages", .text)
             }
+        }
+
+        // M6 structure models (plan 015; spec/contracts/structured-results-v1.md): extraction runs, their fields with
+        // evidence spans and gate verdicts, and eval runs. New tables only.
+        migrator.registerMigration("v7-structured-results") { db in
+            try StructuredResultsSchema.create(db)
         }
 
         return migrator

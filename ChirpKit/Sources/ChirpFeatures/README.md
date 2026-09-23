@@ -195,6 +195,16 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   pseudo-confidence; always available and always labelled STUB. `VoiceCommandText` (a command is a whole short
   utterance that equals one of its phrases, optionally after "okay"/"please").
 
+- `Structure/StructuredResultGate.swift`: `StructureSettings` (voice commands off by default, gate thresholds,
+  engine choice; its own UserDefaults key) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
+  else needs review; any problem forces needs review); `StructuredCallValidator` (maps tags back to the normalizer's
+  values, traces digits a model copied, **re-parses every number in code and range-checks vitals and doses**, flags
+  self-corrections, drug or substance names missing from the sentence and schema problems; a number that traces to
+  nothing is a numeric hard fail).
+- `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
+  text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
+  milliseconds).
+
 ## Wiring (app composition root)
 
 ```swift

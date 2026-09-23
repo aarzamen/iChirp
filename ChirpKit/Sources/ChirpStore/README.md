@@ -24,7 +24,13 @@ ChirpStore depends on ChirpText.
   upstream's columns and unique `COLLATE NOCASE` indexes on `word` and `"trigger"`), then `v5-meetings` (M3: three
   additive `transcriptions` columns, `userNotes`, `isPartialAudio` NOT NULL DEFAULT 0 and `audioRemovedAt`), then
   `v6-documents` (M5: four nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`,
-  `documentPages` JSON).
+  `documentPages` JSON), then `v7-structured-results` (M6: the `structured_runs`, `structured_fields` and
+  `structured_eval_runs` tables; new tables only).
+- `StructuredResultStore.swift` (M6) — `StructuredResultsSchema` (the tables of `v7-structured-results`: runs
+  cascade-deleted with their transcript, fields with their run; an unknown stored verdict reads as `needsReview`,
+  never `act`), the row mirrors, and `GRDBStructuredResultStore` (`StructuredResultStoring`: save a run with its
+  fields in one transaction, list runs and fields, `setReviewed` with optional edited arguments, eval runs). Logs
+  carry ids and counts only. Contract: `spec/contracts/structured-results-v1.md`.
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
   `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
