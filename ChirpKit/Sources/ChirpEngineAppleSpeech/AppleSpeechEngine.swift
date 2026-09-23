@@ -12,7 +12,9 @@ import Foundation
 /// - **Permission (iOS).** Speech recognition must be allowed. Only Download asks (review M10): until iOS has asked,
 ///   an installed model still reads as not downloaded, so Settings shows Download; a job never asks (it refuses with
 ///   `modelNotDownloaded`), so no prompt appears from a background file, a dictation or a live preview. A refusal reads
-///   as `.failed` with a sentence that says where to allow it. `needsPermissionPrompt()` tells headless callers.
+///   as `.failed` with a sentence that says where to allow it. `needsPermissionPrompt()` tells a headless caller (the
+///   DEBUG device benchmark) to skip rather than download: true while iOS has never asked (a prompt nobody can tap)
+///   and while it was already denied (review N7 — iOS will not ask again, so downloading first would only fail).
 /// - Word timings come from `audioTimeRange`, confidence from `transcriptionConfidence`; `language` is the locale
 ///   used (BCP-47). It runs in a system process, so the app's memory barely grows and no Neural Engine gate applies.
 public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting, SpeechEnginePermissionReporting {
@@ -63,9 +65,16 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
         return nil
     }
 
-    /// Download would first show the Speech Recognition prompt (iOS has never asked).
+    /// True when `downloadAssets` cannot finish without a permission this headless caller cannot grant: iOS has
+    /// never asked (`downloadAssets` would show the prompt), or the person already refused it (iOS will not ask
+    /// again, and downloading first would only waste the network before failing on the permission sentence; review
+    /// N7 — the DEBUG device benchmark must never download the model while permission is denied).
     public func needsPermissionPrompt() async -> Bool {
-        backend.isAvailable && backend.authorizationStatus() == .notDetermined
+        guard backend.isAvailable else { return false }
+        switch backend.authorizationStatus() {
+        case .notDetermined, .denied: return true
+        case .authorized: return false
+        }
     }
 
     // MARK: - ModelAssetManaging

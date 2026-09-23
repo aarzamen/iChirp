@@ -209,9 +209,11 @@ public protocol SpeechEngineAvailabilityReporting: Sendable {
 /// Optional for engines that need a system permission before they run (Apple Speech: Speech Recognition). Additive to
 /// the plug-in contract. Such an engine asks only from `downloadAssets` (a person's tap), reads as not downloaded until
 /// then, and never asks from `prepare` or `transcribe`. Headless callers (the DEBUG device benchmark) check this first
-/// and skip the engine instead of waiting on a prompt nobody can tap.
+/// and skip the engine instead of downloading: waiting on a prompt nobody can tap, or (review N7) downloading a model
+/// it cannot use because the permission was already refused.
 public protocol SpeechEnginePermissionReporting: Sendable {
-    /// True when `downloadAssets` would first show a system permission prompt.
+    /// True when `downloadAssets` cannot finish without a permission a headless caller cannot grant: not yet asked
+    /// (a prompt would appear) or already denied (no prompt will appear, but downloading first would only fail).
     func needsPermissionPrompt() async -> Bool
 }
 

@@ -23,7 +23,8 @@ language. The app registers it in `SpeechEngineRouter` (`App/Sources/SpeechEngin
   - **Transcribe:** `prepare` and `transcribe` never download and never ask for permission, so no prompt appears
     from a background file, a dictation or a live preview. They throw `modelNotDownloaded` while the model is missing
     or iOS has never asked, and the permission sentence when it was refused. `needsPermissionPrompt()` lets the DEBUG
-    device benchmark skip Apple Speech (`permission-needed`) instead of waiting on a prompt.
+    device benchmark skip Apple Speech (`permission-needed`) while permission has never been asked or was denied
+    (review N7), instead of waiting on a prompt or downloading a model it cannot use.
   - **Result:** `makeResult` joins the final results and maps word runs to milliseconds, with non-decreasing starts,
     `endMs >= startMs` and confidence clamped to 0…1 (1 when missing). Empty text throws `emptyTranscript`.
   - `MonotonicProgress` keeps progress in 0…1 and never lets it go backwards.
