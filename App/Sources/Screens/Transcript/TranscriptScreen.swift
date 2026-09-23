@@ -43,6 +43,8 @@ struct TranscriptScreen: View {
     }
 
     var body: some View {
+        // Read here so the Transform sheet (built in a closure) sees Jev's suggestion when it opens (M6a).
+        let suggestedTemplate = suggestedTemplateKey
         VStack(spacing: 0) {
             tabs
             content
@@ -98,7 +100,7 @@ struct TranscriptScreen: View {
             if let item = model.transcription {
                 TransformSheet(
                     transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
-                    environment: environment, suggestedTemplateKey: suggestedTemplateKey)
+                    environment: environment, suggestedTemplateKey: suggestedTemplate)
             }
         }
         .sheet(

@@ -4,8 +4,9 @@
 # screens can be checked without a key or the internet. It stores nothing and logs nothing.
 #
 # For every choice question it picks the option whose id or description shares the most words with the state text
-# (ties go to the first option id in sorted order), gives it the largest probability, spreads the rest so the
-# probabilities sum to 1, and sets confidence to the winner's probability. It echoes the request's model id.
+# (ties go to the first option id in sorted order), gives it the largest probability (0.60, plus 0.10 per shared word,
+# at most 0.90), spreads the rest so the probabilities sum to 1, and sets confidence to the winner's probability. It
+# echoes the request's model id.
 #
 # Usage:  python3 scripts/jev_stub_server.py                 # http://127.0.0.1:11998
 #         JEV_STUB_PORT=11997 python3 scripts/jev_stub_server.py
@@ -36,11 +37,14 @@ def answer(question, state_words):
               for o in options}
     best = max(scores.values()) if scores else 0
     winner = next(o for o in options if scores[o] == best)
-    weights = {o: 1.0 + 2.0 * scores[o] for o in options}
-    weights[winner] += 2.0
-    total = sum(weights.values())
-    probabilities = {o: round(w / total, 4) for o, w in weights.items()}
-    probabilities[winner] = round(probabilities[winner] + 1.0 - sum(probabilities.values()), 4)
+    # The winner gets 0.60 plus 0.10 per shared word (at most 0.90), so the app's gate shows all three verdicts;
+    # the rest is split among the other options by their own overlap.
+    top = min(0.60 + 0.10 * best, 0.90)
+    others = [o for o in options if o != winner]
+    weights = {o: 1.0 + scores[o] for o in others}
+    total = sum(weights.values()) or 1.0
+    probabilities = {o: round((1.0 - top) * w / total, 4) for o, w in weights.items()}
+    probabilities[winner] = round(1.0 - sum(probabilities.values()), 4)
     return {"type": "choice", "choice": winner, "probabilities": probabilities,
             "confidence": probabilities[winner]}
 

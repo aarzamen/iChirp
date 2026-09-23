@@ -334,6 +334,10 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `-ChirpJevBaseURL` override), `JevSettingsStoring` / `JevSettingsStore` (toggle and model in `UserDefaults` under
   `ichirp.jevSettings`; **the key only in the Keychain** under `structure.provider.jev.api-key`, written first), and
   `DecisionModelFactory` (the app's `AppDecisionModelFactory` is the only importer of `ChirpEngineJev`).
+- `JevSettingsViewModel.swift`: Settings → Models → Decision models (`setEnabled`, `saveKey`, `testConnection`,
+  `isMenuVisible`). `keyText` always starts empty and a blank field keeps the stored key; the key itself never enters
+  the view model. `DecisionRunViewModel.swift`: one decision for the result sheet (`running` → `decided` / `blocked` /
+  `failed` with Retry; `cancel()` when the sheet closes). App tests: `AppTests/DecisionModelAppTests`.
 
 ## How to verify
 
