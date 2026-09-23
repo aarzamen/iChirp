@@ -34,7 +34,32 @@ plus the phone side of YouTube audio and plan 014's remaining items.
 - **Milestone:** M5 completion + companion
 - **Effort:** M
 - **Risk:** MEDIUM (a network service on the home LAN; YouTube changes)
-- **Status:** NOT STARTED
+- **Status:** IN PROGRESS (lane L1, branch `lane/companion`)
+
+## Drift check and refinements (L1, 2026-09-22, before coding)
+
+Drift check at `dd7fd56f`: no changes (the lane starts at the planned-at commit). Facts found while reading the
+sources, and what the lane does about them:
+
+1. **ChoiceVoice's repos are Qwen3-TTS *Base* models** (`mlx-community/Qwen3-TTS-12Hz-{1.7B,0.6B}-Base-8bit`), which
+   have no preset speakers. mlx-audio 0.4.3 ignored `voice="Ryan"` on them (a seeded random voice); mlx-audio ≥ 0.5
+   refuses it. Named voices (Ryan, Aiden, …) and a style instruction need the **CustomVoice** repos of the same family:
+   `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` (~3.1 GB) and `…-0.6B-CustomVoice-8bit` (~2.0 GB), both
+   Apache-2.0, public, no token. The companion uses those, downloaded once into the Hugging Face cache with
+   `scripts/companion.sh --download <model>`; a request never starts a download (a missing model is `503` naming that
+   command). The speaker list and descriptions come from ChoiceVoice's `ui-vite/src/App.jsx` (`SPEAKERS`). The 0.6B
+   model ignores style instructions, so its voices report `supportsStyle: false`.
+2. **`~/Kokoro-82M` holds PyTorch weights** (`kokoro-v1_0.pth`, `voices/*.pt`) that mlx-audio cannot load. `kokoro-82m`
+   is served from `~/Kokoro-82M` only if it holds MLX safetensors, else from `mlx-community/Kokoro-82M-bf16`
+   (Apache-2.0, ~390 MB) after `--download kokoro-82m`, and it needs the optional `kokoro` extra (the misaki
+   phonemizer). Not part of the done criteria; reported unavailable with the fixing command until then.
+3. **MP3** is encoded by Homebrew `ffmpeg` (already on the Mac) in a subprocess; WAV by the standard library. Without
+   ffmpeg, `response_format: "mp3"` is a `503` naming `brew install ffmpeg`.
+4. **`CompanionConfiguration`** (the protocol plan 020 reads) lives in `ChirpCore` so an engine target that depends
+   only on `ChirpCore` can use it; its concrete conformer is `CompanionSettingsStore` in `ChirpFeatures`.
+5. youtube-transcript-api still uses ANDROID `20.10.38` (master and release v1.2.4, checked 2026-09-22), so Step 6
+   keeps the value and makes the client one constant.
+6. mlx-audio resolves to 0.5.5 (≥ 0.4.3, MIT).
 
 ## Current state
 
