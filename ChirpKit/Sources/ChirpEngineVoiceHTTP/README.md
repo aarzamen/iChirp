@@ -8,8 +8,8 @@ ported from the owner's macOS read-aloud app **Readback** (`~/readback`, `Source
 
 ## Entry point
 
-`VoiceEngines.swift`: `VoiceEngines.makeXAI(secrets:)` and `VoiceEngines.validateXAIKey(secrets:)` are what the
-app calls. Then read `VoiceHTTPTransport.swift`.
+`VoiceEngines.swift`: `VoiceEngines.makeXAI(secrets:)`, `VoiceEngines.makeCompanion(configuration:)` and
+`VoiceEngines.validateXAIKey(secrets:)` are what the app calls. Then read `VoiceHTTPTransport.swift`.
 
 ## What's here
 
@@ -20,6 +20,13 @@ app calls. Then read `VoiceHTTPTransport.swift`.
 - `XAIVoice.swift`: `POST https://api.x.ai/v1/tts` (Bearer key from `SecretStoring`, account
   `voice.xai.api-key`), mp3 44.1 kHz 128 kbps, stock voices eve/ara/rex/sal/leo, `validateKey()` via
   `GET /v1/api-key`, `availability()` = a key is stored (no network).
+- `CompanionVoice.swift`: the OpenAI speech shape (ported from Readback's `OpenAIProvider`) to the Mac companion
+  (`POST /v1/audio/speech`, `GET /v1/voices`, [mac-companion-v1](../../../spec/contracts/mac-companion-v1.md)):
+  address and pairing token from ChirpCore's `CompanionConfiguration`; voice ids `model:Name` are split into
+  `model` and `voice`; `style` → `instructions`; WAV requested, the Content-Type decides the format; 400 unknown
+  voice → `unsupportedVoice`, 413 and 503 → `server` with the companion's sentence. `availability()` caches
+  `GET /v1/companion` (no token) for 30 s. Locality follows the host (`CompanionEndpoint.locality`). `pinned()`
+  binds one utterance to the address and token as they are now.
 - `VoiceEngines.swift`: the registration entry point.
 
 ## What to know before editing
@@ -30,6 +37,8 @@ app calls. Then read `VoiceHTTPTransport.swift`.
   text reaches `XAIVoice` only after the per-utterance confirmation.
 - **Never follow redirects, never cache**, never log a request, header, body or provider message. Log the engine
   id, counts and `SpeechSynthesisError.kindName` only; associated strings may echo text and are for the screen.
+- **One utterance, one host.** `VoicePlayer` speaks through `CompanionVoice.pinned()`, so changing Settings → Mac
+  companion mid-utterance cannot redirect the rest of the text; routing still re-checks the host before every chunk.
 - **Callers chunk.** `maxCharactersPerRequest` is the hard limit; an overlong request throws before sending.
 
 ## How to verify

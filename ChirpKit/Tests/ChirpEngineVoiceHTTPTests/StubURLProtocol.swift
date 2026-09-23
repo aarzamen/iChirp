@@ -12,6 +12,8 @@ struct StubResponse: Sendable {
     var chunks: [Data] = []
     /// When set, the stub answers with a redirect to this URL instead of a body.
     var redirectTo: URL?
+    /// When set, the request fails with this error (for example "cannot connect to host").
+    var failure: URLError?
 
     static func body(_ text: String, status: Int = 200, contentType: String = "application/json") -> StubResponse {
         StubResponse(status: status, headers: ["Content-Type": contentType], chunks: [Data(text.utf8)])
@@ -79,6 +81,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             return state.handler
         }
         let response = handler?(recorded) ?? StubResponse(status: 500, chunks: [Data("no stub".utf8)])
+
+        if let failure = response.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
 
         if let target = response.redirectTo {
             let redirect = HTTPURLResponse(
