@@ -467,6 +467,10 @@ struct TranscriptScreen: View {
                 ForEach(ExportFormat.allCases, id: \.self) { format in
                     Button(format.displayName) { share(format) }
                 }
+                // Plan 022 Step 6: page formats.
+                ForEach(DocumentExportFormat.allCases, id: \.self) { format in
+                    Button(format.displayName) { shareDocument(format) }
+                }
                 Divider()
                 Button {
                     voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
@@ -554,6 +558,17 @@ struct TranscriptScreen: View {
         Task {
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
+        }
+    }
+
+    /// Plan 022 Step 6: a PDF or Word copy for the share sheet (rendered off the main actor).
+    private func shareDocument(_ format: DocumentExportFormat) {
+        Task {
+            do {
+                shareItem = ShareItem(url: try await model.exportDocument(format))
+            } catch {
+                actionError = Formatting.message(for: error)
+            }
         }
     }
 

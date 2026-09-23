@@ -315,6 +315,52 @@ final class CreateTourUITests: XCTestCase {
         app.buttons["Done"].firstMatch.tap()
     }
 
+    // MARK: - Step 6: PDF and Word
+
+    /// A synthetic file → Transcript, then Share → PDF and Share → Word on the transcript, and PDF on a generated
+    /// document. The share sheet shows each real file (the agent renders the files themselves with Quick Look).
+    func testPDFAndWordExports() throws {
+        let file = try copySample(named: "Synthetic export sample.m4a")
+        app.launchArguments = ["-ChirpCreateFile", file.path]
+        app.launch()
+        ensureStubModel()
+        openCreate()
+        tapOption("File")
+        tapOption("Summary")
+        tapCreate()
+        waitForDone(timeout: 180, name: "export-source")
+        tapWhenHittable(app.buttons["Open document"])
+        let share = app.buttons["Share"].firstMatch
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        share.tap()
+        shot("document-share-menu")
+        tapWhenHittable(app.buttons["PDF"])
+        sleep(2)
+        shot("document-share-pdf")
+
+        // The transcript it came from: Word, then PDF (a fresh launch each, so no share sheet is left over).
+        // The last export stays in the app's tmp folder until the next launch (the agent copies it out and renders it
+        // with Quick Look); CHIRP_EXPORT_LAST=Word keeps the Word file instead of the PDF.
+        let order =
+            ProcessInfo.processInfo.environment["CHIRP_EXPORT_LAST"] == "Word" ? ["PDF", "Word"] : ["Word", "PDF"]
+        for format in order {
+            app.terminate()
+            app.launchArguments = []
+            app.launch()
+            app.tabBars.buttons["Library"].tap()
+            let row = app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'quick brown'")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 20))
+            row.tap()
+            let bar = app.buttons["Share"].firstMatch
+            XCTAssertTrue(bar.waitForExistence(timeout: 10))
+            bar.tap()
+            if format == "Word" { shot("transcript-share-menu") }
+            tapWhenHittable(app.buttons[format])
+            sleep(2)
+            shot("transcript-share-\(format.lowercased())")
+        }
+    }
+
     // MARK: - Steps
 
     static let companionArguments = [

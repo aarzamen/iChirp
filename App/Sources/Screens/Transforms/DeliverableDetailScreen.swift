@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpExport
 import ChirpFeatures
 import ChirpUI
 import SwiftUI
@@ -17,6 +18,9 @@ struct DeliverableDetailScreen: View {
     @State private var deleteError: String?
     /// Plan 022: More → Save as voice message.
     @State private var voiceMessage: VoiceMessageJob?
+    /// Plan 022 Step 6: a PDF or Word copy for the share sheet.
+    @State private var shareFile: ShareItem?
+    @State private var exportError: String?
     /// Plan 022 Step 4: Edit by voice and the Versions sheet.
     @State private var isEditingByVoice = false
     @State private var isShowingVersions = false
@@ -83,8 +87,12 @@ struct DeliverableDetailScreen: View {
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
-                Button {
-                    shareText = ShareText(text: document.draft)
+                Menu {
+                    Button("Text") { shareText = ShareText(text: document.draft) }
+                    // Plan 022 Step 6: the document as edited now, as a PDF or Word file.
+                    ForEach(DocumentExportFormat.allCases, id: \.self) { format in
+                        Button(format.displayName) { shareDocument(format) }
+                    }
                 } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
@@ -110,6 +118,19 @@ struct DeliverableDetailScreen: View {
         .disabled(document.deliverable == nil && !document.isDeleted && document.loadError == nil)
         .task { await document.load() }
         .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
+        .sheet(item: $shareFile) { item in
+            ActivityView(items: [item.url])
+                .presentationDetents([.medium, .large])
+                .ignoresSafeArea()
+        }
+        .alert(
+            "Couldn’t export the document",
+            isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "")
+        }
         .sheet(isPresented: $isEditingByVoice) {
             EditByVoiceSheet(document: document, environment: environment, onSaved: reloadAfterNewVersion)
         }
@@ -165,6 +186,37 @@ struct DeliverableDetailScreen: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)
+        }
+    }
+
+    /// The document's title, provenance and text (as edited now) into `<tmp>/export-<transcript id>/`, which goes with
+    /// the transcript's other exports.
+    private func shareDocument(_ format: DocumentExportFormat) {
+        guard let deliverable = document.deliverable else { return }
+        let exportDocument = ExportDocument.text(
+            title: deliverable.title, body: document.draft,
+            metadata: [
+                ExportMetadataLine("From", sourceTitle(deliverable)),
+                ExportMetadataLine(
+                    "Made", Formatting.day(deliverable.createdAt) + " " + Formatting.timeOfDay(deliverable.createdAt)),
+                ExportMetadataLine(
+                    "Ran",
+                    ModelPlace.phrase(locality: deliverable.locality, name: deliverable.provider).capitalizedFirst),
+            ]
+                + (deliverable.privacyClass == .clinical
+                    ? [ExportMetadataLine("Privacy", "Clinical: a draft for review; contains patient information")]
+                    : [])
+        )
+        let directory = ExportTempFiles.directory(for: deliverable.transcriptionID)
+        Task {
+            do {
+                let url = try await Task.detached(priority: .userInitiated) {
+                    try DocumentExporter().write(exportDocument, as: format, to: directory)
+                }.value
+                shareFile = ShareItem(url: url)
+            } catch {
+                exportError = Formatting.message(for: error)
+            }
         }
     }
 

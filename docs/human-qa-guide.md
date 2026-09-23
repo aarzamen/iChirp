@@ -607,6 +607,14 @@ Edit by voice (Step 4)
 - [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
       with a small model: "too long for this model to rewrite in one pass", nothing changed.
 
+PDF and Word (Step 6)
+- [ ] A long meeting → Share → PDF: open it in Files or Books: every page has "title · Page k of N", speaker names
+      and times, and the last words of the meeting are on the last page (nothing cut).
+- [ ] Share → Word on the same meeting and on a generated document: it opens in Word or Pages with the title, the
+      headings, real bullet points and the paragraphs; nothing is plain text pretending to be Word.
+- [ ] A clinical item's PDF and Word files say "Privacy: Clinical" under the title.
+- [ ] Text, Markdown, SRT, VTT and JSON exports are unchanged.
+
 Voice messages (Step 5; Settings → Voices has a voice)
 - [ ] A transcript → Share → Voice message…: "Speaking · Part 1 of N" counts up, then "Voice message saved" and the
       share sheet offers `<title>.m4a`; AirDrop or save it to Files and play it: the whole text, in order, with a short
