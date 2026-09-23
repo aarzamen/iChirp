@@ -40,7 +40,10 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   Foundation's spell-out `NumberFormatter`, its own unit list) from its source words, and the words right around it
   are checked (a number said just before a dose, also across "and" / "a" inside a spoken number, which is re-read
   whole: "a hundred and twenty-five micrograms" is 125, never 25; "per kg", "/min", "an hour" just after one, a
-  correction word next to any value); any disagreement forces review. Then it is range-checked (BP 50–260 / 20–160 and systolic above
+  correction word next to any value, a range such as "4 to" before a dose or "to 120" after a rate); any
+  disagreement forces review. A range ("4 to 8 mg", "heart rate 100 to 120") is one tag with **no** `value`, a
+  display such as "4–8 mg" and a review reason starting "Range:" (the same shape as a correction without a full
+  value). Then it is range-checked (BP 50–260 / 20–160 and systolic above
   diastolic, HR 20–250, RR 4–60, SpO₂ 50–100, temperature 90–110 °F or 32–43.5 °C; a dose > 0 with a unit and at most
   5000 mg, 2000 mcg, 10 g, 50,000 units, 5000 mL, 10 tablets, 12 puffs, 20 drops or 200 mEq; a frequency at most 24 a
   day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review.

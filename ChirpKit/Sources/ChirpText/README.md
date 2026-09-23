@@ -45,7 +45,11 @@ pipeline directly.
   "I mean", "scratch that", "wait", "not" before one) flags it; a unit-only correction rebuilds the quantity, and a
   bare-number correction of a dose, pressure or time keeps **no** amount (value nil, display "? (said …)"), since
   neither value was fully stated. A vital's name reaches back only within its clause (not across ",", "on", "and",
-  "with", … or another number), so "heart rate 110 on metoprolol 25" has one rate (review L3 C1, C2, I3).
+  "with", … or another number), so "heart rate 110 on metoprolol 25" has one rate (review L3 C1, C2, I3). A range is
+  never one value (re-review N2): "4 to 8 mg", "4-8 mg", "500 or 1000 mg", "4 mg to 8 mg", "fifty and a hundred
+  milligrams", "heart rate 100 to 120", "two to three times a day" and "5 to 7 days" become one tag covering both
+  ends, displayed "4–8 mg" / "100–120/min", with **no** `value` and a review reason starting "Range:" (`markRanges`,
+  `rangeJoiners`, `rangeKinds`). Never across "and" after a value ("pulse 72 and irregular" stays clean).
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.

@@ -100,6 +100,25 @@ enum IndependentNumberReader {
         numberWords.contains(word)
     }
 
+    /// The first range in the words, or nil (re-review N2): "4 to 8", "4-8", "500 or 1000", "fifty and a hundred".
+    /// "a hundred and twenty" is one number, not a range.
+    static func range(in text: String) -> String? {
+        let ns = text as NSString
+        let match = rangePattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length))
+        return match.map { ns.substring(with: $0.range) }
+    }
+
+    private static let rangePattern: NSRegularExpression = {
+        let smallWords = numberWords.subtracting(["hundred", "thousand"]).sorted().joined(separator: "|")
+        let small = "(?:\\d+(?:\\.\\d+)?|\(smallWords))"
+        let any = "(?:\\d+(?:\\.\\d+)?|\(numberWords.sorted().joined(separator: "|")))"
+        let pattern =
+            "\\d+(?:\\.\\d+)?\\s*[-–—]\\s*\\d"
+            + "|\\b\(any)\\s+(?:to|or|through)\\s+(?:a\\s+)?\(any)\\b"
+            + "|\\b\(small)\\s+and\\s+(?:a\\s+)?\(any)\\b"
+        return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    }()
+
     static func same(_ a: Double, _ b: Double) -> Bool {
         abs(a - b) <= max(1e-6, abs(b) * 1e-9)
     }
@@ -181,6 +200,12 @@ enum IndependentNumberCheck {
         case .time, .duration, .laterality:
             break
         }
+        // Re-review N2: a range in the tag's own words is never one value.
+        if [.dose, .rate, .oxygenSaturation, .temperature].contains(tag.kind), tag.value != nil,
+            let range = IndependentNumberReader.range(in: tag.sourceText)
+        {
+            problems.append("“\(range)” is a range, but the field holds one value (\(tag.display)). Check it.")
+        }
         problems += SentenceNeighbours.problems(for: tag, in: sentence)
         return problems
     }
@@ -208,6 +233,8 @@ enum SentenceNeighbours {
     /// Words that can sit inside a spoken number or between two numbers said together ("a hundred *and* twelve",
     /// "fifty *and a* hundred").
     static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
+    /// Words that join the two ends of a range ("4 *to* 8", "500 *or* 1000").
+    static let rangeWords: Set<String> = ["to", "or", "through"]
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
     static let timeOrWeight = ["kg", "kilo", "kilogram", "hour", "minute", "day", "week"]
     static let correctionPairs: Set<String> = [
@@ -229,8 +256,8 @@ enum SentenceNeighbours {
         var run: [Word] = []
         var edge = tag.sourceRange.lowerBound
         for word in before.reversed() {
-            guard gap(word.range.upperBound, edge).allSatisfy({ $0 == " " || $0 == "-" }),
-                isNumber(word.text) || spokenNumberJoiners.contains(word.text)
+            guard gap(word.range.upperBound, edge).allSatisfy({ $0 == " " || $0 == "-" || $0 == "–" }),
+                isNumber(word.text) || spokenNumberJoiners.contains(word.text) || rangeWords.contains(word.text)
             else { break }
             run.insert(word, at: 0)
             edge = word.range.lowerBound
@@ -240,11 +267,28 @@ enum SentenceNeighbours {
             let spoken = gap(start, tag.sourceRange.upperBound)
             let said = gap(start, tag.sourceRange.lowerBound).trimmingCharacters(in: .whitespaces)
             let whole = IndependentNumberReader.read(spoken).numbers
-            if whole.count == 1, let value = tag.value, !IndependentNumberReader.same(whole[0], value) {
+            if let range = IndependentNumberReader.range(in: spoken) {
+                // Re-review N2: "4 to" before "8 mg" makes it a range.
+                problems.append(
+                    "“\(said)” was said right before “\(tag.sourceText)”: “\(range)” is a range, not one value. Check it."
+                )
+            } else if whole.count == 1, let value = tag.value, !IndependentNumberReader.same(whole[0], value) {
                 problems.append(
                     "The spoken number “\(spoken)” reads as \(NumericNormalizer.format(whole[0])), not \(tag.display).")
             } else {
                 problems.append("“\(said)” was said right before “\(tag.sourceText)”: check which amount was meant.")
+            }
+        }
+        // Re-review N2: "100" followed by "to 120" (or "-120") is a range, not one value. Never across "and".
+        if let next = after.first {
+            let between = gap(tag.sourceRange.upperBound, next.range.lowerBound).trimmingCharacters(in: .whitespaces)
+            let byWord =
+                after.count >= 2 && between.isEmpty && rangeWords.contains(next.text) && isNumber(after[1].text)
+            let byDash = ["-", "–", "—"].contains(between) && isNumber(next.text)
+            if byWord || byDash {
+                let phrase = byWord ? "\(next.text) \(after[1].text)" : "\(between)\(next.text)"
+                problems.append(
+                    "“\(tag.sourceText)” is followed by “\(phrase)”: a range, not one value. Check it.")
             }
         }
         if tag.kind == .dose, after.count >= 2,

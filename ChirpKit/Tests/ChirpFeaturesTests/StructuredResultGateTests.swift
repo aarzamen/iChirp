@@ -266,6 +266,42 @@ final class StructuredResultGateTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review N2: the independent check knows about ranges
+
+    func testTheIndependentCheckFlagsARangeHeldAsOneValue() {
+        // As the old normalizer tagged them: one end of the range, clean.
+        let cases: [(String, String, NumericTag.Kind, Double, String, StructuredCall)] = [
+            ("Ondansetron 4 to 8 mg IV.", "8 mg", .dose, 8, "mg", medication("ondansetron")),
+            ("Acetaminophen 650 to 1000 mg.", "1000 mg", .dose, 1000, "mg", medication("acetaminophen")),
+            ("Ondansetron 4 mg to 8 mg IV.", "4 mg", .dose, 4, "mg", medication("ondansetron")),
+            (
+                "Heart rate 100 to 120.", "100", .rate, 100, "/min",
+                StructuredCall(
+                    name: "record_vital", arguments: ["kind": .string("HR"), "value_tag": .string("dose_1")])
+            ),
+        ]
+        for (text, source, kind, value, unit, call) in cases {
+            let sentence = handTagged(text, [(source, "dose_1", kind, value, unit)])
+            let result = StructuredCallValidator.validate(call, sentence: sentence, catalog: .soapMeds)
+            XCTAssertTrue(result.problems.contains { $0.contains("range") }, "\(text): \(result.problems)")
+        }
+        // A side table that holds the whole range words but one value.
+        let whole = handTagged("Ondansetron 4 to 8 mg IV.", [("4 to 8 mg", "dose_1", .dose, 8, "mg")])
+        let result = StructuredCallValidator.validate(medication("ondansetron"), sentence: whole, catalog: .soapMeds)
+        XCTAssertTrue(result.problems.contains { $0.contains("range") }, "\(result.problems)")
+    }
+
+    func testARangeFromTheNormalizerReachesReviewWithItsReason() throws {
+        let result = try validate(
+            "Ondansetron 4 to 8 mg IV every 8 hours as needed.",
+            #"[{"name":"add_medication","arguments":{"drug":"ondansetron","dose_tag":"dose_1","frequency_tag":"freq_1","status":"started"}}]"#
+        )
+        XCTAssertEqual(result.arguments["dose"]?["display"], .string("4–8 mg"))
+        XCTAssertNil(result.arguments["dose"]?["value"], "no single value was said")
+        XCTAssertTrue(result.problems.contains { $0.hasPrefix("Range:") }, "\(result.problems)")
+        XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: result.problems), .needsReview)
+    }
+
     // MARK: - Review L3 I2 and I3: a value must sit next to what it belongs to
 
     func testADoseMustSitNextToItsOwnDrug() throws {

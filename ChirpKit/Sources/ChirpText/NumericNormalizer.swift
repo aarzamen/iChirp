@@ -218,7 +218,101 @@ private struct NumericScanner {
             }
             index += 1
         }
-        return annotateNeighbours(result)
+        return annotateNeighbours(markRanges(result))
+    }
+
+    // MARK: Ranges (re-review N2)
+
+    /// The reason every range carries; it starts with "Range:" so screens and tests can tell it apart.
+    static func rangeReason(_ said: String) -> String {
+        "Range: “\(said)” is a range (or a change from one value to another), not one value. Enter the value to record."
+    }
+
+    /// A range is never one value (re-review N2): "4 to 8 mg", "4-8 mg", "4 mg to 8 mg", "fifty and a hundred
+    /// milligrams", "heart rate 100 to 120", "two to three times a day". The tag covers both ends, shows them
+    /// ("4–8 mg"), holds **no** single value and is flagged. Two values of the same kind joined by "to" / "or" / "-"
+    /// merge into one range when their units agree; otherwise both are flagged.
+    func markRanges(_ quantities: [Quantity]) -> [Quantity] {
+        var result: [Quantity] = []
+        for var quantity in quantities {
+            guard Self.rangeKinds.contains(quantity.kind), quantity.value != nil,
+                let first = tokens.firstIndex(where: { $0.start == quantity.start })
+            else {
+                result.append(quantity)
+                continue
+            }
+            let floor = result.last?.nextToken ?? 0
+            let joiner = first - 1
+            let joined = joiner >= floor && Self.rangeJoiners.contains(tokens[joiner].text)
+            // "4 mg to 8 mg": two values of one kind, joined.
+            if joined, var previous = result.last, previous.kind == quantity.kind, previous.nextToken == joiner,
+                tokens[joiner].text != "and"
+            {
+                let said = text.utf16Substring(previous.start, quantity.end)
+                if previous.unit == quantity.unit, let low = previous.value, let high = quantity.value {
+                    previous.display = Self.rangeDisplay(quantity.display, value: high, low: low, high: high)
+                    previous.value = nil
+                    previous.second = nil
+                    previous.end = quantity.end
+                    previous.nextToken = quantity.nextToken
+                    previous.reviewReason = Self.joined(
+                        previous.reviewReason, quantity.reviewReason, Self.rangeReason(said))
+                    result[result.count - 1] = previous
+                } else {
+                    result[result.count - 1].reviewReason = Self.joined(previous.reviewReason, Self.rangeReason(said))
+                    quantity.reviewReason = Self.joined(quantity.reviewReason, Self.rangeReason(said))
+                    result.append(quantity)
+                }
+                continue
+            }
+            // "4 to 8 mg", "4-8 mg", "fifty and a hundred milligrams": a bare number before the value.
+            if joined, joiner - 1 >= floor, isNumberWord(joiner - 1), let high = quantity.value {
+                var start = joiner - 1
+                var cursor = joiner - 2
+                while cursor >= floor, isNumberWord(cursor) || Self.spokenNumberJoiners.contains(tokens[cursor].text) {
+                    if isNumberWord(cursor) || isHundredAfterA(cursor) { start = cursor }
+                    cursor -= 1
+                }
+                let low = (hundredsShorthand(at: start) ?? cardinal(at: start)).flatMap { $0.next == joiner ? $0 : nil }
+                quantity.start = tokens[start].start
+                let said = text.utf16Substring(quantity.start, quantity.end)
+                quantity.display =
+                    low.map { Self.rangeDisplay(quantity.display, value: high, low: $0.value, high: high) }
+                    ?? "? (said “\(said)”)"
+                quantity.value = nil
+                quantity.reviewReason = Self.joined(quantity.reviewReason, Self.rangeReason(said))
+                result.append(quantity)
+                continue
+            }
+            // "heart rate 100 to 120": a bare number after the value (never across "and": "pulse 72 and 2 mg").
+            let after = quantity.nextToken
+            if after < tokens.count, Self.rangeJoiners.contains(tokens[after].text), tokens[after].text != "and",
+                let high = hundredsShorthand(at: after + 1) ?? cardinal(at: after + 1),
+                !quantities.contains(where: { after + 1 < tokens.count && $0.start == tokens[after + 1].start }),
+                let low = quantity.value
+            {
+                quantity.end = tokens[high.next - 1].end
+                quantity.nextToken = high.next
+                let said = text.utf16Substring(quantity.start, quantity.end)
+                quantity.display = Self.rangeDisplay(quantity.display, value: low, low: low, high: high.value)
+                quantity.value = nil
+                quantity.reviewReason = Self.joined(quantity.reviewReason, Self.rangeReason(said))
+            }
+            result.append(quantity)
+        }
+        return result
+    }
+
+    /// "8 mg" → "4–8 mg"; "every 6 hours" → "every 4–6 hours".
+    static func rangeDisplay(_ display: String, value: Double, low: Double, high: Double) -> String {
+        let span = "\(NumericNormalizer.format(low))–\(NumericNormalizer.format(high))"
+        guard let range = display.range(of: NumericNormalizer.format(value)) else { return "\(span) (\(display))" }
+        return display.replacingCharacters(in: range, with: span)
+    }
+
+    static func joined(_ reasons: String?...) -> String? {
+        let parts = reasons.compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
     /// A correction that is not a whole second quantity (review L3 C2): a unit only ("five hundred micrograms, sorry,
@@ -302,6 +396,11 @@ private struct NumericScanner {
                 .joined(separator: " ")
         }
         return result
+    }
+
+    /// "a" in "a hundred" / "a thousand".
+    func isHundredAfterA(_ index: Int) -> Bool {
+        peek(index) == "a" && ["hundred", "thousand"].contains(peek(index + 1) ?? "")
     }
 
     func isNumberWord(_ index: Int) -> Bool {
@@ -911,6 +1010,12 @@ private struct NumericScanner {
     ]
     /// Words that can sit between two number words said next to each other ("fifty *and a* hundred").
     static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
+    /// Words that make two numbers a range ("4 *to* 8 mg", "4*-*8 mg", "500 *or* 1000 mg", "fifty *and* a hundred").
+    static let rangeJoiners: Set<String> = ["to", "or", "through", "-", "–", "—", "and"]
+    /// The kinds a range can apply to (a time, a pressure pair and a side cannot).
+    static let rangeKinds: Set<NumericTag.Kind> = [
+        .dose, .rate, .oxygenSaturation, .temperature, .frequency, .duration,
+    ]
     /// "per mouth" is a route, not part of the dose.
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
     static let punctuation: Set<String> = [",", ".", ";", ":", "-", "—", "–", "…"]

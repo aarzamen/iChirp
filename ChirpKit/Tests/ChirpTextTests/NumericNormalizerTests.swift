@@ -210,6 +210,51 @@ final class NumericNormalizerTests: XCTestCase {
         XCTAssertTrue(dose.needsReview)
     }
 
+    // MARK: - Re-review N2: a range is never one value
+
+    func testARangeKeepsBothEndsHasNoSingleValueAndIsFlagged() throws {
+        let cases: [(String, NumericTag.Kind, String, String)] = [
+            ("Ondansetron 4 to 8 mg IV every 8 hours as needed.", .dose, "4–8 mg", "4 to 8 mg"),
+            ("Ondansetron 4-8 mg IV.", .dose, "4–8 mg", "4-8 mg"),
+            ("Acetaminophen 650 to 1000 mg every 6 hours.", .dose, "650–1000 mg", "650 to 1000 mg"),
+            ("Tylenol 500 or 1000 mg.", .dose, "500–1000 mg", "500 or 1000 mg"),
+            ("Ondansetron 4 mg to 8 mg IV.", .dose, "4–8 mg", "4 mg to 8 mg"),
+            ("Give fifty and a hundred milligrams.", .dose, "50–100 mg", "fifty and a hundred milligrams"),
+            ("Heart rate 100 to 120.", .rate, "100–120/min", "100 to 120"),
+            ("Heart rate 100-120 overnight.", .rate, "100–120/min", "100-120"),
+            ("Sats 92 to 94 percent on room air.", .oxygenSaturation, "92–94%", "92 to 94 percent"),
+            ("Metformin two to three times a day.", .frequency, "2–3 times daily", "two to three times a day"),
+            ("Antibiotics for 5 to 7 days.", .duration, "5–7 days", "5 to 7 days"),
+        ]
+        for (text, kind, display, source) in cases {
+            let tags = NumericNormalizer.normalize(text).tags.filter { $0.kind == kind }
+            XCTAssertEqual(tags.count, 1, "\(text): \(tags.map(\.display))")
+            let tag = try XCTUnwrap(tags.first, text)
+            XCTAssertEqual(tag.display, display, text)
+            XCTAssertEqual(tag.sourceText, source, text)
+            XCTAssertNil(tag.value, "a range has no single value: \(text)")
+            XCTAssertTrue(tag.needsReview, text)
+            XCTAssertTrue(tag.reviewReason?.hasPrefix("Range:") ?? false, "\(text): \(tag.reviewReason ?? "nil")")
+        }
+    }
+
+    func testTwoValuesOfOneVitalJoinedByToAreBothFlagged() {
+        let temps = NumericNormalizer.normalize("Temp 38 to 39 degrees.").tags.filter { $0.kind == .temperature }
+        XCTAssertFalse(temps.isEmpty)
+        XCTAssertTrue(temps.allSatisfy(\.needsReview), "\(temps.map(\.display))")
+    }
+
+    func testWordsThatAreNotRangesStayClean() throws {
+        for text in [
+            "Titrate lisinopril to 20 mg daily.", "Pulse 72 and irregular.", "Metformin 500 mg and lisinopril 10 mg.",
+            "A 45-year-old man on metoprolol 25 mg.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy { !$0.needsReview }, "\(text): \(tags.compactMap(\.reviewReason))")
+        }
+    }
+
     func testANumberRightBeforeADoseIsCarriedIntoTheTagAndFlagged() throws {
         let result = NumericNormalizer.normalize("Take one 25 microgram tablet.")
         let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose })
