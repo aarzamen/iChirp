@@ -385,8 +385,8 @@ struct DictatingScreen: View {
 
     private var controls: some View {
         // Each column is its circle plus `controlLabelExtra` wide (room for the label); the spacing keeps the canvas's
-        // 34 pt between circles.
-        HStack(alignment: .bottom, spacing: 34 - controlLabelExtra) {
+        // 34 pt between circles. The circles' bottoms line up (as in the canvas) even when one label wraps.
+        HStack(alignment: .circleBottom, spacing: 34 - controlLabelExtra) {
             circleControl(label: "Cancel", size: 62, fill: .white.opacity(0.10), stroke: .clear) {
                 Image(systemName: "xmark")
                     .font(.system(size: 22, weight: .semibold))
@@ -442,6 +442,7 @@ struct DictatingScreen: View {
                     icon()
                 }
                 .frame(width: size, height: size)
+                .alignmentGuide(.circleBottom) { $0[.bottom] }
                 // Wraps to two lines at large sizes instead of widening the row off the screen.
                 Text(label)
                     .chirpFont(11.5, glow ? .bold : .semibold)
@@ -456,6 +457,15 @@ struct DictatingScreen: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
+}
+
+extension VerticalAlignment {
+    /// The bottom of the Dictating screen's control circles, so they line up whatever their labels' heights.
+    fileprivate enum CircleBottom: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat { context[.bottom] }
+    }
+
+    fileprivate static let circleBottom = VerticalAlignment(CircleBottom.self)
 }
 
 /// The recorded time ("1:07"), 44 pt at the default text size and scaled with Dynamic Type (the caller caps it at
