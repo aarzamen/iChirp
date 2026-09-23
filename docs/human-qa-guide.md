@@ -850,6 +850,42 @@ Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
 - [ ] Transforms tab with more than 50 documents: "Show older documents" adds the rest; none is out of reach.
 - [ ] A document or text item: the star and Paste a link's clear (x) are easy to tap; the privacy chip has its own row.
 
+## Wave 4 formatted-docs checklist (UX audit F23, plan 023: formatted view, plain copy)
+
+> Preconditions: a build at or after the wave4/formatted-docs merge. Synthetic text only (a SOAP note works well —
+> it exercises headings, bullets and a numbered list in one document). Screenshots from the simulator run are in
+> `.superpowers/sdd/milestones/w4-formatted-docs-screens/`.
+
+Formatted view (F23)
+- [ ] Open a generated document with `**Section**`-style headings (SOAP note, summary, meeting notes) or a real `#`/
+      `##` heading: **Formatted** (the default) shows the section names as headings, not `**`/`##`; bullets show as
+      "•" rows, a numbered list keeps its numbers; bold and italic text inside a paragraph render, not literally.
+- [ ] Tap **Edit**: the raw Markdown source appears in the text editor (`**`, `##`, `-` all visible), editable as
+      before. Type a change, wait a second (autosave), switch back to **Formatted**: the change is there. Reopen the
+      document later, or check Versions: nothing about editing changed.
+- [ ] A nested list (a sub-bullet under a bullet) indents further in Formatted.
+
+Clean plain-text Copy (F23, "no text is lost")
+- [ ] Copy a SOAP note (or any generated document with headings/bullets/numbers) and paste it into Notes or an email
+      draft: no `**`, `##` or backticks anywhere; each section name is on its own line with a blank line after;
+      bullets read "- " (not raw `*`/`-` mixed, not a bullet glyph that can paste as "?"); a numbered list still
+      shows "1.", "2." …; paragraphs have one blank line between them.
+- [ ] A vital sign like "120/80 mmHg" or a dose like "2 mg" pastes unchanged — never read as a list item.
+- [ ] Compare the pasted text side by side with the Formatted screen: every word is there, in the same order.
+
+Accessibility
+- [ ] At the largest Dynamic Type size (Settings → Accessibility → Display & Text Size, or `xcrun simctl ui <udid>
+      content_size accessibility-extra-extra-extra-large`), the formatted headings and body text both grow; nothing
+      is clipped or overlapping.
+- [ ] VoiceOver on a heading in Formatted announces it as a heading (swipe with the rotor set to Headings: each
+      section name is a stop).
+- [ ] Text in Formatted can be selected and copied by a long-press, the same as any other screen's text.
+
+Simulator (agents): a DEBUG launch argument opens a document's screen without taps: `-ChirpOpenDeliverable <uuid>`,
+add `-ChirpCopyDeliverable` to also run the Copy button's own action so `xcrun simctl pbpaste <udid>` shows exactly
+what a real tap on Copy puts on the clipboard (`App/Sources/Debug/TransformsPreviewLaunch.swift`); combine with
+`xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large` for the Dynamic Type check.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

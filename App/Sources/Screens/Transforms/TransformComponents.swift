@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpFeatures
+import ChirpText
 import ChirpUI
 import SwiftUI
 import UIKit
@@ -398,11 +399,74 @@ enum LocalPasteboard {
     }
 }
 
-/// An editable generated document. Edits save about a second after typing stops, and when the editor goes away.
+/// iChirp's own colors for `MarkdownDocument` (UX audit F23): `Tokens` colors so light/dark both look right, and
+/// relative system text styles (not a fixed-size `chirpFont`) so headings and body text both track Dynamic Type —
+/// `ChirpText` cannot import `ChirpUI`'s `chirpFont` helper (it lives in the App target), and a fixed-size
+/// `.system(size:)` font does not scale with the user's text-size setting the way a relative style does.
+extension MarkdownDocumentStyle {
+    static let chirp = MarkdownDocumentStyle(
+        textColor: Tokens.Color.ink,
+        secondaryColor: Tokens.Color.secondary,
+        bodyFont: .system(.body),
+        codeFont: .system(.body, design: .monospaced),
+        headingFont: { level in
+            (level <= 1 ? Font.system(.title2, design: .rounded) : Font.system(.headline, design: .rounded)).bold()
+        })
+}
+
+/// An editable generated document. Formatted (the default) renders the Markdown with `MarkdownDocument`; Edit shows
+/// the raw source in a `TextEditor` — the interaction UX audit F23 asked us to pick and document. Both write the
+/// same `document.draft`, so autosave (about a second after typing stops, and when the editor goes away) and
+/// Versions are unaffected by which one is showing.
 struct DocumentEditor: View {
     @Bindable var document: DeliverableDocumentViewModel
+    @State private var mode: Mode = .formatted
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case formatted = "Formatted"
+        case edit = "Edit"
+        var id: String { rawValue }
+    }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Document view", selection: $mode) {
+                ForEach(Mode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Document view")
+
+            switch mode {
+            case .formatted: formatted
+            case .edit: edit
+            }
+        }
+        .task(id: document.draft) {
+            guard document.hasUnsavedChanges else { return }
+            // Debounce: a newer keystroke cancels this wait (task(id:) restarts), so only a pause saves.
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await document.save()
+        }
+        .onDisappear {
+            Task { await document.save() }
+        }
+    }
+
+    /// UX audit F23: headings, bulleted and numbered lists, bold and italics rendered instead of raw `**`/`##`. No
+    /// inner `ScrollView` — both call sites (`DeliverableDetailScreen`, `TransformRunView`) already scroll the
+    /// whole screen, and nesting a second vertical scroll view here would fight it for scroll gestures.
+    private var formatted: some View {
+        MarkdownDocument(document.draft, style: .chirp)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(CardBackground(radius: Tokens.Radius.m))
+            .accessibilityLabel("Document text, formatted")
+    }
+
+    private var edit: some View {
         TextEditor(text: $document.draft)
             .chirpFont(16)
             .lineSpacing(5)
@@ -410,17 +474,7 @@ struct DocumentEditor: View {
             .scrollContentBackground(.hidden)
             .padding(10)
             .background(CardBackground(radius: Tokens.Radius.m))
-            .accessibilityLabel("Document text")
-            .task(id: document.draft) {
-                guard document.hasUnsavedChanges else { return }
-                // Debounce: a newer keystroke cancels this wait (task(id:) restarts), so only a pause saves.
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
-                await document.save()
-            }
-            .onDisappear {
-                Task { await document.save() }
-            }
+            .accessibilityLabel("Document text, editable Markdown source")
     }
 }
 

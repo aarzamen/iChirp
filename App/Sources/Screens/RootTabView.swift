@@ -75,6 +75,8 @@ struct RootTabView: View {
         .structurePreviewLaunch(environment: environment)
         // M7: DEBUG-only screenshot launch arguments (App/Sources/Debug/SpeechEnginesPreviewLaunch.swift).
         .speechEnginesPreviewLaunch(environment: environment)
+        // UX audit F23: DEBUG-only screenshot launch argument (App/Sources/Debug/TransformsPreviewLaunch.swift).
+        .transformsPreviewLaunch(environment: environment)
         // Plan 019 / review L1 M2: a YouTube Retry to a Mac the link was not confirmed for asks first.
         .companionRetryConfirmation()
         .sheet(item: pendingTrackChoice) { request in
