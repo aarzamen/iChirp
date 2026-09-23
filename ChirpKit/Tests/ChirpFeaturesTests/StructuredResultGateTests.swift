@@ -528,6 +528,111 @@ final class StructuredResultGateTests: XCTestCase {
         }
     }
 
+    // MARK: - Round 3: the allow-list proof decides what is clean
+
+    /// The first sentence's calls after the gate's one review; the rest of `text` follows it.
+    private func reviewed(
+        _ text: String, _ calls: [StructuredCall], confidence: Double = 0.9, engineID: String = "needle.needle3"
+    ) -> [ReviewedCall] {
+        let source = StructuredSourceText(text: text)
+        let sentences = source.sentenceRanges().map { NumericNormalizer.normalize(source.substring($0)) }
+        var run = sentences.map { SentenceCalls(sentence: $0, calls: [], confidence: confidence) }
+        run[0].calls = StructuredCallValidator.validate(calls, sentence: sentences[0], catalog: .soapMeds)
+        return StructuredResultGate().review(run, engineID: engineID)[0]
+    }
+
+    private func med(
+        _ drug: String, dose: String? = "dose_1", frequency: String? = nil, route: String = "unknown",
+        status: String = "taking"
+    ) -> StructuredCall {
+        var arguments: [String: JSONValue] = [
+            "drug": .string(drug), "route": .string(route), "status": .string(status),
+        ]
+        if let dose { arguments["dose_tag"] = .string(dose) }
+        if let frequency { arguments["frequency_tag"] = .string(frequency) }
+        return StructuredCall(name: "add_medication", arguments: arguments)
+    }
+
+    private func vital(_ kind: String, _ tag: String) -> StructuredCall {
+        StructuredCall(name: "record_vital", arguments: ["kind": .string(kind), "value_tag": .string(tag)])
+    }
+
+    private func proof(_ result: ReviewedCall?) -> String? {
+        result?.reasons.first { $0.hasPrefix(ClinicalFieldProof.reasonPrefix) }
+    }
+
+    func testOnlyAFieldTheProofAcceptsIsClean() {
+        let plain = reviewed("Continue lisinopril 10 mg daily.", [med("lisinopril", frequency: "freq_1")])
+        XCTAssertEqual(plain.first?.verdict, .act, "\(plain.first?.reasons ?? [])")
+        XCTAssertEqual(plain.first?.reasons, [])
+        let stub = reviewed(
+            "Continue lisinopril 10 mg daily.", [med("lisinopril", frequency: "freq_1")], confidence: 0.99,
+            engineID: StubStructureModel.engineID)
+        XCTAssertEqual(stub.first?.verdict, .provisional, "the STUB cap holds")
+        // Re-review 2 C-A: even the right pairing of a dose-first list is not proven, so no pairing can be clean.
+        for (index, drug) in ["fentanyl", "ondansetron"].enumerated() {
+            for dose in ["dose_1", "dose_2"] {
+                let result = reviewed("Gave 50 mcg fentanyl and 4 mg ondansetron.", [med(drug, dose: dose)]).first
+                XCTAssertEqual(result?.verdict, .needsReview, "\(drug) \(dose) \(index)")
+                XCTAssertNotNil(proof(result), "\(result?.reasons ?? [])")
+            }
+        }
+    }
+
+    func testEachConditionHasItsOwnOneLineReason() {
+        let cases: [(String, StructuredCall, String)] = [
+            ("Levothyroxine one, twenty-five micrograms daily.", med("levothyroxine", frequency: "freq_1"), "“one”"),
+            ("Lisinopril 10 mg, 20 mg daily.", med("lisinopril", frequency: "freq_1"), "second dose"),
+            ("Temp 100 point 4.", vital("temp", "temp_1"), "“4”"),
+            ("Pulse ox 94 on room air.", vital("HR", "rate_1"), "oxygen saturation"),
+            ("Hold metoprolol for heart rate less than 60.", vital("HR", "rate_1"), "conditional"),
+            ("BP goal less than 130/80.", vital("BP", "bp_1"), "limit"),
+            ("Fluticasone 50 mcg 2 sprays each nostril daily.", med("fluticasone", frequency: "freq_1"), "count"),
+            ("Azithromycin 500 mg on day one then 250 mg daily.", med("azithromycin"), "schedule"),
+            ("Gave 10 units of insulin.", med("insulin"), "before the drug"),
+            ("Denies any lisinopril 10 mg.", med("lisinopril"), "“Denies”"),
+            ("Hold the lisinopril 10 mg.", med("lisinopril", status: "taking"), "stopped"),
+            ("Gave ketorolac 30 mg IM.", med("ketorolac", status: "started"), "route"),
+            ("Insulin 10 units at bedtime and with meals.", med("insulin", frequency: "freq_1"), "“and”"),
+            ("Temp was 101.2 yesterday.", vital("temp", "temp_1"), "another time"),
+            ("Rate 88.", vital("HR", "rate_1"), "does not say which"),
+        ]
+        for (text, call, expected) in cases {
+            let result = reviewed(text, [call]).first
+            XCTAssertEqual(result?.verdict, .needsReview, text)
+            let reason = proof(result) ?? ""
+            XCTAssertTrue(reason.contains(expected), "\(text): \(reason)")
+            XCTAssertFalse(reason.contains("\n"), "one line: \(reason)")
+        }
+        // The same status and route as said: clean.
+        XCTAssertEqual(reviewed("Hold the lisinopril 10 mg.", [med("lisinopril", status: "stopped")]).first?.verdict, .act)
+        XCTAssertEqual(
+            reviewed("Gave ketorolac 30 mg IM.", [med("ketorolac", route: "IM", status: "started")]).first?.verdict, .act)
+    }
+
+    func testTheNextTwoSentencesCanTakeAFieldOutOfClean() {
+        let fentanyl = med("fentanyl", route: "IV", status: "started")
+        for text in [
+            "Gave fentanyl 50 micrograms IV. Patient tolerated well. Sorry, 25 micrograms.",
+            "Gave fentanyl 50 micrograms IV. That should be 25 micrograms.",
+            "Gave fentanyl 50 micrograms IV. Patient resting. 25 micrograms.",
+            "Gave fentanyl 50 micrograms IV. Patient resting. Hold if sedated.",
+        ] {
+            let result = reviewed(text, [fentanyl]).first
+            XCTAssertEqual(result?.verdict, .needsReview, text)
+            XCTAssertNotNil(proof(result), text)
+        }
+        let later = reviewed(
+            "Gave fentanyl 50 micrograms IV. Patient resting. Vitals stable. Sorry, 25 micrograms.", [fentanyl])
+        XCTAssertEqual(later.first?.verdict, .act, "three sentences on is out of the window")
+    }
+
+    func testTheGrammarIsWrittenDown() {
+        for part in ["MEDICATION", "VITALS", "EVERY CLINICAL FIELD", "drug -> dose -> frequency -> duration"] {
+            XCTAssertTrue(ClinicalFieldProof.grammar.contains(part), part)
+        }
+    }
+
     // MARK: - Evidence spans
 
     func testSpansMapToWordsAndAudioTime() {

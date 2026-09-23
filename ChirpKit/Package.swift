@@ -78,7 +78,8 @@ let package = Package(
         .testTarget(name: "ChirpEngineVoiceHTTPTests", dependencies: ["ChirpEngineVoiceHTTP"]),
         .testTarget(name: "ChirpKeychainTests", dependencies: ["ChirpKeychain"]),
         .testTarget(name: "ChirpIngestTests", dependencies: ["ChirpIngest"]),
-        .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"]),
+        // Round 3: Fixtures/clinical-safety-corpus.json, the synthetic clinical-safety corpus.
+        .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"], resources: [.copy("Fixtures")]),
         // M6: Needle 3 (structure model) on needle-rs; the NeedleC binary target only when it has been built.
         .target(
             name: "ChirpEngineNeedle", dependencies: ["ChirpCore"] + (hasNeedleRuntime ? ["NeedleC"] : []),

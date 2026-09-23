@@ -90,7 +90,8 @@ public struct StructuredDraft: Sendable, Equatable {
 }
 
 /// SOAP fields and medications from a transcript (plan 015 Step 6): sentence by sentence, the numeric normalizer, the
-/// structure engine against `soap-meds.v1`, the validator and the gate; every field saved to the evidence ledger.
+/// structure engine against `soap-meds.v1` and the validator; then the gate's one review of the whole run
+/// (`StructuredResultGate.review`, with the round-3 allow-list proof); every field saved to the evidence ledger.
 ///
 /// Clinical text never leaves the phone: a clinical item may only reach an `.onDevice` structure engine (stricter
 /// than `PrivacyRoutingPolicy`, which would allow a trusted LAN host). The output is always a draft for review.
@@ -155,41 +156,36 @@ public actor StructuredExtractionService {
         var run = StructuredRun(
             transcriptionID: transcriptionID, catalogVersion: catalog.versionedID, engineID: engine.descriptor.id,
             modelSHA256: nil, actThreshold: gate.act, provisionalThreshold: gate.provisional)
-        var fields: [StructuredField] = []
-        var previousFields: Range<Int>?
+        var answered: [SentenceCalls] = []
+        var offsets: [Int] = []
         for (index, sentenceRange) in sentences.enumerated() {
             try Task.checkCancellation()
             let sentence = NumericNormalizer.normalize(source.substring(sentenceRange))
-            let offset = sentenceRange.lowerBound + Self.leadingTrim(in: source, range: sentenceRange)
+            offsets.append(sentenceRange.lowerBound + Self.leadingTrim(in: source, range: sentenceRange))
             let outcome = await Self.extract(
                 sentence: sentence, engine: engine, catalog: catalog, privacy: transcription.privacyClass)
             if let hash = outcome.modelSHA256 { run.modelSHA256 = hash }
-            // Re-review N1: a correction in this sentence sends every field of the one before it to review.
-            if let previous = previousFields,
-                let correction = CrossSentenceCorrection.check(sentence, tools: outcome.items.map(\.tool))
-            {
-                for field in previous where fields[field].tool != "none" {
-                    fields[field].reviewReasons += correction.reasons(forTool: fields[field].tool)
-                    fields[field].verdict = .needsReview
-                }
-            }
-            let firstField = fields.count
-            for item in outcome.items {
+            answered.append(SentenceCalls(sentence: sentence, calls: outcome.items, confidence: outcome.confidence))
+            progress(index + 1, sentences.count)
+        }
+        // Round 3: every verdict comes from the gate's one review (allow-list proof, thresholds, STUB cap, a
+        // correction in the next sentence), which needs the sentences after each field.
+        var fields: [StructuredField] = []
+        for (index, reviewed) in gate.review(answered, engineID: engine.descriptor.id).enumerated() {
+            let sentence = answered[index].sentence
+            for item in reviewed {
                 let local =
-                    item.tagRanges.isEmpty
+                    item.call.tagRanges.isEmpty
                     ? 0..<(sentence.original as NSString).length
-                    : item.tagRanges.map(\.lowerBound).min()!..<item.tagRanges.map(\.upperBound).max()!
-                let span = source.span(for: (local.lowerBound + offset)..<(local.upperBound + offset))
+                    : item.call.tagRanges.map(\.lowerBound).min()!..<item.call.tagRanges.map(\.upperBound).max()!
+                let span = source.span(for: (local.lowerBound + offsets[index])..<(local.upperBound + offsets[index]))
                 fields.append(
                     StructuredField(
-                        runID: run.id, tool: item.tool, argumentsJSON: JSONValue.object(item.arguments).compactJSON,
-                        span: span, confidence: outcome.confidence,
-                        verdict: gate.verdict(
-                            confidence: outcome.confidence, problems: item.problems, engineID: engine.descriptor.id),
-                        reviewReasons: item.problems, ordinal: fields.count))
+                        runID: run.id, tool: item.call.tool,
+                        argumentsJSON: JSONValue.object(item.call.arguments).compactJSON, span: span,
+                        confidence: answered[index].confidence, verdict: item.verdict, reviewReasons: item.reasons,
+                        ordinal: fields.count))
             }
-            previousFields = firstField..<fields.count
-            progress(index + 1, sentences.count)
         }
         try await results.save(run, fields: fields)
         logger.notice(

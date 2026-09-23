@@ -15,8 +15,10 @@ number as final without that trail.
 - `ChirpKit/Sources/ChirpCore/Models/StructuredResult.swift`: `StructuredRun`, `StructuredField`,
   `StructuredSourceSpan`, `StructuredVerdict`, `StructuredEvalRun`, `StructuredResultStoring`.
 - `ChirpKit/Sources/ChirpStore/StructuredResultStore.swift`: migration `v7-structured-results`, `GRDBStructuredResultStore`.
-- `ChirpKit/Sources/ChirpFeatures/Structure/StructuredResultGate.swift`: `StructuredResultGate`,
+- `ChirpKit/Sources/ChirpFeatures/Structure/StructuredResultGate.swift`: `StructuredResultGate` (and its
+  `review(_:engineID:)`, the one place a run's verdicts are decided), `SentenceCalls`, `ReviewedCall`,
   `StructuredCallValidator`, `StructureSettings`.
+- `ChirpKit/Sources/ChirpFeatures/Structure/ClinicalFieldProof.swift`: the round-3 allow-list proof and its grammar.
 - `ChirpFeatures.StructuredExtractionService` (writes runs and fields) and `StructureEvalRunner` (eval runs).
 
 ## Consumers
@@ -34,7 +36,34 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   argument accuracy, numeric hard fails, the JSON report).
 - **Gate:** act ≥ `actThreshold` (default 0.85), provisional ≥ `provisionalThreshold` (default 0.60), else
   `needsReview`; any validator problem forces `needsReview`. Thresholds are settings and are stored with each run.
-  An unknown stored verdict reads as `needsReview`, never `act`.
+  An unknown stored verdict reads as `needsReview`, never `act`. Every run path (the Extract fields run, the eval
+  runner) gets its verdicts from `StructuredResultGate.review(_:engineID:)` and nothing else.
+- **Clean means proven (round 3, the allow-list).** A clean field is `act` or `provisional`: what one tap accepts. A
+  medication or vital field may be clean **only** when `ClinicalFieldProof` proves all four of:
+  1. its sentence parses completely under the written grammar (`ClinicalFieldProof.grammar`). Medication: an optional
+     lead from a closed list (subject, helper or status verb: "she takes", "continue", "started", "gave", "hold", "no
+     longer"), exactly one drug said once (no other known drug in the sentence), then its one dose (an amount and a
+     unit), then how often, then how long, in that order, and words with no number after them; the route said is the
+     field's route ("unknown" when none is said, and one route only); the status is the one the verbs say (started for
+     start or give, taking for take, continue or no verb, stopped for stop, hold or "no longer", considering for
+     consider or might; mixed verbs never pass). Vitals: each value right after its own vital-sign name, with only
+     "is", "was", "of", "today", ":" and the like between, the name deciding the kind; a closed list of words before
+     the first name ("vitals", "repeat", …; never "last", "prior" or "home");
+  2. every number is digits exactly as written, or spoken number words read as one number with no comma, ellipsis or
+     period inside, and no number anywhere in the sentence is left outside the tags the grammar placed;
+  3. no disqualifier in its sentence or in the next two sentences: a correction cue (every `CrossSentenceCorrection`
+     cue plus "my mistake", "that should be", "should read", "instead", …; a following dose with no drug right before
+     it; a following short sentence that is a bare number), a limit or condition (less than, greater than, over, under,
+     above, below, goal, target, if, unless, when, hold for, up to, at least), a titration (titrate, increase, decrease,
+     taper, wean), a range ("4 to 8", "25-50", "between"), a tablet, puff, spray or drop count, "each", a fraction, or
+     a day-by-day schedule ("day one", "followed by", weekdays); in its own sentence also "then", a negation ("not",
+     "never", "denies") and another time ("yesterday", "previously", "last");
+  4. a vital's name is unambiguous: "pulse ox", "sats", "O2" and "SpO2" are oxygen saturation and never a heart rate;
+     "rate" or "pressure" alone name nothing.
+  A field the proof cannot prove is `needsReview` with **one** reason starting "Couldn't confirm: " in one line
+  (for example "Couldn't confirm: the next sentence says “sorry”, which may correct it."), after the more specific
+  reasons below. Problems, plan items and allergies are held to one rule only: a number in them, from a sentence that
+  says a dose or a vital, is never clean. The STUB stays capped below `act`.
 - **Numbers:** a model only copies normalizer tags. Every number is mapped back through the side table, then
   re-read **independently of the normalizer** (`IndependentNumberCheck`: digits by regex, spelled numbers by
   Foundation's spell-out `NumberFormatter`, its own unit list) from its source words, and the words right around it
@@ -90,9 +119,14 @@ value; old runs keep theirs.
 
 - `ChirpStoreTests.StructuredResultsMigrationTests` (tables, upgrade from `v6-documents`, round trip, review,
   cascade delete, eval runs).
+- `ChirpFeaturesTests.ClinicalSafetyCorpusTests` (round 3: every phrase of `Fixtures/clinical-safety-corpus.json`,
+  243 invented entries, through the real normalizer, STUB, validator, independent check, proof and gate: never clean
+  and wrong; about 11,500 hand-built right and wrong Needle answers at 0.9: a wrong one is never clean; "scratch that"
+  never drops an earlier order or keeps part of one).
 - `ChirpFeaturesTests.StructuredResultGateTests` (0.849 / 0.85 / 0.599 / 0.60 boundaries, forced review, the
   independent re-parse against hand-built wrong side tables, neighbour checks, drug adjacency, sentence-wide
-  corrections, free-text numbers, unknown arguments, per-unit ranges, hard fails, spans to words and milliseconds).
+  corrections, free-text numbers, unknown arguments, per-unit ranges, hard fails, spans to words and milliseconds;
+  round 3: only a proven field is clean, one reason per condition, the next two sentences, the written grammar).
 - `ChirpFeaturesTests.StructuredExtractionServiceTests` (clinical never reaches a non-on-device engine; runs saved
   with spans; the evidence sentence; the STUB never `act`; only reviewed fields in the SOAP hand-off; a failed check
   needs the review sheet, keeps its reasons and saves edits; a correction in the next sentence, in the service and

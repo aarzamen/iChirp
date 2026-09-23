@@ -111,10 +111,70 @@ public struct StructuredResultGate: Sendable, Equatable {
     }
 
     /// A clinical field's verdict. The STUB (rules, not a model) is never `act`, whatever the thresholds (review L3 I6).
-    public func verdict(confidence: Double, problems: [String], engineID: String) -> StructuredVerdict {
+    /// Internal: a run's fields get their verdict only through `review(_:engineID:)`, which adds the allow-list proof.
+    func verdict(confidence: Double, problems: [String], engineID: String) -> StructuredVerdict {
         let verdict = verdict(confidence: confidence, problems: problems)
         return verdict == .act && engineID == StubStructureModel.engineID ? .provisional : verdict
     }
+
+    /// Round 3: the **one place** a run's field verdicts are decided, for every engine and every path (the Extract
+    /// fields run, the eval runner, the safety corpus). Each call keeps the validator's problems, then:
+    /// 1. the allow-list proof (`ClinicalFieldProof`, with the next two sentences): a clinical field it cannot prove
+    ///    gets one reason starting "Couldn't confirm: " and goes to needs review;
+    /// 2. the gate's thresholds and the STUB's cap (never `act`);
+    /// 3. a correction in the next sentence (`CrossSentenceCorrection`) adds its more specific reason.
+    /// A reason only ever lowers a verdict.
+    public func review(_ run: [SentenceCalls], engineID: String) -> [[ReviewedCall]] {
+        var reviewed = run.indices.map { index -> [ReviewedCall] in
+            let following = run[(index + 1)..<min(index + 3, run.count)].map(\.sentence)
+            return run[index].calls.map { call in
+                var reasons = call.problems
+                if let proof = ClinicalFieldProof.reason(
+                    for: call, sentence: run[index].sentence, following: following),
+                    !reasons.contains(proof)
+                {
+                    reasons.append(proof)
+                }
+                return ReviewedCall(
+                    call: call,
+                    verdict: verdict(confidence: run[index].confidence, problems: reasons, engineID: engineID),
+                    reasons: reasons)
+            }
+        }
+        // Re-review N1: a correction in this sentence sends every field of the one before it to review.
+        for index in run.indices.dropFirst() {
+            guard
+                let correction = CrossSentenceCorrection.check(
+                    run[index].sentence, tools: run[index].calls.map(\.tool))
+            else { continue }
+            for field in reviewed[index - 1].indices where reviewed[index - 1][field].call.tool != "none" {
+                reviewed[index - 1][field].reasons += correction.reasons(forTool: reviewed[index - 1][field].call.tool)
+                reviewed[index - 1][field].verdict = .needsReview
+            }
+        }
+        return reviewed
+    }
+}
+
+/// One sentence of a run: its normalized text, the engine's calls after `StructuredCallValidator`, and the engine's
+/// confidence for the sentence.
+public struct SentenceCalls: Sendable, Equatable {
+    public var sentence: NormalizedText
+    public var calls: [ValidatedCall]
+    public var confidence: Double
+
+    public init(sentence: NormalizedText, calls: [ValidatedCall], confidence: Double) {
+        self.sentence = sentence
+        self.calls = calls
+        self.confidence = confidence
+    }
+}
+
+/// A call with its final verdict and every reason the review sheet shows for it.
+public struct ReviewedCall: Sendable, Equatable {
+    public var call: ValidatedCall
+    public var verdict: StructuredVerdict
+    public var reasons: [String]
 }
 
 /// A call after tag mapping and checks: what the ledger stores and the draft card shows.

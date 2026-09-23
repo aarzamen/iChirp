@@ -313,6 +313,57 @@ final class StructuredExtractionServiceTests: XCTestCase {
         XCTAssertEqual(sections.medications.map(\.title), ["fentanyl"])
     }
 
+    // MARK: - Round 3: the allow-list proof, through the service and the eval
+
+    func testTheServiceKeepsOnlyProvenFieldsOutOfReview() async throws {
+        for text in [
+            "Gave fentanyl 50 micrograms IV. Patient tolerated well. Sorry, 25 micrograms.",
+            "Gave fentanyl 50 micrograms. IV. Sorry, 25 micrograms.",
+            "Lisinopril 10 milligrams. 20 milligrams daily.",
+            "Metformin 500 mg twice daily. Take two tablets.",
+        ] {
+            let h = Harness()
+            try await h.insertEncounter(text)
+            let sections = DraftSections(draft: try await h.service.extractSOAP(transcriptionID: h.id))
+            XCTAssertTrue(sections.medications.isEmpty, "\(text): \(sections.medications.map(\.detail))")
+            let held = sections.needsReview.filter { $0.section == .medications }
+            XCTAssertFalse(held.isEmpty, text)
+            for item in held {
+                XCTAssertTrue(
+                    item.field.reviewReasons.contains { $0.hasPrefix(ClinicalFieldProof.reasonPrefix) },
+                    "\(text): \(item.field.reviewReasons)")
+                XCTAssertTrue(item.needsReviewSheet, "one tap cannot accept it")
+            }
+        }
+        let h = Harness()
+        try await h.insertEncounter("Continue atorvastatin 40 mg at bedtime. Pulse 88 and regular.")
+        let sections = DraftSections(draft: try await h.service.extractSOAP(transcriptionID: h.id))
+        XCTAssertEqual(sections.medications.map(\.detail), ["40 mg · at bedtime · taking"])
+        XCTAssertEqual(sections.vitals.map(\.detail), ["88/min"])
+        XCTAssertTrue(sections.needsReview.isEmpty)
+    }
+
+    func testTheEvalUsesTheSameReview() async throws {
+        let set = SOAPEvalSet(
+            id: "t", version: 1, catalog: "soap-meds.v1",
+            cases: [
+                SOAPEvalCase(
+                    id: "c", title: "synthetic",
+                    sentences: [
+                        SOAPEvalSentence(text: "Gave 50 mcg fentanyl and 4 mg ondansetron.", expected: []),
+                        SOAPEvalSentence(text: "Hold metoprolol for heart rate less than 60.", expected: []),
+                    ])
+            ])
+        let result = await StructureEvalRunner(engine: StubStructureModel(), gate: StructuredResultGate())
+            .run(soap: set, commands: CommandEvalSet(id: "t", version: 1, catalog: "dictation-commands.v1", utterances: []))
+        let fields = result.soap.scores.flatMap(\.predicted).filter { $0.name != "none" }
+        XCTAssertFalse(fields.isEmpty)
+        for field in fields {
+            XCTAssertEqual(field.verdict, .needsReview, "\(field)")
+            XCTAssertTrue(field.problems.contains { $0.hasPrefix(ClinicalFieldProof.reasonPrefix) }, "\(field.problems)")
+        }
+    }
+
     func testTheEvalAppliesTheSameCrossSentenceRule() async throws {
         let set = SOAPEvalSet(
             id: "t", version: 1, catalog: "soap-meds.v1",
