@@ -422,6 +422,8 @@ struct DocumentScreen: View {
                 .frame(height: 22)  // one icon box for every bar item, so the labels line up (UX audit F40)
             Text(title)
                 .chirpFont(11, emphasized ? .bold : .semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)  // never "Transfor/m" at large sizes (the audit's F50, here)
         }
         .foregroundStyle(emphasized ? AppColor.accentText : Tokens.Color.ink)
         .frame(maxWidth: .infinity, minHeight: 58)

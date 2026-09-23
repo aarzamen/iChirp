@@ -84,17 +84,20 @@ struct PrivacyClassControl: View {
 
     var body: some View {
         Menu {
-            Section(raised?.sentence ?? "") {
-                Picker("Privacy", selection: Binding(get: { current }, set: { choose($0) })) {
-                    ForEach(PrivacyClass.allCases, id: \.self) { value in
-                        Label {
-                            Text(value.title)
-                            Text(value.detail)
-                        } icon: {
-                            Image(systemName: value.systemImage)
-                        }
-                        .tag(value)
+            // Why the badge reads stricter than the mark, above the choices (a menu shows text as an inert line).
+            if let sentence = raised?.sentence {
+                Text(sentence)
+                Divider()
+            }
+            Picker("Privacy", selection: Binding(get: { current }, set: { choose($0) })) {
+                ForEach(PrivacyClass.allCases, id: \.self) { value in
+                    Label {
+                        Text(value.title)
+                        Text(value.detail)
+                    } icon: {
+                        Image(systemName: value.systemImage)
                     }
+                    .tag(value)
                 }
             }
         } label: {
@@ -260,6 +263,14 @@ extension LanguageModelChoice {
     /// place already names it ("in the cloud (Claude)").
     var placeWithName: String {
         locality == .onDevice ? "\(place) · \(name)" : place
+    }
+}
+
+extension ModelRoute {
+    /// A run's real route with the model's name when the place does not say it: "on this iPhone · Apple on-device model".
+    var placeWithName: String {
+        let place = ModelPlace.phrase(for: self)
+        return locality == .onDevice ? "\(place) · \(providerName)" : place
     }
 }
 

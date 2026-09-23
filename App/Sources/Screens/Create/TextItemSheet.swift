@@ -91,6 +91,7 @@ struct TextItemSheet: View {
 /// A card with a multi-line editor, a placeholder, Paste and Clear, and a word count. Shared by Type or paste and
 /// the Create sheet.
 struct TextEntryCard: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Binding var text: String
     let placeholder: String
     var focused: FocusState<Bool>.Binding
@@ -118,7 +119,7 @@ struct TextEntryCard: View {
             .padding(.horizontal, 10)
             .padding(.top, 6)
             Rectangle().fill(AppColor.quietFill).frame(height: 1)
-            HStack(spacing: 10) {
+            footerLayout {
                 // PasteButton reads the clipboard only when tapped, so iOS shows no paste-permission prompt.
                 PasteButton(payloadType: String.self) { strings in
                     guard let pasted = strings.first else { return }
@@ -142,16 +143,23 @@ struct TextEntryCard: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Spacer(minLength: 8)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
                 Text(Self.countLabel(text))
                     .chirpFont(12)
                     .monospacedDigit()
                     .foregroundStyle(Tokens.Color.secondary)
+                    .lineLimit(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
         .background(CardBackground(radius: Tokens.Radius.m))
+    }
+
+    /// At accessibility sizes the word count gets its own line instead of wrapping letter by letter.
+    private var footerLayout: AnyLayout {
+        typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 10))
     }
 
     /// "0 words", "1 word", "1,204 words".

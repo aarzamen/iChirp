@@ -145,6 +145,10 @@ struct EditByVoiceSheet: View {
         .onChange(of: isSaved) { _, saved in
             if saved { onSaved() }
         }
+        // A rewrite that ends while "Stop the rewrite?" is up: the question no longer applies.
+        .onChange(of: isRewriting) { _, rewriting in
+            if !rewriting { isConfirmingCancel = false }
+        }
         .onDisappear {
             host.cancel()
             Task { await recorder.cancel() }
@@ -328,8 +332,8 @@ struct EditByVoiceSheet: View {
                 .chirpFont(13.5)
                 .italic()
                 .foregroundStyle(Tokens.Color.secondary)
-            if let place = run.route.map({ ModelPlace.phrase(locality: $0.locality, name: $0.providerName) }) {
-                LocalityChip(text: "Rewrites \(place)", staysPrivate: run.route?.locality != .cloud)
+            if let route = run.route {
+                LocalityChip(text: "Rewrites \(route.placeWithName)", staysPrivate: route.locality != .cloud)
             }
             if case .failed(let message) = run.phase {
                 Text(message)

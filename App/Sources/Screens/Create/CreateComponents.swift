@@ -192,7 +192,7 @@ struct CreateOptionTile: View {
                     Text(subtitle)
                         .chirpFont(11.5)
                         .foregroundStyle(Tokens.Color.secondary)
-                        .lineLimit(2)
+                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 8)

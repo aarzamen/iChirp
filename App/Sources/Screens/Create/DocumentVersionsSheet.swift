@@ -8,6 +8,7 @@ import SwiftUI
 /// new version; nothing is ever overwritten or removed.
 struct DocumentVersionsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     let onRestored: () -> Void
 
     @State private var model: DocumentVersionsViewModel
@@ -68,20 +69,29 @@ struct DocumentVersionsSheet: View {
     private func row(_ version: DeliverableVersion) -> some View {
         let isCurrent = model.currentVersionNumber == version.versionNumber
         let isExpanded = expanded.contains(version.versionNumber)
+        // At accessibility sizes the heading, the Current badge and the time stack instead of squeezing into one line.
+        let stacked = typeSize.isAccessibilitySize
+        let header =
+            stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            header {
                 Text("Version \(version.versionNumber)")
                     .chirpFont(15, .semibold)
                     .foregroundStyle(Tokens.Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if isCurrent {
                     Text("Current")
                         .chirpFont(11, .bold)
                         .foregroundStyle(Tokens.Color.privacyBadgeInk)
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, 8)
                         .frame(minHeight: 20)
                         .background(Capsule().fill(Tokens.Color.privacyBadgeFill))
                 }
-                Spacer(minLength: 8)
+                if !stacked { Spacer(minLength: 8) }
                 Text(Formatting.day(version.createdAt) + " " + Formatting.timeOfDay(version.createdAt))
                     .chirpFont(12)
                     .foregroundStyle(Tokens.Color.secondary)
@@ -107,7 +117,8 @@ struct DocumentVersionsSheet: View {
                 .foregroundStyle(Tokens.Color.secondary)
                 .lineLimit(isExpanded ? nil : 3)
                 .textSelection(.enabled)
-            HStack(spacing: 10) {
+            (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 10)))
+            {
                 Button {
                     if isExpanded {
                         expanded.remove(version.versionNumber)
@@ -126,7 +137,7 @@ struct DocumentVersionsSheet: View {
                     isExpanded
                         ? "Show less of version \(version.versionNumber)"
                         : "Show all of version \(version.versionNumber)")
-                Spacer(minLength: 0)
+                if !stacked { Spacer(minLength: 0) }
                 if !isCurrent {
                     Button {
                         Task {

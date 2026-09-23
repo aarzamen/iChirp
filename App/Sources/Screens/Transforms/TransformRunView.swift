@@ -157,6 +157,10 @@ struct TransformRunView: View {
             }
         }
         .interactiveDismissDisabled(RunStatus.isActive(run.phase))
+        // A run that ends while "Stop writing this document?" is up: the question no longer applies.
+        .onChange(of: RunStatus.isActive(run.phase)) { _, active in
+            if !active { isConfirmingStop = false }
+        }
         .confirmationDialog("Stop writing this document?", isPresented: $isConfirmingStop, titleVisibility: .visible) {
             Button("Stop and Close", role: .destructive) {
                 host.cancel()
@@ -187,12 +191,13 @@ struct TransformRunView: View {
                 // The real route once the router has answered; the chosen model before that.
                 if let route = run.route {
                     LocalityChip(
-                        text: "Runs \(ModelPlace.phrase(for: route))",
+                        text: "Runs \(route.placeWithName)",
                         staysPrivate: route.locality == .onDevice
                             || (route.locality == .localNetwork && request.choice.isTrustedForClinical))
                     PrivacyClassBadge(privacyClass: route.privacyClass)
                 } else {
-                    LocalityChip(text: "Runs \(request.choice.place)", staysPrivate: request.choice.staysPrivate)
+                    LocalityChip(
+                        text: "Runs \(request.choice.placeWithName)", staysPrivate: request.choice.staysPrivate)
                 }
             }
         }
@@ -310,6 +315,8 @@ struct TransformRunView: View {
                 .frame(height: 22)  // one icon box for every bar item, so the labels line up (UX audit F40)
             Text(title)
                 .chirpFont(11, .semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
         .foregroundStyle(Tokens.Color.ink)
         .frame(maxWidth: .infinity, minHeight: 58)

@@ -238,6 +238,8 @@ struct ListenBarButton: View {
                     .frame(height: 22)  // the same icon box as Copy and Share, so the labels line up (UX audit F40)
                 Text(state.title)
                     .chirpFont(11, .semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
             }
             .foregroundStyle(Tokens.Color.ink)
             .frame(maxWidth: .infinity, minHeight: 58)
