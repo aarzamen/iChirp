@@ -68,7 +68,8 @@ Before any engine processes an item, the caller asks
   iPhone until the person shares it.
 - **Edit by voice (plan 022)** routes through `DeliverableService` like a template run (the same per-run question for
   clinical text, the same single-use token); the spoken instruction is transcribed on this iPhone by the dictation
-  final pass (on-device engines only), its recording deleted after; the instruction is kept only in the document's
+  final pass on the final route's engine (on-device engines only), its recording deleted after (and a recording a
+  killed launch left in `tmp` is deleted at the next launch); the instruction is kept only in the document's
   version row, never logged or in the ledger.
 - **Create chains (plan 022)** add no new route: every step is an existing service and routes as that service does,
   on the item's **current** effective class. A new item gets the class the person chose ("Clinical (patient

@@ -173,11 +173,13 @@ extension AppEnvironment {
 
 extension AppEnvironment {
     /// Edit by voice (Step 4): a spoken instruction through the dictation path's final pass, on its own recorder over
-    /// the shared microphone (a dictation or meeting in progress makes it say so instead).
+    /// the shared microphone (a dictation or meeting in progress makes it say so instead). Review I2: it gets the
+    /// speech router and uses the final route's engine (resolved once per instruction), like every other final pass;
+    /// Parakeet is never loaded for it while it is on no route.
     func makeInstructionRecorder() -> SpokenInstructionRecorder {
         let rules = textRules
         return SpokenInstructionRecorder(
-            capture: DictationRecorder(stream: microphone, session: audioSession), speech: speechEngine,
+            capture: DictationRecorder(stream: microphone, session: audioSession), speech: speechRouter,
             scheduler: scheduler, settings: settings, textRules: { await rules.enabledRules() })
     }
 

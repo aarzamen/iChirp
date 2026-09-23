@@ -645,7 +645,11 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.
   `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
   purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines
-  only; `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
+  only. Review I2: the app gives it the speech router, and it takes the **final route's engine once per instruction**
+  (`SpeechRouting.resolve(_, for: .final)` on press) for the asset check, routing check, `prepare` and `transcribe`,
+  so an engine on no route is never loaded; a missing model is `SpeechModelMissingError` (names that engine, "or
+  switch Transcripts to Parakeet"). Review M3: `sweepStaleRecordings()` deletes `tmp/instruction-*.wav` a killed
+  launch left (called at launch); `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
 - Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
   `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
   `CreateSupportTests`.

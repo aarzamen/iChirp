@@ -724,6 +724,10 @@ Edit by voice (Step 4)
       nothing.
 - [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
       with a small model: "too long for this model to rewrite in one pass", nothing changed.
+- [ ] Settings → Speech engines: Transcripts on Apple Speech or a Whisper model, Parakeet deleted: Edit by voice still
+      hears the instruction (the Transcripts engine does it). Delete that engine's model instead: the sheet says
+      "<engine> isn’t downloaded on this iPhone. Download it in Settings → Speech engines, or switch Transcripts to
+      Parakeet", never "Download the Parakeet speech model".
 
 PDF and Word (Step 6)
 - [ ] A long meeting → Share → PDF: open it in Files or Books: every page has "title · Page k of N", speaker names

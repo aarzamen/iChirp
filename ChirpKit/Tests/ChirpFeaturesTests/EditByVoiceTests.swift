@@ -243,4 +243,125 @@ final class EditByVoiceTests: XCTestCase {
         await eventually("failed") { if case .failed = denied.phase { return true } else { return false } }
         XCTAssertEqual(capture.starts, 0, "nothing records without permission")
     }
+
+    /// Review M3: a recording a killed launch left behind goes at the next launch; nothing else in `tmp` does.
+    func testTheLaunchSweepRemovesOnlyLeftoverInstructionRecordings() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "EditByVoiceSweep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let leftover = root.appendingPathComponent("instruction-\(UUID().uuidString.lowercased()).wav")
+        let keep = [
+            root.appendingPathComponent("instruction-notes.txt"),
+            root.appendingPathComponent("voice-message-1234"),
+            root.appendingPathComponent("dictation.wav"),
+        ]
+        for url in [leftover] + keep { try Data([1]).write(to: url) }
+        XCTAssertEqual(SpokenInstructionRecorder.sweepStaleRecordings(in: root), 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
+        for url in keep { XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), url.lastPathComponent) }
+    }
+
+    // MARK: - Review I2: the M7 final route
+
+    private let parakeetKey = SpeechEngineVariantKey(
+        engineID: SpeechEngineCapabilityRegistry.parakeetEngineID, variant: "v3")
+    private let whisperKey = SpeechEngineVariantKey(
+        engineID: SpeechEngineCapabilityRegistry.whisperKitEngineID, variant: "base")
+
+    /// Parakeet (first, the fallback) and Whisper Base, with `final` on the final route and Whisper on the live route.
+    private func makeRouter(
+        parakeet: FakeSpeech, whisper: FakeSpeech, final: SpeechEngineVariantKey? = nil
+    ) -> SpeechEngineRouter {
+        SpeechEngineRouter(
+            engines: [.init(key: parakeetKey, engine: parakeet), .init(key: whisperKey, engine: whisper)],
+            selection: SpeechRouteSelection(live: whisperKey, final: final ?? whisperKey))
+    }
+
+    private func speak(_ recorder: SpokenInstructionRecorder) async -> String? {
+        recorder.start()
+        await eventually("listening") { recorder.phase == .listening }
+        return await recorder.stop()
+    }
+
+    /// Transcripts set to Whisper, Parakeet never downloaded: the instruction goes to Whisper, and Parakeet (on no
+    /// route) is neither checked into use, loaded nor asked.
+    func testTheInstructionUsesTheFinalRoutesEngineAndNeverLoadsParakeet() async throws {
+        let parakeet = FakeSpeech(
+            status: .notDownloaded, id: SpeechEngineCapabilityRegistry.parakeetEngineID, displayName: "Parakeet v3")
+        let whisper = FakeSpeech(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, displayName: "Whisper Base")
+        await whisper.setTranscript(text: "make it shorter", words: [])
+        let recorder = SpokenInstructionRecorder(
+            capture: FakeCapture(), speech: makeRouter(parakeet: parakeet, whisper: whisper),
+            scheduler: SpeechJobScheduler(), settings: InMemorySettingsStore())
+        let text = await speak(recorder)
+        XCTAssertEqual(text?.lowercased().contains("make it shorter"), true, "\(recorder.phase)")
+        let (whisperCalls, parakeetCalls, parakeetPrepares) = (
+            await whisper.transcribeCalls, await parakeet.transcribeCalls, await parakeet.prepareCalls
+        )
+        XCTAssertEqual(whisperCalls, 1)
+        XCTAssertEqual(parakeetCalls, 0)
+        XCTAssertEqual(parakeetPrepares, 0, "an engine on no route is never loaded")
+    }
+
+    /// The route is resolved once, when the button is pressed: a route change while the person speaks does not move
+    /// the instruction to another engine.
+    func testTheRouteIsResolvedOncePerInstruction() async throws {
+        let parakeet = FakeSpeech(id: SpeechEngineCapabilityRegistry.parakeetEngineID, displayName: "Parakeet v3")
+        let whisper = FakeSpeech(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, displayName: "Whisper Base")
+        let router = makeRouter(parakeet: parakeet, whisper: whisper)
+        let recorder = SpokenInstructionRecorder(
+            capture: FakeCapture(), speech: router, scheduler: SpeechJobScheduler(),
+            settings: InMemorySettingsStore())
+        recorder.start()
+        await eventually("listening") { recorder.phase == .listening }
+        try router.select(parakeetKey, for: .final)
+        _ = await recorder.stop()
+        let (whisperCalls, parakeetCalls) = (await whisper.transcribeCalls, await parakeet.transcribeCalls)
+        XCTAssertEqual(whisperCalls, 1, "the engine resolved on press")
+        XCTAssertEqual(parakeetCalls, 0)
+    }
+
+    /// The final route's model is missing: the sentence names that engine and what to do (never "download Parakeet"
+    /// while Parakeet is not what Transcripts uses), and nothing records.
+    func testAMissingRoutedModelNamesThatEngine() async throws {
+        let parakeet = FakeSpeech(id: SpeechEngineCapabilityRegistry.parakeetEngineID, displayName: "Parakeet v3")
+        let whisper = FakeSpeech(
+            status: .notDownloaded, id: SpeechEngineCapabilityRegistry.whisperKitEngineID, displayName: "Whisper Base")
+        let capture = FakeCapture()
+        let router = SpeechEngineRouter(
+            engines: [.init(key: parakeetKey, engine: parakeet), .init(key: whisperKey, engine: whisper)],
+            selection: SpeechRouteSelection(live: parakeetKey, final: whisperKey))
+        let recorder = SpokenInstructionRecorder(
+            capture: capture, speech: router, scheduler: SpeechJobScheduler(), settings: InMemorySettingsStore())
+        recorder.start()
+        await eventually("failed") { if case .failed = recorder.phase { return true } else { return false } }
+        XCTAssertEqual(
+            recorder.phase,
+            .failed(
+                "Whisper Base isn’t downloaded on this iPhone. Download it in Settings → Speech engines, or switch "
+                    + "Transcripts to Parakeet"))
+        XCTAssertEqual(capture.starts, 0, "nothing records")
+        let prepares = await parakeet.prepareCalls
+        XCTAssertEqual(prepares, 0)
+    }
+
+    /// The model is deleted while the person speaks: the final pass says which engine, with what to do.
+    func testAModelDeletedWhileSpeakingNamesThatEngine() async throws {
+        let parakeet = FakeSpeech(id: SpeechEngineCapabilityRegistry.parakeetEngineID, displayName: "Parakeet v3")
+        let whisper = FakeSpeech(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, displayName: "Whisper Base")
+        let recorder = SpokenInstructionRecorder(
+            capture: FakeCapture(), speech: makeRouter(parakeet: parakeet, whisper: whisper),
+            scheduler: SpeechJobScheduler(), settings: InMemorySettingsStore())
+        recorder.start()
+        await eventually("listening") { recorder.phase == .listening }
+        await whisper.setStatus(.notDownloaded)
+        let text = await recorder.stop()
+        XCTAssertNil(text)
+        XCTAssertEqual(
+            recorder.phase,
+            .failed(
+                "Whisper Base isn’t downloaded on this iPhone. Download it in Settings → Speech engines, or switch "
+                    + "Transcripts to Parakeet"))
+    }
 }
