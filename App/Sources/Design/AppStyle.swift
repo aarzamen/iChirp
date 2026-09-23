@@ -19,6 +19,11 @@ enum AppColor {
     static let quietFill = adaptive(light: Tokens.Color.quietFill, dark: Tokens.Color.border)
     /// Accent text: accent-ink on the light ground, the brighter accent on the dark ground (contrast).
     static let accentText = adaptive(light: Tokens.Color.accentInk, dark: Tokens.Color.accent)
+    /// Accent text specifically on a tint fill — `CapsuleButtonLabel`'s `.tinted` kind (F8): `accentInk` on
+    /// `tintFill` measures 4.39:1 in light mode, below 4.5 for 13–13.5pt text. `accentInkPressed` gets about 7:1
+    /// without changing the tint fill itself. The dark branch is unchanged from `accentText` today (plan 023, F6
+    /// gives dark mode its own palette later).
+    static let accentTextOnTint = adaptive(light: Tokens.Color.accentInkPressed, dark: Tokens.Color.accent)
     /// Error text and destructive actions.
     static let error = Tokens.Color.stopRed
 
@@ -139,13 +144,19 @@ struct CapsuleButtonLabel: View {
             .padding(.horizontal, 14)
             .frame(minHeight: 32)
             .background(Capsule().fill(background))
-            .contentShape(Capsule())
+            // F7: the visual pill stays 32pt (the canvas size), but the tappable area grows to the 44pt
+            // accessibility floor — a frame added *inside* the label, not by callers wrapping the button from the
+            // outside (that never enlarges a button's actual hit area).
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
     }
 
     private var foreground: Color {
         switch kind {
         case .filled: .white
-        case .tinted: AppColor.accentText
+        // F8: `accentTextOnTint`, not `accentText` — `accentText` alone fails 4.5:1 on this button's tint
+        // background in light mode.
+        case .tinted: AppColor.accentTextOnTint
         case .destructive: AppColor.error
         }
     }

@@ -119,8 +119,9 @@ struct VoicesSettingsScreen: View {
         return SettingsGroup(
             title: "Mac companion",
             footer:
-                "Runs ChoiceVoice's Qwen3-TTS and Kokoro on your Mac. Set its address and pairing token in Settings → "
-                + "Mac companion; the text goes only to that Mac."
+                // F83: "Your Mac's voices", not the engine jargon "ChoiceVoice's Qwen3-TTS and Kokoro".
+                "Runs your Mac's voices. Set its address and pairing token in Settings → Mac companion; the text "
+                + "goes only to that Mac."
         ) {
             SettingsRow(title: "Status", caption: companionCaption(model.companionState)) {
                 Button {
@@ -132,11 +133,15 @@ struct VoicesSettingsScreen: View {
                 .disabled(model.companionState == .checking)
             }
             ForEach(model.companionVoices) { voice in
+                // F82: a checkmark here only when the Mac companion is the *active* provider — otherwise a stored
+                // `companionVoiceID` from an earlier choice would show a checkmark for a voice that isn't reading
+                // anything, alongside the Grok section's own checkmark below.
+                let isSelected = model.settings.provider == .companion && model.settings.companionVoiceID == voice.id
                 Button {
                     model.chooseCompanionVoice(voice.id)
                 } label: {
                     SettingsRow(title: voice.name, caption: voice.detail) {
-                        if model.settings.companionVoiceID == voice.id {
+                        if isSelected {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundStyle(AppColor.accentText)
@@ -146,7 +151,7 @@ struct VoicesSettingsScreen: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(model.settings.companionVoiceID == voice.id ? .isSelected : [])
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Style")
@@ -186,11 +191,16 @@ struct VoicesSettingsScreen: View {
                 + "you cloned in your xAI account) stays on this iPhone."
         ) {
             ForEach(model.stockXAIVoices) { voice in
+                // F82: the checkmark only when Grok voices are the active provider — `xaiStockVoiceID` defaults to
+                // "eve" even before the owner ever picks Grok, so without this a stock voice showed selected while
+                // the Mac companion (or nothing) was actually reading.
+                let isSelected =
+                    model.settings.provider == .xai && !hasCustom && model.settings.xaiStockVoiceID == voice.id
                 Button {
                     model.chooseStockXAIVoice(voice.id)
                 } label: {
                     SettingsRow(title: voice.name) {
-                        if !hasCustom, model.settings.xaiStockVoiceID == voice.id {
+                        if isSelected {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundStyle(AppColor.accentText)
@@ -200,7 +210,7 @@ struct VoicesSettingsScreen: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(!hasCustom && model.settings.xaiStockVoiceID == voice.id ? .isSelected : [])
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Voice ID")

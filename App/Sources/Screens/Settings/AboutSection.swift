@@ -17,7 +17,7 @@ struct AboutSection: View {
             aboutRow("Version", "\(build.version) (\(build.build))")
             aboutRow("Commit", build.commit, monospaced: true)
             aboutRow("Branch", build.branch, monospaced: true)
-            aboutRow("Built", build.buildDateUTC, monospaced: true)
+            aboutRow("Built", Self.builtDisplayText(build.buildDateUTC), monospaced: true)
             aboutRow("Working tree", build.isDirty ? "Uncommitted changes" : "Clean")
             aboutRow("Available memory", availableMemory)
             Button {
@@ -83,4 +83,26 @@ struct AboutSection: View {
         guard let bytes = MemoryProbe.availableBytes() else { return "Not reported here" }
         return "\(MemoryProbe.megabytes(bytes).formatted()) MB"
     }
+
+    /// F93's non-owner fix: the stamped build date, parsed from `ChirpBuildDateUTC`'s ISO-8601 UTC form, shown
+    /// alongside the phone's own local time — the raw UTC string alone read as "wrong" against a local clock.
+    /// Falls back to the raw string when it isn't a parseable ISO-8601 timestamp (older builds, "unknown").
+    static func builtDisplayText(_ buildDateUTC: String) -> String {
+        guard let date = Self.isoFormatter.date(from: buildDateUTC) else { return buildDateUTC }
+        return "\(buildDateUTC) · \(Self.localFormatter.string(from: date)) local"
+    }
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let localFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.timeZone = .current
+        return formatter
+    }()
 }

@@ -63,6 +63,10 @@ struct SpeechEnginesScreen: View {
                     routeRow(.final, title: "Transcripts", caption: "Files, dictations and meetings you keep")
                 }
 
+                // F76: the one place for Parakeet's model version now — it used to also duplicate the size and
+                // "Ready" state Parakeet's own row in "Engines" below already shows correctly.
+                parakeetVersionGroup
+
                 SettingsGroup(title: "Engines") {
                     ForEach(engines.rows) { row in
                         SpeechEngineRow(
@@ -147,6 +151,31 @@ struct SpeechEnginesScreen: View {
         return parts.joined(separator: " ")
     }
 
+    private var parakeetVersionGroup: some View {
+        @Bindable var speech = environment.speechSettings
+        let running = environment.runningVariant
+        let selected = speech.settingsValue.parakeetVariant
+        return SettingsGroup(title: "Parakeet") {
+            SettingsRow(
+                title: "Model version",
+                caption: selected == running
+                    ? "v3: 25 European languages · v2: English only"
+                    : "Takes effect next time you open Parakeet",
+                captionColor: selected == running ? Tokens.Color.secondary : AppColor.accentText
+            ) {
+                Picker("Model version", selection: $speech.settingsValue.parakeetVariant) {
+                    Text("v3").tag(ParakeetVariant.v3)
+                    Text("v2").tag(ParakeetVariant.v2)
+                }
+                .pickerStyle(.segmented)
+                // F77: sizes to its own content rather than a fixed pixel width, so it doesn't get squeezed at
+                // accessibility Dynamic Type sizes.
+                .fixedSize()
+                .labelsHidden()
+            }
+        }
+    }
+
     private func routeRow(_ route: SpeechRoute, title: String, caption: String) -> some View {
         let engines = environment.speechEngines
         let current = engines.row(for: route)
@@ -164,6 +193,8 @@ struct SpeechEnginesScreen: View {
                     }
                 }
             } label: {
+                // F79: the menu's own hit area was the label's tight intrinsic size (96×18) — grow it to the
+                // 44pt accessibility floor.
                 HStack(spacing: 4) {
                     Text(current?.capabilities.displayName ?? "Parakeet")
                         .chirpFont(15)
@@ -172,6 +203,8 @@ struct SpeechEnginesScreen: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(AppColor.accentText)
                 }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .accessibilityLabel("\(title): \(current?.capabilities.displayName ?? "Parakeet")")
         }

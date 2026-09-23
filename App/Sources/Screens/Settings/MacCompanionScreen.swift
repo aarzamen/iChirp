@@ -48,87 +48,94 @@ struct MacCompanionScreen: View {
 
     var body: some View {
         @Bindable var model = model
-        Form {
-            Section {
+        // F85: restyled with the app's own `SettingsGroup`/`SettingsRow` instead of a system `Form` (the only
+        // screen in Settings that still looked like one), and Test connection now comes before Save.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Mac companion")
+                    .chirpTitleFont(28, .heavy)
+                    .foregroundStyle(Tokens.Color.ink)
+                    .frame(minHeight: 44, alignment: .leading)
+                    .accessibilityAddTraits(.isHeader)
                 Text(
-                    "The Parakeet companion runs on your Mac. It speaks with your own voices and fetches the audio of "
-                        + "YouTube videos that have no captions. Start it on the Mac with scripts/companion.sh, then "
-                        + "enter what it prints."
+                    "The Parakeet companion runs on your Mac. It speaks with your own voices and fetches the audio "
+                        + "of YouTube videos that have no captions. Start Parakeet companion on your Mac, then "
+                        + "enter the address and pairing code it shows."
                 )
                 .chirpFont(14)
                 .foregroundStyle(Tokens.Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            }
+                .padding(.top, 4)
 
-            Section {
-                TextField("my-mac.local or 192.168.1.20", text: $model.host)
-                    .keyboardType(.URL)
-                    .textContentType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($focused, equals: .host)
-                    .accessibilityLabel("Host")
-                TextField("Port (8765)", text: $model.port)
-                    .keyboardType(.numberPad)
-                    .focused($focused, equals: .port)
-                    .accessibilityLabel("Port")
-                SecureField(
-                    model.hasSavedToken ? "Pairing token saved · type to replace" : "Pairing token",
-                    text: $model.newToken
-                )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($focused, equals: .token)
-                .accessibilityLabel("Pairing token")
-            } header: {
-                Text("Your Mac")
-            } footer: {
-                Text(
-                    "The pairing token is kept in this iPhone’s Keychain, only on this device, never synced or logged. "
-                        + "This iPhone and the Mac must be on the same Wi-Fi.")
-            }
-
-            Section {
-                Toggle("Trusted for clinical text", isOn: $model.isTrusted)
-                    .tint(Tokens.Color.success)
-                    .disabled(model.isInternetAddress)
-            } header: {
-                Text("Clinical text")
-            } footer: {
-                Text(trustFooter)
-            }
-
-            Section {
-                Button("Save") {
-                    focused = nil
-                    model.save()
+                SettingsGroup(
+                    title: "Your Mac",
+                    footer:
+                        "The pairing token is kept in this iPhone’s Keychain, only on this device, never synced or "
+                        + "logged. This iPhone and the Mac must be on the same Wi-Fi."
+                ) {
+                    labeledField(
+                        "Host", placeholder: "my-mac.local or 192.168.1.20", text: $model.host, field: .host,
+                        keyboard: .URL, contentType: .URL)
+                    labeledField("Port", placeholder: "8765", text: $model.port, field: .port, keyboard: .numberPad)
+                    labeledSecureField(
+                        "Pairing token",
+                        placeholder: model.hasSavedToken ? "Saved · type to replace" : "From the Mac",
+                        text: $model.newToken, field: .token)
                 }
-                .bold()
-                .disabled(!model.hasUnsavedChanges)
-                Button {
-                    focused = nil
-                    model.testConnection()
-                } label: {
-                    HStack {
-                        Text("Test connection")
-                        Spacer()
-                        testBadge
+
+                SettingsGroup(title: "Clinical text", footer: trustFooter) {
+                    SettingsRow(title: "Trusted for clinical text") {
+                        Toggle("Trusted for clinical text", isOn: $model.isTrusted)
+                            .labelsHidden()
+                            .tint(Tokens.Color.success)
+                            .disabled(model.isInternetAddress)
                     }
                 }
-                .disabled(model.testState == .testing)
-            } footer: {
-                testFooter
-            }
 
-            if model.isConfigured {
-                Section {
-                    Button("Remove Mac companion", role: .destructive) { confirmingRemove = true }
-                } footer: {
-                    Text("Forgets this Mac and deletes its pairing token from this iPhone. Your transcripts stay.")
+                SettingsGroup(title: "Connect", footer: testFooterText, footerColor: testFooterColor) {
+                    Button {
+                        focused = nil
+                        model.testConnection()
+                    } label: {
+                        SettingsRow(title: "Test connection") { testBadge }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.testState == .testing)
+                    Button {
+                        focused = nil
+                        model.save()
+                    } label: {
+                        SettingsRow(title: "Save") { EmptyView() }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!model.hasUnsavedChanges)
+                    .opacity(model.hasUnsavedChanges ? 1 : 0.5)
+                }
+
+                if model.isConfigured {
+                    SettingsGroup(
+                        title: "Remove",
+                        footer: "Forgets this Mac and deletes its pairing token from this iPhone. Your transcripts "
+                            + "stay."
+                    ) {
+                        Button {
+                            confirmingRemove = true
+                        } label: {
+                            SettingsRow(title: "Remove Mac companion", titleColor: AppColor.error) {
+                                EmptyView()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
-        .scrollContentBackground(.hidden)
         .background(Tokens.Color.ground)
         .navigationTitle("Mac companion")
         .navigationBarTitleDisplayMode(.inline)
@@ -157,6 +164,58 @@ struct MacCompanionScreen: View {
         }
     }
 
+    /// A visible label above a plain text field (F85: the old `Form` relied on placeholder text alone).
+    private func labeledField(
+        _ title: String, placeholder: String, text: Binding<String>, field: Field,
+        keyboard: UIKeyboardType, contentType: UITextContentType? = nil
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .chirpFont(15.5)
+                .foregroundStyle(Tokens.Color.ink)
+            TextField(placeholder, text: text)
+                .chirpFont(15)
+                .keyboardType(keyboard)
+                .textContentType(contentType)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focused, equals: field)
+                .accessibilityLabel(title)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    /// The pairing-token counterpart of `labeledField`, with a `SecureField`.
+    private func labeledSecureField(
+        _ title: String, placeholder: String, text: Binding<String>, field: Field
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .chirpFont(15.5)
+                .foregroundStyle(Tokens.Color.ink)
+            SecureField(placeholder, text: text)
+                .chirpFont(15)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focused, equals: field)
+                .accessibilityLabel(title)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private var testFooterText: String {
+        switch model.testState {
+        case .succeeded(let summary, let details):
+            return ([summary] + details).joined(separator: "\n")
+        case .failed(let message):
+            return message
+        case .idle, .testing:
+            return "Asks the Mac what it offers and checks the pairing token. Sends no text and no links."
+        }
+    }
+
     private var trustFooter: String {
         if model.isInternetAddress {
             return "This address is on the internet. The companion speaks plain http, so it must be on your home "
@@ -173,26 +232,18 @@ struct MacCompanionScreen: View {
         case .idle: EmptyView()
         case .testing: ProgressView()
         case .succeeded:
+            // F80: successInk, not success — success measures 3.06:1 as text, below 4.5:1.
             Label("Connected", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(Tokens.Color.success)
+                .foregroundStyle(Tokens.Color.successInk)
         case .failed:
             Label("Failed", systemImage: "xmark.circle.fill")
                 .foregroundStyle(AppColor.error)
         }
     }
 
-    @ViewBuilder private var testFooter: some View {
-        switch model.testState {
-        case .succeeded(let summary, let details):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary).foregroundStyle(Tokens.Color.ink)
-                ForEach(details, id: \.self) { Text($0) }
-            }
-        case .failed(let message):
-            Text(message).foregroundStyle(AppColor.error)
-        case .idle, .testing:
-            Text("Asks the Mac what it offers and checks the pairing token. Sends no text and no links.")
-        }
+    private var testFooterColor: Color {
+        if case .failed = model.testState { return AppColor.error }
+        return Tokens.Color.secondary
     }
 }
 

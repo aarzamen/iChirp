@@ -60,36 +60,55 @@ struct TranscriptionRow: View {
     let onOpen: () -> Void
     let onRetry: () -> Void
 
-    var body: some View {
-        HStack(alignment: style == .full ? .top : .center, spacing: 12) {
-            Button(action: onOpen) {
-                HStack(alignment: style == .full ? .top : .center, spacing: 12) {
-                    TranscriptionCover(
-                        item: item,
-                        size: style == .full ? 52 : 40,
-                        radius: style == .full ? Tokens.Radius.cover : Tokens.Radius.coverSmall)
-                    text
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityHint("Opens the transcript")
+    /// Room reserved at the trailing edge when Retry overlays the card (below), so a long title truncates before
+    /// it, rather than rendering underneath the pill.
+    private static let retryReservedWidth: CGFloat = 92
 
-            if Formatting.canRetry(item.status) {
+    var body: some View {
+        let canRetry = Formatting.canRetry(item.status)
+        // F9: the card's own padding, min height and background now live *inside* the button's label, so the
+        // whole card is tappable — not just the 330×40 text-and-cover area a 10–12pt padding used to leave dead
+        // around it. Retry stays a sibling, overlaid at the trailing edge on top of that same tappable card
+        // (its own tap consumes the gesture there; everywhere else on the card still opens the item).
+        Button(action: onOpen) {
+            HStack(alignment: style == .full ? .top : .center, spacing: 12) {
+                TranscriptionCover(
+                    item: item,
+                    size: style == .full ? 52 : 40,
+                    radius: style == .full ? Tokens.Radius.cover : Tokens.Radius.coverSmall)
+                text
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, canRetry ? Self.retryReservedWidth : 12)
+            .padding(.vertical, style == .full ? 12 : 10)
+            .frame(minHeight: style == .full ? 76 : 62)
+            .background(CardBackground(radius: Tokens.Radius.s))
+            .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(accessibilityHint)
+        .overlay(alignment: .trailing) {
+            if canRetry {
                 Button(action: onRetry) {
                     CapsuleButtonLabel(title: "Retry", kind: .tinted)
                 }
                 .buttonStyle(.borderless)
-                .frame(minHeight: 44)
                 .accessibilityLabel("Retry \(item.displayTitle)")
+                .padding(.trailing, 12)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, style == .full ? 12 : 10)
-        .frame(minHeight: style == .full ? 76 : 62)
-        .background(CardBackground(radius: Tokens.Radius.s))
+    }
+
+    /// F10: a hint that matches what the row actually opens, not "Opens the transcript" for a document or a typed
+    /// text item.
+    private var accessibilityHint: String {
+        switch item.sourceType {
+        case .text: "Opens this text item"
+        case .file, .document: "Opens this document"
+        case .meeting, .dictation, .url, .podcast: "Opens the transcript"
+        }
     }
 
     private var text: some View {

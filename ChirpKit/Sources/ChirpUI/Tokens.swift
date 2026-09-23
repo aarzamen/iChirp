@@ -17,11 +17,22 @@ public enum Tokens {
         // MARK: Brand — identical in light and dark mode
 
         public static let accent = hex(0xE86B3B)
-        public static let accentInk = hex(0xBE4E26)
-        /// Hover/pressed state for `accentInk`.
+        /// Icon/fill ink; in light mode it is `contrastAwareLight`-boosted under Increase Contrast (F5). Text on
+        /// `tint`/`surface` should prefer `accentInkPressed` directly (see `successInk` below for the same idea
+        /// applied to `success`).
+        public static let accentInk = contrastAwareLight(base: 0xBE4E26, highContrastLight: 0x8F3A1B)
+        /// Hover/pressed state for `accentInk`. Also the text-safe ink to pair with `tint`/light fills (F8): about
+        /// 7:1 on `tint`, versus `accentInk`'s 4.39:1.
         public static let accentInkPressed = hex(0x8F3A1B)
         public static let tint = hex(0xFFF0EB)
+        /// Icon and dot-fill green only — **3.06:1 as text on `surface`, below 4.5:1 (F4).** Text that reads this
+        /// color (a caption, a status line) must use `successInk` instead.
         public static let success = hex(0x33A854)
+        /// Text-safe green: 5.3:1 on `surface`/white in light mode, the same hex `privacyBadgeInk` already uses.
+        /// The dark branch matches `success` as rendered today (identical in both modes), so this token changes
+        /// nothing in dark mode; the owner's dark palette (plan 023, F6) can give it its own dark value later
+        /// without touching call sites.
+        public static let successInk = adaptive(light: 0x1E7B4A, dark: 0x33A854)
         public static let rosette = hex(0x59A659)
         public static let recordRed = hex(0xE64D42)
         public static let stopRed = hex(0xC9342B)
@@ -36,16 +47,21 @@ public enum Tokens {
         /// UIKit) they fall back to the plain light value from the canvas.
         public static let ground = adaptive(light: 0xFAFAF7, dark: 0x121212)
         public static let surface = adaptive(light: 0xFFFFFF, dark: 0x1E1E20)
-        public static let border = adaptive(light: 0xE8E8E0, dark: 0x333335)
+        /// Increase Contrast (light mode only, F5): `#BDBDB5` instead of the canvas `#E8E8E0` hairline.
+        public static let border = adaptive(light: 0xE8E8E0, dark: 0x333335, highContrastLight: 0xBDBDB5)
         public static let ink = adaptive(light: 0x1A1A1A, dark: 0xF2F2F0)
-        public static let secondary = adaptive(light: 0x6B6B6B, dark: 0x9A9A9A)
+        /// Increase Contrast (light mode only, F5): `#4F4F4F` instead of the canvas `#6B6B6B`.
+        public static let secondary = adaptive(light: 0x6B6B6B, dark: 0x9A9A9A, highContrastLight: 0x4F4F4F)
 
         // MARK: Supporting values seen in the artboards (named, not scattered literals)
 
         public static let tintBorder = hex(0xF6D3C3)
         public static let tintBorderSelected = hex(0xF1C9B6)
         public static let quietFill = hex(0xF0F0E8)
-        public static let mutedText = hex(0x9C9C9C)
+        /// Icon/placeholder fill only — **2.75:1 as text on `surface`, below 4.5:1 (F4).** Text that reads this
+        /// color must use `secondary` instead (5.10:1). Under Increase Contrast in light mode (F5) this itself
+        /// steps up to `secondary`'s light value, since a muted icon should never out-contrast the text beside it.
+        public static let mutedText = contrastAwareLight(base: 0x9C9C9C, highContrastLight: 0x6B6B6B)
         public static let toggleOffTrack = hex(0xDDDDD5)
         public static let partialAudioFill = hex(0xFDF3DF)
         public static let partialAudioInk = hex(0x8A5A00)
@@ -88,18 +104,48 @@ public enum Tokens {
             return SwiftUI.Color(red: components.red, green: components.green, blue: components.blue)
         }
 
-        /// A color that reads `light` in light mode and `dark` in dark mode on iOS/UIKit
-        /// platforms, or plainly `light` where UIKit isn't available (macOS).
-        private static func adaptive(light: UInt32, dark: UInt32) -> SwiftUI.Color {
+        /// A color that reads `light` in light mode and `dark` in dark mode on iOS/UIKit platforms, or plainly
+        /// `light` where UIKit isn't available (macOS). When `highContrastLight` is given, light mode reads it
+        /// instead of `light` while the system's Increase Contrast setting is on (F5); dark mode is never affected
+        /// by the contrast trait — the owner's dark palette (plan 023, F6) is a separate, later change.
+        private static func adaptive(
+            light: UInt32, dark: UInt32, highContrastLight: UInt32? = nil
+        ) -> SwiftUI.Color {
             #if canImport(UIKit)
             return SwiftUI.Color(
                 UIColor { traits in
-                    let value = traits.userInterfaceStyle == .dark ? dark : light
+                    let value: UInt32
+                    if traits.userInterfaceStyle == .dark {
+                        value = dark
+                    } else if traits.accessibilityContrast == .high, let highContrastLight {
+                        value = highContrastLight
+                    } else {
+                        value = light
+                    }
                     let components = rgbComponents(fromHex: value)
                     return UIColor(red: components.red, green: components.green, blue: components.blue, alpha: 1)
                 })
             #else
             return hex(light)
+            #endif
+        }
+
+        /// A brand color that is the same hex in light and dark mode today (like every non-surface token; see the
+        /// module README), except that light mode swaps to `highContrastLight` while Increase Contrast is on (F5).
+        /// Dark mode always reads `base`, whatever the contrast trait, until the owner's dark palette (plan 023,
+        /// F6) gives it its own values.
+        private static func contrastAwareLight(base: UInt32, highContrastLight: UInt32) -> SwiftUI.Color {
+            #if canImport(UIKit)
+            return SwiftUI.Color(
+                UIColor { traits in
+                    let value =
+                        (traits.userInterfaceStyle != .dark && traits.accessibilityContrast == .high)
+                        ? highContrastLight : base
+                    let components = rgbComponents(fromHex: value)
+                    return UIColor(red: components.red, green: components.green, blue: components.blue, alpha: 1)
+                })
+            #else
+            return hex(base)
             #endif
         }
     }

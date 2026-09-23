@@ -64,6 +64,9 @@ let package = Package(
             // M6: frozen structure-model tool catalogs (soap-meds.v1, dictation-commands.v1).
             resources: [.copy("Resources/StructureCatalogs")]),
         .target(name: "ChirpUI", dependencies: ["ChirpCore"], exclude: ["README.md"]),
+        // Polish lane u1-design: WCAG contrast ratios for the text-safe tokens, computed from the same
+        // `rgbComponents(fromHex:)` the module README already points to for spot-checks (no UIKit needed).
+        .testTarget(name: "ChirpUITests", dependencies: ["ChirpUI"]),
         .testTarget(name: "ChirpCoreTests", dependencies: ["ChirpCore"]),
         .testTarget(name: "ChirpTextTests", dependencies: ["ChirpText"]),
         .testTarget(name: "ChirpExportTests", dependencies: ["ChirpExport"]),
