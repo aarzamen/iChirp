@@ -246,6 +246,76 @@ final class StructuredExtractionServiceTests: XCTestCase {
         XCTAssertTrue(notes.contains("- HR: 300/min (accepted in review despite: Heart rate 300 is outside"), notes)
     }
 
+    // MARK: - Re-review N1: a correction said in the next sentence
+
+    func testTheCorrectionCueListIsNamedAndCoversEveryInSentenceCue() {
+        for cue in [
+            "sorry", "i mean", "correction", "no wait", "actually", "rather", "make that", "scratch that", "strike that",
+        ] {
+            XCTAssertTrue(CrossSentenceCorrection.cues.contains(cue), cue)
+        }
+        XCTAssertTrue(SentenceNeighbours.correctionWords.isSubset(of: Set(CrossSentenceCorrection.cues)))
+        XCTAssertTrue(SentenceNeighbours.correctionPairs.isSubset(of: Set(CrossSentenceCorrection.cues)))
+        let cases: [(String, String?)] = [
+            ("Sorry, 25 micrograms.", "sorry"), ("No, 25 micrograms.", "no"), ("No wait, the right knee.", "no wait"),
+            ("I mean the right knee.", "i mean"), ("Actually, the right knee.", "actually"),
+            ("Make that 25 micrograms.", "make that"), ("Scratch that.", "scratch that"),
+            ("Correction: 25 micrograms.", "correction"), ("No.", nil), ("No fever today.", nil),
+            ("Patient resting comfortably.", nil),
+        ]
+        for (sentence, cue) in cases {
+            XCTAssertEqual(CrossSentenceCorrection.cue(in: sentence), cue, sentence)
+        }
+    }
+
+    func testACorrectionInTheNextSentenceSendsThePreviousFieldsToReview() async throws {
+        let h = Harness()
+        try await h.insertEncounter("Gave fentanyl 50 micrograms IV. Sorry, 25 micrograms.")
+        let draft = try await h.service.extractSOAP(transcriptionID: h.id)
+        let sections = DraftSections(draft: draft)
+        XCTAssertTrue(sections.medications.isEmpty, "never a clean fentanyl 50 mcg")
+        let fentanyl = try XCTUnwrap(sections.needsReview.first { $0.title == "fentanyl" })
+        XCTAssertTrue(fentanyl.detail.hasPrefix("50 mcg"), "the restated dose is never applied: \(fentanyl.detail)")
+        XCTAssertTrue(
+            fentanyl.field.reviewReasons.contains { $0.hasPrefix("Corrected in the next sentence") },
+            "\(fentanyl.field.reviewReasons)")
+        XCTAssertTrue(fentanyl.field.reviewReasons.contains { $0.contains("25 mcg") }, "\(fentanyl.field.reviewReasons)")
+        XCTAssertTrue(fentanyl.needsReviewSheet, "one tap cannot accept it")
+
+        let side = Harness()
+        try await side.insertEncounter("Complains of pain in the left knee. Actually, the right knee.")
+        let problems = DraftSections(draft: try await side.service.extractSOAP(transcriptionID: side.id))
+        XCTAssertTrue(problems.problems.isEmpty, "a wrong-side problem never passes clean")
+        XCTAssertTrue(
+            problems.needsReview.contains { $0.field.reviewReasons.contains { $0.contains("Corrected in the next") } })
+    }
+
+    func testASentenceWithoutACueLeavesThePreviousFieldsAlone() async throws {
+        let h = Harness()
+        try await h.insertEncounter("Gave fentanyl 50 micrograms IV. Patient resting comfortably.")
+        let sections = DraftSections(draft: try await h.service.extractSOAP(transcriptionID: h.id))
+        XCTAssertEqual(sections.medications.map(\.title), ["fentanyl"])
+    }
+
+    func testTheEvalAppliesTheSameCrossSentenceRule() async throws {
+        let set = SOAPEvalSet(
+            id: "t", version: 1, catalog: "soap-meds.v1",
+            cases: [
+                SOAPEvalCase(
+                    id: "c", title: "synthetic",
+                    sentences: [
+                        SOAPEvalSentence(
+                            text: "Gave fentanyl 50 micrograms IV.",
+                            expected: [ExpectedCall(name: "add_medication", arguments: ["drug": "fentanyl"])]),
+                        SOAPEvalSentence(text: "Sorry, 25 micrograms.", expected: []),
+                    ])
+            ])
+        let result = await StructureEvalRunner(engine: StubStructureModel(), gate: StructuredResultGate())
+            .run(soap: set, commands: CommandEvalSet(id: "t", version: 1, catalog: "dictation-commands.v1", utterances: []))
+        let first = try XCTUnwrap(result.soap.scores.first)
+        XCTAssertTrue(first.predicted.filter { $0.name != "none" }.allSatisfy { $0.verdict == .needsReview })
+    }
+
     // MARK: - Review L3 I10: Needle is labelled experimental where it is used
 
     func testNeedleIsLabelledExperimentalWithItsEvalNumbers() async throws {

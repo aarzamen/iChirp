@@ -51,7 +51,11 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   it is a blood pressure that needs review. Then it is range-checked (BP 50–260 / 20–160 and systolic above
   diastolic, HR 20–250, RR 4–60, SpO₂ 50–100, temperature 90–110 °F or 32–43.5 °C; a dose > 0 with a unit and at most
   5000 mg, 2000 mcg, 10 g, 50,000 units, 5000 mL, 10 tablets, 12 puffs, 20 drops or 200 mEq; a frequency at most 24 a
-  day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review.
+  day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review,
+  including one said in the next sentence: a sentence that starts with or contains a correction cue
+  (`CrossSentenceCorrection.cues`: "sorry", "I mean", "correction", "no wait", "actually", "rather", "make that",
+  "scratch that", …) sends every field of the sentence before it to needs review with a reason starting "Corrected in
+  the next sentence"; a dose it restates without a drug is named in the previous medication fields, never applied.
 - **Every call from a sentence** (review L3 I2–I5): a flagged tag (number or side) or a spoken correction anywhere in
   the sentence forces review on every call from it; a dose or frequency must sit next to its own drug: it belongs to
   the drug right before it, or to the drug right after it when only "of" or a route lies between and that drug has no
@@ -91,7 +95,10 @@ value; old runs keep theirs.
   corrections, free-text numbers, unknown arguments, per-unit ranges, hard fails, spans to words and milliseconds).
 - `ChirpFeaturesTests.StructuredExtractionServiceTests` (clinical never reaches a non-on-device engine; runs saved
   with spans; the evidence sentence; the STUB never `act`; only reviewed fields in the SOAP hand-off; a failed check
-  needs the review sheet, keeps its reasons and saves edits).
+  needs the review sheet, keeps its reasons and saves edits; a correction in the next sentence, in the service and
+  the eval).
+- `ChirpTextTests.NumericNormalizerTests` (spoken numbers across "and", ranges, tablet counts near a strength,
+  combination strengths and the blood-pressure word).
 
 ## When this changes
 

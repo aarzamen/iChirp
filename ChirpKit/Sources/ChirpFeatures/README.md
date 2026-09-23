@@ -292,6 +292,12 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   vital is not a drug's strength, carries any flagged tag or spoken correction to every call from the sentence, checks
   numbers in free text against the sentence, drops unknown or non-text arguments, flags drug or substance names
   missing from the sentence and schema problems; a number that traces to nothing is a numeric hard fail).
+- `Structure/CrossSentenceCorrection.swift` (re-review N1): a correction said in the **next** sentence ("Gave fentanyl
+  50 micrograms IV. Sorry, 25 micrograms."). `cues` is the named cue list (every in-sentence cue plus "no wait", "i
+  misspoke", "let me correct"; a sentence starting "No," before a number or unit also counts). A sentence with a cue
+  sends every field of the sentence before it to needs review ("Corrected in the next sentence …"); a dose it restates
+  without a drug is named in the previous medication fields ("… restates a dose without a drug (25 mcg) …") and never
+  applied. The extraction service and the eval runner apply the same rule.
 - `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
   text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
   milliseconds).
@@ -299,7 +305,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
   availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
-  gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
+  gate → a correction in the next sentence (`CrossSentenceCorrection`) → one run with its fields saved to the
+  ledger. **Clinical items only reach `.onDevice` engines**
   (`mayRun`); engine failures become needs-review items, never silent gaps.
 - `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
   editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
