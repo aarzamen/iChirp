@@ -41,7 +41,10 @@ and without the runtime the models say "not in this build".
   llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
   generation, `maxOutputTokens` or a full window (`stopReason` "length"; for a **clinical** request that is an error,
-  not a document: with greedy sampling it almost always means a loop, review minor 8); run metrics for the tests.
+  not a document, review minor 8: `looksRepetitive` checks the last ~600 characters for a short repeated unit and
+  names the loop only when it finds one, otherwise it says plainly that the draft hit the model's length limit — a
+  rewrite-style template on a long dictation can reach that honestly, with nothing to repeat, review N3); run
+  metrics for the tests.
 - `LlamaTextStream.swift`: `UTF8StreamDecoder` (a character split across tokens waits for its second half) and
   `LeadingThinkBlockFilter` (a `<think>…</think>` block before the answer is not part of the document).
 - `LlamaCppModelAssets.swift`: `ModelAssetManaging` for one GGUF file: explicit download with progress, free-space
