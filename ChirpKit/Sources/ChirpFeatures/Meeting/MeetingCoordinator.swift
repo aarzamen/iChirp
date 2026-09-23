@@ -148,6 +148,15 @@ public enum MeetingFlowState: Equatable, Sendable {
         self.freeBytes = freeBytes
     }
 
+    /// The live route's engine name and whether it is Parakeet, for the "no live text" message when `hasLivePreview`
+    /// is false (review N6): a restored backup, or a revoked Apple Speech permission, can leave a non-Parakeet
+    /// engine on Live text, and the screen must name that engine, not assume Parakeet. The routes cannot change
+    /// while a meeting is capturing (the lease), so this stays accurate for the whole meeting.
+    public var liveSpeechEngine: (name: String, isParakeet: Bool) {
+        let descriptor = SpeechRouting.resolve(speech, for: .live).descriptor
+        return (descriptor.displayName, descriptor.id == SpeechEngineCapabilityRegistry.parakeetEngineID)
+    }
+
     // MARK: - Person's actions
 
     /// Starts a new meeting (from the foreground: iOS refuses to start recording in the background).

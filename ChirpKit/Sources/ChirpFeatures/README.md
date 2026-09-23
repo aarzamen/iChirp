@@ -231,7 +231,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
   after typing stops and at Stop. The only deletes: `discard()` (the screen confirms first), a start that failed
   before any audio, and a recording under 0.3 s (the dictation rule). Low storage refuses to start under 200 MB and
-  warns under 1 GB.
+  warns under 1 GB. `liveSpeechEngine` (review N6) is the live route's own engine name and whether it is Parakeet,
+  for the "no live text" message: a restored backup or a revoked Apple Speech permission can leave a non-Parakeet
+  engine on Live text, and the Meeting screen names that engine instead of assuming Parakeet.
 - `MeetingSessionLockStore.swift`: atomic `recording.lock` writes, reads (malformed notes lose only the notes; a
   newer schema is opaque), `hasLockFile` (the retention barrier) and `discoverOrphans()` (locks from another app
   launch; one store per launch, whose `launchId` it stamps).

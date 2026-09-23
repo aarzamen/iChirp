@@ -224,4 +224,27 @@ final class MeetingCoordinatorTests: XCTestCase {
         noModel.coordinator.discard()
         await noModel.coordinator.settle()
     }
+
+    // MARK: - Review N6: the "no live text" message names the live route's own engine
+
+    func testNoLiveTextNamesTheLiveRoutesEngineNotParakeet() async throws {
+        let liveKey = SpeechEngineVariantKey(engineID: "fake.whisper")
+        let finalKey = SpeechEngineVariantKey(engineID: "fake.final")
+        let live = FakeSpeech(status: .notDownloaded, id: "fake.whisper", displayName: "Whisper Base")
+        let final = FakeSpeech(id: "fake.final", displayName: "Final Engine")
+        let router = SpeechEngineRouter(
+            engines: [.init(key: liveKey, engine: live), .init(key: finalKey, engine: final)],
+            selection: SpeechRouteSelection(live: liveKey, final: finalKey))
+        let h = try MeetingHarness(engine: router)
+        harness = h
+        _ = try await startRecording(h)
+
+        XCTAssertFalse(h.coordinator.hasLivePreview, "Whisper Base's model is missing")
+        let engine = h.coordinator.liveSpeechEngine
+        XCTAssertEqual(engine.name, "Whisper Base")
+        XCTAssertFalse(engine.isParakeet)
+
+        h.coordinator.discard()
+        await h.coordinator.settle()
+    }
 }
