@@ -709,6 +709,10 @@ Create (Step 3)
 - [ ] No model, no voice, no speech model: the sheet says which, Create stays disabled; nothing is created.
 - [ ] Close Create and reopen: the last choices are selected again (never the text or link).
 - [ ] Stop during a summary: "Stopped. What was already made stays in your Library." and no document is saved.
+- [ ] Clinical on + Link (a podcast episode) or File (a large synthetic video): tap Stop during "Looking up the link…"
+      or "Copying the file…": the note says the lookup or copy may still make an item; once it does, the item is in
+      the Library with the green **Clinical** badge (never Personal), Open shows it, and its transcription finishes
+      there.
 
 Edit by voice (Step 4)
 - [ ] Open a Summary → Edit by voice → hold the button and say "make it shorter" → let go: the instruction appears

@@ -59,6 +59,11 @@ public actor DocumentImportPipeline: ItemImporting {
     /// Copies `url` into `media/<id>/source.<ext>` and inserts a `.processing` document row. On failure nothing is
     /// left behind (no folder, no row). Throws `DocumentExtractionError.unsupportedFormat` for other files.
     public func importItem(from url: URL) async throws -> UUID {
+        try await importItem(from: url, privacyClass: .personal)
+    }
+
+    /// `importItem(from:)` with the row's class from its first write (plan 022 review I1: Create's chosen class).
+    public func importItem(from url: URL, privacyClass: PrivacyClass) async throws -> UUID {
         guard let format = Self.format(of: url) else {
             throw DocumentExtractionError.unsupportedFormat(url.pathExtension.lowercased())
         }
@@ -81,7 +86,7 @@ public actor DocumentImportPipeline: ItemImporting {
                 .intValue
             var row = Transcription(
                 id: id, sourceType: .document, fileName: url.lastPathComponent, mediaRelativePath: relativePath,
-                fileSizeBytes: size, status: .processing)
+                fileSizeBytes: size, status: .processing, privacyClass: privacyClass)
             row.documentFormat = format
             try await store.insert(row)
             onProgress(id, JobProgress(stage: .readingDocument, fraction: 0))

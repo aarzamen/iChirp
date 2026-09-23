@@ -43,8 +43,12 @@ extension AppEnvironment {
                 saveText: { text, privacyClass in
                     try await TextItemService(store: store).save(text, privacyClass: privacyClass)
                 },
-                startLink: { [unowned self] link in try await startLinkForCreate(link) },
-                startFile: { [unowned self] url in try await startFileForCreate(url) },
+                startLink: { [unowned self] link, privacyClass in
+                    try await startLinkForCreate(link, privacyClass: privacyClass)
+                },
+                startFile: { [unowned self] url, privacyClass in
+                    try await startFileForCreate(url, privacyClass: privacyClass)
+                },
                 waitForItem: { id in
                     await jobCenter.waitForJob(id)
                     return try? await store.fetch(id: id)
@@ -88,8 +92,9 @@ extension AppEnvironment {
         return "The dictation did not finish."
     }
 
-    /// Link: resolved on the person's tap (the only network use), then the same row and job as Paste a link.
-    private func startLinkForCreate(_ text: String) async throws -> UUID {
+    /// Link: resolved on the person's tap (the only network use), then the same row and job as Paste a link. The row
+    /// is created with the chain's class (review I1), so a Stop during the lookup never leaves it less private.
+    private func startLinkForCreate(_ text: String, privacyClass: PrivacyClass) async throws -> UUID {
         await launch()
         let kind = LinkClassifier.classify(text)
         guard kind.isActionable else { throw CreateInputError(message: kind.detail) }
@@ -103,7 +108,7 @@ extension AppEnvironment {
         case .media(let source):
             let id: UUID
             do {
-                id = try await linkIngest.createRow(for: source)
+                id = try await linkIngest.createRow(for: source, privacyClass: privacyClass)
             } catch {
                 throw CreateInputError(message: Formatting.message(for: error))
             }
@@ -117,7 +122,7 @@ extension AppEnvironment {
             return id
         case .youtubeCaptions(let videoID, let link):
             do {
-                return try await linkIngest.importCaptions(videoID: videoID, link: link)
+                return try await linkIngest.importCaptions(videoID: videoID, link: link, privacyClass: privacyClass)
             } catch {
                 let reason = Formatting.message(for: error)
                 guard linkIngest.isCompanionConfigured() else { throw CreateInputError(message: reason) }
@@ -128,20 +133,21 @@ extension AppEnvironment {
     }
 
     /// File: audio and video go to the transcription pipeline (automatic audio track), documents to the reader; both
-    /// as tracked jobs with their own background request, exactly like the Import tiles.
-    private func startFileForCreate(_ url: URL) async throws -> UUID {
+    /// as tracked jobs with their own background request, exactly like the Import tiles. The row is created with the
+    /// chain's class (review I1), so a Stop during the copy never leaves it less private.
+    private func startFileForCreate(_ url: URL, privacyClass: PrivacyClass) async throws -> UUID {
         await launch()
         let title = url.deletingPathExtension().lastPathComponent
         do {
             switch IncomingFileInbox.kind(of: url) {
             case .document:
                 let documents = self.documents
-                let id = try await documents.importItem(from: url)
+                let id = try await documents.importItem(from: url, privacyClass: privacyClass)
                 jobCenter.startTracked(id, title: title) { await documents.process(id: id) }
                 return id
             case .media:
                 let pipeline = self.pipeline
-                let id = try await pipeline.importFile(from: url)
+                let id = try await pipeline.importFile(from: url, privacyClass: privacyClass)
                 jobCenter.startTracked(id, title: title) { await pipeline.process(id: id) }
                 return id
             }

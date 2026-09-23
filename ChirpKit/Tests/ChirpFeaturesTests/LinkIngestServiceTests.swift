@@ -189,6 +189,29 @@ final class LinkIngestServiceTests: XCTestCase {
         XCTAssertEqual(row?.sourceURL, link.absoluteString)
     }
 
+    /// Plan 022 review I1: Create makes a link's row with the class the person chose, from its first write.
+    func testARowAndCaptionsCanBeCreatedClinicalFromTheStart() async throws {
+        let service = makeService(downloader: FakeMediaDownloader(.fail(FakeError(message: "unused"))))
+        let link = URL(string: "https://cdn.example.com/talk.m4a")!
+        let id = try await service.createRow(
+            for: LinkMediaSource(downloadURL: link, link: link, sourceType: .url), privacyClass: .clinical)
+        let row = await store.row(id)
+        XCTAssertEqual(row?.privacyClass, .clinical)
+        XCTAssertEqual(row?.status, .processing)
+
+        let video = URL(string: "https://youtu.be/AAAAAAAAAAA")!
+        guard
+            case .youtubeCaptions(let videoID, _) = try await service.resolve(
+                LinkClassifier.classify(video.absoluteString))
+        else {
+            return XCTFail("expected captions")
+        }
+        let captions = try await service.importCaptions(videoID: videoID, link: video, privacyClass: .clinical)
+        let captioned = await store.row(captions)
+        XCTAssertEqual(captioned?.privacyClass, .clinical)
+        XCTAssertEqual(captioned?.status, .completed)
+    }
+
     func testUnsupportedLinkThrowsTheClassifierReasonWithoutARow() async {
         let service = makeService(downloader: FakeMediaDownloader(.fail(FakeError(message: "unused"))))
         do {

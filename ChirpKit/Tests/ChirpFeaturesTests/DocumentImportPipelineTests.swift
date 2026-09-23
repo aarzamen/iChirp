@@ -110,6 +110,16 @@ final class DocumentImportPipelineTests: XCTestCase {
         XCTAssertTrue(fileExists(paths.mediaDirectory(for: id).appendingPathComponent("source.pdf")))
     }
 
+    /// Plan 022 review I1: Create imports a document with the class the person chose, from the row's first write.
+    func testImportCanCreateTheRowClinicalFromTheStart() async throws {
+        let pipeline = makePipeline(FakeExtractor(.succeed(Self.extracted)))
+        let id = try await pipeline.importItem(from: try makeFile("Synthetic referral.pdf"), privacyClass: .clinical)
+        let row = await store.row(id)
+        XCTAssertEqual(row?.privacyClass, .clinical)
+        let history = await store.classHistory(id)
+        XCTAssertEqual(history, [.clinical], "never stored Personal first")
+    }
+
     func testProcessSavesTextPagesTitleAndSnippet() async throws {
         let extractor = FakeExtractor(.succeed(Self.extracted))
         let pipeline = makePipeline(extractor)

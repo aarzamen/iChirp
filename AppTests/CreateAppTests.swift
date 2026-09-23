@@ -128,4 +128,27 @@ final class CreateAppTests: XCTestCase {
                 privacyClass: .clinical))
         XCTAssertEqual(draft.choices.input, .link, "only the choices are remembered")
     }
+
+    /// Review I1: a stopped chain says what it left, and a lookup or copy still running after the Stop is not called
+    /// "nothing was created".
+    func testAStoppedChainSaysWhatItLeft() {
+        XCTAssertEqual(
+            CreateRunView.stoppedNote(
+                input: .link, itemMade: false, makingInput: false, jobFinished: false, clinical: false),
+            "Stopped. Nothing was created.")
+        XCTAssertEqual(
+            CreateRunView.stoppedNote(
+                input: .link, itemMade: false, makingInput: true, jobFinished: false, clinical: true),
+            "Stopped. The link is still being looked up: if that finishes, the item it makes stays in your Library "
+                + "(marked Clinical).")
+        XCTAssertEqual(
+            CreateRunView.stoppedNote(
+                input: .file, itemMade: true, makingInput: false, jobFinished: false, clinical: true),
+            "Stopped. The item was already made and stays in your Library (marked Clinical). The Library shows its "
+                + "progress.")
+        XCTAssertEqual(
+            CreateRunView.stoppedNote(
+                input: .text, itemMade: true, makingInput: false, jobFinished: true, clinical: false),
+            "Stopped. What was already made stays in your Library.")
+    }
 }

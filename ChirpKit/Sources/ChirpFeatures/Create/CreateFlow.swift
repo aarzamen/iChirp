@@ -92,11 +92,14 @@ public struct CreateFlowDependencies {
     public var recordSpeech: @MainActor () async -> CreateSpeechOutcome
     /// Saves a text item (`TextItemService`) and returns it.
     public var saveText: @MainActor (String, PrivacyClass) async throws -> Transcription
-    /// Resolves a link and creates its row; download and transcription continue as a tracked job (YouTube captions
-    /// finish at once). Throws a readable error when nothing was created.
-    public var startLink: @MainActor (String) async throws -> UUID
-    /// Imports a picked file (audio, video or document) and starts its tracked job. Returns the new row's id.
-    public var startFile: @MainActor (URL) async throws -> UUID
+    /// Resolves a link and creates its row **with the given class** (the one the person chose: the row is never
+    /// stored less private, not even for a moment, so a Stop during the lookup cannot leave it Personal); download
+    /// and transcription continue as a tracked job (YouTube captions finish at once). Throws a readable error when
+    /// nothing was created.
+    public var startLink: @MainActor (String, PrivacyClass) async throws -> UUID
+    /// Imports a picked file (audio, video or document) **with the given class** and starts its tracked job. Returns
+    /// the new row's id.
+    public var startFile: @MainActor (URL, PrivacyClass) async throws -> UUID
     /// Returns the row as stored once its job has ended (at once when it has none); nil when it is gone.
     public var waitForItem: @MainActor (UUID) async -> Transcription?
     /// Re-runs a failed row's job (the Library's Retry).
@@ -109,8 +112,8 @@ public struct CreateFlowDependencies {
     public init(
         recordSpeech: @escaping @MainActor () async -> CreateSpeechOutcome,
         saveText: @escaping @MainActor (String, PrivacyClass) async throws -> Transcription,
-        startLink: @escaping @MainActor (String) async throws -> UUID,
-        startFile: @escaping @MainActor (URL) async throws -> UUID,
+        startLink: @escaping @MainActor (String, PrivacyClass) async throws -> UUID,
+        startFile: @escaping @MainActor (URL, PrivacyClass) async throws -> UUID,
         waitForItem: @escaping @MainActor (UUID) async -> Transcription?,
         retryItem: @escaping @MainActor (UUID) async -> Void,
         deliverables: DeliverableService,
@@ -134,7 +137,9 @@ public struct CreateFlowDependencies {
 /// - Each stage waits on the real completion of the service it calls; progress is the service's own (the job
 ///   center's `progress[itemID]`, the run's streamed text, the voice message's chunks). Nothing is simulated.
 /// - A failure stops the chain at that stage with a sentence; `retry()` starts again at that stage.
-/// - **Privacy:** a new item gets the requested class before any later step; the operation routes through
+/// - **Privacy:** a new item gets the requested class before any later step (link and file rows are created with it;
+///   a dictation's row, made by the Dictating screen, is raised the moment the chain learns its id, even after a
+///   Stop, since raising only ever makes it more private); the operation routes through
 ///   `DeliverableService` on the item's effective class as stored at every call, and the voice message on the source's
 ///   class as stored before every chunk. A clinical step bound off the phone waits for the existing per-run question,
 ///   which only the dialog answers (`onAnswered` resumes the chain). Jev is never called here.
@@ -165,8 +170,12 @@ public struct CreateFlowDependencies {
     public private(set) var request: CreateRequest?
     public private(set) var phase: Phase = .idle
     public private(set) var stages: [Stage: StageStatus] = [:]
-    /// The Library item the chain made, once it exists.
+    /// The Library item the chain made, once it exists. Also set when the item's lookup or copy finishes after a Stop:
+    /// what was already made stays in the Library (with the chosen class), and the stopped chain says so.
     public private(set) var itemID: UUID?
+    /// The input's service call (saving, the link lookup, the file copy, the dictation) has not returned yet. After a
+    /// Stop it may still make an item.
+    public private(set) var isMakingInput = false
     /// That item as stored after its transcription (or reading) ended.
     public private(set) var item: Transcription?
     /// The operation's run (its streamed text, its step and its clinical question).
@@ -236,7 +245,8 @@ public struct CreateFlowDependencies {
     }
 
     /// Stops the chain: a running model call or voice message stops and stores nothing. A transcription job already
-    /// started keeps going; its item stays in the Library.
+    /// started keeps going; its item stays in the Library. A link lookup or file copy still running finishes, and the
+    /// item it makes stays too (created with the chosen class; `itemID` names it).
     public func cancel() {
         guard isActive else { return }
         generation += 1
@@ -301,6 +311,8 @@ public struct CreateFlowDependencies {
     private func runInput(generation: Int) async -> StepResult {
         guard let request else { return .stop }
         if itemID == nil {
+            isMakingInput = true
+            defer { isMakingInput = false }
             do {
                 switch request.input {
                 case .speak:
@@ -308,12 +320,16 @@ public struct CreateFlowDependencies {
                     case .saved(let id):
                         itemID = id
                     case .failed(let id, let message):
-                        guard generation == self.generation else { return .stop }
-                        guard let id else { return fail(.input, message) }
-                        // The recording was kept: the item exists and its transcription is what failed.
+                        guard let id else {
+                            guard generation == self.generation else { return .stop }
+                            return fail(.input, message)
+                        }
+                        // The recording was kept: the item exists and its transcription is what failed. Its class
+                        // first, even after a Stop.
                         itemID = id
-                        stages[.input] = .done
                         await applyPrivacyClass(generation: generation)
+                        guard generation == self.generation else { return .stop }
+                        stages[.input] = .done
                         return fail(.transcribe, message)
                     case .discarded:
                         guard generation == self.generation else { return .stop }
@@ -327,20 +343,29 @@ public struct CreateFlowDependencies {
                     itemID = saved.id
                     item = saved
                 case .link(let link):
-                    itemID = try await dependencies.startLink(link)
+                    itemID = try await dependencies.startLink(link, request.privacyClass)
                 case .file(let url):
-                    itemID = try await dependencies.startFile(url)
+                    itemID = try await dependencies.startFile(url, request.privacyClass)
                 }
             } catch {
                 guard generation == self.generation else { return .stop }
                 return fail(.input, Self.message(for: error))
             }
         }
-        guard generation == self.generation else { return .stop }
+        // Review I1: the class before the Stop check. The item exists now whatever the chain does next, and raising
+        // only ever makes it more private (link, file and text rows already have it; this covers a dictation's row).
+        let marked = await applyPrivacyClass(generation: generation)
+        guard generation == self.generation else {
+            if let itemID {
+                logger.notice(
+                    "create_item_after_stop chain=\(self.chainID, privacy: .public) item=\(itemID, privacy: .public)")
+            }
+            return .stop
+        }
+        guard marked else { return .stop }
         logger.notice(
             "create_item chain=\(self.chainID, privacy: .public) item=\(self.itemID?.uuidString ?? "-", privacy: .public)"
         )
-        guard await applyPrivacyClass(generation: generation) else { return .stop }
         stages[.input] = .done
         return .done
     }
