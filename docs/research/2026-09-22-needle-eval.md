@@ -1,7 +1,7 @@
 ---
-title: Needle 3 on the synthetic eval set (first real numbers, re-run after both review fix rounds)
+title: Needle 3 on the synthetic eval set (first real numbers, re-run after each review fix round)
 date: 2026-09-22
-status: MEASURED (plan 015 Step 8, lane L3; re-run on branch fix/needle-safety after review L3, and on fix/needle-safety-2 after the re-review) — re-run on every needle-rs or weights bump
+status: MEASURED (plan 015 Step 8, lane L3; re-run on fix/needle-safety after review L3, on fix/needle-safety-2 after the re-review, and on fix/needle-allowlist after re-review 2, 2026-09-23) — re-run on every needle-rs or weights bump
 ---
 
 # Needle 3 vs the STUB on invented cases
@@ -9,8 +9,9 @@ status: MEASURED (plan 015 Step 8, lane L3; re-run on branch fix/needle-safety a
 **Verdict: Needle 3's base model is far below the bar.** On `soap-meds.v1` its argument accuracy is **44.6%**
 (ADR-012's change-my-mind line is ~90%), its field exact match 18%, and it copied or invented numbers wrongly 17 times
 in 48 sentences. The gate held. How the calls are counted: Needle made **57 calls, 5 of them `none`** (nothing to
-record); of the **52 field calls**, **51** went to **Needs review** and **1** passed, a provisional (dashed) BP of
-128/76 that was correct. No wrong number reached the draft in this run. The feature stays labelled **experimental**
+record); of the **52 field calls**, all **52** now go to **Needs review** (round 3, the allow-list; until then 51, and
+1 correct provisional BP of 128/76, which the allow-list now holds because the next sentence says "no"). No wrong number
+reached the draft in any run. The feature stays labelled **experimental**
 wherever it is used (Settings → Structure models, the Extract fields menu and sheet, voice commands), off the
 critical path, and every field is a draft for the clinician; only fields the clinician reviewed go to a SOAP note.
 The next step, if Needle is to earn its place, is fine-tuning on these two catalogs (the research's advice), or the
@@ -84,6 +85,43 @@ Read the STUB column with care: its rules and the synthetic cases were written b
 the STUB's numbers are an upper bound for rules on tidy text, not a prediction for real dictation. It exists so the app
 always works and so Needle has a baseline; it is labelled STUB everywhere.
 
+### Round 3: the allow-list (`fix/needle-allowlist`, 2026-09-23)
+
+Two deny-list rounds did not converge, so a medication or vital field is now clean only when `ClinicalFieldProof`
+proves it (a written grammar, exact numbers with nothing stray, no disqualifier in the sentence or the next two, an
+unambiguous vital name); `StructuredResultGate.review` decides every verdict, in the app and in this eval runner. The
+STUB also reads "was given" as started and matches routes as whole words. Same command and overrides as round 2
+(`CHIRP_NEEDLE_MODEL_FILE` = round 1's pinned file, SHA-256 `c9d915ec…`; `CHIRP_NEEDLE_WORK_DIR` in the session
+scratchpad); the run passed in 918 s.
+
+| | STUB (round 2 → 3) | Needle 3, normalizer on (round 2 → 3) | Needle 3, normalizer off (round 2 → 3) |
+|---|---|---|---|
+| SOAP tool-shape accuracy | 91.7% → 91.7% | 47.9% → 47.9% | 43.8% → 43.8% |
+| SOAP argument accuracy | 91.1% → **92.0%** | 44.6% → 44.6% | 42.9% → 42.9% |
+| SOAP field exact match | 88.0% → **90.0%** | 18.0% → 18.0% | 22.0% → 22.0% |
+| Numeric hard fails | 0 → 0 | 17 → 17 | 16 → 16 |
+| All calls / `none` / field calls | 59 / 13 / 46, same | 57 / 5 / 52, same | 60 / 5 / 55, same |
+| Field calls: act / provisional / Needs review | 0 / 46 / 0 → **0 / 35 / 11** | 0 / 1 / 51 → **0 / 0 / 52** | 0 / 0 / 55, same |
+| Medication and vital fields clean (the clean rate) | 32 of 32 → **21 of 32** | 1 of 33 → **0 of 33** | 0 of 33, same |
+| Needs review with every check passed (low confidence only) | 0 → 0 | 25 → 25 | 22 → 21 |
+| Commands: engine accuracy (gated) / feature accuracy / dictation eaten | 100% / 100% / 0, same | 53.3% / 56.7% / 0, same | same |
+| Seconds per sentence / per utterance (Mac) | < 0.01 | 6.97 / 2.45 → 9.33 / 2.65 | 7.94 / 2.43 → 6.62 / 2.42 |
+
+- **STUB.** The 11 medication or vital fields the allow-list now holds all had correct values; each gets one reason.
+  The next sentence's "no" (the ketorolac correction) holds soap-03's heart rate and BP. "If" holds prednisone in its
+  own sentence, azithromycin from the next sentence and soap-04's three vitals from two sentences on. "Puffs" holds
+  albuterol in its own sentence and soap-06's three vitals from the next. Nine of the 11 are held by a neighbouring
+  sentence: the ruling's literal "next two sentences" window at work, honest and noisy. The accuracy rise is fentanyl
+  "was given in triage", now started.
+- **Needle.** The same answers as round 2. Its one clean field, the correct BP 128/76, is now held by the next
+  sentence's "no"; 26 of its 33 medication or vital fields carry a proof reason on top of their other reasons.
+- **Latency** moved by run-to-run variation only: the review runs after the timed engine call, and nothing in the
+  prompt or runtime changed.
+- The synthetic safety corpus (`ChirpFeaturesTests/Fixtures/clinical-safety-corpus.json`, 243 entries) is where the
+  phrasings the eval lacks are measured: on the round-2 reviewer's 30-sentence ordinary dictation run as one
+  transcript, 26 of 32 STUB medication or vital fields were clean before and **9 after**; the same 30 sentences one by
+  one, with the other ordinary phrasings: 44 of 49 before, 37 after.
+
 ## What Needle got wrong (patterns)
 
 - **Tool choice.** It files problems, plan items and framing sentences under `add_allergy` ("History of hypertension"
@@ -117,6 +155,8 @@ app in line with the CLI. Any future catalog must keep that order; `StructureCat
   screen where it is used says so with these numbers (`NeedleExperimental` in `StructureSettingsViewModel.swift`;
   update it with this file), every field is a draft, failed checks never reach the draft, and "Use in SOAP note"
   sends only reviewed fields.
+- Round 3 (2026-09-23): a medication or vital field reaches the draft only when the allow-list proof accepts its
+  sentence; "Experimental" stays (argument accuracy unchanged at 44.6%).
 - Clinical safety held on every case: no number reached the draft without tracing to the normalizer's side table,
   agreeing with an **independent** reading of its words (spell-out `NumberFormatter`, not the normalizer), and passing
   its range check; nothing left the Mac. The first run's known limit, a real but wrong tag of the right kind, is now

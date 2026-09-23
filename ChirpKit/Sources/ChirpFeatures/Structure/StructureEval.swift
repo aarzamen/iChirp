@@ -345,8 +345,11 @@ public enum StructureEvalScorer {
             meanSecondsPerUtterance: scores.map(\.seconds).reduce(0, +) / Double(count), scores: scores)
     }
 
-    /// A validated call as the scorer reads it: tag arguments by their display value.
-    static func predicted(_ call: ValidatedCall, verdict: StructuredVerdict) -> PredictedCall {
+    /// A validated call as the scorer reads it: tag arguments by their display value. `problems` are the reasons the
+    /// gate's review gave (the validator's own when nil).
+    static func predicted(_ call: ValidatedCall, verdict: StructuredVerdict, problems: [String]? = nil)
+        -> PredictedCall
+    {
         var arguments: [String: String] = [:]
         for (key, value) in call.arguments {
             if let display = value["display"]?.stringValue {
@@ -359,7 +362,7 @@ public enum StructureEvalScorer {
         }
         return PredictedCall(
             name: call.tool, arguments: arguments, verdict: verdict, numericHardFail: call.numericHardFail,
-            problems: call.problems)
+            problems: problems ?? call.problems)
     }
 }
 
@@ -388,11 +391,13 @@ public struct StructureEvalRunner: Sendable {
         var soapScores: [SOAPSentenceScore] = []
         let catalog = StructureCatalog.soapMeds
         for evalCase in soap.cases {
-            for (position, sentence) in evalCase.sentences.enumerated() {
+            var answered: [SentenceCalls] = []
+            var asked: [(input: String, confidence: Double?, seconds: Double, error: String?)] = []
+            for sentence in evalCase.sentences {
                 let normalized = NumericNormalizer.normalize(sentence.text)
                 let input = normalizer ? normalized.tagged : sentence.text
                 let started = Date()
-                var predicted: [PredictedCall] = []
+                var calls: [ValidatedCall] = []
                 var confidence: Double?
                 var failure: String?
                 do {
@@ -401,16 +406,8 @@ public struct StructureEvalRunner: Sendable {
                     confidence = output.confidence
                     modelSHA256 = output.modelSHA256 ?? modelSHA256
                     if !output.isAbstention {
-                        if let calls = StructuredCall.parseArray(output.json) {
-                            predicted = StructuredCallValidator.validate(
-                                calls, sentence: normalized, catalog: catalog
-                            ).map { validated in
-                                StructureEvalScorer.predicted(
-                                    validated,
-                                    verdict: gate.verdict(
-                                        confidence: output.confidence, problems: validated.problems,
-                                        engineID: engine.descriptor.id))
-                            }
+                        if let parsed = StructuredCall.parseArray(output.json) {
+                            calls = StructuredCallValidator.validate(parsed, sentence: normalized, catalog: catalog)
                         } else {
                             failure = "not a call array: \(output.json.prefix(80))"
                         }
@@ -418,24 +415,21 @@ public struct StructureEvalRunner: Sendable {
                 } catch {
                     failure = (error as? any LocalizedError)?.errorDescription ?? "\(error)"
                 }
-                // Re-review N1: the same cross-sentence correction rule as the Extract fields screen.
-                if position > 0,
-                    let correction = CrossSentenceCorrection.check(normalized, tools: predicted.map(\.name))
-                {
-                    let previous = soapScores.count - 1
-                    for index in soapScores[previous].predicted.indices
-                    where soapScores[previous].predicted[index].name != "none" {
-                        soapScores[previous].predicted[index].problems += correction.reasons(
-                            forTool: soapScores[previous].predicted[index].name)
-                        soapScores[previous].predicted[index].verdict = .needsReview
-                    }
-                }
-                soapScores.append(
-                    StructureEvalScorer.score(
-                        caseID: evalCase.id, sentence: sentence, input: input, predicted: predicted,
-                        confidence: confidence, seconds: Date().timeIntervalSince(started), error: failure))
+                answered.append(SentenceCalls(sentence: normalized, calls: calls, confidence: confidence ?? 0))
+                asked.append((input, confidence, Date().timeIntervalSince(started), failure))
                 done += 1
                 progress(done, total)
+            }
+            // Round 3: the same review as the Extract fields screen (allow-list proof, thresholds, STUB cap, a
+            // correction in the next sentence), within one encounter.
+            for (index, reviewed) in gate.review(answered, engineID: engine.descriptor.id).enumerated() {
+                soapScores.append(
+                    StructureEvalScorer.score(
+                        caseID: evalCase.id, sentence: evalCase.sentences[index], input: asked[index].input,
+                        predicted: reviewed.map {
+                            StructureEvalScorer.predicted($0.call, verdict: $0.verdict, problems: $0.reasons)
+                        },
+                        confidence: asked[index].confidence, seconds: asked[index].seconds, error: asked[index].error))
             }
         }
         let resolver = VoiceCommandResolver(engine: engine, gate: gate)

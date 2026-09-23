@@ -115,19 +115,65 @@ final class VoiceCommandResolverTests: XCTestCase {
         }
     }
 
-    func testScratchThatRemovesTheWholeOrderWhenACapitalFollowsAnAbbreviation() async {
+    /// Round 3 (replaces round 2's walk-back through abbreviations): a sentence split after an abbreviation ("500 mg.
+    /// Three times daily.", "p.o. With food.") may be the rest of the same order or a new one, so "scratch that" is
+    /// not applied. The text stays as dictated, "Scratch that." included, and the result is marked.
+    func testScratchThatAfterAnAbbreviationIsNotAppliedAndIsMarked() async {
         let caps = await resolve("Start amoxicillin 500 mg p.o. TID. Scratch that.")
-        XCTAssertEqual(caps.text, "", "never “Start amoxicillin 500 mg p.o.”")
-        let unit = await resolve("Start amoxicillin 500 mg. Three times daily. Scratch that.")
-        XCTAssertEqual(unit.text, "", "the order split after “mg.” is still one order")
+        XCTAssertEqual(caps.text, "", "one sentence (“p.o. TID” never splits): never “Start amoxicillin 500 mg p.o.”")
+        XCTAssertEqual(caps.unresolved, [])
+        let unit = "Start amoxicillin 500 mg. Three times daily. Scratch that."
+        let unresolved = await resolve(unit)
+        XCTAssertEqual(unresolved.text, unit, "nothing removed, nothing kept in part")
+        XCTAssertEqual(unresolved.unresolved.map(\.command), ["scratch_that"])
+        XCTAssertEqual(unresolved.applied, [], "not applied, so not listed as applied")
         let kept = await resolve("Patient seen. Start amoxicillin 500 mg p.o. TID. Scratch that. Recheck in two weeks.")
-        XCTAssertEqual(kept.text, "Patient seen. Recheck in two weeks.")
+        XCTAssertEqual(kept.text, "Patient seen. Recheck in two weeks.", "a certain boundary: the order goes")
         for abbreviation in ["p.o.", "b.i.d.", "t.i.d.", "q.i.d.", "q.d.", "q.h.s.", "p.r.n.", "i.v.", "i.m.", "s.c."] {
-            let order = await resolve("Patient seen. Give drug 5 mg \(abbreviation) With food. Scratch that.")
-            XCTAssertEqual(order.text, "Patient seen.", abbreviation)
+            let text = "Patient seen. Give drug 5 mg \(abbreviation) With food. Scratch that."
+            let order = await resolve(text)
+            XCTAssertEqual(order.text, text, abbreviation)
+            XCTAssertFalse(order.unresolved.isEmpty, abbreviation)
         }
         let undone = await resolve("Start amoxicillin 500 mg. Three times daily. Scratch that. Undo.")
-        XCTAssertEqual(undone.text, "Start amoxicillin 500 mg. Three times daily.", "undo restores the whole order")
+        XCTAssertEqual(undone.text, "Start amoxicillin 500 mg. Three times daily.", "undo takes the command back")
+        XCTAssertEqual(undone.unresolved, [], "nothing left to check once it was undone")
+    }
+
+    /// Round 3, re-review 2 I-6: "mg." at a sentence end is not a certain boundary, so an earlier separate order is
+    /// never dropped. A certain boundary (a plain word before the period, a new verb after it) still applies.
+    func testScratchThatNeverDropsAnEarlierSeparateOrder() async {
+        for text in [
+            "Continue lisinopril 10 mg. Start metformin 500 mg. Scratch that.",
+            "Aspirin 81 mg. Lisinopril 10 mg. Metformin 500 mg. Scratch that.",
+            "Allergic to penicillin. Continue lisinopril 10 mg. Start metformin 500 mg BID. Scratch that.",
+            "Start amoxicillin 500. Milligrams three times a day. Scratch that.",
+            "Give fentanyl 50 micrograms. IV. Scratch that.",
+        ] {
+            let result = await resolve(text)
+            XCTAssertEqual(result.text, text, "unchanged, never an empty copy")
+            XCTAssertEqual(result.unresolved.map(\.command), ["scratch_that"], text)
+        }
+        let certain = await resolve("Continue lisinopril daily. Start metformin twice daily. Scratch that.")
+        XCTAssertEqual(certain.text, "Continue lisinopril daily.")
+        XCTAssertEqual(certain.unresolved, [])
+        XCTAssertEqual(VoiceCommandResult.unresolvedMessage, "Couldn't tell what to scratch — check before copying.")
+    }
+
+    @MainActor
+    func testTheDoneLineSaysWhenAScratchWasNotApplied() async {
+        var settings = StructureSettings()
+        settings.voiceCommandsEnabled = true
+        settings.engine = .stub
+        let commands = DictationVoiceCommands(
+            settings: InMemoryStructureSettingsStore(settings),
+            engines: StructureEngines(needle: nil, needleAvailability: { .unavailable("x") }), pauseSeconds: 0)
+        let result = await commands.applyToFinalPass("Continue lisinopril 10 mg. Start metformin 500 mg. Scratch that.")
+        XCTAssertEqual(result.text, "Continue lisinopril 10 mg. Start metformin 500 mg. Scratch that.")
+        XCTAssertEqual(commands.unresolvedSummary, VoiceCommandResult.unresolvedMessage)
+        XCTAssertNil(commands.appliedSummary, "nothing was applied")
+        _ = await commands.applyToFinalPass("Keep this. Drop this. Scratch that.")
+        XCTAssertNil(commands.unresolvedSummary)
     }
 
     func testTheAnswerNoIsKeptWhenTheNextOrderIsScratched() async {

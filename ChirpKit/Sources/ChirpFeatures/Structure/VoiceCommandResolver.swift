@@ -30,6 +30,12 @@ public struct VoiceCommandResult: Sendable, Equatable {
     /// Command-shaped sentences the engine did not confirm at the act threshold: left in the text as dictated.
     public var ignored: [VoiceCommandMatch]
     public var actions: [VoiceCommandAction]
+    /// Round 3: a confirmed "scratch that" whose sentence boundary was not certain. It was **not** applied: the text
+    /// is unchanged (the command's own words stay in it) and the Done line shows `unresolvedMessage`.
+    public var unresolved: [VoiceCommandMatch] = []
+
+    /// What the Done line and the voice-command tester say when a "scratch that" was not applied.
+    public static let unresolvedMessage = "Couldn't tell what to scratch — check before copying."
 
     public static func unchanged(_ text: String) -> VoiceCommandResult {
         VoiceCommandResult(text: text, applied: [], ignored: [], actions: [])
@@ -67,16 +73,15 @@ public struct VoiceCommandResolver: Sendable {
         for segment in Self.segments(in: text) {
             let sentence = segment.text
             guard let candidate = candidate(for: sentence) else {
-                ops.append(.text(sentence, continues: segment.continuesPrevious))
+                ops.append(.text(sentence, certainStart: segment.startIsCertain))
                 continue
             }
             let match = await confirm(sentence, as: candidate, privacyClass: privacyClass)
             guard let match, gate.verdict(confidence: match.confidence) == .act else {
                 if let match { ignored.append(match) }
-                ops.append(.text(sentence, continues: segment.continuesPrevious))
+                ops.append(.text(sentence, certainStart: segment.startIsCertain))
                 continue
             }
-            applied.append(match)
             switch candidate {
             case "read_back": actions.append(.readBack)
             case "send_to_soap": actions.append(.sendToSOAP)
@@ -85,25 +90,27 @@ public struct VoiceCommandResolver: Sendable {
             case "undo":
                 if let index = ops.lastIndex(where: \.isUndoable) { ops.remove(at: index) }
             case "scratch_that":
-                // Re-review I9-R: the whole order, back through sentences split only after an abbreviation ("500 mg.
-                // Three times daily." is one order).
+                // Round 3: the last dictated sentence goes only when where it starts is certain. Otherwise nothing is
+                // removed: the text stays as dictated, the command's words included, and the result says so. It never
+                // drops an earlier separate order and never keeps part of one.
                 let scratched = Set(ops.flatMap(\.scratchedIndices))
-                if var index = ops.indices.last(where: { ops[$0].isText && !scratched.contains($0) }) {
-                    var removed = [index]
-                    while ops[index].continuesPrevious, index > 0, ops[index - 1].isText, !scratched.contains(index - 1)
-                    {
-                        index -= 1
-                        removed.append(index)
-                    }
-                    ops.append(.scratch(removed))
+                if let index = ops.indices.last(where: { ops[$0].isText && !scratched.contains($0) }),
+                    !ops[index].hasCertainStart
+                {
+                    ops.append(.unresolvedScratch(sentence, match))
+                    continue
+                }
+                if let index = ops.indices.last(where: { ops[$0].isText && !scratched.contains($0) }) {
+                    ops.append(.scratch([index]))
                 }
             default:
                 ops.append(.edit(candidate))
             }
+            applied.append(match)
         }
         return VoiceCommandResult(
             text: Self.render(ops).trimmingCharacters(in: .whitespacesAndNewlines), applied: applied, ignored: ignored,
-            actions: actions)
+            actions: actions, unresolved: ops.compactMap(\.unresolvedMatch))
     }
 
     // MARK: - Live preview
@@ -158,29 +165,42 @@ public struct VoiceCommandResolver: Sendable {
         segments(in: text).map(\.text)
     }
 
-    /// One sentence of the final text, and whether it was split from the one before only after an abbreviation.
+    /// One sentence of the final text, and what is known about where it starts.
     public struct Segment: Sendable, Equatable {
         public var text: String
         /// Split from the previous sentence after an abbreviation followed by a capital ("500 mg. Three times
-        /// daily."): "scratch that" removes both (re-review I9-R).
+        /// daily.").
         public var continuesPrevious: Bool
+        /// Round 3: the sentence certainly starts a new thought, so "scratch that" may remove it alone. True for the
+        /// first sentence, after a line break, "?" or "!", and after a period that follows a plain word, when the
+        /// sentence does not open with a number, unit, route or timing word ("Three times daily.", "With food.").
+        /// False after an abbreviation ("p.o.", "mg."), a number or a spelled unit ("500.", "milligrams.").
+        public var startIsCertain: Bool
     }
 
-    /// `sentences(in:)` with each sentence's `continuesPrevious`.
+    /// `sentences(in:)` with each sentence's `continuesPrevious` and `startIsCertain`.
     public static func segments(in text: String) -> [Segment] {
         var result: [Segment] = []
         var current = ""
         var continues = false
+        var certain = true
         let characters = Array(text)
-        func close(nextContinues: Bool) {
+        func close(nextContinues: Bool, nextCertain: Bool) {
             let trimmed = current.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty { result.append(Segment(text: trimmed, continuesPrevious: continues)) }
+            if !trimmed.isEmpty {
+                let opensAsContinuation = !result.isEmpty && opensWithContinuation(trimmed)
+                result.append(
+                    Segment(
+                        text: trimmed, continuesPrevious: continues,
+                        startIsCertain: result.isEmpty || (certain && !opensAsContinuation)))
+            }
             current = ""
             continues = nextContinues
+            certain = nextCertain
         }
         for (index, character) in characters.enumerated() {
             if character == "\n" {
-                close(nextContinues: false)
+                close(nextContinues: false, nextCertain: true)
                 continue
             }
             current.append(character)
@@ -191,16 +211,49 @@ public struct VoiceCommandResolver: Sendable {
                 let following = rest.first == "\n" ? nil : String(rest.prefix { !$0.isWhitespace })
                 switch boundary(after: current, following: following) {
                 case .none: continue
-                case .soft: close(nextContinues: true)
-                case .hard: close(nextContinues: false)
+                case .soft: close(nextContinues: true, nextCertain: false)
+                case .hard: close(nextContinues: false, nextCertain: !endsMidOrder(current))
                 }
                 continue
             }
-            close(nextContinues: false)
+            close(nextContinues: false, nextCertain: true)
         }
-        close(nextContinues: false)
+        close(nextContinues: false, nextCertain: true)
         return result
     }
+
+    /// Round 3: a sentence that ends with a number or a spelled unit ("Start amoxicillin 500.", "… 25 milligrams.")
+    /// may stop in the middle of an order.
+    static func endsMidOrder(_ sentence: String) -> Bool {
+        guard let last = VoiceCommandText.words(sentence).last else { return false }
+        return last.first?.isNumber == true || numberWords.contains(last) || spelledUnits.contains(last)
+    }
+
+    /// Round 3: a sentence that opens like the rest of an order ("Three times daily.", "500 mg.", "PO.", "With
+    /// food.", "For 10 days.").
+    static func opensWithContinuation(_ sentence: String) -> Bool {
+        guard let first = VoiceCommandText.words(sentence).first else { return false }
+        return first.first?.isNumber == true || numberWords.contains(first) || spelledUnits.contains(first)
+            || continuationStarts.contains(first) || dosingAcronyms.contains(first)
+            || continuingAbbreviations.contains(first) || first.range(of: #"^q\d"#, options: .regularExpression) != nil
+    }
+
+    static let numberWords: Set<String> = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+        "fifteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        "thousand", "half", "once", "twice", "point",
+    ]
+    /// Units that are not also everyday words ("drop", "cap" are left out: "Drop this." starts a new thought).
+    static let spelledUnits: Set<String> = [
+        "milligram", "milligrams", "microgram", "micrograms", "gram", "grams", "unit", "units", "milliliter",
+        "milliliters", "cc", "ccs", "tablet", "tablets", "capsule", "capsules", "puff", "puffs", "meq", "mg", "mcg",
+        "ml", "g", "tab", "tabs",
+    ]
+    static let continuationStarts: Set<String> = [
+        "daily", "nightly", "weekly", "every", "each", "times", "x", "for", "with", "without", "then", "and", "or",
+        "plus", "until", "at", "in", "on", "before", "after", "by", "per", "orally", "intravenously",
+        "subcutaneously", "sublingually", "topically", "as", "to", "via", "p", "q",
+    ]
 
     enum Boundary { case none, soft, hard }
 
@@ -231,7 +284,7 @@ public struct VoiceCommandResolver: Sendable {
     ]
     /// Clinical and unit abbreviations (without their last period) that do not end an order: a lowercase word after
     /// them continues the sentence, a capitalized dosing acronym ("TID") too, and any other capital starts a sentence
-    /// that "scratch that" still treats as part of the same order (re-review I9-R).
+    /// whose start is not certain, so "scratch that" is not applied to it (round 3).
     public static let continuingAbbreviations: Set<String> = [
         "p.o", "b.i.d", "t.i.d", "q.i.d", "q.d", "q.h.s", "p.r.n", "i.v", "i.m", "s.c", "s.l", "o.d", "o.s", "o.u",
         "e.g", "i.e", "mg", "mcg", "ml", "g", "kg", "tab", "tabs", "cap", "caps", "hr", "hrs", "min", "mins", "sec",
@@ -247,16 +300,22 @@ public struct VoiceCommandResolver: Sendable {
     // MARK: - Rendering
 
     enum Op: Equatable {
-        /// A dictated sentence; `continues` when it was split from the one before only after an abbreviation.
-        case text(String, continues: Bool)
+        /// A dictated sentence; `certainStart` when "scratch that" may remove it alone (`Segment.startIsCertain`).
+        case text(String, certainStart: Bool)
         case edit(String)
-        /// Removes the text ops at these indices (one order, re-review I9-R).
+        /// Removes the text ops at these indices.
         case scratch([Int])
+        /// Round 3: a "scratch that" that was not applied (the boundary was not certain). Its words stay in the text;
+        /// "undo" removes them.
+        case unresolvedScratch(String, VoiceCommandMatch)
 
         var isText: Bool { if case .text = self { true } else { false } }
         var isUndoable: Bool { if case .text = self { false } else { true } }
-        var continuesPrevious: Bool { if case .text(_, let continues) = self { continues } else { false } }
+        var hasCertainStart: Bool { if case .text(_, let certain) = self { certain } else { false } }
         var scratchedIndices: [Int] { if case .scratch(let indices) = self { indices } else { [] } }
+        var unresolvedMatch: VoiceCommandMatch? {
+            if case .unresolvedScratch(_, let match) = self { match } else { nil }
+        }
     }
 
     static func render(_ ops: [Op]) -> String {
@@ -264,7 +323,7 @@ public struct VoiceCommandResolver: Sendable {
         var output = ""
         for (index, op) in ops.enumerated() {
             switch op {
-            case .text(let sentence, _):
+            case .text(let sentence, _), .unresolvedScratch(let sentence, _):
                 guard !scratched.contains(index) else { continue }
                 if output.isEmpty || output.hasSuffix("\n") {
                     output += sentence

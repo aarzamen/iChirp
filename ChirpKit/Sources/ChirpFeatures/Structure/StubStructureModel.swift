@@ -169,14 +169,19 @@ public struct StubStructureModel: StructureModel {
         return calls
     }
 
+    /// Round 3: whole words only ("post-op" is not PO; "IM." at a sentence end is IM), as the allow-list proof reads a
+    /// route.
     static func route(in window: String) -> String {
-        if window.contains("by mouth") || window.contains(" po") || window.contains("oral") { return "PO" }
-        if window.contains(" iv") || window.contains("intravenous") { return "IV" }
-        if window.contains(" im ") || window.contains("intramuscular") { return "IM" }
-        if window.contains("subcutaneous") || window.contains("subq") || window.contains(" sc ") { return "SC" }
-        if window.contains("sublingual") { return "SL" }
-        if window.contains("inhaler") || window.contains("inhaled") || window.contains("puff") { return "inhaled" }
-        if window.contains("cream") || window.contains("topical") || window.contains("ointment") { return "topical" }
+        let routes: [(String, String)] = [
+            ("PO", #"by mouth|po|p\.o\.|oral|orally"#), ("IV", #"iv|i\.v\.|intravenous|intravenously"#),
+            ("IM", #"im|i\.m\.|intramuscular|intramuscularly"#),
+            ("SC", #"subcutaneous|subcutaneously|subq|sc|sq|s\.c\."#), ("SL", #"sublingual|sublingually"#),
+            ("inhaled", #"inhaler|inhaled|puffs?|nebulized"#), ("topical", #"cream|topical|topically|ointment"#),
+        ]
+        for (route, words) in routes
+        where window.range(of: "(?<![a-z])(\(words))(?![a-z])", options: .regularExpression) != nil {
+            return route
+        }
         return "unknown"
     }
 
@@ -185,7 +190,13 @@ public struct StubStructureModel: StructureModel {
         let rules: [(String, String)] = [
             ("stopped", #"\b(stopped|stop|discontinued?|hold|held|came off)\b"#),
             ("considering", #"\b(consider|considering|might|may start|could start|thinking about)\b"#),
-            ("started", #"\b(started|start|starting|begin|began|initiated?|prescribed|new)\b"#),
+            // Round 3: a dose given today ("gave", "was given", "administered", "received") is started, as the
+            // allow-list proof reads it.
+            (
+                "started",
+                #"\b(started|start|starting|begin|began|initiated?|prescribed|new|give|gave|given|giving|"#
+                    + #"administered|received)\b"#
+            ),
             ("taking", #"\b(takes|taking|is on|remains on|continues?|home meds|uses)\b"#),
         ]
         func matches(_ text: String) -> [(status: String, location: Int)] {

@@ -50,6 +50,17 @@ struct DictationVoiceCommandBar: View {
             if state.isCapturing || state == .stopping || state == .pendingStop, let chip = commands.chip {
                 VoiceCommandChipView(chip: chip)
             }
+            // Round 3: a "scratch that" whose sentence boundary was not certain was not applied; the copied text still
+            // holds the words, so say it where the person looks before pasting.
+            if state == .done, let warning = commands.unresolvedSummary {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Tokens.Color.dictationAccent.opacity(0.35)))
+                    .accessibilityLabel("Voice command not applied. \(warning)")
+            }
             if state == .done, let summary = commands.appliedSummary {
                 Text(summary)
                     .font(.system(size: 13))
@@ -185,6 +196,9 @@ struct VoiceCommandTesterScreen: View {
         if !result.ignored.isEmpty {
             parts.append(
                 "Below the act threshold, kept as dictated: " + result.ignored.map(\.utterance).joined(separator: " "))
+        }
+        if !result.unresolved.isEmpty {
+            parts.append("Not applied: \(VoiceCommandResult.unresolvedMessage)")
         }
         if !result.actions.isEmpty {
             parts.append("After copy: " + result.actions.map(\.rawValue).joined(separator: ", "))
