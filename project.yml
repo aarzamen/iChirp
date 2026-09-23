@@ -24,6 +24,10 @@ targets:
       # M4: language models (Apple on-device, HTTP providers) and the Keychain key store. No entitlement needed.
       - package: ChirpKit
         products: [ChirpEngineAppleFM, ChirpEngineHTTPLLM, ChirpKeychain]
+      # M6: Needle 3 (structure model) on needle-rs source; without vendor/NeedleC.xcframework it says "not in this
+      # build". No entitlement or capability.
+      - package: ChirpKit
+        products: [ChirpEngineNeedle]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:

@@ -27,6 +27,8 @@ struct TranscriptScreen: View {
     @State private var selectedTab: TranscriptTab = .transcript
     @State private var ask: AskSessionViewModel
     @State private var isTransforming = false
+    /// M6: Extract fields (Needle 3 or the STUB), a draft card for review.
+    @State private var isExtractingFields = false
 
     enum TranscriptTab { case transcript, ask }
 
@@ -77,6 +79,15 @@ struct TranscriptScreen: View {
                 TransformSheet(
                     transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
                     environment: environment)
+            }
+        }
+        .sheet(isPresented: $isExtractingFields) {
+            if let item = model.transcription {
+                ExtractFieldsSheet(
+                    transcriptionID: id, transcriptTitle: item.displayTitle, environment: environment,
+                    onSeek: { ms in seek(toMs: ms) }
+                )
+                .presentationDetents([.medium, .large])
             }
         }
         .sheet(item: $shareItem) { item in
@@ -164,6 +175,11 @@ struct TranscriptScreen: View {
                     copyText()
                 } label: {
                     Label("Copy Text", systemImage: "doc.on.doc")
+                }
+                Button {
+                    isExtractingFields = true
+                } label: {
+                    Label("Extract fields (Needle)", systemImage: "list.bullet.rectangle")
                 }
             }
         } label: {

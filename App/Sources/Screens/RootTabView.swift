@@ -52,6 +52,8 @@ struct RootTabView: View {
         }
         // M3: the Meeting screen while a meeting runs, and the launch recovery sheet (App/Sources/Screens/Meeting).
         .meetingPresentation()
+        // M6: DEBUG-only screenshot launch arguments (App/Sources/Debug/StructurePreviewLaunch.swift).
+        .structurePreviewLaunch(environment: environment)
         .sheet(item: pendingTrackChoice) { request in
             // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
             AudioTrackPickerSheet(

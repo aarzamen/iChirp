@@ -22,6 +22,8 @@ struct DocumentScreen: View {
     @State private var renameText = ""
     @State private var copied = false
     @State private var isTransforming = false
+    /// M6: Extract fields from a typed or pasted note (no audio, so a field cannot seek).
+    @State private var isExtractingFields = false
 
     /// Formats that make sense without timings.
     static let exportFormats: [ExportFormat] = [.txt, .markdown, .json]
@@ -63,6 +65,13 @@ struct DocumentScreen: View {
                     TransformSheet(
                         transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
                         environment: environment)
+                }
+            }
+            .sheet(isPresented: $isExtractingFields) {
+                if let item = model.transcription {
+                    ExtractFieldsSheet(
+                        transcriptionID: id, transcriptTitle: item.displayTitle, environment: environment,
+                        onSeek: { _ in })
                 }
             }
             .sheet(item: $shareItem) { item in
@@ -147,6 +156,11 @@ struct DocumentScreen: View {
                     copyText()
                 } label: {
                     Label("Copy Text", systemImage: "doc.on.doc")
+                }
+                Button {
+                    isExtractingFields = true
+                } label: {
+                    Label("Extract fields (Needle)", systemImage: "list.bullet.rectangle")
                 }
             }
         } label: {

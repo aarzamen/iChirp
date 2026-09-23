@@ -1,0 +1,73 @@
+import ChirpFeatures
+import SwiftUI
+
+/// DEBUG-only launch arguments for checking the M6 structure-model screens in the Simulator without tapping
+/// (screenshots, QA). Release builds ignore every one of them.
+///
+/// - `-ChirpStructureEngine stub|needle`: sets Settings → Structure models → Engine before anything runs.
+/// - `-ChirpExtractFields`: once launch housekeeping is done, opens Extract fields on the newest Library item and
+///   runs it (pair with `-ChirpImportDocument <path>` to import a synthetic note first).
+enum StructurePreviewLaunch {
+    static let engineArgument = "-ChirpStructureEngine"
+    static let extractFieldsArgument = "-ChirpExtractFields"
+
+    enum Screen: Identifiable {
+        case extract(id: UUID, title: String)
+
+        var id: String {
+            switch self {
+            case .extract(let id, _): "extract-\(id)"
+            }
+        }
+    }
+}
+
+extension View {
+    /// Applies the DEBUG launch arguments above. A no-op in Release builds.
+    func structurePreviewLaunch(environment: AppEnvironment) -> some View {
+        #if DEBUG
+        modifier(StructurePreviewLaunchModifier(environment: environment))
+        #else
+        self
+        #endif
+    }
+}
+
+#if DEBUG
+private struct StructurePreviewLaunchModifier: ViewModifier {
+    let environment: AppEnvironment
+    @State private var screen: StructurePreviewLaunch.Screen?
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $screen) { screen in
+                switch screen {
+                case .extract(let id, let title):
+                    ExtractFieldsSheet(
+                        transcriptionID: id, transcriptTitle: title, environment: environment, autoStart: true,
+                        onSeek: { _ in })
+                }
+            }
+            .task { await apply() }
+    }
+
+    private func apply() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let engine = IngestPreviewLaunch.value(after: StructurePreviewLaunch.engineArgument),
+            let choice = StructureEngineChoice(rawValue: engine)
+        {
+            environment.structureSettings.settingsValue.engine = choice
+        }
+        guard arguments.contains(StructurePreviewLaunch.extractFieldsArgument) else { return }
+        await environment.launch()
+        // Wait (at most fifteen seconds) for an imported item to finish reading.
+        for _ in 0..<60 where environment.library.items.first?.status != .completed {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        await environment.structureSettings.refresh()
+        if let newest = environment.library.items.first {
+            screen = .extract(id: newest.id, title: newest.displayTitle)
+        }
+    }
+}
+#endif

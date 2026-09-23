@@ -23,6 +23,7 @@ struct SettingsScreen: View {
                     MeetingSettingsGroup()  // M3
                     speechGroup
                     privacyGroup
+                    StructureModelsSettingsGroup()  // M6: Needle 3, the STUB, the gate, voice commands, Eval
                     textGroup
                     AboutSection()
                     #if DEBUG

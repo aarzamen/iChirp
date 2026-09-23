@@ -1,6 +1,7 @@
 import ChirpAudio
 import ChirpCore
 import ChirpEngineFluidAudio
+import ChirpEngineNeedle
 import ChirpExport
 import ChirpFeatures
 import ChirpIngest
@@ -73,6 +74,11 @@ import Observation
     let languageModels: LanguageModelsViewModel
     /// M4: the Transforms tab's templates and recent documents.
     let deliverableLibrary: DeliverableLibraryViewModel
+    // M6 (plan 015): Needle 3 on this iPhone, the STUB, the evidence ledger and Settings → Structure models.
+    let needle: NeedleStructureModel
+    let structureSettings: StructureSettingsViewModel
+    let structuredExtraction: StructuredExtractionService
+    let structuredResults: GRDBStructuredResultStore
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
     /// the "download the model" banner before it knows).
     private(set) var isLaunched = false
@@ -211,6 +217,26 @@ import Observation
             transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
         self.languageModels = LanguageModelsViewModel(store: providerStore, factory: AppLanguageModelFactory())
         self.deliverableLibrary = DeliverableLibraryViewModel(store: deliverableStore)
+        // M6: Needle's model lives outside the backed-up library folder (it can be downloaded again).
+        let needle = NeedleEngines.makeDefault(
+            modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true))
+        let structureStore = UserDefaultsStructureSettingsStore()
+        let structuredResults = GRDBStructuredResultStore(database: database)
+        self.needle = needle
+        self.structuredResults = structuredResults
+        self.structureSettings = StructureSettingsViewModel(
+            store: structureStore, needleAssets: needle, needleInBuild: needle.isRuntimeInBuild,
+            notInBuildMessage: NeedleRuntimeInfo.notInBuildMessage,
+            needleDownloadBytes: needle.descriptor.approximateDownloadBytes, needleModelSHA256: needle.modelSHA256)
+        self.structuredExtraction = StructuredExtractionService(
+            transcripts: store, results: structuredResults, settings: structureStore,
+            engines: StructureEngines(
+                needle: needle,
+                needleAvailability: {
+                    guard needle.isRuntimeInBuild else { return .unavailable(NeedleRuntimeInfo.notInBuildMessage) }
+                    if case .ready = await needle.assetStatus() { return .ready }
+                    return .unavailable("Download Needle 3 in Settings → Structure models.")
+                }))
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }
@@ -441,6 +467,14 @@ import Observation
         let meetingSettings = self.meetingSettings
         downloadModel(title: "Voice activity model") { onProgress in
             await meetingSettings.downloadVoiceActivityModel(onProgress: onProgress)
+        }
+    }
+
+    /// Settings → Structure models: Needle 3's model file (about 35 MB, SHA-256 checked).
+    func downloadNeedleModel() {
+        let structure = structureSettings
+        downloadModel(title: "Needle 3 model") { onProgress in
+            await structure.downloadNeedle(onProgress: onProgress)
         }
     }
 

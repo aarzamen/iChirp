@@ -205,6 +205,18 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
   milliseconds).
 
+- `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
+  availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
+  `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
+  gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
+  (`mayRun`); engine failures become needs-review items, never silent gaps.
+- `Structure/ExtractFieldsViewModel.swift`: `DraftItem` / `DraftSections` (vitals, medications, allergies, problems,
+  plan, the needs-review bin, skipped sentences), `SOAPDraftHandoff` (the reviewed draft as `{{userNotes}}` for the
+  SOAP template, always the on-device model; needs-review items left out, unreviewed ones marked) and
+  `ExtractFieldsViewModel` (extract, load the latest run, mark reviewed, engine badge).
+- `Structure/StructureSettingsViewModel.swift`: Settings → Structure models (Needle's download and delete, engine,
+  thresholds).
+
 ## Wiring (app composition root)
 
 ```swift
