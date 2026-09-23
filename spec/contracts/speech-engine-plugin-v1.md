@@ -131,8 +131,18 @@ an engine that breaks them corrupts transcripts silently.
   registry's runtime estimates. A final choice that does not fit moves the live route to the same engine (its tail
   preview; `select` returns both routes), a live choice that does not fit throws `combinedMemoryOverBudget`, and a
   saved pair over the budget starts with live on the final engine. After a change, `releaseUnroutedModels()` unloads
-  every engine on neither route. With today's rows every pair fits (Parakeet 0.8 + Turbo 1.5 GB); the iPhone
-  benchmark must measure two engines loaded together before the estimates are trusted.
+  every engine on neither route. With today's rows every pair fits the budget (Parakeet 0.8 + Turbo 1.5 GB); the
+  iPhone benchmark must measure two engines loaded together before the estimates are trusted.
+  - **Run-time memory** (fix/speech-memory-fit). The router takes the same `AvailableMemoryReading` as the engines
+    and reads it once per `select`. An engine whose `memoryToLoadBytes` exceeds it cannot be chosen for either route
+    (`SpeechRouteError.insufficientMemory`), unless it already serves the other route (its own model may be what
+    holds that memory; it still checks before every load). Two different engines are also refused when one loading
+    while the other is resident (`combinedLoadMemoryBytes`) exceeds it (`combinedMemoryOverAvailable`), handled like
+    the budget: a final choice moves live text along. A saved pair over it starts with live on the final engine only
+    when that engine alone fits (otherwise moving live text would only lose the preview too). Settings → Speech
+    engines marks such an engine "Needs more memory than this iPhone gives Parakeet (about Y GB)"
+    (`SpeechEnginesViewModel.Row.memoryShortfall`) and does not offer it for a route; it can still be downloaded and
+    deleted. A nil reading skips every run-time rule.
   - **A job that held its engine past the change** (review N4). The unload above is refused while a job holds the
     engine (busy) or is about to (`ModelAssetLifecycle.pendingAcquires`, review N5), so it is a no-op for exactly
     the engine that is working. `SpeechRouting.releaseUnroutedModels(on:)` retries it once that job ends: the file
@@ -210,7 +220,15 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
   ChirpEngineAppleSpeechTests).
 - fix/speech-memory-fit: `WhisperKitEngineTests.testALoadThatDoesNotFitTheMemoryIOSAllowsIsRefusedNamesBothNumbersAndLoadsNothing`,
   `testALoadThatFitsProceedsAndALoadedModelIsNotCheckedAgain`, `testAnUnknownReadingDoesNotRefuse`;
-  `ParakeetMemoryFitTests` (ChirpEngineFluidAudioTests); `SpeechEngineCapabilityRegistryTests`
+  `ParakeetMemoryFitTests` (ChirpEngineFluidAudioTests); `SpeechEngineRouterTests`
+  (`testTheRouterRefusesToRouteAnEngineThatCannotFitTheMemoryAvailableNow`,
+  `testAPairOverTheMemoryAvailableNowKeepsOneModelResident`,
+  `testAnEngineAlreadyOnTheOtherRouteIsNotRefusedForTheMemoryItHolds`,
+  `testASavedPairOverTheMemoryAvailableNowPreviewsWithTheFinalEngineOnlyWhenItFitsAlone`);
+  `SpeechEnginesViewModelTests` (`testTheViewModelMarksAVariantThatCannotFitAndItCannotBeChosen`,
+  `testAVariantThatFitsOrAnUnknownReadingIsNotMarked`,
+  `testANotDownloadedVariantThatCannotFitSaysSoAndCanStillBeDownloaded`,
+  `testAnEngineARouteAlreadyUsesIsNotMarkedForTheMemoryItMayHold`); `SpeechEngineCapabilityRegistryTests`
   (`testALoadNeedsTheLargerOfTheRuntimeEstimateAndTheFirstLoadPeak`, `testTheShortfallIsNilWhenItFitsOrTheSystemDoesNotSay`,
   `testAPairNeedsOneEngineLoadingWhileTheOtherIsResident`);
   `FileTranscriptionPipelineTests.testAModelThatDoesNotFitFailsWithBothNumbersAndRetryRunsItAgain`.

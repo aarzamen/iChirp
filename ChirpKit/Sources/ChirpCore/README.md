@@ -67,7 +67,12 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   - Memory (review I3): `select` returns the routes it changed. Two different engines on the routes must fit the
     model budget together (`SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes`); a Transcripts choice that
     does not fit moves live text to the same engine, a live choice that does not fit is refused, and a saved pair
-    over the budget previews with the final engine. `releaseUnroutedModels()` unloads every engine on neither route
+    over the budget previews with the final engine. fix/speech-memory-fit: `availableMemory` (the app's
+    `ProcessAvailableMemory`) is read once per change; an engine whose `memoryToLoadBytes` exceeds it cannot be routed
+    (`SpeechRouteError.insufficientMemory`) unless it already serves the other route, and a pair is also refused when
+    one engine loading beside the other (`combinedLoadMemoryBytes`) exceeds it (`combinedMemoryOverAvailable`),
+    handled like the budget; a saved pair over it previews with the final engine only when that engine alone fits.
+    `releaseUnroutedModels()` unloads every engine on neither route
     (`SpeechEngineUnloading`); Settings calls it after a change. It is a no-op for an engine a job still holds
     (busy): `SpeechEngineRouting.releaseUnroutedModels()` and the static `SpeechRouting.releaseUnroutedModels(on:)`
     (review N4) let the pipeline, the meeting finalizer and the dictation final pass retry it once their job ends,

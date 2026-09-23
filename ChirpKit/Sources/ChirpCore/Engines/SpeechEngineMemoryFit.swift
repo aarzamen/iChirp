@@ -51,7 +51,15 @@ extension SpeechEngineCapabilityRegistry {
     public static func memoryShortfall(
         for key: SpeechEngineVariantKey, reader: any AvailableMemoryReading
     ) -> SpeechEngineMemoryShortfall? {
-        guard let needed = memoryToLoadBytes(for: key), let available = reader.availableMemoryBytes(),
+        memoryShortfall(for: key, availableBytes: reader.availableMemoryBytes())
+    }
+
+    /// The same check against one reading already taken (nil = unknown: never a shortfall), so a caller that checks
+    /// several rules decides them all on the same number.
+    public static func memoryShortfall(
+        for key: SpeechEngineVariantKey, availableBytes: UInt64?
+    ) -> SpeechEngineMemoryShortfall? {
+        guard let needed = memoryToLoadBytes(for: key), let available = availableBytes,
             UInt64(max(needed, 0)) > available
         else { return nil }
         return SpeechEngineMemoryShortfall(key: key, neededBytes: needed, availableBytes: available)

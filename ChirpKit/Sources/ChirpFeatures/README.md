@@ -117,11 +117,18 @@ pipeline's `Task`s and publishes its progress to the UI.
   - It lists one row per engine build from `SpeechEngineCapabilityRegistry`. Each row is either a registered instance
     with its model state, or a row this build or device cannot run, listed with the reason: not in this build, over
     the memory budget, or `SpeechEngineAvailabilityReporting`.
-  - `choices(for:)` returns only ready engines (for live, also able to preview) plus the current choice.
-  - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting and refuses a live
-    engine too big to share memory with the final one; a Transcripts choice too big for the live engine moves live
-    text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()` unloads the engine that left both
-    routes (review I3).
+  - `choices(for:)` returns only choosable engines (`Row.isChoosable`: ready, fitting the memory available now; for
+    live, also able to preview) plus the current choice.
+  - Run-time memory (fix/speech-memory-fit): with the router's `availableMemory` (the reading the engines check before
+    a load), a row whose `memoryToLoadBytes` exceeds what iOS lets the app use now carries `Row.memoryShortfall`
+    ("Needs more memory than this iPhone gives Parakeet (about 2.1 GB)", shown by the screen in place of its status
+    line) and is not offered for a route; it can still be downloaded and deleted. An engine a route already uses is
+    never marked (its own model may be what holds that memory; the engine still checks before every load).
+  - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting, refuses an engine
+    whose load does not fit the memory available now, and refuses a live engine too big to share memory with the
+    final one (the budget, or one loading beside the other above the memory available now); a Transcripts choice too
+    big for the live engine moves live text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()`
+    unloads the engine that left both routes (review I3), and the rows are read again.
   - `download` goes through the engine. `delete` (review I2, N3) refuses an engine a route uses while a meeting
     holds the lease; otherwise the delete is asked for first, and only once the engine agrees do its routes move
     back to Parakeet (Transcripts first), `lastNotice` names the fallback's own row (review N2, never

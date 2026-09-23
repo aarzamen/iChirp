@@ -1,3 +1,4 @@
+import ChirpCore
 import Foundation
 import XCTest
 
@@ -50,4 +51,16 @@ extension XCTestCase {
             try? await Task.sleep(for: .milliseconds(1))
         }
     }
+}
+
+/// An available-memory reading a test changes between calls (fix/speech-memory-fit).
+final class SettableAvailableMemory: AvailableMemoryReading, @unchecked Sendable {
+    // @unchecked Sendable: `bytes` is only touched while `lock` is held.
+    private let lock = NSLock()
+    private var bytes: UInt64?
+
+    init(_ bytes: UInt64?) { self.bytes = bytes }
+
+    func set(_ value: UInt64?) { lock.withLock { bytes = value } }
+    func availableMemoryBytes() -> UInt64? { lock.withLock { bytes } }
 }

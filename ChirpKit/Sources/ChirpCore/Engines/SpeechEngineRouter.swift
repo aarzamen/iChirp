@@ -9,6 +9,8 @@
 // engine. A live engine without its own live mode previews through `TailWindowPreviewSession` over a temporary WAV.
 // Review I3 (fix/asr-review): a live/final pair whose combined runtime-memory estimate exceeds the budget is refused
 // (a saved one previews with the final engine instead), and `releaseUnroutedModels()` unloads engines on no route.
+// fix/speech-memory-fit: an engine whose load would not fit the memory iOS lets the app use now cannot be routed, and
+// the pair rule also compares one engine loading beside the other with that run-time reading.
 
 import Foundation
 
@@ -71,6 +73,11 @@ public enum SpeechRouteError: Error, Equatable, LocalizedError {
     case noLivePreview(String)
     /// Two different engines on the routes would need more memory together than the model budget (review I3).
     case combinedMemoryOverBudget(live: String, final: String, combinedBytes: Int64, budgetBytes: Int64)
+    /// fix/speech-memory-fit: the engine's load needs more than iOS lets the app use right now.
+    case insufficientMemory(name: String, neededBytes: Int64, availableBytes: UInt64)
+    /// fix/speech-memory-fit: one engine loading while the other is resident needs more than iOS lets the app use
+    /// right now.
+    case combinedMemoryOverAvailable(live: String, final: String, neededBytes: Int64, availableBytes: UInt64)
 
     public var errorDescription: String? {
         switch self {
@@ -85,6 +92,16 @@ public enum SpeechRouteError: Error, Equatable, LocalizedError {
                 + "\(SpeechEngineMemoryRequirementStatus.gigabytes(combined)) together while you dictate or record, "
                 + "more than this build’s \(SpeechEngineMemoryRequirementStatus.gigabytes(budget)) model budget. "
                 + "Use one engine for both, or a smaller one."
+        case .insufficientMemory(let name, let needed, let available):
+            return "\(name) needs more memory than this iPhone gives Parakeet: about "
+                + "\(SpeechEngineMemoryRequirementStatus.gigabytes(needed)) while it loads, and Parakeet can use about "
+                + "\(SpeechEngineMemoryRequirementStatus.gigabytes(Int64(clamping: available))) right now. Close other "
+                + "apps, or choose a smaller engine."
+        case .combinedMemoryOverAvailable(let live, let final, let needed, let available):
+            return "\(live) for live text and \(final) for transcripts would need about "
+                + "\(SpeechEngineMemoryRequirementStatus.gigabytes(needed)) together while you dictate or record, and "
+                + "Parakeet can use about \(SpeechEngineMemoryRequirementStatus.gigabytes(Int64(clamping: available))) "
+                + "right now. Use one engine for both, or a smaller one."
         }
     }
 }
@@ -156,18 +173,25 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
     private let temporaryDirectory: URL
     /// The model budget two different engines on the routes must fit together (the registry's estimates).
     public let memoryBudgetBytes: Int64
+    /// What iOS lets the app use now (fix/speech-memory-fit): read at every route change, and by Settings → Speech
+    /// engines to mark engines that cannot fit. The same reading the app's engines check before a load.
+    public let availableMemory: any AvailableMemoryReading
 
     /// - Parameters:
     ///   - engines: every speech engine instance in this build; the first one is the fallback for a saved choice
     ///     that is not in the build (put Parakeet first).
     ///   - selection: the saved choice; a route naming an engine that is not registered falls back to the first. A
-    ///     saved pair over `memoryBudgetBytes` together keeps the final engine and previews with it too.
+    ///     saved pair over `memoryBudgetBytes` together keeps the final engine and previews with it too; so does a
+    ///     pair over the memory available now, when the final engine alone fits it (fix/speech-memory-fit).
     ///   - memoryBudgetBytes: see `select`; the registry's budget unless a test passes another.
+    ///   - availableMemory: what iOS lets the app use now (the app passes `ProcessAvailableMemory`); nil readings
+    ///     skip the run-time rules.
     public init(
         engines: [Registration],
         selection: SpeechRouteSelection = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         memoryBudgetBytes: Int64 = SpeechEngineCapabilityRegistry.memoryBudgetBytes,
+        availableMemory: any AvailableMemoryReading = ProcessAvailableMemory(),
         onSelectionChange: @escaping @Sendable (SpeechRouteSelection) -> Void = { _ in }
     ) {
         precondition(!engines.isEmpty, "SpeechEngineRouter needs at least one engine")
@@ -175,13 +199,17 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
         self.onSelectionChange = onSelectionChange
         self.temporaryDirectory = temporaryDirectory
         self.memoryBudgetBytes = memoryBudgetBytes
+        self.availableMemory = availableMemory
         var resolved = selection
         for route in SpeechRoute.allCases where Self.registration(matching: selection[route], in: engines) == nil {
             resolved[route] = engines[0].key
         }
+        let available = availableMemory.availableMemoryBytes()
         if let live = Self.registration(matching: resolved.live, in: engines)?.key,
             let final = Self.registration(matching: resolved.final, in: engines)?.key,
-            Self.overBudget(live: live, final: final, budget: memoryBudgetBytes) != nil
+            let refusal = Self.memoryRefusal(
+                live: live, final: final, budget: memoryBudgetBytes, availableBytes: available),
+            Self.movesLiveToFinal(on: refusal, final: final, availableBytes: available)
         {
             // One model resident: the final engine's tail preview serves live text (it can, or the first engine).
             let finalPreviews =
@@ -224,6 +252,12 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
     /// current live engine moves live text to the final engine too (its tail preview: one model resident), and the
     /// result says so; a live choice that does not fit with the final engine is refused.
     ///
+    /// Run-time memory (fix/speech-memory-fit), on one `availableMemory` reading taken here: an engine whose load
+    /// (`memoryToLoadBytes`) needs more than iOS lets the app use now is refused for either route
+    /// (`insufficientMemory`), unless it already serves the other route (its own model may be what holds that memory;
+    /// it still checks before every load). The pair rule also refuses one engine loading while the other is resident
+    /// (`combinedLoadMemoryBytes`) above that reading, handled like the budget: a final choice moves live text along.
+    ///
     /// After a change, call `releaseUnroutedModels()` to free the engine that left the routes.
     @discardableResult
     public func select(_ key: SpeechEngineVariantKey, for route: SpeechRoute) throws -> Set<SpeechRoute> {
@@ -239,14 +273,26 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
         let registrations = self.registrations
         let finalPreviews =
             SpeechEngineCapabilityRegistry.capabilitiesIfPresent(for: registration.key)?.supportsLivePreview ?? true
+        let available = availableMemory.availableMemoryBytes()
         let (saved, routes): (SpeechRouteSelection?, Set<SpeechRoute>) = try lock.withLock {
             guard leases.isEmpty else { throw SpeechRouteError.meetingInProgress }
             guard current[route] != registration.key else { return (nil, []) }
+            let alreadyRouted = SpeechRoute.allCases.contains {
+                Self.registration(matching: current[$0], in: registrations)?.key == registration.key
+            }
+            if !alreadyRouted,
+                let shortfall = SpeechEngineCapabilityRegistry.memoryShortfall(
+                    for: registration.key, availableBytes: available)
+            {
+                throw SpeechRouteError.insufficientMemory(
+                    name: Self.name(for: registration.key), neededBytes: shortfall.neededBytes,
+                    availableBytes: shortfall.availableBytes)
+            }
             var next = current
             next[route] = registration.key
             if let live = Self.registration(matching: next.live, in: registrations)?.key,
                 let final = Self.registration(matching: next.final, in: registrations)?.key,
-                let error = Self.overBudget(live: live, final: final, budget: budget)
+                let error = Self.memoryRefusal(live: live, final: final, budget: budget, availableBytes: available)
             {
                 guard route == .final, finalPreviews else { throw error }
                 next.live = registration.key
@@ -359,14 +405,32 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
         SpeechEngineCapabilityRegistry.capabilitiesIfPresent(for: key)?.displayName ?? key.description
     }
 
-    /// The refusal when `live` and `final` are different engines whose runtime estimates together exceed `budget`.
-    private static func overBudget(
-        live: SpeechEngineVariantKey, final: SpeechEngineVariantKey, budget: Int64
+    /// The refusal when `live` and `final` are different engines whose runtime estimates together exceed `budget`,
+    /// or (fix/speech-memory-fit) one of them loading while the other is resident needs more than `availableBytes`.
+    private static func memoryRefusal(
+        live: SpeechEngineVariantKey, final: SpeechEngineVariantKey, budget: Int64, availableBytes: UInt64?
     ) -> SpeechRouteError? {
         guard live != final else { return nil }
         let combined = SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes(for: [live, final])
-        guard combined > budget else { return nil }
-        return .combinedMemoryOverBudget(
-            live: name(for: live), final: name(for: final), combinedBytes: combined, budgetBytes: budget)
+        if combined > budget {
+            return .combinedMemoryOverBudget(
+                live: name(for: live), final: name(for: final), combinedBytes: combined, budgetBytes: budget)
+        }
+        let needed = SpeechEngineCapabilityRegistry.combinedLoadMemoryBytes(for: [live, final])
+        if let availableBytes, UInt64(max(needed, 0)) > availableBytes {
+            return .combinedMemoryOverAvailable(
+                live: name(for: live), final: name(for: final), neededBytes: needed, availableBytes: availableBytes)
+        }
+        return nil
+    }
+
+    /// Whether a saved pair refused by `refusal` starts with live text on the final engine: always over the budget
+    /// (review I3); over the memory available now only when the final engine alone fits it — otherwise moving live
+    /// text would only lose the preview too, and the final job explains itself.
+    private static func movesLiveToFinal(
+        on refusal: SpeechRouteError, final: SpeechEngineVariantKey, availableBytes: UInt64?
+    ) -> Bool {
+        if case .combinedMemoryOverBudget = refusal { return true }
+        return SpeechEngineCapabilityRegistry.memoryShortfall(for: final, availableBytes: availableBytes) == nil
     }
 }

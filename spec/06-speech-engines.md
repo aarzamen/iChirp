@@ -173,6 +173,10 @@ model on the device, and that peaks higher. So the static budget alone is not en
   iOS can drop its compiled cache and a first load cannot be told apart beforehand.
 - The peak is not added to the static 2.5 GB budget (a steady-state rule), so Turbo stays choosable where the device
   has room; the run-time check decides.
+- **Selection honesty.** Settings → Speech engines reads the same memory: an engine that cannot fit now shows "Needs
+  more memory than this iPhone gives Parakeet (about Y GB)" and is not offered for a route, and `SpeechEngineRouter`
+  refuses it. The live-plus-final pair rule checks the 2.5 GB budget and, at run time, one engine loading while the
+  other is resident against the memory available now.
 
 ## FluidAudio pin and bump discipline
 

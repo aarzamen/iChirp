@@ -300,6 +300,84 @@ final class SpeechEngineRouterTests: XCTestCase {
         XCTAssertEqual(router.selection.live, turboKey, "one model resident: the final engine's tail preview")
     }
 
+    // MARK: - fix/speech-memory-fit: the memory iOS lets the app use now
+
+    /// Parakeet v3 and Whisper Large v3 Turbo (3.5 GB to load, 1.5 GB resident) with `memory` as the reading.
+    private func turboRouter(
+        memory: any AvailableMemoryReading, selection: SpeechRouteSelection = .default,
+        saved: LockedLog<SpeechRouteSelection> = LockedLog()
+    ) -> SpeechEngineRouter {
+        SpeechEngineRouter(
+            engines: [
+                .init(key: parakeetKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)),
+                .init(key: turboKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)),
+            ],
+            selection: selection, availableMemory: memory, onSelectionChange: { saved.append($0) })
+    }
+
+    func testTheRouterRefusesToRouteAnEngineThatCannotFitTheMemoryAvailableNow() throws {
+        let saved = LockedLog<SpeechRouteSelection>()
+        let router = turboRouter(memory: FixedAvailableMemory(2_100_000_000), saved: saved)
+        for route in SpeechRoute.allCases {
+            XCTAssertThrowsError(try router.select(turboKey, for: route)) { error in
+                XCTAssertEqual(
+                    error as? SpeechRouteError,
+                    .insufficientMemory(
+                        name: "Whisper Large v3 Turbo", neededBytes: 3_500_000_000, availableBytes: 2_100_000_000))
+                XCTAssertEqual(
+                    error.localizedDescription,
+                    "Whisper Large v3 Turbo needs more memory than this iPhone gives Parakeet: about 3.5 GB while it "
+                        + "loads, and Parakeet can use about 2.1 GB right now. Close other apps, or choose a smaller "
+                        + "engine.")
+            }
+        }
+        XCTAssertEqual(router.selection, .default, "nothing changed")
+        XCTAssertEqual(saved.values, [], "nothing saved")
+
+        // Unknown (the Mac, the Simulator) or enough: it can be routed.
+        XCTAssertNoThrow(try turboRouter(memory: FixedAvailableMemory(nil)).select(turboKey, for: .final))
+        XCTAssertNoThrow(try turboRouter(memory: FixedAvailableMemory(6_000_000_000)).select(turboKey, for: .final))
+    }
+
+    func testAPairOverTheMemoryAvailableNowKeepsOneModelResident() throws {
+        // Turbo alone fits 4.0 GB (3.5 GB to load), but not beside a resident Parakeet (0.8 + 3.5 GB).
+        let router = turboRouter(memory: FixedAvailableMemory(4_000_000_000))
+        XCTAssertThrowsError(try router.select(turboKey, for: .live)) { error in
+            XCTAssertEqual(
+                error as? SpeechRouteError,
+                .combinedMemoryOverAvailable(
+                    live: "Whisper Large v3 Turbo", final: "Parakeet v3", neededBytes: 4_300_000_000,
+                    availableBytes: 4_000_000_000))
+        }
+        XCTAssertEqual(router.selection, .default)
+        let changed = try router.select(turboKey, for: .final)
+        XCTAssertEqual(changed, [.final, .live], "live text follows Transcripts: one model resident")
+        XCTAssertEqual(router.selection, SpeechRouteSelection(live: turboKey, final: turboKey))
+    }
+
+    func testAnEngineAlreadyOnTheOtherRouteIsNotRefusedForTheMemoryItHolds() throws {
+        let memory = SettableAvailableMemory(nil)
+        let router = turboRouter(memory: memory)
+        try router.select(turboKey, for: .final)
+        try router.select(turboKey, for: .live)
+        try router.select(parakeetKey, for: .final)
+        // Turbo is loaded for live text now, so the reading excludes its own memory: choosing it for Transcripts
+        // again is not refused for that (its engine still checks before any new load).
+        memory.set(1_000_000_000)
+        XCTAssertNoThrow(try router.select(turboKey, for: .final))
+        XCTAssertEqual(router.selection, SpeechRouteSelection(live: turboKey, final: turboKey))
+    }
+
+    func testASavedPairOverTheMemoryAvailableNowPreviewsWithTheFinalEngineOnlyWhenItFitsAlone() {
+        let saved = SpeechRouteSelection(live: parakeetKey, final: turboKey)
+        let fits = turboRouter(memory: FixedAvailableMemory(4_000_000_000), selection: saved)
+        XCTAssertEqual(fits.selection, SpeechRouteSelection(live: turboKey, final: turboKey))
+        // Turbo alone does not fit either: moving live text would only lose the preview too. The final job refuses
+        // with its own sentence.
+        let tight = turboRouter(memory: FixedAvailableMemory(2_000_000_000), selection: saved)
+        XCTAssertEqual(tight.selection, saved)
+    }
+
     func testSelectionDecodingIsForgiving() throws {
         let data = Data(#"{"final":{"engineID":"argmax.whisperkit","variant":"base"},"live":42}"#.utf8)
         let decoded = try JSONDecoder().decode(SpeechRouteSelection.self, from: data)
