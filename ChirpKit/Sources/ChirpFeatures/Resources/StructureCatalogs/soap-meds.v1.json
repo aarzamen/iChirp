@@ -1,0 +1,75 @@
+{
+  "id": "soap-meds",
+  "version": 1,
+  "description": "Vitals, medications, allergies, problems and plan items from one sentence of a dictated clinical note. Numbers arrive as tags (bp_1, rate_1, spo2_1, temp_1, dose_1, freq_1); copy tags, never digits.",
+  "tools": [
+    {
+      "name": "record_vital",
+      "description": "Record one vital sign measured today. value_tag is the tag that holds the number, such as bp_1 or rate_1.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["BP", "HR", "RR", "SpO2", "temp"], "description": "BP blood pressure, HR heart rate or pulse, RR respiratory rate, SpO2 oxygen saturation, temp temperature" },
+          "value_tag": { "type": "string", "description": "The tag holding the value, e.g. bp_1" }
+        },
+        "required": ["kind", "value_tag"]
+      }
+    },
+    {
+      "name": "add_medication",
+      "description": "Record one medication the patient takes, was started on, stopped, or that is being considered.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "drug": { "type": "string", "description": "The drug name as spoken" },
+          "dose_tag": { "type": "string", "description": "The tag holding the dose, e.g. dose_1" },
+          "route": { "type": "string", "enum": ["PO", "IV", "IM", "SC", "SL", "inhaled", "topical", "unknown"], "description": "PO by mouth, IV intravenous, IM intramuscular, SC subcutaneous, SL sublingual" },
+          "frequency_tag": { "type": "string", "description": "The tag holding how often, e.g. freq_1" },
+          "status": { "type": "string", "enum": ["taking", "started", "stopped", "considering"], "description": "taking = already on it; started = begun today; stopped = discontinued; considering = maybe later" }
+        },
+        "required": ["drug", "status"]
+      }
+    },
+    {
+      "name": "add_allergy",
+      "description": "Record a drug or other allergy and the reaction it causes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "substance": { "type": "string", "description": "What the patient is allergic to" },
+          "reaction": { "type": "string", "description": "The reaction, e.g. rash or hives" }
+        },
+        "required": ["substance"]
+      }
+    },
+    {
+      "name": "add_problem",
+      "description": "Record a diagnosis, symptom or medical history item.",
+      "parameters": {
+        "type": "object",
+        "properties": { "text": { "type": "string", "description": "The problem in a few words" } },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "add_plan_item",
+      "description": "Record one step of the plan: a test, referral, follow-up or instruction.",
+      "parameters": {
+        "type": "object",
+        "properties": { "text": { "type": "string", "description": "The plan step in a few words" } },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "none",
+      "description": "The sentence holds nothing to record.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": { "type": "string", "enum": ["small_talk", "negative_finding", "contingency", "instruction_to_ignore", "unclear"] }
+        },
+        "required": ["reason"]
+      }
+    }
+  ]
+}

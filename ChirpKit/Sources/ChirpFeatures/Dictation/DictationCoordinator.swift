@@ -32,7 +32,10 @@ public struct DictationTextRules: Sendable {
 /// **The copied text always comes from the final pass** over `media/<id>/dictation.wav`, refined with the user's
 /// clean-up, custom words and snippets. The live text (`committedText` / `tentativeText`) is only for the screen;
 /// the live session is finished before the final pass starts, so it can never be what gets copied
-/// (`DictationCoordinatorTests.testCopiedTextIsTheFinalPassNotTheLastPartial`).
+/// (`DictationCoordinatorTests.testCopiedTextIsTheFinalPassNotTheLastPartial`). M6: with voice commands on, the copied
+/// text is that same final pass with its whole-sentence commands resolved deterministically
+/// (`VoiceCommandResolver`); the live preview only ever shows a chip
+/// (`testCopiedTextIsTheFinalPassWithVoiceCommandsAppliedNeverTheLivePreview`).
 ///
 /// Data rules: the row is inserted when recording stops (status `.processing`), so a process killed during the final
 /// pass leaves an `.interrupted` row with its audio for Retry. A failed pass keeps the audio and offers Retry. Cancel
@@ -85,6 +88,8 @@ public struct DictationTextRules: Sendable {
     @ObservationIgnored private let textRules: @Sendable () async -> DictationTextRules
     @ObservationIgnored private let clipboard: any ClipboardWriting
     @ObservationIgnored private let privacyRouting: PrivacyRoutingPolicy
+    /// M6: spoken commands (off by default), resolved on the final pass only; nil when the app wires none.
+    @ObservationIgnored private let voiceCommands: (any DictationVoiceCommanding)?
     @ObservationIgnored private let logger = Log.logger("dictation")
 
     /// The current recording: its row id and WAV. Set when recording starts, kept after a failure for Retry.
@@ -111,7 +116,8 @@ public struct DictationTextRules: Sendable {
         settings: any SettingsStoring,
         clipboard: any ClipboardWriting,
         privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
-        textRules: @escaping @Sendable () async -> DictationTextRules = { DictationTextRules() }
+        textRules: @escaping @Sendable () async -> DictationTextRules = { DictationTextRules() },
+        voiceCommands: (any DictationVoiceCommanding)? = nil
     ) {
         self.capture = capture
         self.speech = speech
@@ -123,7 +129,13 @@ public struct DictationTextRules: Sendable {
         self.clipboard = clipboard
         self.privacyRouting = privacyRouting
         self.textRules = textRules
+        self.voiceCommands = voiceCommands
         self.polishAfter = settings.load().dictationPolishAfter
+        // M6: a live "stop" command at the act threshold stops like the Stop button (the final pass still decides).
+        voiceCommands?.onLiveStop = { [weak self] in
+            guard let self, self.state.isCapturing else { return }
+            self.stop()
+        }
     }
 
     // MARK: - Person's actions
@@ -240,6 +252,7 @@ public struct DictationTextRules: Sendable {
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
+        voiceCommands?.reset()
     }
 
     // MARK: - Start
@@ -341,6 +354,8 @@ public struct DictationTextRules: Sendable {
             stabilizer.ingest(text)
             committedText = stabilizer.committedText
             tentativeText = stabilizer.tentativeText
+            // M6: display-only; a heard command shows as a chip and never edits this text.
+            voiceCommands?.observeLive(committedText + " " + tentativeText)
         }
     }
 
@@ -450,8 +465,13 @@ public struct DictationTextRules: Sendable {
             // Cancelled while the pass finished: the discard path deletes the row; nothing is copied.
             guard !Task.isCancelled else { return }
             if copy {
-                clipboard.copy(saved.text)
-                copiedText = saved.text
+                // M6: voice commands resolve on the final pass's text only (unchanged when they are off).
+                let commands = await voiceCommands?.applyToFinalPass(saved.text)
+                guard !Task.isCancelled else { return }
+                let copied = commands?.text ?? saved.text
+                clipboard.copy(copied)
+                copiedText = copied
+                voiceCommands?.perform(commands?.actions ?? [], copiedText: copied, transcriptionID: row.id)
             }
             if saved.row == nil {
                 // The person deleted the row meanwhile; nothing to point at.

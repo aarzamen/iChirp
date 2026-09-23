@@ -32,6 +32,8 @@ struct TranscriptScreen: View {
     @State private var paragraphTags: [Int: String] = [:]
     @State private var suggestedTemplateKey: String?
     @State private var opensTransformAfterDecision = false
+    /// M6: Extract fields (Needle 3 or the STUB), a draft card for review.
+    @State private var isExtractingFields = false
 
     enum TranscriptTab { case transcript, ask }
 
@@ -132,6 +134,15 @@ struct TranscriptScreen: View {
                 },
                 showTags: { paragraphTags = $0 })
         }
+        .sheet(isPresented: $isExtractingFields) {
+            if let item = model.transcription {
+                ExtractFieldsSheet(
+                    transcriptionID: id, transcriptTitle: item.displayTitle, environment: environment,
+                    onSeek: { ms in seek(toMs: ms) }
+                )
+                .presentationDetents([.medium, .large])
+            }
+        }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
                 .presentationDetents([.medium, .large])
@@ -217,6 +228,11 @@ struct TranscriptScreen: View {
                     copyText()
                 } label: {
                     Label("Copy Text", systemImage: "doc.on.doc")
+                }
+                Button {
+                    isExtractingFields = true
+                } label: {
+                    Label("Extract fields (Needle)", systemImage: "list.bullet.rectangle")
                 }
             }
         } label: {

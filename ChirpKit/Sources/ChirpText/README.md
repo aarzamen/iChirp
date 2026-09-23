@@ -25,6 +25,12 @@ pipeline directly.
   pause).
 - `TranscriptCueBuilder.swift`: subtitle-style cues (up to 12 words / 800ms gap / 7s / speaker change);
   used by `ChirpExport` for SRT/VTT.
+- `NumericNormalizer.swift` (M6, plan 015; port of the owner's Needle Bench normalizer design): tags times, blood
+  pressures, rates, SpO₂, temperatures, doses with units, frequencies, durations and laterality before a structure
+  model reads the text (`dose_1`, `bp_1`, …), with a side table tag → value, unit, display, UTF-16 source range and a
+  review flag. The model copies tags; code maps them back. A unit is never guessed, "25 minute timer" stays minutes,
+  mg/mcg stay distinct, ages are not durations, and a spoken self-correction keeps the corrected value flagged for
+  review. The vital-sign hundreds shorthand ("one forty two over eighty eight") applies only in vital-sign context.
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.

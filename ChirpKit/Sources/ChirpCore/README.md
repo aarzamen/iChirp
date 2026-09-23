@@ -47,13 +47,18 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
   `ChirpEngineHTTPLLM`. Contract: `spec/contracts/language-model-plugin-v1.md`.
-- `Engines/StructureModel.swift`: the M6 extraction and embedding contract. No conformers yet.
 - `Engines/DecisionModel.swift` (M6a): the typed-decision contract (`DecisionModel` with `endpointHost`,
   `availability()` and `decide`; `DecisionQuestion` with 2…250 options and `validate()`, `DecisionState`,
   `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionRequestError`). Reuses `LanguageModelAvailability`
   and `LanguageModelError`. Conformer: `ChirpEngineJev`. Contract: `spec/contracts/decision-model-plugin-v1.md`.
 - `Models/Deliverable.swift`: M4 templates, versions, deliverables and the `LanguageModelRun` ledger row; M6a adds the
   `decision` feature value (no schema change).
+- `Models/StructuredResult.swift` (M6): the evidence ledger's values (`StructuredRun`, `StructuredField` with its
+  `StructuredSourceSpan` and `StructuredVerdict`, `StructuredEvalRun`) and `StructuredResultStoring`
+  ([structured-results-v1](../../../spec/contracts/structured-results-v1.md)).
+- `Engines/StructureModel.swift`: the M6 extraction and embedding contract (`StructuredOutput` with the model hash and
+  `isAbstention`, `StructureModelError`); conformers `NeedleStructureModel` and the STUB
+  ([structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md)).
 - `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
   each privacy class.
 - `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`, including the M1.5

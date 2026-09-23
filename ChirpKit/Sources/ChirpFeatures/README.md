@@ -107,7 +107,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
   done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
   cancels nothing, Retry from `failed`.
-- `Dictation/DictationCoordinator.swift` (M2): the `@MainActor @Observable` dictation coordinator and view model.
+- `Dictation/DictationCoordinator.swift` (M2; M6 voice-command hooks): the `@MainActor @Observable` dictation
+  coordinator and view model.
   Start checks the model and the microphone permission, records into `media/<id>/dictation.wav` through
   `ChirpCore.AudioCapturing`, warms the model, and shows display-only live text from a `LiveSpeechSession` through
   `LiveTranscriptStabilizer` (`committedText` / `tentativeText`), plus real levels and recorded seconds. Stop finishes
@@ -225,6 +226,61 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   is), the xAI key saved to the Keychain only (paste artifacts stripped, field cleared) with Check key
   (`GET /v1/api-key`), `setupProblem` for honest Listen hints, and Test voice (a fixed synthetic sentence through
   `VoicePlayer`, class general).
+
+## Structure models (M6, `Structure/`; plan 015, contract [structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md))
+
+- `Structure/StructureCatalog.swift`: `JSONValue`, `StructureTool`, `StructureCatalog` (frozen, versioned catalogs
+  loaded from `Resources/StructureCatalogs/`: `soap-meds.v1`, `dictation-commands.v1`; `toolsJSON` is what a model
+  reads, without the spoken `phrases`), `StructuredCall` (parse a call array; `problems(against:)` names unknown
+  tools, missing required arguments and values outside an enum). A test pins each catalog file's SHA-256: a change
+  ships as a new version file.
+- `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
+  pseudo-confidence; always available and always labelled STUB. `VoiceCommandText` (a command is a whole short
+  utterance that equals one of its phrases, optionally after "okay"/"please").
+
+- `Structure/StructuredResultGate.swift`: `StructureSettings` (voice commands off by default, gate thresholds,
+  engine choice; its own UserDefaults key) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
+  else needs review; any problem forces needs review); `StructuredCallValidator` (maps tags back to the normalizer's
+  values, traces digits a model copied, **re-parses every number in code and range-checks vitals and doses**, flags
+  self-corrections, drug or substance names missing from the sentence and schema problems; a number that traces to
+  nothing is a numeric hard fail).
+- `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
+  text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
+  milliseconds).
+
+- `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
+  availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
+  `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
+  gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
+  (`mayRun`); engine failures become needs-review items, never silent gaps.
+- `Structure/ExtractFieldsViewModel.swift`: `DraftItem` / `DraftSections` (vitals, medications, allergies, problems,
+  plan, the needs-review bin, skipped sentences), `SOAPDraftHandoff` (the reviewed draft as `{{userNotes}}` for the
+  SOAP template, always the on-device model; needs-review items left out, unreviewed ones marked) and
+  `ExtractFieldsViewModel` (extract, load the latest run, mark reviewed, engine badge).
+- `Structure/StructureSettingsViewModel.swift`: Settings → Structure models (Needle's download and delete, engine,
+  thresholds).
+
+- `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
+  (≤ 8 words) equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
+  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
+  to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
+  answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
+- `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (plan 020's voice player conforms later; the
+  default `SilentReadBack` does nothing and the screen says so), `DictationVoiceCommanding` (the coordinator's hooks)
+  and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, the final-pass resolution, the
+  pending Transform). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+
+- `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
+  order (Needle answered differently, and worse, when the schema keys were sorted).
+- `Structure/StructureEval.swift` (Step 8, the Needle Bench Eval): the bundled synthetic sets
+  (`Resources/StructureCatalogs/eval-soap-meds.v1.json`: 8 invented encounters, 48 sentences;
+  `eval-dictation-commands.v1.json`: 30 utterances, 10 of them dictated text), `StructureEvalScorer` (tool-shape
+  accuracy, argument accuracy, field exact match and the numeric hard-fail count, kept separate; commands: gated and
+  ungated engine accuracy, feature accuracy, dictation eaten as a command), `StructureEvalRunner` (the same
+  normalizer, validator and gate as the screens; normalizer on/off) and `StructureEvalReport`
+  (`ichirp.structure-eval/v1` JSON and the "Copy for LLM" Markdown).
+- `Structure/StructureEvalViewModel.swift`: Settings → Structure models → Eval (run the STUB or Needle, save each run
+  to `structured_eval_runs`, export).
 
 ## Wiring (app composition root)
 

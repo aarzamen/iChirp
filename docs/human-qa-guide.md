@@ -510,6 +510,56 @@ TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/voice-screens" xcodebuild test -pr
   -only-testing:iChirpUITests/VoiceScreenTourUITests
 ```
 
+## M6 checklist (Needle 3: SOAP fields and medications, dictation voice commands, Eval)
+
+> Preconditions: the Mac ran `scripts/build_needle.sh` before the build (Settings → Structure models shows a Needle 3
+> row with Download, not "Needle is not in this build"); the phone has Wi-Fi for the one-time 35 MB model download.
+> Use only synthetic speech (the `say` file below). Needle 3's base model scored low on the synthetic eval (see
+> `docs/research/2026-09-22-needle-eval.md`): expect most of its fields in **Needs review**; that is the gate working.
+
+```bash
+say -o ~/Desktop/synthetic-soap.m4a --data-format=aac "This is a synthetic practice encounter. Blood pressure one forty two over eighty eight. Pulse seventy six. Started lisinopril ten milligrams by mouth once daily. She is allergic to penicillin which causes hives. Plan is to recheck blood pressure in two weeks."
+```
+
+Needle model and engine
+- [ ] Settings → Structure models → Needle 3 → Download: progress, then "On device · 35.3 MB · CPU". Delete asks
+      first; after it, Extract fields says it falls back to the STUB and why.
+- [ ] Engine → STUB: every badge says "STUB · rules, not Needle"; Engine → Needle: badges say "Needle 3 · model
+      c9d915ec".
+
+SOAP fields and medications
+- [ ] Import `synthetic-soap.m4a`, set the transcript to **Clinical**, ••• → Extract fields (Needle): "Reading sentence
+      N of M", then the draft card with the Draft banner. Solid = confident, dashed = provisional; low-confidence or
+      failed checks sit in **Needs review** with their reasons (e.g. "“encounter” does not match any number").
+- [ ] Tap a field: the player jumps to the words it came from and plays.
+- [ ] Tap a field's circle: it turns into a green check ("Reviewed"); a reviewed Needs-review item moves into the draft.
+- [ ] Use in SOAP note: the SOAP template runs **on this iPhone** (Apple model) with no clinical dialog; the note
+      streams and carries the draft lines. With Apple Intelligence off it says so; nothing is sent anywhere.
+- [ ] Airplane mode on: Extract fields still works (Needle and the STUB run on the phone).
+
+Dictation voice commands
+- [ ] Settings → Structure models → Voice commands (Needle) is **off** by default; turn it on.
+- [ ] Dictate: "Patient seen today." (pause) "New paragraph." (pause) "Plan as discussed." (pause) "Scratch that."
+      (pause) "Recheck in two weeks." → a "New paragraph" / "Scratch that" chip appears while recording and the live text
+      is **not** edited; Stop & copy → the copied text is "Patient seen today." / blank line / "Recheck in two weeks."
+      and the Done screen lists the applied commands.
+- [ ] Dictate "Start a new paragraph of her treatment plan." → nothing is removed (same words inside a sentence).
+- [ ] Dictate a sentence then "Send this to SOAP." → after the copy, the SOAP template opens on the on-device model.
+- [ ] Dictate "Read it back." → the Done screen says voices are not set up yet (until plan 020 lands).
+- [ ] Voice commands off: the copied text is exactly the final pass, command words included.
+
+Eval
+- [ ] Settings → Structure models → Eval → Run STUB, then Run Needle (about 5–10 minutes on the phone): three numbers
+      each (tool shape, arguments, numeric hard fails), "Dictation eaten as a command: 0", the "Experimental" line under
+      Needle; Export JSON opens the share sheet; Copy for LLM pastes a Markdown digest.
+
+Screenshots to attach
+- [ ] The draft card (STUB and Needle); a voice-command chip while dictating; the Eval view with both reports.
+
+Simulator (agents): DEBUG launch arguments open the screens without taps: `-ChirpImportDocument <synthetic.txt>
+-ChirpExtractFields -ChirpStructureEngine stub|needle`, `-ChirpVoiceCommands`, `-ChirpStructureEval stub,needle`
+(`App/Sources/Debug/StructurePreviewLaunch.swift`).
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

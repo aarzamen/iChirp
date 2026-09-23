@@ -1,5 +1,11 @@
 // swift-tools-version: 6.2
+import Foundation
 import PackageDescription
+
+// M6 (ADR-012): Needle 3's runtime, built from needle-rs source by scripts/build_needle.sh into the gitignored
+// vendor/NeedleC.xcframework. Linked only when it exists; without it ChirpEngineNeedle reports "not in this build".
+let needleRuntimePath = "../vendor/NeedleC.xcframework"
+let hasNeedleRuntime = FileManager.default.fileExists(atPath: Context.packageDirectory + "/" + needleRuntimePath)
 
 let package = Package(
     name: "ChirpKit",
@@ -19,6 +25,7 @@ let package = Package(
         .library(name: "ChirpIngest", targets: ["ChirpIngest"]),
         .library(name: "ChirpFeatures", targets: ["ChirpFeatures"]),
         .library(name: "ChirpUI", targets: ["ChirpUI"]),
+        .library(name: "ChirpEngineNeedle", targets: ["ChirpEngineNeedle"]),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio", exact: "0.16.1"),
@@ -42,7 +49,9 @@ let package = Package(
         .target(name: "ChirpIngest", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(
             name: "ChirpFeatures", dependencies: ["ChirpCore", "ChirpText", "ChirpExport", "ChirpIngest"],
-            exclude: ["README.md"]),
+            exclude: ["README.md"],
+            // M6: frozen structure-model tool catalogs (soap-meds.v1, dictation-commands.v1).
+            resources: [.copy("Resources/StructureCatalogs")]),
         .target(name: "ChirpUI", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .testTarget(name: "ChirpCoreTests", dependencies: ["ChirpCore"]),
         .testTarget(name: "ChirpTextTests", dependencies: ["ChirpText"]),
@@ -59,6 +68,12 @@ let package = Package(
         .testTarget(name: "ChirpKeychainTests", dependencies: ["ChirpKeychain"]),
         .testTarget(name: "ChirpIngestTests", dependencies: ["ChirpIngest"]),
         .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"]),
-    ],
+        // M6: Needle 3 (structure model) on needle-rs; the NeedleC binary target only when it has been built.
+        .target(
+            name: "ChirpEngineNeedle", dependencies: ["ChirpCore"] + (hasNeedleRuntime ? ["NeedleC"] : []),
+            exclude: ["README.md"]),
+        // The opt-in real eval (NeedleEvalRealTests) runs ChirpFeatures' eval runner on the real model.
+        .testTarget(name: "ChirpEngineNeedleTests", dependencies: ["ChirpEngineNeedle", "ChirpFeatures"]),
+    ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : []),
     swiftLanguageModes: [.v6]
 )

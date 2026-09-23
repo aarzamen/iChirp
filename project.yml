@@ -30,6 +30,10 @@ targets:
       # Plan 020: voices (Mac companion, Grok voices over HTTP). No entitlement or capability.
       - package: ChirpKit
         products: [ChirpEngineVoiceHTTP]
+      # M6: Needle 3 (structure model) on needle-rs source; without vendor/NeedleC.xcframework it says "not in this
+      # build". No entitlement or capability.
+      - package: ChirpKit
+        products: [ChirpEngineNeedle]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:

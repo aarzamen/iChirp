@@ -116,6 +116,7 @@ dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processin
 | M3 | meeting columns (`userNotes`, audio retention) | Meeting notes and retention |
 | M4 | `prompts`, `prompt_versions`, `deliverables`, `llm_runs` | Templates, generated documents, a metadata-only run ledger (never content) |
 | M5 | **Built:** `v6-documents` (`sourceURL`, `sourceTitle`, `documentFormat`, `documentPages`) | Link, podcast and document provenance ([contract](contracts/document-items-v1.md)) |
+| M6 | **Built:** `v7-structured-results` (`structured_runs`, `structured_fields`, `structured_eval_runs`) | Structure-model evidence ledger: runs, fields with source spans, gate verdicts and review state, eval runs ([contract](contracts/structured-results-v1.md)) |
 | M6 | `embeddings` (or a vector index) | Semantic search, after benchmarking against plain text search |
 
 Keep YAGNI: a table appears only with the feature that reads it.

@@ -25,7 +25,8 @@ final class DictationCoordinatorTests: XCTestCase {
             testCase: XCTestCase,
             settings: TranscriptionSettings = Harness.defaultSettings,
             speech: FakeSpeech = FakeSpeech(),
-            rules: DictationTextRules = DictationTextRules()
+            rules: DictationTextRules = DictationTextRules(),
+            voiceCommands: DictationVoiceCommands? = nil
         ) {
             let base = FileManager.default.temporaryDirectory
                 .appendingPathComponent("DictationCoordinatorTests-\(UUID().uuidString)", isDirectory: true)
@@ -37,7 +38,8 @@ final class DictationCoordinatorTests: XCTestCase {
             self.settings = InMemorySettingsStore(settings)
             coordinator = DictationCoordinator(
                 capture: capture, speech: speech, liveSessions: live, scheduler: SpeechJobScheduler(), store: store,
-                paths: paths, settings: self.settings, clipboard: clipboard, textRules: { rules })
+                paths: paths, settings: self.settings, clipboard: clipboard, textRules: { rules },
+                voiceCommands: voiceCommands)
             let states = self.states
             coordinator.onStateChange = { states.append($0) }
         }
@@ -111,6 +113,54 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(row.mediaRelativePath, "media/\(row.id.uuidString)/dictation.wav")
         XCTAssertEqual(row.durationMs, FakeCapture.recordedMs)
         XCTAssertEqual(h.states.all, [.starting, .recording, .stopping, .done])
+    }
+
+    /// M6 (plan 015 Step 7): the copy rule with voice commands on. The live preview says "new paragraph" (a chip
+    /// only); the copied text is the final pass with its whole-sentence commands applied, and nothing else.
+    func testCopiedTextIsTheFinalPassWithVoiceCommandsAppliedNeverTheLivePreview() async throws {
+        let commands = Self.voiceCommands(enabled: true)
+        let speech = FakeSpeech()
+        let finalPass =
+            "Patient seen today. New paragraph. Start a new paragraph of treatment. Scratch that. Plan follows."
+        await speech.setTranscript(text: finalPass, words: FakeSpeech.helloWords)
+        let h = Harness(testCase: self, speech: speech, voiceCommands: commands)
+        await h.startRecording()
+        h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+        let partial = "Patient seen today. New paragraph"
+        h.live.session.publish(partial)
+        await waitUntil { commands.chip != nil }
+        XCTAssertEqual(commands.chip?.command, "new_paragraph")
+        XCTAssertEqual(commands.chip?.isStub, true, "the STUB is labelled as such")
+        XCTAssertEqual(h.coordinator.committedText + " " + h.coordinator.tentativeText, partial, "the chip never edits")
+
+        await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.state, .done)
+        let expected = await VoiceCommandResolver(engine: StubStructureModel(), gate: StructuredResultGate())
+            .resolve(finalPass).text
+        XCTAssertEqual(expected, "Patient seen today.\n\nPlan follows.")
+        XCTAssertEqual(h.clipboard.copies, [expected], "copied = final pass with commands applied")
+        XCTAssertEqual(h.coordinator.copiedText, expected)
+        let row = try await h.row()
+        XCTAssertEqual(row.rawTranscript, finalPass, "the saved transcript keeps every word")
+    }
+
+    func testVoiceCommandsOffLeaveTheFinalPassUntouched() async throws {
+        let speech = FakeSpeech()
+        await speech.setTranscript(text: "One. New paragraph. Two.", words: FakeSpeech.helloWords)
+        let h = Harness(testCase: self, speech: speech, voiceCommands: Self.voiceCommands(enabled: false))
+        await h.startRecording()
+        h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+        await h.stopAndWait()
+        XCTAssertEqual(h.clipboard.copies, ["One. New paragraph. Two."])
+    }
+
+    static func voiceCommands(enabled: Bool) -> DictationVoiceCommands {
+        var settings = StructureSettings()
+        settings.voiceCommandsEnabled = enabled
+        settings.engine = .stub
+        return DictationVoiceCommands(
+            settings: InMemoryStructureSettingsStore(settings),
+            engines: StructureEngines(needle: nil, needleAvailability: { .unavailable("test") }), pauseSeconds: 0.05)
     }
 
     func testPolishAfterCopiesTheCleanedFinalPassWithCustomWordsAndSnippets() async throws {

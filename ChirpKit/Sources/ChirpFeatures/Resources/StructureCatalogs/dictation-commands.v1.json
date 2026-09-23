@@ -1,0 +1,17 @@
+{
+  "id": "dictation-commands",
+  "version": 1,
+  "description": "Spoken dictation commands, said as their own short sentence after a pause. Anything else is dictated text: answer with no tool.",
+  "tools": [
+    { "name": "new_paragraph", "description": "Start a new paragraph.", "phrases": ["new paragraph", "next paragraph", "start a new paragraph"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "new_line", "description": "Start a new line.", "phrases": ["new line", "next line"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "bullet_list", "description": "Turn the current paragraph into a bulleted list.", "phrases": ["bullet list", "make that a list", "make this a list", "bullet points"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "scratch_that", "description": "Delete the last sentence that was dictated.", "phrases": ["scratch that", "delete that", "delete the last sentence"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "undo", "description": "Undo the last command.", "phrases": ["undo", "undo that"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "capitalize", "description": "Capitalize the last word.", "phrases": ["capitalize that", "capitalize", "cap that"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "read_back", "description": "Read the dictation back out loud.", "phrases": ["read back", "read it back", "read that back"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "send_to_soap", "description": "Send the dictation to a SOAP note.", "phrases": ["send to soap", "send this to soap", "send it to soap", "make this a soap note", "make it a soap note"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "send_to_transform", "description": "Send the dictation to Transform.", "phrases": ["send to transform", "send this to transform", "transform this", "transform it"], "parameters": { "type": "object", "properties": {} } },
+    { "name": "stop", "description": "Stop the dictation.", "phrases": ["stop dictation", "stop dictating", "stop recording", "end dictation"], "parameters": { "type": "object", "properties": {} } }
+  ]
+}
