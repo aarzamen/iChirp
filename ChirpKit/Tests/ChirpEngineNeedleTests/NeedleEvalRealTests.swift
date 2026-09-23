@@ -22,6 +22,9 @@ final class NeedleEvalRealTests: XCTestCase {
     }
 
     func testEvalNeedleAndStub() async throws {
+        let built = try NeedleCSmokeTests.builtCommit()
+        XCTAssertEqual(
+            built, NeedleRuntimeInfo.pinnedCommit, "the linked runtime is stale: run scripts/build_needle.sh")
         let needle = try await NeedleRealModelTests.makeRealModel()
         let soap = try SOAPEvalSet.bundled()
         let commands = try CommandEvalSet.bundled()
@@ -40,7 +43,7 @@ final class NeedleEvalRealTests: XCTestCase {
             let report = StructureEvalReport(
                 createdAt: Date(), appBuild: "swift test (macOS)", engineID: engine.descriptor.id,
                 engineName: engine.descriptor.displayName, isStub: isStub, modelSHA256: result.modelSHA256,
-                runtime: isStub ? nil : "needle-rs \(NeedleRuntimeInfo.pinnedCommit.prefix(8))",
+                runtime: isStub ? nil : "needle-rs \(built.prefix(8)) (built from vendor/NeedleC.commit)",
                 actThreshold: gate.act, provisionalThreshold: gate.provisional, normalizer: normalizer,
                 soap: result.soap, commands: result.commands)
             try report.jsonData().write(to: out.appendingPathComponent("\(name).json"))
