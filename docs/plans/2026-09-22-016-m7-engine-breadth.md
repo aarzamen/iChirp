@@ -22,7 +22,55 @@
   [ADR-004](../../spec/adr/004-engine-plugin-architecture.md), [speech-engine plug-in contract](../../spec/contracts/speech-engine-plugin-v1.md),
   [on-device runtimes research](../research/2026-09-22-on-device-runtimes.md)
 - **Planned at:** commit `bd8cfc7c`, 2026-09-22
-- **Status:** NOT STARTED
+- **Status:** IN PROGRESS — ASR lane (`lane/asr-engines`: Steps 1, 2, 4, 6; Step 3 optional). Step 5 (small
+  language models) is a separate lane.
+
+## Drift check and refinement (ASR lane, at `f325b99c`)
+
+1. Plan 003 is **IMPLEMENTED**. Plan 011 is **IN PROGRESS**, but only for the owner's device QA: Steps 1–8 are built and
+   merged, with `SMOKE PASS` on both phones. The live-session seam that M7 needs (`LiveSpeechSessionProviding`,
+   `TailWindowPreviewSession`) exists and is tested, so this does not STOP the lane. The controller assigned the lane
+   knowing this.
+2. `git diff --stat bd8cfc7c..HEAD` over the engine paths shows the M1–M6 growth the "Current state" section expected,
+   plus more. ChirpCore gained `LiveSpeechSession`, `VoiceActivity`, `SpeechSynthesis`, `DecisionModel` and
+   `CompanionConfiguration`. `ChirpEngineFluidAudio` now has `ParakeetEngine` (with the tail-window preview),
+   `FluidAudioDiarizer`, `FluidAudioVoiceActivity` and the shared `ModelAssetLifecycle`. `EngineDescriptor` is
+   unchanged apart from new kinds. Every consumer (`FileTranscriptionPipeline`, `DictationCoordinator`,
+   `MeetingCoordinator`, `MeetingLiveTranscriber`, `MeetingFinalizer`) already takes `any SpeechEngine`. The
+   Parakeet variant is fixed at launch (`AppEnvironment.runningVariant`). The approach does not change.
+
+Refinements (they add detail and change none of the plan's decisions):
+
+- **Registry (Step 1).** Upstream's `SpeechEngineCapabilityRegistry` is ported into ChirpCore as data rows keyed by
+  `(engine id, variant)`. ChirpCore cannot import engine targets. Each engine's test pins its descriptor to its row.
+  A row carries a runtime-memory estimate. Rows above the memory budget (2.5 GB, from spec/06) are marked and cannot
+  be selected.
+- **Routes (Step 1).** `SpeechEngineRouter` (ChirpCore) conforms to `SpeechEngine` and `LiveSpeechSessionProviding`.
+  It is passed wherever the app passed `engines.speech`.
+  - Consumers take their route's engine once, when a job is queued, with `SpeechRouting.resolve(_:for:)`: one line
+    each.
+  - **Live** serves the dictation preview and a meeting's live text. **Final** produces every kept transcript: files,
+    a dictation's final pass and a meeting's final pass. This follows spec/06 ("the final route produces the stored
+    transcript"). Upstream differs: there, a dictation's final pass follows the live engine.
+  - A meeting holds a router lease from start until it reaches a finished state, and route changes are refused while
+    any lease is held. Existing transcripts keep their `engine` ids. Parakeet v3 stays the default for both routes.
+- **Tail preview for any engine.** `TailWindowPreviewSession` moves from `ChirpEngineFluidAudio` to ChirpCore
+  unchanged. An engine without its own live mode (Apple Speech, WhisperKit) can then serve the live route: the router
+  writes each window to a temporary WAV and calls `transcribe`.
+- **Apple Speech (Step 2).** `SpeechTranscriber` plus `SpeechAnalyzer` over the normalized WAV. Word timings come from
+  `audioTimeRange`. Assets are handled through `AssetInventory`: `assetInstallationRequest` downloads and reserves the
+  locale, and delete releases the reservation. A Mac probe needed no speech-recognition permission and no entitlement.
+  `DictationTranscriber` and custom vocabulary are deferred.
+- **WhisperKit (Step 4).** Package `argmax-oss-swift`, pinned exactly to `1.1.0` (MIT, checked 2026-09-22). Only the
+  `WhisperKit` product is linked (it depends on `ArgmaxCore` alone). Two variants: `base` (147 MB) and
+  `large-v3-turbo` (`openai_whisper-large-v3-v20240930_turbo_632MB`, 646 MB). WhisperKit would fetch the tokenizer from
+  Hugging Face at load time, so `downloadAssets` fetches it with the model. `prepare` refuses when it is missing.
+  WhisperKit does not use FluidAudio's `ANEInferenceGate`, which is internal to that target and does not serialize on
+  iOS 26. The scheduler still runs background jobs one at a time.
+- **Benchmark (Step 6).** Results live in a JSON file in Application Support. No database table, so no migration.
+  `v9-engine-benchmarks` is not used. The reference set is synthetic (`say`) with known text:
+  `scripts/make_benchmark_audio.sh` bundles it, and the Mac harness makes it at test time. The research doc is
+  `docs/research/2026-09-22-asr-engine-benchmarks.md` (Mac numbers). The controller adds the iPhone numbers.
 
 ## Why this matters
 
