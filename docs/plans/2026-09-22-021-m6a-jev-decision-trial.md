@@ -282,7 +282,7 @@ target `ChirpEngineJevTests`.
   comment saying Step 7 sets them from the calibration table. The outcome carries the label, the confidence, the
   full probabilities and the gate verdict; the UI never hides the verdict.
 - Consequences of a decision are suggestions, never actions: `recordingKind == clinical_encounter` at `suggest` or
-  better offers "Mark as clinical?" (the existing `setPrivacyClass` path; never automatic, never a downgrade, ADR-002);
+  better (review round 1, L4 M8: at any confidence, since a raise is always safe) offers "Mark as clinical?" (the existing `setPrivacyClass` path; never automatic, never a downgrade, ADR-002);
   `templateSuggestion` pre-selects a template in the Transform sheet; `paragraphTags` shows chips in the Transcript
   view for this session only (not persisted).
 - `JevSettingsStore` (UserDefaults): `isEnabled: Bool`, `model: String` (default `jev-1.13.0`), `baseURL` (default

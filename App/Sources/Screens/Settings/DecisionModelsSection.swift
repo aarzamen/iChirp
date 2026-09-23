@@ -140,6 +140,8 @@ struct JevKeySheet: View {
             }
         }
         .tint(AppColor.accentText)
+        // A swipe-down closes the sheet without Cancel: an unsaved typed key never lingers (review L4 M7).
+        .onDisappear { environment.jevSettingsModel.discardTypedKey() }
     }
 
     @ViewBuilder private func checkBadge(_ check: JevSettingsViewModel.ConnectionCheck) -> some View {

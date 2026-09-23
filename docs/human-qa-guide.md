@@ -401,8 +401,8 @@ Each recipe on a Personal item (import `synthetic-meeting.m4a` and open it)
       opens Transform with "Suggested by Jev" at the top (nothing runs until you tap it).
 - [ ] **Jev → Tag paragraphs**: "N paragraphs tagged", each with its label and bars; **Show tags** puts small chips
       ("Action item", "Decision"…) on those paragraphs. Leave the transcript and come back: the chips are gone.
-- [ ] Classify the M4 `synthetic-visit.m4a` while it is **Personal**: if Jev says "Clinical encounter" (Likely or
-      better), **Mark as clinical…** asks first, then the privacy chip turns Clinical.
+- [ ] Classify the M4 `synthetic-visit.m4a` while it is **Personal**: if Jev's top choice is "Clinical encounter"
+      (any confidence, the verdict shown), **Mark as clinical…** asks first, then the privacy chip turns Clinical.
 
 Clinical items
 - [ ] On a **Clinical** item, Jev's menu shows "Jev is a cloud service; clinical items stay on this iPhone." and

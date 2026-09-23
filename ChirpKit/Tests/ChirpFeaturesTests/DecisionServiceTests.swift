@@ -196,6 +196,28 @@ final class DecisionServiceTests: XCTestCase {
         XCTAssertEqual(runs.first?.inputCharacters, 0)
     }
 
+    /// Review L4 M6: the result sheet says an excerpt may have left the phone only for an error after sending.
+    @MainActor
+    func testTheRunModelKnowsWhetherAFailureCameAfterSending() async {
+        let item = row(.personal)
+        let h = harness(rows: [item])
+        h.engine.script { $0.error = LanguageModelError.rateLimited }
+        let sent = DecisionRunViewModel(recipe: .recordingKind, transcriptionID: item.id, service: h.service)
+        await sent.start()
+        guard case .failed = sent.phase else { return XCTFail("\(sent.phase)") }
+        XCTAssertTrue(sent.failedAfterSending)
+
+        let noKey = harness(rows: [item], key: nil)
+        let unsent = DecisionRunViewModel(recipe: .recordingKind, transcriptionID: item.id, service: noKey.service)
+        await unsent.start()
+        guard case .failed = unsent.phase else { return XCTFail("\(unsent.phase)") }
+        XCTAssertFalse(unsent.failedAfterSending, "a missing key: nothing left the phone")
+        XCTAssertFalse(DecisionRunViewModel.failureCameAfterSending(LanguageModelError.contextTooLong))
+        XCTAssertFalse(
+            DecisionRunViewModel.failureCameAfterSending(LanguageModelError.unavailable(.notConfigured("x"))))
+        XCTAssertTrue(DecisionRunViewModel.failureCameAfterSending(LanguageModelError.providerError("500")))
+    }
+
     private func clinicalDeliverable(for transcriptionID: UUID) -> Deliverable {
         Deliverable(
             transcriptionID: transcriptionID, promptID: nil, promptVersionID: nil, title: "SOAP note",
@@ -398,7 +420,10 @@ final class DecisionServiceTests: XCTestCase {
         h.engine.script { $0.confidence = 0.5 }
         guard case .decided(let unsure) = try await h.service.run(recipe: .recordingKind, transcriptionID: item.id)
         else { return XCTFail("expected a decision") }
-        XCTAssertFalse(unsure.suggestsMarkingClinical, "an unsure answer suggests nothing")
+        // Review L4 M8: raising a class is always safe, so even an unsure "clinical encounter" offers the raise (the
+        // verdict stays visible; the person decides).
+        XCTAssertEqual(unsure.items.first?.verdict, .unsure)
+        XCTAssertTrue(unsure.suggestsMarkingClinical)
 
         h.engine.script { $0.choices = ["template": "soap-note"]; $0.confidence = 0.9 }
         guard case .decided(let template) = try await h.service.run(recipe: .templateSuggestion, transcriptionID: item.id)

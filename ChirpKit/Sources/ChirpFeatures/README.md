@@ -399,8 +399,11 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `DecisionModelFactory` (the app's `AppDecisionModelFactory` is the only importer of `ChirpEngineJev`).
 - `JevSettingsViewModel.swift`: Settings → Models → Decision models (`setEnabled`, `saveKey`, `testConnection`,
   `isMenuVisible`). `keyText` always starts empty and a blank field keeps the stored key; the key itself never enters
-  the view model. `DecisionRunViewModel.swift`: one decision for the result sheet (`running` → `decided` / `blocked` /
-  `failed` with Retry; `cancel()` when the sheet closes). App tests: `AppTests/DecisionModelAppTests`.
+  the view model; `refresh()` also clears the last check, and `discardTypedKey()` (the sheet closed without saving)
+  forgets a typed key. `DecisionRunViewModel.swift`: one decision for the result sheet (`running` → `decided` /
+  `blocked` / `failed` with Retry; `cancel()` when the sheet closes); `failedAfterSending` tells the sheet whether an
+  excerpt may have left the phone before the error. `DecisionReport.suggestsMarkingClinical` offers the raise whenever
+  "clinical encounter" is Jev's top choice, at any confidence. App tests: `AppTests/DecisionModelAppTests`.
 
 ## How to verify
 

@@ -112,6 +112,27 @@ final class DecisionModelAppTests: XCTestCase {
         XCTAssertEqual(try settings.store.apiKey(), SecretValue("ts-replacement-key"))
     }
 
+    /// Review L4 M7: a key typed and tested but not saved is forgotten when the sheet goes away, and reopening it shows
+    /// no stale "Connected".
+    func testAnUnsavedTestedKeyIsForgottenAndTheBadgeResets() async throws {
+        let settings = makeSettingsModel()
+        settings.model.refresh()
+        settings.model.keyText = "ts-typed-not-saved"
+        await settings.model.testConnection()
+        XCTAssertEqual(settings.model.check, .succeeded)
+
+        settings.model.discardTypedKey()  // the sheet was swiped away
+        XCTAssertEqual(settings.model.keyText, "")
+        XCTAssertEqual(settings.model.check, .idle)
+        XCTAssertNil(try settings.store.apiKey(), "nothing was saved")
+
+        settings.model.keyText = "ts-typed-again"
+        await settings.model.testConnection()
+        settings.model.refresh()  // the sheet opens again
+        XCTAssertEqual(settings.model.check, .idle, "no stale Connected badge")
+        XCTAssertEqual(settings.model.keyText, "")
+    }
+
     // MARK: - Helpers
 
     private func makeSettingsModel() -> (model: JevSettingsViewModel, store: JevSettingsStore) {

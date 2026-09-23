@@ -73,7 +73,10 @@ struct DecisionResultSheet: View {
                     .foregroundStyle(Tokens.Color.ink)
             }
             .padding(.top, 12)
-            sentNote
+            // Nothing has necessarily left yet (routing and the key come first): say what is being sent, not "saw".
+            note(
+                "Sending an excerpt of this transcript (up to 3,000 characters) and a few counts to \(host). Clinical "
+                    + "items are never sent.")
         case .blocked(let message):
             Label(message, systemImage: "lock.shield")
                 .chirpFont(16, .semibold)
@@ -91,6 +94,13 @@ struct DecisionResultSheet: View {
                 .chirpFont(14)
                 .foregroundStyle(Tokens.Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if run.failedAfterSending {
+                note(
+                    "An excerpt of this transcript (up to 3,000 characters) may have reached \(host) before this "
+                        + "error.")
+            } else {
+                note("Nothing was sent.")
+            }
             Button {
                 Task { await run.retry() }
             } label: {
@@ -213,13 +223,16 @@ struct DecisionResultSheet: View {
     }
 
     private var sentNote: some View {
-        Text(
+        note(
             "Jev saw an excerpt of this transcript (up to 3,000 characters) and a few counts, sent to \(host). "
-                + "Clinical items are never sent."
-        )
-        .chirpFont(12.5)
-        .foregroundStyle(Tokens.Color.secondary)
-        .fixedSize(horizontal: false, vertical: true)
+                + "Clinical items are never sent.")
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .chirpFont(12.5)
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func applyClinical() async {
