@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 from . import config
-from .app import LOGGER_NAME, create_app
+from .app import LOGGER_NAME, create_app, sweep_stale_downloads
 from .auth import TokenFileError, load_or_create_token
 from .backends import SpeechBackend, YouTubeBackend
 from .config import CompanionSettings
@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
+    sweep_stale_downloads()
     settings = CompanionSettings(token=token)
     app = create_app(settings, speech=speech, youtube=youtube)
     host_name = args.advertise_host or _local_host_name()

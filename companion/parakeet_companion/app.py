@@ -9,13 +9,18 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 import time
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.background import BackgroundTask
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -24,7 +29,8 @@ from . import config
 from .auth import is_authorized
 from .backends import SpeechBackend, SpeechJob, YouTubeBackend
 from .config import CompanionSettings
-from .errors import BadRequest, CompanionError, FeatureUnavailable, InputTooLong, error_body
+from .errors import BadRequest, CompanionError, FeatureUnavailable, InputTooLong, YouTubeFailed, error_body
+from .youtube import canonical_video_url
 
 LOGGER_NAME = "parakeet_companion"
 _METHODS = frozenset({"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"})
@@ -108,8 +114,74 @@ def create_app(
         result = speech.synthesize(job)
         return Response(content=result.data, media_type=result.media_type)
 
+    @app.post(config.YOUTUBE_PATH)
+    def youtube_audio(request: YouTubeRequest) -> Response:
+        if youtube is None or not youtube.is_available():
+            raise FeatureUnavailable("YouTube audio needs yt-dlp. Run `uv sync --project companion`.")
+        video_url = canonical_video_url(request.url)
+        workdir = tempfile.TemporaryDirectory(prefix=TEMP_PREFIX)
+        try:
+            deadline = time.monotonic() + settings.youtube_time_limit_seconds
+            fetched = youtube.fetch_audio(video_url, Path(workdir.name), deadline)
+            size = fetched.path.stat().st_size
+            if size == 0:
+                raise YouTubeFailed("YouTube sent an empty file.")
+        except BaseException:
+            workdir.cleanup()
+            raise
+        headers = {"Content-Length": str(size), "Cache-Control": "no-store"}
+        if fetched.title:
+            headers["X-Companion-Title"] = quote(fetched.title, safe="")
+        if fetched.duration_ms:
+            headers["X-Companion-Duration-Ms"] = str(fetched.duration_ms)
+        return StreamingResponse(
+            _stream_then_delete(fetched.path, workdir),
+            media_type=fetched.media_type,
+            headers=headers,
+            background=BackgroundTask(workdir.cleanup),
+        )
+
     app.add_middleware(GuardAndLog, settings=settings, logger=log)
     return app
+
+
+#: Temporary folders of YouTube downloads; `sweep_stale_downloads` removes ones a crashed run left behind.
+TEMP_PREFIX = "parakeet-companion-"
+
+
+def _stream_then_delete(path: Path, workdir: tempfile.TemporaryDirectory) -> Iterator[bytes]:
+    """Streams the file in 256 KB pieces; the folder is deleted when the stream ends (and again, harmlessly, by the
+    response's background task, which also runs when the phone disconnects)."""
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(256 * 1024):
+                yield chunk
+    finally:
+        workdir.cleanup()
+
+
+def sweep_stale_downloads(older_than_seconds: float = 3_600) -> int:
+    """Deletes download folders an earlier, crashed run left in the temporary directory. Returns how many."""
+    import shutil
+
+    removed = 0
+    cutoff = time.time() - older_than_seconds
+    for folder in Path(tempfile.gettempdir()).glob(TEMP_PREFIX + "*"):
+        try:
+            if folder.is_dir() and folder.stat().st_mtime < cutoff:
+                shutil.rmtree(folder, ignore_errors=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+class YouTubeRequest(BaseModel):
+    """`POST /v1/youtube/audio`."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    url: str = Field(max_length=2_048)
 
 
 class SpeechRequest(BaseModel):
