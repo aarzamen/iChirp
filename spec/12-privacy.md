@@ -62,6 +62,13 @@ Before any engine processes an item, the caller asks
   trust mid-reading, the audio stops before the next chunk is sent and the question is asked again. A confirmation
   covers that reading's engine, locality, host and class only and is never remembered; declining sends nothing. The
   voice engines refuse every redirect, and one reading stays pinned to the companion address routing approved.
+- **Create chains (plan 022)** add no new route: every step is an existing service and routes as that service does,
+  on the item's **current** effective class. A new item gets the class the person chose ("Clinical (patient
+  information)") before any later step; the operation goes through `DeliverableService` (the same per-run question
+  and single-use token), the voice message through the voice routing above (checked before every chunk). A chain
+  waiting for a clinical answer sends nothing until the dialog's Send / confirm button is tapped; `CreateFlow` never
+  answers for the person (it resumes on `onAnswered`). Jev is never part of a chain. Generated text is stored as a new
+  document; it never overwrites the item.
 
 ## Network surfaces
 

@@ -32,6 +32,10 @@ import Observation
     @ObservationIgnored private let transcriptionID: UUID
     @ObservationIgnored private let request: Request
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// Plan 022: called after the person answered the clinical question (the run then finished, failed, asked again
+    /// or, after Cancel, went back to `.idle`), so a chain waiting on this run (`CreateFlow`) can go on. Only the
+    /// dialog answers; this hook never confirms anything itself.
+    @ObservationIgnored public var onAnswered: (@MainActor () -> Void)?
 
     public init(service: DeliverableService, model: any LanguageModel, transcriptionID: UUID, request: Request) {
         self.service = service
@@ -68,12 +72,14 @@ import Observation
         } catch {
             phase = .failed(error.localizedDescription)
         }
+        onAnswered?()
     }
 
     /// The user declined: nothing was sent.
     public func declineOverride() {
         guard case .needsConfirmation = phase else { return }
         phase = .idle
+        onAnswered?()
     }
 
     public func cancel() {

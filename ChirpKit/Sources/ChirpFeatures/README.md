@@ -471,6 +471,24 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   `maxCharacters`, and inserts a `.completed` `.text` row (`rawTranscript` = the text, `derivedTitle` = the first
   line via `title(from:)`, no media, no engine). Contract: `spec/contracts/document-items-v1.md` (Text item). The row
   routes like any other through `EffectivePrivacyClass`; tests: `TextItemServiceTests`, `TextItemStoreTests`.
+- `Create/CreateFlow.swift` (Step 2): the chain **input** (speak, type, link, file) → **transcribe** (the existing
+  jobs) → **operation** (none, Summary or a template) → **output** (the item, the document, a voice message).
+  `CreateRequest` = `CreateInput` + `CreateOutput` + the new item's class; `CreateFlowDependencies` are the existing
+  services as closures (dictation, `TextItemService`, link and file jobs, `waitForItem`, `retryItem`) plus
+  `DeliverableService` and a `VoiceMessageProducing` factory, so tests run every input × output with fakes. Stages
+  report `pending/running/done/skipped/failed`; `phase` is `running`, `waitingForAnswer(stage)`, `finished`,
+  `failed(stage, sentence)` or `cancelled`; `retry()` restarts at the failed stage and reuses an item already made.
+  **The chain never confirms a clinical question:** the operation's `DeliverableRunViewModel` and the voice message
+  ask through their own dialogs, and `onAnswered` resumes the chain. A new item is raised to the chosen class
+  (`DeliverableService.setPrivacyClass`) before any later step. Logs carry the chain id, item ids, kinds and stage
+  names only.
+- `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
+  `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
+- `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,
+  `ichirp.create.choices`; choices only, never text); `validated(templateIDs:)` drops a removed template.
+- Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
+  `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
+  `CreateSupportTests`.
 
 ## How to verify
 
