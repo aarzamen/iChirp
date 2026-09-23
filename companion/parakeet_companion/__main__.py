@@ -144,6 +144,7 @@ def _print_banner(
         f"  Listening on {bind_host}:{port}",
         "",
         "  On your iPhone: Settings → Mac companion",
+        f"    URL:           http://{host_name}:{port}",
         f"    Host:          {host_name}",
         f"    Port:          {port}",
         f"    Pairing token: {token}" + ("   (new)" if created else ""),

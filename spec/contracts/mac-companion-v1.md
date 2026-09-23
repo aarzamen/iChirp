@@ -35,7 +35,9 @@ bytes (base64url), generated on first start, stored at `~/Library/Application Su
 ### `POST /v1/audio/speech` (OpenAI speech shape)
 Request: `{"model": "qwen3-tts-1.7b", "input": "<text>", "voice": "Ryan", "instructions": "<style, optional>",
 "response_format": "mp3" | "wav", "language": "en" | null}`. Response: the audio bytes with `Content-Type:
-audio/mpeg` or `audio/wav`. `input` is at most 4 000 characters (`413` above). Errors: `400` unknown voice or model,
+audio/mpeg` or `audio/wav`. `input` is at most 4 000 characters (`413` above; counted as Unicode code points, so a Swift client
+counts `unicodeScalars`). `voice` may also be a full voice id (`"qwen3-tts-1.7b:Ryan"`), and a missing `model` means
+the model of that id, else `defaultModel`. Errors: `400` unknown voice or model,
 `503` model not loaded (the message says which command loads it).
 
 ### `POST /v1/youtube/audio`
@@ -58,3 +60,8 @@ line, no URL echoed), `504` over the 15-minute download limit.
 ## Changes
 
 - v1 (2026-09-22): initial.
+- v1 clarifications (2026-09-22, plan 019 lane L1; no wire change): how `input` is counted; `voice` accepts a full id;
+  a missing `model` falls back; error codes are `unauthorized`, `bad_request`, `unknown_model`, `unknown_voice`,
+  `input_too_long`, `payload_too_large` (body over 64 KB), `model_unavailable`, `encoder_unavailable` (MP3 without
+  ffmpeg), `unsupported_link`, `video_unavailable`, `youtube_failed`, `youtube_timeout`, `feature_unavailable`,
+  `internal`. Server: [`companion/`](../../companion/README.md).

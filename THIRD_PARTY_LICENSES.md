@@ -73,6 +73,30 @@ app's container and excluded from device backups.
 - Source: the FluidInference diarization repositories that FluidAudio 0.16.1 pins to a fixed revision.
 - Used for: "Speaker 1 / Speaker 2" labels on transcripts.
 
+## The Mac companion (`companion/`, runs on the owner's Mac; not linked into the app)
+
+A Python service the owner runs with `scripts/companion.sh` (plan 019, [ADR-014](spec/adr/014-mac-companion.md)).
+Versions are pinned in `companion/uv.lock`; nothing here ships in the IPA. All licenses below are GPL-3.0-compatible
+(checked from each installed package's metadata, 2026-09-22).
+
+| Component | License | Used for |
+|---|---|---|
+| FastAPI (with Starlette, Pydantic) | MIT (Starlette BSD-3-Clause, Pydantic MIT) | The HTTP API |
+| uvicorn | BSD-3-Clause | The HTTP server |
+| mlx-audio | MIT | Speech synthesis on Apple silicon (pulls MLX, MIT; transformers and huggingface_hub, Apache-2.0; NumPy and SciPy, BSD) |
+| yt-dlp (`default` extra) | Unlicense (yt-dlp-ejs: Unlicense AND MIT AND ISC; mutagen GPL-2.0-or-later; pycryptodomex BSD / public domain) | YouTube audio for videos without captions |
+| misaki (optional `kokoro` extra) | Apache-2.0 | Kokoro-82M's phonemizer |
+| ffmpeg (Homebrew, run as a separate program, not linked) | LGPL/GPL per its build | MP3 encoding |
+
+Models the companion downloads once into the Hugging Face cache (`scripts/companion.sh --download <model>`):
+
+| Model | License | Source |
+|---|---|---|
+| Qwen3-TTS 12Hz 1.7B / 0.6B CustomVoice (8-bit MLX) | Apache-2.0 | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit`, `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit` (Alibaba Qwen) |
+| Kokoro-82M (MLX bf16) | Apache-2.0 | `mlx-community/Kokoro-82M-bf16` (hexgrad) |
+
+YouTube's terms forbid automated download; the owner accepts that for personal use (ADR-014).
+
 ## Planned plug-ins (not linked today)
 
 These are recorded so their license verdicts are not rediscovered each time. Each lands with its own ADR.

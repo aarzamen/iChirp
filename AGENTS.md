@@ -45,6 +45,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/check_readme_references.sh` | Fails when a module README names a `.swift` file that no longer exists |
 | `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off) plus committed key/profile/.env/database files; run before merging a lane or pushing |
 | `scripts/format.sh` | swift-format in place; review the diff afterwards |
+| `scripts/companion.sh [--download <model>]` | Runs the Parakeet companion on the Mac (local voices, YouTube audio; `companion/README.md`); prints the URL and pairing token |
 
 Direct commands: `swift test --package-path ChirpKit --filter <Name>`; the real-model test runs only with
 `CHIRP_MODEL_TESTS=1 swift test --package-path ChirpKit --filter ParakeetEngineIntegrationTests` (downloads ~0.5 GB).

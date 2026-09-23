@@ -61,6 +61,17 @@ sources, and what the lane does about them:
    keeps the value and makes the client one constant.
 6. mlx-audio resolves to 0.5.5 (≥ 0.4.3, MIT).
 
+## Live checks (L1, 2026-09-22, this Mac, companion bound to 127.0.0.1:8765, stopped afterwards)
+
+- **Speech** (Step 2): `qwen3-tts-1.7b` (CustomVoice 8-bit, downloaded once with `--download`), voice Ryan, the
+  sentence from the command above, MP3: `200`, 23.9 KB, 1.49 s of audio, played with `afplay`. **First request
+  16.9 s, of which the model load was 13.9 s**; the second request (WAV, with a style instruction) took 0.49 s.
+  `GET /v1/voices` without the token: `401`; with it: nine voices. The log held only method, path, status, sizes,
+  times, the model id and the character count.
+- **YouTube** (Step 3): "Caminandes 3: Llamigos" (Blender Foundation, CC BY), 150 s, via a `youtu.be` link: `200`,
+  2.4 MB `audio/mp4` (AAC, 150.1 s) in 2.0 s, `X-Companion-Title` and `X-Companion-Duration-Ms: 150000` correct, the
+  temporary folder gone afterwards, neither the link nor the title in the log.
+
 ## Current state
 
 - Contract `spec/contracts/mac-companion-v1.md` is committed. No `companion/` folder exists.

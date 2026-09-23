@@ -10,7 +10,6 @@ dependencies = [
     "mlx-audio>=0.4.3",
     "yt-dlp[default]>=2026.8.19",
     "numpy>=1.26",
-    "soundfile>=0.12",
 ]
 
 [project.optional-dependencies]
