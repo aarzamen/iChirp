@@ -83,7 +83,8 @@ public struct JobProgress: Sendable, Equatable {
 /// then, because the user may change it while the job waits. Later engine call sites (language and structure
 /// models) must follow the same pattern.
 public actor FileTranscriptionPipeline {
-    /// The error shown on a row when the speech model is missing.
+    /// The error shown on a row when Parakeet's model is missing. M7: another engine a route chose is named instead
+    /// (`SpeechModelMissingError`).
     public static let modelMissingMessage = "Download the Parakeet speech model in Settings → Speech model"
     static let normalizedFileName = "normalized-16k.wav"
     /// The statuses `retry` accepts.
@@ -289,16 +290,20 @@ public actor FileTranscriptionPipeline {
             .appendingPathComponent(Self.normalizedFileName, isDirectory: false)
         // A temp artifact: removed on every exit, success or not.
         defer { try? FileManager.default.removeItem(at: normalizedURL) }
+        // M7: the final route's engine as the job is queued; a route change later applies to the next job only.
+        let speech = SpeechRouting.resolve(self.speech, for: .final)
 
         do {
-            let transcription = try await run(row, normalizedURL: normalizedURL)
+            let transcription = try await run(row, speech: speech, normalizedURL: normalizedURL)
             return try await saveCompleted(transcription)
         } catch {
             if Self.isCancellation(error) {
                 logger.notice("process_cancelled id=\(id, privacy: .public)")
                 return await markEnded(id, fallback: row, status: .cancelled, message: nil)
             }
-            let message = Self.userMessage(for: error)
+            // Review I2: a missing model names the engine this job resolved and what to do.
+            let message = Self.userMessage(
+                for: SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
             logger.error(
                 "process_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(message, privacy: .private)"
             )
@@ -366,12 +371,13 @@ public actor FileTranscriptionPipeline {
     // MARK: - Stages
 
     /// The cancellable part of a job. Throws on failure or cancellation; returns the completed (unsaved) row.
-    private func run(_ row: Transcription, normalizedURL: URL) async throws -> Transcription {
+    /// `speech` is the final route's engine, resolved once when the job was queued.
+    private func run(
+        _ row: Transcription, speech: any SpeechEngine, normalizedURL: URL
+    ) async throws -> Transcription {
         let id = row.id
         var transcription = row
         let settingsValue = settings.load()
-        // M7: the final route's engine as the job is queued; a route change later applies to the next job only.
-        let speech = SpeechRouting.resolve(self.speech, for: .final)
         try Task.checkCancellation()
 
         try Self.checkSpeechRouting(privacyRouting, speech: speech.descriptor, privacyClass: row.privacyClass, id: id)

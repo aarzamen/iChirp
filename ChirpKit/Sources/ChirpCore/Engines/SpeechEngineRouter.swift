@@ -7,6 +7,8 @@
 // (`SpeechRouting.resolve`), instead of the scheduler snapshotting a runtime selection. The final route covers
 // every kept transcript, including a dictation's final pass (spec/06), where upstream routed dictation to the live
 // engine. A live engine without its own live mode previews through `TailWindowPreviewSession` over a temporary WAV.
+// Review I3 (fix/asr-review): a live/final pair whose combined runtime-memory estimate exceeds the budget is refused
+// (a saved one previews with the final engine instead), and `releaseUnroutedModels()` unloads engines on no route.
 
 import Foundation
 
@@ -67,6 +69,8 @@ public enum SpeechRouteError: Error, Equatable, LocalizedError {
     case meetingInProgress
     case engineNotInBuild(String)
     case noLivePreview(String)
+    /// Two different engines on the routes would need more memory together than the model budget (review I3).
+    case combinedMemoryOverBudget(live: String, final: String, combinedBytes: Int64, budgetBytes: Int64)
 
     public var errorDescription: String? {
         switch self {
@@ -76,6 +80,11 @@ public enum SpeechRouteError: Error, Equatable, LocalizedError {
             return "\(name) isn’t part of this build."
         case .noLivePreview(let name):
             return "\(name) can’t show live text."
+        case .combinedMemoryOverBudget(let live, let final, let combined, let budget):
+            return "\(live) for live text and \(final) for transcripts would need about "
+                + "\(SpeechEngineMemoryRequirementStatus.gigabytes(combined)) together while you dictate or record, "
+                + "more than this build’s \(SpeechEngineMemoryRequirementStatus.gigabytes(budget)) model budget. "
+                + "Use one engine for both, or a smaller one."
         }
     }
 }
@@ -133,24 +142,39 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
     private var leases: [UUID: SpeechEngineLease] = [:]
     private let onSelectionChange: @Sendable (SpeechRouteSelection) -> Void
     private let temporaryDirectory: URL
+    /// The model budget two different engines on the routes must fit together (the registry's estimates).
+    public let memoryBudgetBytes: Int64
 
     /// - Parameters:
     ///   - engines: every speech engine instance in this build; the first one is the fallback for a saved choice
     ///     that is not in the build (put Parakeet first).
-    ///   - selection: the saved choice; a route naming an engine that is not registered falls back to the first.
+    ///   - selection: the saved choice; a route naming an engine that is not registered falls back to the first. A
+    ///     saved pair over `memoryBudgetBytes` together keeps the final engine and previews with it too.
+    ///   - memoryBudgetBytes: see `select`; the registry's budget unless a test passes another.
     public init(
         engines: [Registration],
         selection: SpeechRouteSelection = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        memoryBudgetBytes: Int64 = SpeechEngineCapabilityRegistry.memoryBudgetBytes,
         onSelectionChange: @escaping @Sendable (SpeechRouteSelection) -> Void = { _ in }
     ) {
         precondition(!engines.isEmpty, "SpeechEngineRouter needs at least one engine")
         self.registrations = engines
         self.onSelectionChange = onSelectionChange
         self.temporaryDirectory = temporaryDirectory
+        self.memoryBudgetBytes = memoryBudgetBytes
         var resolved = selection
         for route in SpeechRoute.allCases where Self.registration(matching: selection[route], in: engines) == nil {
             resolved[route] = engines[0].key
+        }
+        if let live = Self.registration(matching: resolved.live, in: engines)?.key,
+            let final = Self.registration(matching: resolved.final, in: engines)?.key,
+            Self.overBudget(live: live, final: final, budget: memoryBudgetBytes) != nil
+        {
+            // One model resident: the final engine's tail preview serves live text (it can, or the first engine).
+            let finalPreviews =
+                SpeechEngineCapabilityRegistry.capabilitiesIfPresent(for: final)?.supportsLivePreview ?? true
+            resolved.live = finalPreviews ? final : engines[0].key
         }
         self.current = resolved
     }
@@ -180,9 +204,17 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
         Self.registration(matching: key, in: registrations)?.key
     }
 
-    /// Chooses `key` for `route`. Refused while a meeting holds a lease, for an engine not in this build, and for
-    /// the live route when the registry says the engine cannot preview.
-    public func select(_ key: SpeechEngineVariantKey, for route: SpeechRoute) throws {
+    /// Chooses `key` for `route` and returns the routes whose engine changed. Refused while a meeting holds a lease,
+    /// for an engine not in this build, and for the live route when the registry says the engine cannot preview.
+    ///
+    /// Memory (review I3): a dictation or a meeting keeps the live and final engines loaded together, so two different
+    /// engines must fit `memoryBudgetBytes` together (registry estimates). A final choice that does not fit with the
+    /// current live engine moves live text to the final engine too (its tail preview: one model resident), and the
+    /// result says so; a live choice that does not fit with the final engine is refused.
+    ///
+    /// After a change, call `releaseUnroutedModels()` to free the engine that left the routes.
+    @discardableResult
+    public func select(_ key: SpeechEngineVariantKey, for route: SpeechRoute) throws -> Set<SpeechRoute> {
         guard let registration = Self.registration(matching: key, in: registrations) else {
             throw SpeechRouteError.engineNotInBuild(Self.name(for: key))
         }
@@ -191,13 +223,41 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
         {
             throw SpeechRouteError.noLivePreview(row.displayName)
         }
-        let changed: SpeechRouteSelection? = try lock.withLock {
+        let budget = memoryBudgetBytes
+        let registrations = self.registrations
+        let finalPreviews =
+            SpeechEngineCapabilityRegistry.capabilitiesIfPresent(for: registration.key)?.supportsLivePreview ?? true
+        let (saved, routes): (SpeechRouteSelection?, Set<SpeechRoute>) = try lock.withLock {
             guard leases.isEmpty else { throw SpeechRouteError.meetingInProgress }
-            guard current[route] != registration.key else { return nil }
-            current[route] = registration.key
-            return current
+            guard current[route] != registration.key else { return (nil, []) }
+            var next = current
+            next[route] = registration.key
+            if let live = Self.registration(matching: next.live, in: registrations)?.key,
+                let final = Self.registration(matching: next.final, in: registrations)?.key,
+                let error = Self.overBudget(live: live, final: final, budget: budget)
+            {
+                guard route == .final, finalPreviews else { throw error }
+                next.live = registration.key
+            }
+            let changed = Set(SpeechRoute.allCases.filter { current[$0] != next[$0] })
+            current = next
+            return (current, changed)
         }
-        if let changed { onSelectionChange(changed) }
+        if let saved { onSelectionChange(saved) }
+        return routes
+    }
+
+    /// Unloads the model of every engine that is on neither route now (`SpeechEngineUnloading`; an engine refuses
+    /// while a job holds its model, and a job already queued on it loads it again). The routes are read for each
+    /// engine as it is reached, so switching straight back keeps that engine loaded. Call it after `select`.
+    public func releaseUnroutedModels() async {
+        for registration in registrations {
+            let routed = Set(SpeechRoute.allCases.compactMap { registeredKey(for: selection[$0]) })
+            guard !routed.contains(registration.key),
+                let unloading = registration.engine as? any SpeechEngineUnloading
+            else { continue }
+            await unloading.unloadModels()
+        }
     }
 
     // MARK: - SpeechEngineRouting
@@ -285,5 +345,16 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
 
     private static func name(for key: SpeechEngineVariantKey) -> String {
         SpeechEngineCapabilityRegistry.capabilitiesIfPresent(for: key)?.displayName ?? key.description
+    }
+
+    /// The refusal when `live` and `final` are different engines whose runtime estimates together exceed `budget`.
+    private static func overBudget(
+        live: SpeechEngineVariantKey, final: SpeechEngineVariantKey, budget: Int64
+    ) -> SpeechRouteError? {
+        guard live != final else { return nil }
+        let combined = SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes(for: [live, final])
+        guard combined > budget else { return nil }
+        return .combinedMemoryOverBudget(
+            live: name(for: live), final: name(for: final), combinedBytes: combined, budgetBytes: budget)
     }
 }

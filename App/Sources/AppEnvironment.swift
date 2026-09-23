@@ -672,6 +672,15 @@ import Observation
         DeliverableDocumentViewModel(id: id, store: deliverableStore)
     }
 
+    /// The Capture banner's facts about the final route's engine: its name, its model state (Parakeet's from
+    /// Settings → Speech, which tracks a download live) and whether it is Parakeet (review I2).
+    var finalSpeechModel: (name: String, status: ModelAssetStatus, isParakeet: Bool) {
+        if let row = speechEngines.row(for: .final), row.id.engineID != ParakeetEngine.engineID {
+            return (row.capabilities.displayName, row.status, false)
+        }
+        return ("Parakeet", speechSettings.speechStatus, true)
+    }
+
     /// Whether the final route's speech model is on disk (the Capture banner shows when it is not).
     var isSpeechModelReady: Bool {
         if let row = speechEngines.row(for: .final), row.id.engineID != ParakeetEngine.engineID {

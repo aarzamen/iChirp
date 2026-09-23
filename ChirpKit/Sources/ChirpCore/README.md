@@ -51,6 +51,11 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   - `SpeechEngineRouter` is a `SpeechEngine` for the final route and a `LiveSpeechSessionProviding` for the live
     route. A live engine without its own live mode gets a tail preview over a temporary WAV.
   - Leases block route changes during a meeting.
+  - Memory (review I3): `select` returns the routes it changed. Two different engines on the routes must fit the
+    model budget together (`SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes`); a Transcripts choice that
+    does not fit moves live text to the same engine, a live choice that does not fit is refused, and a saved pair
+    over the budget previews with the final engine. `releaseUnroutedModels()` unloads every engine on neither route
+    (`SpeechEngineUnloading`); Settings calls it after a change.
   - `SpeechRouting.resolve(_:for:)` is how consumers take a route's engine once, when a job is queued.
 - `Engines/SpeechSynthesis.swift`: `SpeechSynthesizing` (text to speech: "Listen", spoken answers, read-back),
   `SynthesisRequest`, `SynthesisVoice`, `SynthesizedAudio`, `SpeechSynthesisError`. Engine kind `.speechSynthesis`.

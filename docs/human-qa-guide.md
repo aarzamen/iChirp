@@ -634,6 +634,20 @@ Speech engines and routes
       **Transcripts** engine's text.
 - [ ] Start a meeting, then open Speech engines and pick another engine: the alert says it can't change during a
       meeting. After Stop & save it can.
+- [ ] During a meeting whose Transcripts is Whisper Base, Delete Whisper Base: the alert says it is in use by a
+      meeting; nothing is deleted. An engine on no route can still be deleted.
+- [ ] With Transcripts on Whisper Base and no meeting, Delete Whisper Base: the dialog first says Transcripts will use
+      Parakeet instead; after Delete the alert says "Whisper Base was deleted, so Transcripts uses Parakeet v3 now",
+      and the Use group shows Parakeet.
+- [ ] Missing model, not a dead end (restore-from-backup case; to reproduce, pick Whisper Base for Transcripts, then
+      delete `Application Support/Models/WhisperKit` through Xcode's container download/replace, or ask the
+      controller for a build that does it): importing a file fails with "Whisper Base isn’t downloaded on this iPhone.
+      Download it in Settings → Speech engines, or switch Transcripts to Parakeet"; Dictate says the same and offers
+      Open Settings; Capture's banner says "Download Whisper Base to transcribe". It never says to download Parakeet.
+      Switch Transcripts to Parakeet, then Retry: it transcribes.
+- [ ] Switch Transcripts from Whisper Large v3 Turbo back to Parakeet (with Live text on Parakeet): Xcode's memory
+      gauge (or Settings → About → memory) drops by about the Turbo model; nothing stays loaded for an engine on no
+      route.
 - [ ] Airplane mode: every downloaded engine still transcribes (all on-device); Download says it needs a connection.
 
 Benchmark

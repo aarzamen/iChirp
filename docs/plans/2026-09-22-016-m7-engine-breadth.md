@@ -29,7 +29,14 @@
   [the research note](../research/2026-09-22-on-device-llm.md). Step 3 (streaming live preview) is not built.
   - Open items: the controller's iPhone checks (Apple Speech on the device; WhisperKit Large v3 Turbo's peak memory;
     benchmark numbers into [the benchmark doc](../research/2026-09-22-asr-engine-benchmarks.md)); the full package
-    suite once, at merge; `scripts/device_smoke.sh`.
+    suite once, at merge; `scripts/device_smoke.sh`. The iPhone benchmark must also measure **two engines loaded
+    together** (Live text and Transcripts on different engines, e.g. Parakeet v3 plus Whisper Large v3 Turbo, during
+    a dictation): the router's combined-memory rule (review I3) trusts registry estimates until then.
+  - Review of the merge (`.superpowers/sdd/milestones/review-asr-merge-6ccc6a5e.md`) fixed on `fix/asr-review`: I1
+    WhisperKit honors cancellation while waiting (permit and shared load); I2 a route whose model is missing names
+    that engine (file, dictation, meeting, Capture banner) and Settings never deletes a routed engine during a meeting
+    and moves its routes back to Parakeet otherwise; I3 a route change unloads the engine left on no route, and two
+    different engines on the routes must fit the 2.5 GB budget together.
   - Step 6 is built as a Settings screen (Settings → Speech engines → Benchmark engines) with a DEBUG launch argument,
     not a DEBUG-only screen. The research doc is `docs/research/2026-09-22-asr-engine-benchmarks.md` (Mac and
     Simulator numbers). The existing `device-benchmarks.md` stays the smoke log.

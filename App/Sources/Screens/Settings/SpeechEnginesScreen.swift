@@ -101,11 +101,14 @@ struct SpeechEnginesScreen: View {
         .task { await engines.refresh() }
         .alert(
             "Speech engines",
-            isPresented: Binding(get: { engines.lastError != nil }, set: { if !$0 { engines.dismissError() } })
+            isPresented: Binding(
+                get: { engines.lastError != nil || engines.lastNotice != nil },
+                set: { if !$0 { engines.dismissError() } })
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(engines.lastError ?? "")
+            // A refusal or failure, and what the app changed for you (a route moved back to Parakeet).
+            Text([engines.lastError, engines.lastNotice].compactMap { $0 }.joined(separator: "\n\n"))
         }
         .confirmationDialog(
             "Delete the \(deleting?.capabilities.displayName ?? "") model?",
@@ -120,11 +123,28 @@ struct SpeechEnginesScreen: View {
             }
             Button("Cancel", role: .cancel) { deleting = nil }
         } message: {
-            Text(
-                deleting?.capabilities.modelLifecycle.isSystemManaged == true
-                    ? "Your transcripts stay. iOS may remove the speech model when no app needs it."
-                    : "Your transcripts stay. Parakeet needs to download the model again before it can use it.")
+            Text(deleteMessage(for: deleting))
         }
+    }
+
+    /// What deleting `row` changes (review I2): the routes that go back to Parakeet, then what happens to the files.
+    private func deleteMessage(for row: SpeechEnginesViewModel.Row?) -> String {
+        guard let row else { return "" }
+        let engines = environment.speechEngines
+        var parts: [String] = []
+        let routes = engines.routesUsing(row.id)
+        let isParakeet = row.id.engineID == SpeechEngineCapabilityRegistry.parakeetEngineID
+        if !routes.isEmpty, !isParakeet {
+            parts.append(
+                "\(SpeechEnginesViewModel.routeNames(routes)) will use Parakeet instead. A meeting in progress must "
+                    + "finish first.")
+        }
+        parts.append(
+            row.capabilities.modelLifecycle.isSystemManaged
+                ? "Your transcripts stay. iOS may remove the speech model when no app needs it."
+                : "Your transcripts stay. \(row.capabilities.displayName) needs to download its model again before it "
+                    + "can be used.")
+        return parts.joined(separator: " ")
     }
 
     private func routeRow(_ route: SpeechRoute, title: String, caption: String) -> some View {
@@ -134,7 +154,7 @@ struct SpeechEnginesScreen: View {
             Menu {
                 ForEach(engines.choices(for: route)) { row in
                     Button {
-                        engines.select(row.id, for: route)
+                        Task { await engines.select(row.id, for: route) }
                     } label: {
                         if row.id == current?.id {
                             Label(row.capabilities.displayName, systemImage: "checkmark")

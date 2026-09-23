@@ -66,7 +66,9 @@ an engine that breaks them corrupts transcripts silently.
   `ChirpEngineFluidAudio` and does not serialize on iOS 26. WhisperKit (M7) serializes calls on its own pipeline
   instead, with a cancellable FIFO permit. Apple Speech runs in iOS's speech service.
 - `SpeechEngineUnloading` (M7, optional): `unloadModels()` drops a loaded model, and the next `prepare` loads it again
-  from disk. It is refused silently while a job holds the model.
+  from disk. It is refused silently while a job holds the model (and, for WhisperKit, while a load runs). Callers: the
+  benchmark between engines, and `SpeechEngineRouter.releaseUnroutedModels()` for an engine a route change left on
+  no route.
 - Conformers are `Sendable` (actors in practice); single-threaded C runtimes are confined to one actor.
 
 **`SpeakerDiarizing`**
@@ -107,6 +109,19 @@ an engine that breaks them corrupts transcripts silently.
   window to a temporary 16 kHz WAV, transcribes it with purpose `.dictation`, and deletes it.
 - A meeting holds a `SpeechEngineLease` from start until it finishes. `select` throws `meetingInProgress` while any
   lease is out.
+- **Memory across routes** (review I3). A dictation or a meeting keeps the live and final engines loaded together, so
+  two different engines must fit `SpeechEngineCapabilityRegistry.memoryBudgetBytes` (2.5 GB) together, by the
+  registry's runtime estimates. A final choice that does not fit moves the live route to the same engine (its tail
+  preview; `select` returns both routes), a live choice that does not fit throws `combinedMemoryOverBudget`, and a
+  saved pair over the budget starts with live on the final engine. After a change, `releaseUnroutedModels()` unloads
+  every engine on neither route. With today's rows every pair fits (Parakeet 0.8 + Turbo 1.5 GB); the iPhone
+  benchmark must measure two engines loaded together before the estimates are trusted.
+- **A route whose model is missing** (review I2): a restored backup keeps `ichirp.speechRoutes` but not the Whisper
+  folders, and iOS can remove an Apple Speech asset. Consumers check the resolved engine's `assetStatus()` and fail
+  with a message that names that engine and says to download it in Settings → Speech engines or switch the route to
+  Parakeet (`ChirpFeatures.SpeechModelMissingError`); they never tell the person to download Parakeet when Parakeet
+  is not the engine. Settings → Speech engines never deletes an engine a route uses while a lease is out, and moves
+  such routes back to Parakeet before deleting.
 - `SpeechEngineAvailabilityReporting` (optional) lets an engine say it cannot run on this device. Settings lists it
   with the reason and never downloads it.
 
@@ -138,8 +153,13 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
 - `ANEInferenceGateTests` (ported from upstream).
 - `SpeechEngineRouterTests` and `SpeechEngineCapabilityRegistryTests` (ChirpCoreTests): separate routes, snapshot at
   enqueue, lease blocks a switch, not-in-build refusal, tail preview over a deleted temporary WAV, no session without
-  the model, forgiving decoding, the memory budget. `SpeechRouteConsumersTests` (ChirpFeaturesTests): files and
-  meetings use the final route, a queued file keeps its engine, a meeting holds and releases the lease.
+  the model, forgiving decoding, the memory budget; review I3: `testAnEngineIsUnloadedOnceItIsOnNoRouteAndNotBefore`,
+  `testAPairOverTheMemoryBudgetKeepsOneModelResident`, `testTheDefaultBudgetAllowsEveryPairThisBuildOffers`,
+  `testASavedPairOverTheBudgetPreviewsWithTheFinalEngine`. `SpeechRouteConsumersTests` (ChirpFeaturesTests): files and
+  meetings use the final route, a queued file keeps its engine, a meeting holds and releases the lease; review I2: a
+  file, a dictation and a meeting name the routed engine whose model is missing, and Retry works after switching.
+  `SpeechEnginesViewModelTests`: deleting a routed engine is refused during a meeting and otherwise moves its routes
+  to Parakeet with a notice; a route change unloads the engine that left both routes.
 - `TailWindowPreviewSessionTests` (ChirpCoreTests since M7; single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
   interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
   `.dictation` purpose uses it, `.file` never does).
