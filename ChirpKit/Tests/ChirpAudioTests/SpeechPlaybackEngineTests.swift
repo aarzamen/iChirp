@@ -119,6 +119,44 @@ final class SpeechPlaybackEngineTests: XCTestCase {
         XCTAssertNil(session.activeUse)
     }
 
+    /// Review L2 M6: a folder that cannot be made leaves the session alone (other apps' audio is not interrupted).
+    func testAFolderFailureNeverHoldsThePlaybackSession() throws {
+        let blocked = root.appendingPathComponent("not-a-folder")
+        try Data([1]).write(to: blocked)
+        let platform = FakeAudioSessionPlatform()
+        let session = AudioSessionController(platform: platform)
+        let engine = SpeechPlaybackEngine(session: session, temporaryRoot: blocked)
+        XCTAssertThrowsError(try engine.beginUtterance())
+        XCTAssertNil(session.activeUse, "the playback session is not held")
+        XCTAssertFalse(platform.calls.contains(.setActive(true)))
+        XCTAssertFalse(engine.isUtteranceActive)
+    }
+
+    /// Review L2 M7: audio that arrives while the reading is paused (a dictation pre-empted it) is queued, and the
+    /// output engine starts only on Resume.
+    func testAChunkThatArrivesWhilePausedDoesNotStartTheEngine() async throws {
+        let session = AudioSessionController(platform: FakeAudioSessionPlatform())
+        let engine = SpeechPlaybackEngine(session: session, temporaryRoot: root)
+        var events: [SpeechPlaybackEvent] = []
+        engine.onEvent = { events.append($0) }
+        try engine.beginUtterance()
+        engine.pause()
+        try engine.enqueue(
+            SynthesizedAudio(data: try Self.silentWAV(seconds: 0.15), format: .wav), index: 0, pauseAfterMs: 0,
+            isFinal: true)
+        XCTAssertFalse(engine.isEngineRunning, "nothing runs beside a recorder")
+        XCTAssertEqual(events, [])
+        do {
+            try engine.resume()
+        } catch {
+            engine.stop()
+            throw XCTSkip("No audio output on this Mac: \(error.localizedDescription)")
+        }
+        XCTAssertTrue(engine.isEngineRunning)
+        XCTAssertEqual(events.first, .chunkStarted(0))
+        engine.stop()
+    }
+
     /// A 16-bit mono 24 kHz WAV of silence (synthetic).
     static func silentWAV(seconds: Double) throws -> Data {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("silence-\(UUID().uuidString).wav")
