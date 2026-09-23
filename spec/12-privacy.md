@@ -54,7 +54,8 @@ Before any engine processes an item, the caller asks
 - **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first chunk, every later chunk and every
   retry of a reading, with the item's effective class **as stored at that moment** (marking a transcript clinical
   while it is read, or making a clinical deliverable from it, counts at the next chunk; a reading's class only
-  rises): clinical text may go to the Mac companion only when the owner marked that Mac trusted; Grok voices (xAI,
+  rises): clinical text may go to the Mac companion only when the owner marked that Mac trusted in Settings → Mac
+  companion (hosts trusted for language models in Settings → Models do not count for voices); Grok voices (xAI,
   cloud) and an untrusted Mac need the per-reading confirmation "Read this clinical text aloud with <voice>?", whose
   Read aloud button is the only caller of `VoicePlayer.confirmPendingSpeech(requestID:)` (enforced by
   `AppTests/VoiceListenTests`) and confirms only the question it showed. When the class rises or the Mac loses its

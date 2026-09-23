@@ -366,6 +366,14 @@ final class VoicePlayerTests: XCTestCase {
         XCTAssertNil(gone)
     }
 
+    func testVoicesTrustOnlyTheCompanionsOwnFlag() {
+        let untrusted = CompanionEndpoint(host: "studio.local", isTrustedForClinicalText: false)
+        XCTAssertEqual(VoicePlayer.routingPolicy(companion: untrusted).trustedLocalNetworkHosts, [])
+        let trusted = CompanionEndpoint(host: "Studio.local", isTrustedForClinicalText: true)
+        XCTAssertEqual(VoicePlayer.routingPolicy(companion: trusted).trustedLocalNetworkHosts, ["studio.local"])
+        XCTAssertEqual(VoicePlayer.routingPolicy(companion: nil).trustedLocalNetworkHosts, [])
+    }
+
     func testAnEmptyTextFailureOffersNoRetry() async {
         let engine = FakeSpeechEngine()
         let (player, _) = makePlayer(engine: engine)

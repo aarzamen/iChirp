@@ -227,7 +227,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   covers that utterance's engine, locality, host and class only. `canRetry` is false for a failure with nothing to
   retry. `VoiceSource` names what is read (an Ask answer carries its transcript's id; logs carry its kind, engine id,
   class and counts, never text). `VoiceSourcePrivacy` maps a source to its stored class (`.clinical` when the store
-  cannot be read).
+  cannot be read). `VoicePlayer.routingPolicy(companion:)` is the voices' policy: only the companion's own trust
+  counts, never a host trusted in Settings → Models. `companionTokenRejected` is the one sentence for a companion
+  401, in the player and in Settings → Voices.
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link

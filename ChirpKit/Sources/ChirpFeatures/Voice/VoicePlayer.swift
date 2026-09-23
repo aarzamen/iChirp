@@ -637,10 +637,25 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
         }
     }
 
+    /// The routing policy for voices: only the Mac companion's own "Trusted for clinical text" (Settings → Mac
+    /// companion) counts. Hosts trusted for language models in Settings → Models do not (review L2 M2), so the screen
+    /// that says whether the Mac is trusted is the one that decides.
+    public nonisolated static func routingPolicy(companion: CompanionEndpoint?) -> PrivacyRoutingPolicy {
+        PrivacyRoutingPolicy().trusting(companion)
+    }
+
+    /// A companion 401 is the pairing token, not an xAI key.
+    public nonisolated static let companionTokenRejected =
+        "The Mac companion did not accept this iPhone's pairing token. Pair again in Settings → Mac companion."
+
     private func message(for error: Error, engineID: String?) -> String {
+        Self.readableMessage(for: error, engineID: engineID)
+    }
+
+    /// The sentence for a voice error; Settings → Voices uses it too.
+    nonisolated static func readableMessage(for error: Error, engineID: String?) -> String {
         if case .unauthorized = error as? SpeechSynthesisError, engineID == VoiceProviderKind.companion.engineID {
-            return "The Mac companion did not accept this iPhone's pairing token. "
-                + "Pair again in Settings → Mac companion."
+            return companionTokenRejected
         }
         return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }

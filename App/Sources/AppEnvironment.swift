@@ -243,7 +243,7 @@ import Observation
             transcripts: store, ledger: deliverableStore, routingPolicy: { providerStore.routingPolicy() },
             settings: jevSettings, factory: decisionFactory)
         self.jevSettingsModel = JevSettingsViewModel(store: jevSettings, factory: decisionFactory)
-        // Plan 020. Routing reads the providers' trusted hosts and the companion's trust at every chunk.
+        // Plan 020. Routing reads the companion's trust at every chunk.
         // Plan 019's Settings → Mac companion store is the voices' companion configuration (DEBUG: the voice tour's
         // `-ChirpQACompanion*` launch arguments replace it for that run, writing nothing).
         let companionConfiguration = CompanionDebugLaunch.configuration(store: companionSettings)
@@ -255,7 +255,8 @@ import Observation
         let voicePlayer = VoicePlayer(
             player: SpeechPlaybackEngine(session: audioSession),
             selection: { try voiceSettingsStore.load().selection(engines: voiceEngines) },
-            routingPolicy: { providerStore.routingPolicy().trusting(companionConfiguration.companionEndpoint()) },
+            // Only Settings → Mac companion's own trust counts for voices, never a host trusted for language models.
+            routingPolicy: { VoicePlayer.routingPolicy(companion: companionConfiguration.companionEndpoint()) },
             currentPrivacyClass: { source in
                 await VoiceSourcePrivacy.current(for: source, transcripts: store, deliverables: deliverableStore)
             })

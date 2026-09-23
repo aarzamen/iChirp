@@ -57,6 +57,16 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         XCTAssertTrue(engines.companion.requests.isEmpty, "Settings sends no text")
     }
 
+    /// Review L2 M4: a companion that refuses the pairing token points at Settings → Mac companion, not at the xAI key.
+    func testACompanionTokenRejectionPointsAtMacCompanionSettings() async {
+        let engines = FakeVoiceEngines()
+        engines.companion.failVoices(with: .unauthorized)
+        let (model, _, _, _) = make(VoiceSettings(provider: .companion), engines: engines)
+        await model.refresh()
+        XCTAssertEqual(model.companionState, .unavailable(VoicePlayer.companionTokenRejected))
+        XCTAssertTrue(VoicePlayer.companionTokenRejected.contains("Settings → Mac companion"))
+    }
+
     func testCompanionNotSetUpOrUnreachableIsShownAsIs() async {
         let engines = FakeVoiceEngines()
         engines.companion.setAvailability(.unavailable("Set up the Mac companion in Settings → Mac companion."))

@@ -21,6 +21,7 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         var failures: [String: [SpeechSynthesisError]] = [:]
         var gates: [CheckedContinuation<Void, Error>] = []
         var voices: [SynthesisVoice] = []
+        var voicesError: SpeechSynthesisError?
         var availabilityChecks = 0
         /// Runs at the start of every `synthesize` call with its 1-based number (before any scripted failure).
         var onCall: (@Sendable (Int) -> Void)?
@@ -81,7 +82,15 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         }
     }
 
-    func voices() async throws -> [SynthesisVoice] { state.withLock { $0.voices } }
+    func voices() async throws -> [SynthesisVoice] {
+        let (voices, error) = state.withLock { ($0.voices, $0.voicesError) }
+        if let error { throw error }
+        return voices
+    }
+
+    func failVoices(with error: SpeechSynthesisError?) {
+        state.withLock { $0.voicesError = error }
+    }
 
     func synthesize(_ request: SynthesisRequest) async throws -> SynthesizedAudio {
         let (mode, failure, hook, number) = state.withLock {
