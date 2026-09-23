@@ -78,8 +78,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
   pipeline then runs unchanged. Downloads never hold a speech-scheduler slot. Plan 019: `LinkMediaSource.transport`
   (`.direct` / `.companion`), `download(id:source:)` dispatches on it, and `downloadFromCompanion(id:link:)` sends only
-  the YouTube link to the Mac companion (`CompanionAudioFetching`, injected as a closure read at each use) and records
-  the returned `source.m4a` with the video's title and duration; Retry of a YouTube row asks the companion again.
+  the canonical `https://www.youtube.com/watch?v=<id>` (rebuilt from the validated id; share parameters never leave
+  the phone) to the Mac companion (`CompanionAudioFetching`, injected as a closure read at each use) and records the
+  returned `source.m4a` with the video's title and duration. Retry of a YouTube row asks the companion again only
+  while it is the companion the link was confirmed for in this launch (`companionRetryConfirmationHost(id:)` tells
+  the app to ask first; `confirmCompanionRetry(id:)` records the answer; otherwise the row fails
+  `companionNotConfirmed` and nothing is sent).
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
   title, completion) are the two protocols the app implements over `BackgroundTasks`

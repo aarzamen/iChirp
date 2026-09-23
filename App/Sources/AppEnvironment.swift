@@ -49,6 +49,9 @@ import Observation
     private(set) var meetingRecoveryOutcomes: [UUID: (title: String, message: String, succeeded: Bool)] = [:]
     /// The recovery sheet is up (shown once at launch when something is pending; the Library banner reopens it).
     var isMeetingRecoveryPresented = false
+    /// A Retry that would send a YouTube link to a Mac companion it was not confirmed for (another Mac in Settings, or
+    /// a new launch) waits here for "Send this link to your Mac?" (review L1 M2; `CompanionRetryConfirmation`).
+    var pendingCompanionRetry: PendingCompanionRetry?
     let jobCenter: TranscriptionJobCenter
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
@@ -409,8 +412,20 @@ import Observation
         }
         if let item, LinkIngestService.needsDownload(item) {
             // M5: a link whose download never finished downloads again (resuming when the server allows), then
-            // transcribes.
-            startLinkJob(id, title: item.displayTitle) { linkIngest in await linkIngest.retryDownload(id: id) }
+            // transcribes. A YouTube link goes to the Mac companion: ask first when it was not confirmed for that Mac.
+            let title = item.displayTitle
+            guard let link = item.sourceURL, YouTubeURLValidator.isYouTubeURL(link) else {
+                startLinkJob(id, title: title) { linkIngest in await linkIngest.retryDownload(id: id) }
+                return
+            }
+            let linkIngest = self.linkIngest
+            Task {
+                if let host = await linkIngest.companionRetryConfirmationHost(id: id) {
+                    pendingCompanionRetry = PendingCompanionRetry(id: id, host: host, title: title)
+                } else {
+                    startLinkJob(id, title: title) { linkIngest in await linkIngest.retryDownload(id: id) }
+                }
+            }
             return
         }
         if item?.sourceType == .meeting {
@@ -426,6 +441,24 @@ import Observation
         }
         let title = item?.displayTitle ?? "Transcription"
         jobCenter.retry(id, title: title, pipeline: pipeline)
+    }
+
+    /// The person tapped "Send link to my Mac" on the Retry question: that row's link, to the Mac set up now.
+    func confirmCompanionRetry() {
+        guard let pending = pendingCompanionRetry else { return }
+        pendingCompanionRetry = nil
+        let linkIngest = self.linkIngest
+        Task {
+            await linkIngest.confirmCompanionRetry(id: pending.id)
+            startLinkJob(pending.id, title: pending.title) { linkIngest in
+                await linkIngest.retryDownload(id: pending.id)
+            }
+        }
+    }
+
+    /// Cancel on the Retry question: nothing is sent; the row stays failed.
+    func cancelCompanionRetry() {
+        pendingCompanionRetry = nil
     }
 
     // MARK: - Meetings (M3)

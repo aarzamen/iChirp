@@ -52,6 +52,8 @@ struct RootTabView: View {
         }
         // M3: the Meeting screen while a meeting runs, and the launch recovery sheet (App/Sources/Screens/Meeting).
         .meetingPresentation()
+        // Plan 019 / review L1 M2: a YouTube Retry to a Mac the link was not confirmed for asks first.
+        .companionRetryConfirmation()
         .sheet(item: pendingTrackChoice) { request in
             // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
             AudioTrackPickerSheet(

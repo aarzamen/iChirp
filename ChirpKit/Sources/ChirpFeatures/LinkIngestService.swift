@@ -47,9 +47,13 @@ public struct LinkMediaSource: Sendable, Equatable {
         self.transport = transport
     }
 
-    /// A YouTube video's audio through the Mac companion (plan 019).
+    /// A YouTube video's audio through the Mac companion (plan 019). `downloadURL` is the canonical
+    /// `https://www.youtube.com/watch?v=<id>` rebuilt from the validated id, the only form sent to the Mac (share
+    /// parameters such as `si=` and `list=` stay on the phone); `link` keeps the pasted link for the row.
     public static func companionYouTube(_ link: URL) -> LinkMediaSource {
-        LinkMediaSource(downloadURL: link, link: link, sourceType: .url, transport: .companion)
+        LinkMediaSource(
+            downloadURL: YouTubeURLValidator.canonicalWatchURL(link.absoluteString) ?? link, link: link,
+            sourceType: .url, transport: .companion)
     }
 }
 
@@ -61,6 +65,9 @@ public enum LinkIngestError: Error, Equatable, LocalizedError {
     case missingLink
     /// YouTube audio needs the Mac companion, and none is set up (or it has no pairing token).
     case companionNotConfigured
+    /// Retry would send the link to a Mac the owner has not confirmed it for (Settings → Mac companion changed, or
+    /// the app restarted): the app asks first (`LinkIngestService.companionRetryConfirmationHost`).
+    case companionNotConfirmed
 
     public var errorDescription: String? {
         switch self {
@@ -68,6 +75,8 @@ public enum LinkIngestError: Error, Equatable, LocalizedError {
         case .missingLink: "This item has no link to download again. Delete it and paste the link again."
         case .companionNotConfigured:
             "Getting a YouTube video’s audio needs the Mac companion. Set it up in Settings → Mac companion."
+        case .companionNotConfirmed:
+            "Tap Retry and confirm sending this link to your Mac."
         }
     }
 }
@@ -98,6 +107,9 @@ public actor LinkIngestService {
     private let preferredLanguages: @Sendable () -> [String]
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private let logger = Log.logger("links")
+    /// Row id → the companion its link was confirmed for, in this launch (the Paste a link sheet's question, or a
+    /// Retry's). A Retry to any other companion, or after a restart, asks again (review L1 M2).
+    private var confirmedCompanions: [UUID: CompanionEndpoint] = [:]
 
     /// - Parameters:
     ///   - preferredLanguages: language codes for choosing a YouTube caption track (the device's languages).
@@ -210,10 +222,14 @@ public actor LinkIngestService {
     }
 
     /// The download for a new link row: here (`.direct`), or through the Mac companion (`.companion`).
+    /// A `.companion` source was confirmed in the Paste a link sheet for the companion set up now.
     public func download(id: UUID, source: LinkMediaSource) async -> LinkDownloadResult {
         switch source.transport {
-        case .direct: await download(id: id, from: source.downloadURL)
-        case .companion: await downloadFromCompanion(id: id, link: source.link)
+        case .direct:
+            return await download(id: id, from: source.downloadURL)
+        case .companion:
+            if let endpoint = companion()?.endpoint { confirmedCompanions[id] = endpoint }
+            return await downloadFromCompanion(id: id, link: source.downloadURL)
         }
     }
 
@@ -224,21 +240,36 @@ public actor LinkIngestService {
         companion() != nil
     }
 
-    /// Sends the YouTube `link` to the Mac companion, which downloads the audio and sends it back into
-    /// `media/<id>/source.m4a`; records the file, the video's title and duration on the row. Only the link leaves
-    /// this iPhone (the person confirmed it). Failures end the row `failed` with the companion's sentence; cancelling
-    /// ends it `cancelled`; Retry asks the companion again.
+    /// Sends the YouTube video's canonical link (`https://www.youtube.com/watch?v=<id>`, rebuilt here from `link`'s
+    /// validated id) to the Mac companion, which downloads the audio and sends it back into `media/<id>/source.m4a`;
+    /// records the file, the video's title and duration on the row. Only that link leaves this iPhone (the person
+    /// confirmed it for this Mac). Failures end the row `failed` with the companion's sentence; cancelling ends it
+    /// `cancelled`; Retry asks the companion again.
     public func downloadFromCompanion(id: UUID, link: URL) async -> LinkDownloadResult {
         guard let companion = companion() else {
             logger.notice("companion_download_refused id=\(id, privacy: .public) reason=not_configured")
             return .ended(
                 await markEnded(id, status: .failed, message: LinkIngestError.companionNotConfigured.errorDescription))
         }
+        guard let canonical = YouTubeURLValidator.canonicalWatchURL(link.absoluteString) else {
+            logger.notice("companion_download_refused id=\(id, privacy: .public) reason=not_a_video_link")
+            return .ended(
+                await markEnded(
+                    id, status: .failed,
+                    message: LinkIngestError.unsupported("That is not a link to a single YouTube video.")
+                        .errorDescription))
+        }
+        guard Self.sameCompanion(confirmedCompanions[id], companion.endpoint) else {
+            logger.notice("companion_download_refused id=\(id, privacy: .public) reason=not_confirmed")
+            return .ended(
+                await markEnded(id, status: .failed, message: LinkIngestError.companionNotConfirmed.errorDescription))
+        }
         let directory = paths.mediaDirectory(for: id)
         let onProgress = self.onProgress
         onProgress(id, .indeterminate(.downloading))
         do {
-            let audio = try await companion.youtubeAudio(url: link, into: directory, fileStem: "source") { progress in
+            let audio = try await companion.youtubeAudio(url: canonical, into: directory, fileStem: "source") {
+                progress in
                 onProgress(id, Self.jobProgress(progress))
             }
             let recorded = try await record(
@@ -258,6 +289,28 @@ public actor LinkIngestService {
             )
             return .ended(await markEnded(id, status: .failed, message: Self.readable(error)))
         }
+    }
+
+    /// The companion host a Retry of row `id` would send its link to, when the person has not confirmed that link for
+    /// that companion in this launch (Settings → Mac companion points at another Mac, or the app restarted): the app
+    /// asks "Send this link to your Mac?" first. nil when no question is needed (not a YouTube row, no companion, or
+    /// already confirmed for it).
+    public func companionRetryConfirmationHost(id: UUID) async -> String? {
+        guard let row = try? await store.fetch(id: id), let link = row.sourceURL,
+            YouTubeURLValidator.isYouTubeURL(link), let endpoint = companion()?.endpoint
+        else { return nil }
+        return Self.sameCompanion(confirmedCompanions[id], endpoint) ? nil : endpoint.normalizedHost
+    }
+
+    /// The person confirmed sending row `id`'s link to the companion set up now (the Retry question).
+    public func confirmCompanionRetry(id: UUID) {
+        guard let endpoint = companion()?.endpoint else { return }
+        confirmedCompanions[id] = endpoint
+    }
+
+    static func sameCompanion(_ confirmed: CompanionEndpoint?, _ current: CompanionEndpoint) -> Bool {
+        guard let confirmed else { return false }
+        return confirmed.normalizedHost == current.normalizedHost && confirmed.port == current.port
     }
 
     /// Download progress as a job's progress: a fraction when the size is known, else "Downloading…".
@@ -303,7 +356,8 @@ public actor LinkIngestService {
     /// Retry for a link row whose download never finished (`needsDownload`): moves it back to `.processing` and
     /// downloads again, resuming the partial file when the server allows. The URL comes from the partial download's
     /// record, else the stored link is resolved again (a new tap, so the network is allowed). A YouTube row goes back
-    /// to the Mac companion (the person confirmed that link when the row was made).
+    /// to the Mac companion, only while it is the companion the person confirmed that link for (else the row fails
+    /// with `companionNotConfirmed`; the app asks first with `companionRetryConfirmationHost`).
     public func retryDownload(id: UUID) async -> LinkDownloadResult {
         let store = self.store
         let reset = try? await Self.detached {

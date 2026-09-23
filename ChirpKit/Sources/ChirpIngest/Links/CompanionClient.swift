@@ -135,8 +135,12 @@ public enum CompanionError: Error, Equatable, LocalizedError {
 
 /// Fetches a YouTube video's audio through the companion (the seam `LinkIngestService` uses; tests fake it).
 public protocol CompanionAudioFetching: Sendable {
-    /// Sends `url` to the companion, which downloads the audio from YouTube, and saves the answer as
-    /// `<directory>/<fileStem>.m4a`. `progress` reports bytes as they arrive (total when the companion sent a length).
+    /// The companion this client talks to (a link confirmed for one Mac is not sent to another without asking).
+    var endpoint: CompanionEndpoint { get }
+
+    /// Sends `url` (the canonical watch link) to the companion, which downloads the audio from YouTube, and saves the
+    /// answer as `<directory>/<fileStem>.m4a`. `progress` reports bytes as they arrive (total when the companion sent a
+    /// length).
     func youtubeAudio(
         url: URL, into directory: URL, fileStem: String, progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> CompanionAudio
