@@ -107,9 +107,13 @@ enum Formatting {
         return parts.joined(separator: " · ")
     }
 
-    /// A running job's line: "Transcribing · 62%", "Identifying speakers · 90%".
+    /// A running job's line: "Transcribing · 62%", "Identifying speakers · 90%", or "Downloading…" while the size is
+    /// unknown (never a made-up "0%").
     static func progress(_ progress: JobProgress) -> String {
-        "\(progress.stage.displayName) · \(percent(progress.fraction))%"
+        if progress.isIndeterminate {
+            return "\(progress.stage.displayName)…"
+        }
+        return "\(progress.stage.displayName) · \(percent(progress.fraction))%"
     }
 
     /// The line a row shows for a status that is not `.completed`, or nil for completed rows.

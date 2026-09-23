@@ -15,6 +15,7 @@ struct PasteLinkSheet: View {
     let onOpen: (UUID) -> Void
 
     @State private var model: LinkImportViewModel
+    @State private var isConfirmingCompanion = false
     @State private var isImportingDocument = false
     @State private var pickerError: String?
     @FocusState private var fieldFocused: Bool
@@ -82,6 +83,17 @@ struct PasteLinkSheet: View {
             case .failure(let error):
                 pickerError = Formatting.message(for: error)
             }
+        }
+        .confirmationDialog(
+            "Send this link to your Mac?", isPresented: $isConfirmingCompanion, titleVisibility: .visible
+        ) {
+            Button("Send link to my Mac") {
+                model.confirmCompanion()
+                model.getAudioFromMac()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(Self.companionConfirmation(host: environment.companionSettings.companionEndpoint()?.normalizedHost))
         }
         .alert(
             "Couldn’t open the file picker",
@@ -209,7 +221,46 @@ struct PasteLinkSheet: View {
             .background(CardBackground(radius: Tokens.Radius.s, stroke: AppColor.error.opacity(0.4)))
         case .started(let id):
             startedCard(id)
+        case .companionOffer(let reason):
+            companionOfferCard(reason)
         }
+    }
+
+    /// Plan 019: the video has no usable captions and a Mac companion is set up.
+    private func companionOfferCard(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text(reason)
+                    .chirpFont(15, .semibold)
+                    .foregroundStyle(Tokens.Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "captions.bubble")
+                    .foregroundStyle(Tokens.Color.secondary)
+            }
+            Text(
+                "Your Mac can download its audio from YouTube and send it here. Parakeet then transcribes it on this "
+                    + "iPhone."
+            )
+            .chirpFont(13)
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            Button {
+                if model.needsCompanionConfirmation {
+                    isConfirmingCompanion = true
+                } else {
+                    model.getAudioFromMac()
+                }
+            } label: {
+                CapsuleButtonLabel(title: "Get the audio from your Mac", kind: .filled)
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .accessibilityHint("Sends only this video’s link to your Mac.")
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CardBackground(radius: Tokens.Radius.s, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
     }
 
     private func startedCard(_ id: UUID) -> some View {
@@ -227,8 +278,13 @@ struct PasteLinkSheet: View {
                     .foregroundStyle(item.status == .failed ? AppColor.error : AppColor.accentText)
                     .fixedSize(horizontal: false, vertical: true)
                 if let progress, item.status == .processing {
-                    ProgressView(value: min(max(progress.fraction, 0), 1))
-                        .tint(Tokens.Color.accent)
+                    if let fraction = progress.determinateFraction {
+                        ProgressView(value: min(max(fraction, 0), 1))
+                            .tint(Tokens.Color.accent)
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             Text("It keeps going in your Library if you close this.")
@@ -353,6 +409,12 @@ struct PasteLinkSheet: View {
         default:
             "Only the link leaves this iPhone, to download the audio. It is transcribed on this iPhone."
         }
+    }
+
+    /// The confirmation before a YouTube link goes to the Mac companion (asked once per link).
+    static func companionConfirmation(host: String?) -> String {
+        "Your Mac (\(host ?? "the Mac companion")) downloads this video’s audio from YouTube and sends it back to this "
+            + "iPhone, where it is transcribed. Only the link leaves this iPhone; your Mac keeps nothing."
     }
 
     static func statusLine(for item: Transcription, progress: JobProgress?) -> String {

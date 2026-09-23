@@ -86,8 +86,8 @@ targets:
         # local-network prompt; NSAllowsLocalNetworking permits plain http only to local hosts (cloud stays https,
         # enforced by LanguageModelProviderConfiguration.validate()). No Bonjour discovery, so no NSBonjourServices.
         NSLocalNetworkUsageDescription: >-
-          Parakeet connects to a model server on your Mac (Ollama or LM Studio) when you choose one in
-          Settings → Models.
+          Parakeet connects to your Mac on your home network: a model server (Ollama or LM Studio) you choose in
+          Settings → Models, and the Parakeet companion you set up in Settings → Mac companion.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         ChirpGitCommit: unknown

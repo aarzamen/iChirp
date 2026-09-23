@@ -16,6 +16,11 @@ bytes (base64url), generated on first start, stored at `~/Library/Application Su
 (mode 0600) and printed at start. The phone stores it in the Keychain. A wrong or missing token → `401` with
 `{"error": {"code": "unauthorized", "message": "…"}}`.
 
+Error `code`s (plan 019 server, no wire change): `unauthorized`, `bad_request`, `unknown_model`, `unknown_voice`,
+`input_too_long`, `payload_too_large` (a body over 64 KB), `model_unavailable`, `encoder_unavailable` (MP3 without
+ffmpeg on the Mac), `unsupported_link`, `video_unavailable`, `youtube_failed`, `youtube_timeout`,
+`feature_unavailable`, `internal`. Server: [`companion/`](../../companion/README.md).
+
 ## Endpoints
 
 ### `GET /v1/companion` (no token)
@@ -44,7 +49,9 @@ the model of that id, else `defaultModel`. Errors: `400` unknown voice or model,
 Request: `{"url": "https://www.youtube.com/watch?v=…"}` (youtube.com, youtu.be and m.youtube.com only; anything else
 → `400`). Response: `audio/mp4` (m4a) bytes, with headers `X-Companion-Title` (URL-encoded video title) and
 `X-Companion-Duration-Ms`. Errors: `422` video unavailable / age-gated / live, `502` yt-dlp failed (its first error
-line, no URL echoed), `504` over the 15-minute download limit.
+line, no URL echoed), `504` over the 15-minute download limit. The server reduces the link to
+`https://www.youtube.com/watch?v=<id>` first, so playlists and extra parameters never reach yt-dlp. Phone client:
+`ChirpIngest.CompanionClient.youtubeAudio` (plan 019).
 
 ## Privacy rules
 
@@ -60,8 +67,3 @@ line, no URL echoed), `504` over the 15-minute download limit.
 ## Changes
 
 - v1 (2026-09-22): initial.
-- v1 clarifications (2026-09-22, plan 019 lane L1; no wire change): how `input` is counted; `voice` accepts a full id;
-  a missing `model` falls back; error codes are `unauthorized`, `bad_request`, `unknown_model`, `unknown_voice`,
-  `input_too_long`, `payload_too_large` (body over 64 KB), `model_unavailable`, `encoder_unavailable` (MP3 without
-  ffmpeg), `unsupported_link`, `video_unavailable`, `youtube_failed`, `youtube_timeout`, `feature_unavailable`,
-  `internal`. Server: [`companion/`](../../companion/README.md).

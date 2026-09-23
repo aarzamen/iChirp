@@ -203,6 +203,8 @@ struct SettingsScreen: View {
 
             // M4: Settings → Models (on-device, home-network and cloud models; keys in the Keychain).
             ModelsSettingsLink()
+            // Plan 019: Settings → Mac companion (host, port, pairing token in the Keychain, trusted).
+            MacCompanionSettingsLink()
         }
     }
 

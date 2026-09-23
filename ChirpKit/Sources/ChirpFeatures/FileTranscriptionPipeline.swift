@@ -31,10 +31,24 @@ public enum PipelineStage: String, Sendable, CaseIterable {
 public struct JobProgress: Sendable, Equatable {
     public var stage: PipelineStage
     public var fraction: Double
+    /// True while the size of the work is unknown (a download whose server sent no length): the UI shows
+    /// "Downloading…" and a spinner, never a made-up "0%". `fraction` is then 0.
+    public var isIndeterminate: Bool
 
-    public init(stage: PipelineStage, fraction: Double) {
+    public init(stage: PipelineStage, fraction: Double, isIndeterminate: Bool = false) {
         self.stage = stage
-        self.fraction = fraction
+        self.fraction = isIndeterminate ? 0 : fraction
+        self.isIndeterminate = isIndeterminate
+    }
+
+    /// `stage` with no known fraction, e.g. a download before (or without) a Content-Length.
+    public static func indeterminate(_ stage: PipelineStage) -> JobProgress {
+        JobProgress(stage: stage, fraction: 0, isIndeterminate: true)
+    }
+
+    /// The fraction to draw as a bar, or nil when it is unknown (draw a spinner instead).
+    public var determinateFraction: Double? {
+        isIndeterminate ? nil : fraction
     }
 
     /// The share of a download in a link job's overall progress: the same slice a local file spends importing and
