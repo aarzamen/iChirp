@@ -100,6 +100,10 @@ enum IndependentNumberReader {
         numberWords.contains(word)
     }
 
+    static func isDoseUnit(_ word: String) -> Bool {
+        doseUnits[word] != nil
+    }
+
     /// The first range in the words, or nil (re-review N2): "4 to 8", "4-8", "500 or 1000", "fifty and a hundred".
     /// "a hundred and twenty" is one number, not a range.
     static func range(in text: String) -> String? {
@@ -243,6 +247,8 @@ enum SentenceNeighbours {
         "tablet", "tablets", "tab", "tabs", "pill", "pills", "capsule", "capsules", "cap", "caps", "puff", "puffs",
     ]
     static let fractionWords: Set<String> = ["half", "halves", "quarter", "quarters", "third", "thirds"]
+    /// Re-review N4: words that make a slash pair a blood pressure.
+    static let pressureWords: Set<String> = ["bp", "pressure", "pressures", "vitals", "vital", "systolic", "diastolic"]
     /// Words that join the two ends of a range ("4 *to* 8", "500 *or* 1000").
     static let rangeWords: Set<String> = ["to", "or", "through"]
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
@@ -313,6 +319,21 @@ enum SentenceNeighbours {
                 problems.append(
                     "“\(tag.sourceText)” is followed by “\(phrase)”: the dose may be per weight or per time. Check the unit."
                 )
+            }
+        }
+        // Re-review N4: a slash pair before a dose unit is a combination strength; a pressure needs a pressure word.
+        if tag.kind == .bloodPressure {
+            if let next = after.first, IndependentNumberReader.isDoseUnit(next.text),
+                gap(tag.sourceRange.upperBound, next.range.lowerBound).allSatisfy({ $0 == " " || $0 == "-" })
+            {
+                problems.append(
+                    "“\(tag.sourceText)” is followed by “\(next.text)”: a combination drug strength, not a blood "
+                        + "pressure.")
+            } else if !before.suffix(5).contains(where: { pressureWords.contains($0.text) }),
+                after.first?.text != "mmhg", !tag.sourceText.lowercased().contains("over")
+            {
+                problems.append(
+                    "No blood-pressure word before “\(tag.sourceText)”: it may be a drug's strength. Check it.")
             }
         }
         if tag.kind == .dose, let unit = IndependentNumberReader.read(tag.sourceText).units.last,

@@ -292,6 +292,38 @@ final class NumericNormalizerTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review N4: a combination strength is never a blood pressure
+
+    func testASlashPairBeforeADoseUnitIsACombinationStrengthNeverABloodPressure() throws {
+        for (text, display) in [
+            ("Valsartan-HCTZ 160/25 mg daily.", "160/25 mg"),
+            ("Advair 250/50 mcg one puff twice daily.", "250/50 mcg"),
+            ("Norco 5/325 mg every 6 hours as needed.", "5/325 mg"),
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.contains { $0.kind == .bloodPressure }, "\(text): \(tags.map(\.display))")
+            let dose = try XCTUnwrap(tags.first { $0.kind == .dose }, text)
+            XCTAssertEqual(dose.display, display, text)
+            XCTAssertNil(dose.value, "two strengths are not one dose: \(text)")
+            XCTAssertTrue(dose.needsReview, text)
+            XCTAssertTrue(dose.reviewReason?.hasPrefix("Combination strength") ?? false, dose.reviewReason ?? "nil")
+        }
+    }
+
+    func testASlashPairNeedsABloodPressureWordToBeClean() throws {
+        for text in [
+            "BP 142/88.", "Blood pressure 128/76 today.", "Vitals 142/88, pulse 76.", "Pressure was 150/90 on recheck.",
+            "Recheck showed 142/88 mmHg.", "Blood pressure one forty two over eighty eight.",
+        ] {
+            let bp = try XCTUnwrap(NumericNormalizer.normalize(text).tags.first { $0.kind == .bloodPressure }, text)
+            XCTAssertFalse(bp.needsReview, "\(text): \(bp.reviewReason ?? "")")
+        }
+        for text in ["Advair 250/50 one puff twice daily.", "Insulin 70/30, 20 units twice daily."] {
+            let bp = try XCTUnwrap(NumericNormalizer.normalize(text).tags.first { $0.kind == .bloodPressure }, text)
+            XCTAssertTrue(bp.needsReview, "no blood-pressure word: \(text)")
+        }
+    }
+
     func testANumberRightBeforeADoseIsCarriedIntoTheTagAndFlagged() throws {
         let result = NumericNormalizer.normalize("Take one 25 microgram tablet.")
         let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose })

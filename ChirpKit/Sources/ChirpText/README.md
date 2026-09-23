@@ -53,7 +53,11 @@ pipeline directly.
   puff count other than one, or a fraction ("half", "1/2", "quarter"), said near a strength ("metoprolol 25 mg, half a
   tablet"; "two tablets of metoprolol 25 mg"; "albuterol 90 mcg, two puffs") flags both the strength and the count
   with a reason starting "Tablet count differs from strength:"; the strength keeps its value and the code never
-  multiplies (`markCounts`, re-review N3).
+  multiplies (`markCounts`, re-review N3). A slash pair followed by a dose unit ("valsartan-HCTZ 160/25 mg",
+  "Norco 5/325 mg") is a combination strength: a dose tag with no `value`, displayed as said, flagged "Combination
+  strength", never a blood pressure. A unit-less slash pair is a blood pressure only with a pressure word before it in
+  its clause ("BP", "pressure", "vitals", …) or "mmHg" after it; otherwise it is still tagged but flagged ("Advair
+  250/50", "insulin 70/30") (`combinationStrength`, `pressureWords`, re-review N4).
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.

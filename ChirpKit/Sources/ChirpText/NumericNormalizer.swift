@@ -632,7 +632,15 @@ private struct NumericScanner {
         if token.isDigits, token.text.contains("/") {
             let parts = token.text.split(separator: "/").compactMap { Double($0) }
             guard parts.count == 2, (40...300).contains(parts[0]), (20...200).contains(parts[1]) else { return nil }
-            return pressure(parts[0], parts[1], start: token.start, lastToken: index)
+            // Re-review N4: "160/25 mg" is a combination strength (`combinationStrength`), never a pressure.
+            if let unit = peekSkippingHyphen(index + 1), Self.doseUnits[unit] != nil { return nil }
+            var quantity = pressure(parts[0], parts[1], start: token.start, lastToken: index)
+            if !hasContext(before: index, Self.pressureWords), peek(index + 1) != "mmhg" {
+                quantity.reviewReason =
+                    "No blood-pressure word before “\(token.original)”: it may be a drug's strength (“Advair 250/50”), "
+                    + "not a blood pressure. Check it."
+            }
+            return quantity
         }
         guard let systolic = vitalNumber(at: index), peek(systolic.next) == "over",
             let diastolic = vitalNumber(at: systolic.next + 1, afterOver: true)
@@ -699,6 +707,7 @@ private struct NumericScanner {
 
     /// A number followed by a unit, or preceded by a vital sign's name.
     func measured(at index: Int) -> Quantity? {
+        if let dose = combinationStrength(at: index) { return dose }
         if let dose = spokenHundredsDose(at: index) { return dose }
         guard let number = vitalNumber(at: index) ?? cardinal(at: index) else { return nil }
         let start = tokens[index].start
@@ -754,6 +763,25 @@ private struct NumericScanner {
             return make(.duration, unit, "\(value) \(Self.spelledUnit(unit, number.value))", unitIndex)
         }
         return nil
+    }
+
+    /// Re-review N4: a slash pair followed by a dose unit ("valsartan-HCTZ 160/25 mg", "Norco 5/325 mg") is two
+    /// strengths in one product. It is a dose tag with **no** single value, displayed as said, and always flagged; it
+    /// is never a blood pressure.
+    func combinationStrength(at index: Int) -> Quantity? {
+        let token = tokens[index]
+        guard token.isDigits, token.text.contains("/"), !token.text.contains(":"),
+            token.text.split(separator: "/").allSatisfy({ Double($0) != nil })
+        else { return nil }
+        let unitIndex = indexSkippingHyphen(index + 1)
+        guard let word = peek(unitIndex), let unit = Self.doseUnits[word] else { return nil }
+        let said = text.utf16Substring(token.start, tokens[unitIndex].end)
+        return Quantity(
+            kind: .dose, value: nil, second: nil, unit: unit, display: "\(token.original) \(unit)", start: token.start,
+            end: tokens[unitIndex].end, nextToken: unitIndex + 1,
+            reviewReason:
+                "Combination strength: “\(said)” is two strengths in one product, not one dose and not a blood "
+                + "pressure. Check the dose.")
     }
 
     /// "one twenty-five micrograms" = 125 mcg, never 25 (review L3 C1). Always flagged: it could also mean one 25 mcg
@@ -1095,6 +1123,8 @@ private struct NumericScanner {
     ]
     static let saturationWords = ["sat", "sats", "saturation", "saturating", "spo2", "o2", "oxygen", "ox", "pulse-ox"]
     static let temperatureWords = ["temp", "temperature", "febrile", "tmax"]
+    /// Re-review N4: words that make a slash pair a blood pressure ("BP 142/88", "vitals 142/88").
+    static let pressureWords = ["bp", "pressure", "pressures", "vitals", "vital", "systolic", "diastolic"]
     static let rateWords = ["pulse", "hr", "heart", "rate", "rr", "respiratory", "respirations", "resp", "tachycardic"]
 }
 

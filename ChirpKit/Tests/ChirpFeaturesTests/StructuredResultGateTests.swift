@@ -322,6 +322,52 @@ final class StructuredResultGateTests: XCTestCase {
             StructuredCallValidator.validate(medication("metoprolol"), sentence: one, catalog: .soapMeds).problems, [])
     }
 
+    // MARK: - Re-review N4: a combination strength is never a blood pressure
+
+    private func bloodPressure(_ text: String, _ source: String, _ systolic: Double, _ diastolic: Double)
+        -> NormalizedText
+    {
+        let range = (text as NSString).range(of: source)
+        let tag = NumericTag(
+            tag: "bp_1", kind: .bloodPressure, value: systolic, secondValue: diastolic, unit: "mmHg",
+            display: "\(Int(systolic))/\(Int(diastolic)) mmHg", sourceRange: range.location..<NSMaxRange(range),
+            sourceText: source)
+        return NormalizedText(
+            original: text, tagged: (text as NSString).replacingCharacters(in: range, with: "bp_1"), tags: [tag])
+    }
+
+    func testACombinationStrengthGivesNoBloodPressureAndItsDoseNeedsReview() throws {
+        let text = "Valsartan-HCTZ 160/25 mg daily."
+        XCTAssertFalse(NumericNormalizer.normalize(text).tags.contains { $0.kind == .bloodPressure })
+        let medication = try validate(
+            text,
+            #"[{"name":"add_medication","arguments":{"drug":"valsartan-hctz","dose_tag":"dose_1","frequency_tag":"freq_1","status":"taking"}}]"#
+        )
+        XCTAssertEqual(medication.arguments["dose"]?["display"], .string("160/25 mg"))
+        XCTAssertTrue(medication.problems.contains { $0.hasPrefix("Combination strength") }, "\(medication.problems)")
+        XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: medication.problems), .needsReview)
+        let vital = try validate(text, #"[{"name":"record_vital","arguments":{"kind":"BP","value_tag":"160/25"}}]"#)
+        XCTAssertFalse(vital.problems.isEmpty, "no BP tag exists, so a BP answer cannot pass")
+    }
+
+    func testTheIndependentCheckKnowsABloodPressureFromADrugStrength() {
+        let vital = StructuredCall(
+            name: "record_vital", arguments: ["kind": .string("BP"), "value_tag": .string("bp_1")])
+        // As the old normalizer tagged them: the slash pair as a clean BP.
+        let combination = bloodPressure("Valsartan-HCTZ 160/25 mg daily.", "160/25", 160, 25)
+        XCTAssertTrue(
+            StructuredCallValidator.validate(vital, sentence: combination, catalog: .soapMeds).problems.contains {
+                $0.contains("combination")
+            })
+        let inhaler = bloodPressure("Advair 250/50 one puff twice daily.", "250/50", 250, 50)
+        XCTAssertTrue(
+            StructuredCallValidator.validate(vital, sentence: inhaler, catalog: .soapMeds).problems.contains {
+                $0.contains("blood-pressure word")
+            })
+        let real = bloodPressure("BP 142/88 today.", "142/88", 142, 88)
+        XCTAssertEqual(StructuredCallValidator.validate(vital, sentence: real, catalog: .soapMeds).problems, [])
+    }
+
     // MARK: - Review L3 I2 and I3: a value must sit next to what it belongs to
 
     func testADoseMustSitNextToItsOwnDrug() throws {

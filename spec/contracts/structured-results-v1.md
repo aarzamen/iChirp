@@ -45,7 +45,10 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   display such as "4–8 mg" and a review reason starting "Range:" (the same shape as a correction without a full
   value). A tablet or puff count other than one, or a fraction ("half", "1/2"), near a strength ("25 mg, half a
   tablet") keeps the strength's value and forces review with a reason starting "Tablet count differs from strength:";
-  code never computes the dose given. Then it is range-checked (BP 50–260 / 20–160 and systolic above
+  code never computes the dose given. A slash pair followed by a dose unit ("160/25 mg") is a combination strength:
+  a dose tag with no `value`, a display as said and a reason starting "Combination strength"; it is never a blood
+  pressure. A unit-less slash pair without a pressure word ("BP", "pressure", "vitals", …) before it or "mmHg" after
+  it is a blood pressure that needs review. Then it is range-checked (BP 50–260 / 20–160 and systolic above
   diastolic, HR 20–250, RR 4–60, SpO₂ 50–100, temperature 90–110 °F or 32–43.5 °C; a dose > 0 with a unit and at most
   5000 mg, 2000 mcg, 10 g, 50,000 units, 5000 mL, 10 tablets, 12 puffs, 20 drops or 200 mEq; a frequency at most 24 a
   day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review.
