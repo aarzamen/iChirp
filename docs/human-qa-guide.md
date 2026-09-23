@@ -585,6 +585,12 @@ Patient: Okay, thank you.
 VISIT
 ```
 
+Measurement first (the controller, from the Mac; one model at a time; the phone unlocked with Parakeet on screen):
+- [ ] `scripts/device_llm_smoke.sh qwen3.5-2b` ends with `LLM SMOKE PASS`; copy its printed numbers into
+      `docs/research/2026-09-22-on-device-llm.md` section 5.
+- [ ] `scripts/device_llm_smoke.sh qwen3-4b`: the same, or a failure that names the memory limit (write down the
+      "Parakeet can use about X GB" figure), or a JetsamEvent in the device logs (the 4B does not fit: owner decision).
+
 Settings → Models
 - [ ] "Small models on this iPhone" lists **Qwen3.5 2B** (Default) and **Qwen3 4B Instruct** (Quality), each with an
       "On device" badge, "Not downloaded · about 1.3 GB / 2.5 GB", memory in use, window (32K / 8K), Apache-2.0 and

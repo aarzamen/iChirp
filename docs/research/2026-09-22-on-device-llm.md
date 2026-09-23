@@ -94,9 +94,26 @@ Settings → Models → Small models on this iPhone (two rows: badge, size, memo
 note. No clinical dialog appeared; the note streamed and was saved with "Runs on this iPhone" and "Clinical" chips.
 Passed in 87 s. The Simulator's numbers say nothing about the phone.
 
-## 5. What the controller measures on the iPhone 17 Pro (12 GB)
+## 5. What the controller measures on the iPhone
 
-Run the M7 checklist in `docs/human-qa-guide.md`, and record for each model:
+**The measurement runner (review I3).** Build `scripts/build_llamacpp.sh` first, then on the Mac, with the test
+iPhone unlocked and chosen the way `scripts/run_device.sh` chooses it (`DEVICE_ID=…` or `Config/Device.local`):
+
+```bash
+scripts/device_llm_smoke.sh qwen3.5-2b      # then: scripts/device_llm_smoke.sh qwen3-4b
+```
+
+It installs the Debug build and launches it with `-ChirpLLMSmoke <model> -ChirpLLMSmokeRun <uuid>`. The DEBUG runner
+(`App/Sources/Debug/LLMSmokeRunner.swift`) downloads the model if it is missing, writes a SOAP note of
+`SyntheticNumberVisit` twice through `DeliverableService` (cold: model unloaded first; warm: still loaded) and saves
+`Documents/llm-smoke.json`: model id, device model, build stamp, GPU, available memory before the load, the engine's
+estimate, load ms, first-token ms, time to first text, prompt and generation tokens/s, whole-note ms, peak
+`phys_footprint`, whether every number survived (both notes), and status. The script prints them, keeps a copy in
+`.build/llm-smoke-<model>.json` and ends with `LLM SMOKE PASS`. Record the numbers here.
+Simulator check of the runner (CPU, 2B staged, 2026-09-22): completed, numbers survived, cold load 20.5 s, 17.6 tok/s
+— wiring only, not phone speed.
+
+Then run the M7 checklist in `docs/human-qa-guide.md`, and record for each model:
 
 1. **First load** after install (llama.cpp compiles its Metal library; 15.5 s on the Mac) and a warm load.
 2. **First-token latency and whole-note time** for the SOAP note; generation tokens/s if visible (Console:
