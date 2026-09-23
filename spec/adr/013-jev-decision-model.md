@@ -1,10 +1,13 @@
 # ADR-013: Jev as an Opt-in Cloud Decision Model, Never for Clinical Items
 
-> Status: Proposed (draft; Decision, Alternatives and Consequences land in plan 021 Step 6)
+> Status: Accepted (trial; the gate thresholds are provisional until the live evaluation, plan 021 Step 7)
 > Date: 2026-09-22
+> Guardrail: a decision engine never receives a clinical item (no per-run override in v1); do not add one without a
+> new ADR and the override broker generalized out of `DeliverableService`.
 > Related: [ADR-002](002-local-first-and-privacy-classes.md), [ADR-004](004-engine-plugin-architecture.md),
 > [ADR-011](011-language-model-providers-direct-ports.md), [spec/08](../08-language-and-structure-models.md#structure-models-m6),
-> [spec/12](../12-privacy.md), [plan 021](../../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md)
+> [spec/12](../12-privacy.md), [decision-model-plugin-v1](../contracts/decision-model-plugin-v1.md),
+> [plan 021](../../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md)
 
 ## Context
 
@@ -47,3 +50,57 @@ MacParakeet already speaks Jev's wire protocol (`upstream/macparakeet/Sources/Ma
 The wire shape matches what MacParakeet sends and validates, so plan 021 ports it unchanged, requests the pinned
 `jev-1.13.0`, keeps upstream's byte caps (request ≤ 120,000 bytes, response ≤ 1,000,000 bytes) and a 250-option cap
 (stricter than the documented 255), and reads the optional `usage` for the run ledger and the eval's cost estimate.
+
+## Decision
+
+Trial Jev as an **opt-in, cloud, non-clinical decision model** behind a new ChirpCore contract, and let measured
+numbers decide whether it stays.
+
+- **Contract.** `ChirpCore.DecisionModel` (`Engines/DecisionModel.swift`): typed choice questions with 2…250 options,
+  a state (a windowed excerpt plus content-free facts), and validated answers with probabilities and confidence. It
+  reuses `LanguageModelAvailability` and `LanguageModelError`; a malformed request is a `DecisionRequestError`, caught
+  before anything is sent. Contract doc: [decision-model-plugin-v1](../contracts/decision-model-plugin-v1.md). Jev
+  is not forced into `StructureModel`, which is extraction and embedding.
+- **Engine.** `ChirpEngineJev` (ChirpCore only, no SDK), engine id `http.jev`, kind `.structure`, locality `.cloud`
+  always (even against the DEBUG stub). The wire types and the answer validation are a port of MacParakeet's
+  `JevDecisionClient.swift` @ `bbae9e0e`; the request asks for the pinned `jev-1.13.0`; a response that names another
+  model, misses or adds an answer, offers an option nobody asked for, or has probabilities that do not sum to 1 is
+  rejected and nothing is applied. Redirects are refused, the session is ephemeral, requests over 120,000 bytes are
+  never sent.
+- **One path, clinical blocked.** `ChirpFeatures.DecisionService` is the only caller (`testOnlyDecisionServiceCallsDecide`).
+  A clinical item returns `blockedClinical`, writes a `refused` ledger row and sends nothing, **with no override**;
+  the class is re-read just before sending. Everything else still goes through `PrivacyRoutingPolicy`.
+- **Least text.** At most 3,000 characters of the transcript (cut back to a sentence end), plus `duration_seconds`,
+  `speaker_count`, `paragraph_count` and `source`, plus the recipe's question texts. Never audio, titles or notes.
+- **Three recipes, suggestions only.** `recordingKind` (may offer "Mark as clinical?", a raise the person confirms),
+  `templateSuggestion` (pre-selects a template in Transform; nothing runs) and `paragraphTags` (chips for the session,
+  never saved). `DecisionGate`: act ≥ 0.80, suggest ≥ 0.55, else unsure, provisional until Step 7 sets both from the
+  calibration table; the UI always shows the verdict and the number.
+- **Off by default.** Settings → Models → Decision models holds the toggle; the key lives only in the Keychain under
+  `structure.provider.jev.api-key` (service `com.aarzamen.ichirp.language-models`). Every run writes one
+  metadata-only `llm_runs` row with `feature = decision` (no schema change).
+
+## Alternatives considered
+
+- **Laya, locally** (ModernBERT-large plus a decision head, Apache-2.0). Private by construction and usable for
+  clinical items, but it needs a Core ML or ONNX conversion spike first (plan 015 Step 9). It can later implement the
+  same `DecisionModel` contract and run the same recipes and eval; Jev's numbers become its bar.
+- **Upstream's voice-control client as is.** `JevDecisionClient` plans UI actions (targets, spans, consequences) for
+  macOS voice control and holds its key as a plain string; iChirp needs transcript decisions, a redacted key, strict
+  routing and a ledger. Porting its wire protocol and validation, not its planning, keeps the proven part.
+- **Waiting for all of M6** (Needle, Laya, Jev together). The three share only the word "structure"; bundling them
+  would hide Jev's result behind a binary runtime and a conversion spike. A small, separate trial is legible and
+  cheap to remove.
+
+## Consequences
+
+- iChirp gains a cloud surface that sees up to 3,000 characters of a general or personal transcript when the person
+  asks; spec/12 lists exactly what is sent. Clinical items can never use it in v1, even on the person's request.
+- The thresholds are guesses until the owner runs `JevLiveEvalTests` on their key (plan 021 Step 7); that run writes
+  the results doc and resets `DecisionGate`. Re-run it whenever the model id, a recipe's options or the window changes.
+  If `recordingKind` accuracy is below 0.7 or calibration is badly off, the results doc says so and Jev leaves the
+  roadmap rather than having its recipes tuned to the eval set.
+- Kept true by tests: `DecisionModelContractTests`, `JevDecisionModelTests`, `DecisionServiceTests`,
+  `JevSettingsStoreTests`, `DecisionModelAppTests` (the only `ChirpEngineJev` importer, the menu toggle, the clinical
+  block, the key field). Follow-ups: the per-run clinical override (needs the override broker generalized), score and
+  yes/no questions, persisted tags, a shared HTTP transport in ChirpCore, Laya as the local substitute.

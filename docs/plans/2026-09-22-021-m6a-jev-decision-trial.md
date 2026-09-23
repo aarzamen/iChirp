@@ -55,7 +55,7 @@
   (the HTTP hardening pattern to copy), [language-model-plugin-v1](../../spec/contracts/language-model-plugin-v1.md)
   (the contract shape to mirror), [Cactus/Needle/Jev research](../research/2026-09-22-cactus-needle-jev.md)
 - **Planned at:** commit `0554ccfb`, 2026-09-22
-- **Status:** EXECUTOR-READY
+- **Status:** PARTIAL — Steps 0–6 done on `m6a/jev-decision-trial` (lane L4, 2026-09-22); Step 7 waits on the owner's Jev key; Step 8's full suite and device build are run by the controller at merge
 
 ## Why this matters
 

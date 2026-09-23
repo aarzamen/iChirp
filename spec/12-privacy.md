@@ -42,7 +42,8 @@ Before any engine processes an item, the caller asks
   trusted LAN host cannot forward a clinical request elsewhere, and keeps no URL cache.
 - **Routing is re-checked before every model call** of a run (long transcripts make several), against the class
   stored at that moment and the trust settings as they are then. Running the SOAP note template routes as clinical.
-- **Jev is cloud-only**, so it never sees clinical content unless the user overrides a single run.
+- **Jev is cloud-only** and, in M6a, **never receives a clinical item, not even with a per-run override**
+  (`DecisionService` refuses it and writes a `refused` ledger row; [ADR-013](adr/013-jev-decision-model.md)).
 - Speech engines follow the same rule. Every speech engine planned through M8 is on-device.
 
 ## Network surfaces
@@ -58,7 +59,7 @@ Before any engine processes an item, the caller asks
 | Home-network providers (Ollama, LM Studio) | Same, with a LAN provider | Same, over the local network | M4 |
 | Provider "Test connection" and model list (Settings → Models) | User taps Test or refreshes models | The API key in a header, a one-token "Hi" request, a model-list request; **no user content** | M4 |
 | Apple Foundation Models | User runs a template or Ask with the on-device model | Nothing leaves the iPhone | M4 |
-| Jev | User opts in | Short text for a decision; never clinical by default | M6 |
+| Jev (TypeSafe AI, `api.typesafe.ai/v1/systemone`) | Jev is turned on in Settings → Models and the user picks Classify recording, Suggest a template or Tag paragraphs on a general or personal transcript | The API key in a header; **an excerpt of the transcript text of at most 3,000 characters** (cut back to a sentence end; for tags, the first paragraphs with their `p01`… ids under the same limit); the facts `duration_seconds`, `speaker_count`, `paragraph_count` and `source` (audio / document / link); the recipe's question texts and options. **Never audio, titles, notes, or any clinical item** (override or not). Test connection sends only a fixed pangram. Key: Keychain account `structure.provider.jev.api-key` | M6a (built) |
 
 There is no telemetry and no crash reporting service. If one is ever proposed, it needs an ADR, an opt-in, and a
 contract that proves no content or identifiers leave the device.
