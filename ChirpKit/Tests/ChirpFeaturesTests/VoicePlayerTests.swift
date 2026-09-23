@@ -14,13 +14,15 @@ final class VoicePlayerTests: XCTestCase {
     nonisolated static let marker = "SYNTHETIC-CLINICAL-VOICE-7731"
 
     private func makePlayer(
-        engine: FakeSpeechEngine, routing: RoutingBox = RoutingBox(), voiceID: String = "eve", style: String? = nil
+        engine: FakeSpeechEngine, routing: RoutingBox = RoutingBox(), classes: ClassBox = ClassBox(),
+        voiceID: String = "eve", style: String? = nil
     ) -> (VoicePlayer, FakeSpeechPlayer) {
         let output = FakeSpeechPlayer()
         let player = VoicePlayer(
             player: output,
             selection: { VoiceSelection(engine: engine, voiceID: voiceID, style: style) },
             routingPolicy: { routing.policy },
+            currentPrivacyClass: { _ in classes.current },
             retryDelays: [.zero, .zero])
         return (player, output)
     }
@@ -129,7 +131,7 @@ final class VoicePlayerTests: XCTestCase {
 
         player.declinePendingSpeech()
         XCTAssertEqual(player.state, .idle)
-        player.confirmPendingSpeech()  // a late tap after Cancel does nothing
+        player.confirmPendingSpeech(requestID: request.id)  // a late tap after Cancel does nothing
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertTrue(engine.requests.isEmpty)
     }
@@ -139,9 +141,9 @@ final class VoicePlayerTests: XCTestCase {
         let (player, output) = makePlayer(engine: engine)
         let source = VoiceSource.deliverable(id: UUID())
         await player.speak(text: Self.threeParagraphs, privacyClass: .clinical, source: source)
-        guard case .needsConfirmation = player.state else { return XCTFail("\(player.state)") }
+        guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
 
-        player.confirmPendingSpeech()
+        player.confirmPendingSpeech(requestID: request.id)
         await eventually("reading started") { output.enqueued == [0, 1] }
         output.emit(.chunkStarted(1))
         await eventually("every chunk of this reading goes") { engine.requests.count == 3 }
@@ -193,9 +195,187 @@ final class VoicePlayerTests: XCTestCase {
         output.emit(.chunkStarted(1))
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(engine.requests.count, 2, "chunk 3 is not sent once the Mac is no longer trusted")
-        output.emit(.drained)
-        guard case .failed(let message) = player.state else { return XCTFail("\(player.state)") }
-        XCTAssertEqual(message, SpeechSynthesisError.privacyRefused.errorDescription)
+        // An untrusted Mac is asked about, like at the start of a reading; the audio stops meanwhile.
+        guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
+        XCTAssertTrue(request.message.contains("studio.local"))
+        XCTAssertEqual(output.calls.last, .stop)
+        player.declinePendingSpeech()
+        XCTAssertEqual(engine.requests.count, 2)
+    }
+
+    // MARK: - The class as stored now (review L2 C1, M8, M1)
+
+    func testRaisingTheClassToClinicalMidReadingAsksBeforeTheNextCloudChunk() async {
+        let engine = FakeSpeechEngine(name: "Grok voices", locality: .cloud, host: "api.x.ai")
+        let classes = ClassBox(.personal)
+        let (player, output) = makePlayer(engine: engine, classes: classes)
+        await player.speak(text: Self.threeParagraphs, privacyClass: .personal, source: .transcript(id: UUID()))
+        await eventually("chunk 1 plays, chunk 2 queued") { output.enqueued == [0, 1] }
+        XCTAssertEqual(engine.requests.count, 2)
+
+        classes.current = .clinical  // the owner marks the transcript clinical while it is read
+        output.emit(.chunkStarted(1))
+        await eventually("the question") {
+            if case .needsConfirmation = player.state { return true } else { return false }
+        }
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(engine.requests.count, 2, "chunk 3 is not sent without the confirmation")
+        XCTAssertEqual(output.calls.last, .stop, "the reading stops while the question is up")
+        guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
+        XCTAssertEqual(request.title, "Read this clinical text aloud with Grok voices?")
+
+        player.confirmPendingSpeech(requestID: request.id)
+        await eventually("reading resumes") { engine.requests.count == 4 }
+        XCTAssertEqual(
+            Array(engine.texts.suffix(2)), ["Second synthetic paragraph.", "Third synthetic paragraph."],
+            "it resumes at the chunk that was playing")
+        XCTAssertEqual(engine.requests.suffix(2).map(\.privacyClass), [.clinical, .clinical])
+        player.stop()
+    }
+
+    func testDecliningAfterAMidReadingRaiseSendsNothingMore() async {
+        let engine = FakeSpeechEngine(name: "Mac companion", locality: .localNetwork, host: "studio.local")
+        let classes = ClassBox(.personal)
+        let (player, output) = makePlayer(engine: engine, classes: classes)
+        await player.speak(text: Self.threeParagraphs, privacyClass: .personal, source: .document(id: UUID()))
+        await eventually { output.enqueued == [0, 1] }
+
+        classes.current = .clinical
+        output.emit(.chunkStarted(1))
+        await eventually("the question") {
+            if case .needsConfirmation = player.state { return true } else { return false }
+        }
+        guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
+        XCTAssertTrue(request.message.contains("studio.local"), "an untrusted Mac asks too")
+        player.declinePendingSpeech()
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(player.state, .idle)
+        XCTAssertEqual(engine.requests.count, 2)
+    }
+
+    func testRaisingTheClassMidReadingOnATrustedMacKeepsReading() async {
+        let engine = FakeSpeechEngine(name: "Mac companion", locality: .localNetwork, host: "studio.local")
+        let routing = RoutingBox(PrivacyRoutingPolicy(trustedLocalNetworkHosts: ["studio.local"]))
+        let classes = ClassBox(.personal)
+        let (player, output) = makePlayer(engine: engine, routing: routing, classes: classes)
+        await player.speak(text: Self.threeParagraphs, privacyClass: .personal, source: .transcript(id: UUID()))
+        await eventually { output.enqueued == [0, 1] }
+        classes.current = .clinical
+        output.emit(.chunkStarted(1))
+        await eventually("chunk 3 goes to the trusted Mac") { engine.requests.count == 3 }
+        XCTAssertEqual(engine.requests.last?.privacyClass, .clinical)
+        XCTAssertEqual(player.state, .speaking(chunk: 2, of: 3))
+        player.stop()
+    }
+
+    func testTheClassAsStoredNowRoutesTheFirstChunk() async {
+        // The screen passed a stale class; the store says clinical: the first chunk already asks.
+        let engine = FakeSpeechEngine(name: "Grok voices", locality: .cloud, host: "api.x.ai")
+        let (player, output) = makePlayer(engine: engine, classes: ClassBox(.clinical))
+        await player.speak(
+            text: Self.threeParagraphs, privacyClass: .personal,
+            source: .askAnswer(id: UUID(), transcriptionID: UUID()))
+        guard case .needsConfirmation = player.state else { return XCTFail("\(player.state)") }
+        XCTAssertTrue(engine.requests.isEmpty)
+        XCTAssertTrue(output.calls.isEmpty)
+    }
+
+    func testAClassLoweredMidReadingKeepsTheStricterOne() async {
+        let engine = FakeSpeechEngine(name: "Mac companion", locality: .localNetwork, host: "studio.local")
+        let routing = RoutingBox(PrivacyRoutingPolicy(trustedLocalNetworkHosts: ["studio.local"]))
+        let classes = ClassBox(.clinical)
+        let (player, output) = makePlayer(engine: engine, routing: routing, classes: classes)
+        await player.speak(text: Self.threeParagraphs, privacyClass: .clinical, source: .transcript(id: UUID()))
+        await eventually { output.enqueued == [0, 1] }
+        classes.current = .general
+        output.emit(.chunkStarted(1))
+        await eventually { engine.requests.count == 3 }
+        XCTAssertEqual(engine.requests.map(\.privacyClass), [.clinical, .clinical, .clinical])
+        player.stop()
+    }
+
+    func testATransientRetryIsRoutedAgainBeforeItIsSent() async {
+        let engine = FakeSpeechEngine(name: "Grok voices", locality: .cloud, host: "api.x.ai")
+        let classes = ClassBox(.personal)
+        engine.fail(text: "Second synthetic paragraph.", with: [.connectionFailed("offline")])
+        // The class rises while the failed chunk waits for its retry.
+        engine.onEachCall { number in if number == 2 { classes.current = .clinical } }
+        let (player, output) = makePlayer(engine: engine, classes: classes)
+        await player.speak(text: Self.threeParagraphs, privacyClass: .personal, source: .transcript(id: UUID()))
+        await eventually("the question") {
+            if case .needsConfirmation = player.state { return true } else { return false }
+        }
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(
+            engine.texts.filter { $0.hasPrefix("Second") }.count, 1, "the retry is not sent without the confirmation")
+        XCTAssertEqual(output.enqueued, [0])
+        player.stop()
+    }
+
+    func testReadAloudConfirmsOnlyTheRequestItShowed() async {
+        let engine = FakeSpeechEngine(name: "Grok voices", locality: .cloud, host: "api.x.ai")
+        let (player, _) = makePlayer(engine: engine)
+        await player.speak(text: "Answer one.", privacyClass: .clinical, source: .voiceTest)
+        guard case .needsConfirmation(let first) = player.state else { return XCTFail("\(player.state)") }
+        // A second answer replaces the first before the owner taps Read aloud on the first question.
+        await player.speak(text: "Answer two.", privacyClass: .clinical, source: .voiceTest)
+        guard case .needsConfirmation(let second) = player.state else { return XCTFail("\(player.state)") }
+        XCTAssertNotEqual(first.id, second.id)
+
+        player.confirmPendingSpeech(requestID: first.id)
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(engine.requests.isEmpty, "the stale answer confirms nothing")
+        XCTAssertEqual(player.state, .needsConfirmation(second))
+        player.confirmPendingSpeech(requestID: second.id)
+        await eventually { engine.texts == ["Answer two."] }
+        player.stop()
+    }
+
+    func testVoiceSourcePrivacyReadsTheEffectiveClassAsStoredNow() async throws {
+        var personal = Transcription(fileName: "synthetic.m4a", status: .completed, privacyClass: .personal)
+        personal.rawTranscript = "Synthetic."
+        let transcripts = FakeStore(rows: [personal])
+        let deliverables = FakeDeliverableStore()
+        func current(_ source: VoiceSource) async -> PrivacyClass? {
+            await VoiceSourcePrivacy.current(for: source, transcripts: transcripts, deliverables: deliverables)
+        }
+        let summary = Deliverable(
+            transcriptionID: personal.id, promptID: nil, promptVersionID: nil, title: "Summary", engineID: "fake",
+            provider: "Fake", model: nil, locality: .onDevice, text: "Synthetic.", privacyClass: .general)
+        try await deliverables.insertDeliverable(summary)
+        let transcriptClass = await current(.transcript(id: personal.id))
+        XCTAssertEqual(transcriptClass, .personal)
+        let summaryClass = await current(.deliverable(id: summary.id))
+        XCTAssertEqual(summaryClass, .personal, "a deliverable is at least as private as its transcript")
+
+        try await deliverables.insertDeliverable(
+            Deliverable(
+                transcriptionID: personal.id, promptID: nil, promptVersionID: nil, title: "SOAP note",
+                engineID: "fake", provider: "Fake", model: nil, locality: .onDevice, text: "Synthetic.",
+                privacyClass: .clinical))
+        for source in [
+            VoiceSource.transcript(id: personal.id), .document(id: personal.id), .deliverable(id: summary.id),
+            .askAnswer(id: UUID(), transcriptionID: personal.id), .dictationReadBack(id: personal.id),
+        ] {
+            let value = await current(source)
+            XCTAssertEqual(value, .clinical, "\(source)")
+        }
+        let testSentence = await current(.voiceTest)
+        XCTAssertNil(testSentence)
+        let gone = await current(.transcript(id: UUID()))
+        XCTAssertNil(gone)
+    }
+
+    func testAnEmptyTextFailureOffersNoRetry() async {
+        let engine = FakeSpeechEngine()
+        let (player, _) = makePlayer(engine: engine)
+        await player.speak(text: "  ", privacyClass: .general, source: .voiceTest)
+        XCTAssertEqual(player.state, .failed("There is no text to read."))
+        XCTAssertFalse(player.canRetry)
+        engine.fail(text: "Hello.", with: [.unauthorized])
+        await player.speak(text: "Hello.", privacyClass: .general, source: .voiceTest)
+        await eventually { if case .failed = player.state { return true } else { return false } }
+        XCTAssertTrue(player.canRetry)
     }
 
     // MARK: - Availability, failures and retry
@@ -215,7 +395,8 @@ final class VoicePlayerTests: XCTestCase {
         let player = VoicePlayer(
             player: output,
             selection: { throw SpeechSynthesisError.notConfigured("choose a voice in Settings → Voices.") },
-            routingPolicy: { PrivacyRoutingPolicy() })
+            routingPolicy: { PrivacyRoutingPolicy() },
+            currentPrivacyClass: { _ in nil })
         await player.speak(text: "Hello.", privacyClass: .general, source: .voiceTest)
         XCTAssertEqual(player.state, .failed("This voice is not set up yet: choose a voice in Settings → Voices."))
     }

@@ -57,11 +57,11 @@ final class VoiceListenTests: XCTestCase {
         XCTAssertGreaterThan(app.scanned, 20, "the scan found the app sources")
         XCTAssertEqual(app.matches.map(\.file), ["VoiceViews.swift"], "only the dialog's actions confirm")
         XCTAssertTrue(
-            app.matches.first?.before.contains("func userTappedReadAloud() {") == true,
+            app.matches.first?.before.contains("func userTappedReadAloud(_ request: VoiceConfirmationRequest) {") == true,
             "confirmPendingSpeech is called inside userTappedReadAloud")
 
         let tap = try ClinicalConfirmationTests.codeMatches(
-            pattern: #"\.userTappedReadAloud\(\)"#, under: repo.appendingPathComponent("App/Sources"))
+            pattern: #"\.userTappedReadAloud\("#, under: repo.appendingPathComponent("App/Sources"))
         XCTAssertEqual(tap.matches.map(\.file), ["VoiceViews.swift"], "userTappedReadAloud has one caller")
         XCTAssertTrue(
             tap.matches.first?.before.contains(#"Button("Read aloud") {"#) == true,
@@ -77,7 +77,7 @@ final class VoiceListenTests: XCTestCase {
         let output = SilentSpeechOutput()
         let player = VoicePlayer(
             player: output, selection: { VoiceSelection(engine: engine, voiceID: "eve") },
-            routingPolicy: { PrivacyRoutingPolicy() }, retryDelays: [])
+            routingPolicy: { PrivacyRoutingPolicy() }, currentPrivacyClass: { _ in nil }, retryDelays: [])
         let source = VoiceSource.deliverable(id: UUID())
         let text = "SOAP draft \(Self.marker)."
 
@@ -90,7 +90,7 @@ final class VoiceListenTests: XCTestCase {
 
         // Cancel, then a late Read aloud on the answered dialog.
         VoiceConfirmationActions(player: player).userTappedCancel()
-        VoiceConfirmationActions(player: player).userTappedReadAloud()
+        VoiceConfirmationActions(player: player).userTappedReadAloud(request)
         XCTAssertEqual(player.state, .idle)
         // Listen again, then Stop on the Listen button while the dialog is up.
         player.toggleListening(to: source, privacyClass: .clinical) { text }
@@ -100,10 +100,14 @@ final class VoiceListenTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
         XCTAssertEqual(engine.received, [], "nothing was sent without Read aloud")
 
-        // Only Read aloud sends, for this reading.
+        // Only Read aloud sends, for this reading (and only for the question it showed).
         player.toggleListening(to: source, privacyClass: .clinical) { text }
         try await waitFor { if case .needsConfirmation = player.state { true } else { false } }
-        VoiceConfirmationActions(player: player).userTappedReadAloud()
+        VoiceConfirmationActions(player: player).userTappedReadAloud(request)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(engine.received, [], "an answer to an older question confirms nothing")
+        guard case .needsConfirmation(let current) = player.state else { return XCTFail("\(player.state)") }
+        VoiceConfirmationActions(player: player).userTappedReadAloud(current)
         try await waitFor { !engine.received.isEmpty }
         XCTAssertTrue(engine.received.joined().contains(Self.marker))
         player.stop()

@@ -19,7 +19,7 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         let output = FakeSpeechPlayer()
         let player = VoicePlayer(
             player: output, selection: { try store.load().selection(engines: engines) },
-            routingPolicy: { PrivacyRoutingPolicy() }, retryDelays: [])
+            routingPolicy: { PrivacyRoutingPolicy() }, currentPrivacyClass: { _ in nil }, retryDelays: [])
         let model = VoiceSettingsViewModel(
             store: store, secrets: secrets, engines: engines, player: player, stockXAIVoices: stock)
         return (model, store, engines, output)

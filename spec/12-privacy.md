@@ -51,13 +51,16 @@ Before any engine processes an item, the caller asks
   (`DecisionService` refuses it before reading the key and writes a `refused` ledger row, and checks the effective
   class again just before sending; [ADR-013](adr/013-jev-decision-model.md)).
 - Speech engines follow the same rule. Every speech engine planned through M8 is on-device.
-- **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first and every later chunk of a reading:
-  clinical text may go to the Mac companion only when the owner marked that Mac trusted (and its address is on the
-  home network: `CompanionEndpoint.locality` makes any other address `cloud`); Grok voices (xAI, cloud) and an
-  untrusted Mac need the per-reading confirmation "Read this clinical text aloud with <voice>?", whose Read aloud
-  button is the only caller of `VoicePlayer.confirmPendingSpeech()` (enforced by `AppTests/VoiceListenTests`). It
-  covers that reading's engine, locality and host only and is never remembered; declining sends nothing. The voice
-  engines refuse every redirect, and one reading stays pinned to the companion address routing approved.
+- **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first chunk, every later chunk and every
+  retry of a reading, with the item's effective class **as stored at that moment** (marking a transcript clinical
+  while it is read, or making a clinical deliverable from it, counts at the next chunk; a reading's class only
+  rises): clinical text may go to the Mac companion only when the owner marked that Mac trusted; Grok voices (xAI,
+  cloud) and an untrusted Mac need the per-reading confirmation "Read this clinical text aloud with <voice>?", whose
+  Read aloud button is the only caller of `VoicePlayer.confirmPendingSpeech(requestID:)` (enforced by
+  `AppTests/VoiceListenTests`) and confirms only the question it showed. When the class rises or the Mac loses its
+  trust mid-reading, the audio stops before the next chunk is sent and the question is asked again. A confirmation
+  covers that reading's engine, locality, host and class only and is never remembered; declining sends nothing. The
+  voice engines refuse every redirect, and one reading stays pinned to the companion address routing approved.
 
 ## Network surfaces
 

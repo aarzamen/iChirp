@@ -246,10 +246,15 @@ import Observation
         let voiceSecrets = KeychainSecretStore()
         let voiceEngines = AppVoiceEngines(secrets: voiceSecrets, companion: companionConfiguration)
         let voiceSettingsStore = UserDefaultsVoiceSettingsStore()
+        // The class is read from the store before every chunk (review L2 C1): marking a transcript clinical, or making
+        // a clinical deliverable from it, stops the next chunk of a reading that is going to the cloud.
         let voicePlayer = VoicePlayer(
             player: SpeechPlaybackEngine(session: audioSession),
             selection: { try voiceSettingsStore.load().selection(engines: voiceEngines) },
-            routingPolicy: { providerStore.routingPolicy().trusting(companionConfiguration.companionEndpoint()) })
+            routingPolicy: { providerStore.routingPolicy().trusting(companionConfiguration.companionEndpoint()) },
+            currentPrivacyClass: { source in
+                await VoiceSourcePrivacy.current(for: source, transcripts: store, deliverables: deliverableStore)
+            })
         self.companionConfiguration = companionConfiguration
         self.voiceEngines = voiceEngines
         self.voicePlayer = voicePlayer

@@ -1,6 +1,7 @@
 // Ported from Readback (owner's project): Sources/TTS/SynthQueue.swift @ 696cef6
 // Changes: an `@Observable` `VoicePlayer` for SwiftUI; privacy routing (`PrivacyRoutingPolicy`) before the first and
-// every later chunk, with a per-utterance clinical confirmation for cloud or untrusted home-network voices; one
+// every later chunk and every retry, on the item's class as stored at that moment (an injected provider), with a
+// per-utterance clinical confirmation for cloud or untrusted home-network voices, asked again mid-reading; one
 // synthesis at a time and exactly one chunk ahead of the one playing (Readback: two in flight, two ahead), because the
 // companion's single Mac GPU serves one request at a time; retries only for transient errors (connection, rate limit,
 // 5xx); a failure lets queued audio finish, then offers Retry from the failed chunk; logs carry ids, counts and error
@@ -17,8 +18,8 @@ public enum VoiceSource: Sendable, Equatable {
     case document(id: UUID)
     /// A generated document (a Transform result).
     case deliverable(id: UUID)
-    /// One Ask answer (the exchange's id).
-    case askAnswer(id: UUID)
+    /// One Ask answer (the exchange's id) about the transcript `transcriptionID` (whose class it routes with).
+    case askAnswer(id: UUID, transcriptionID: UUID)
     /// Plan 015's dictation "read back" command.
     case dictationReadBack(id: UUID?)
     /// Settings → Voices' Test voice (a fixed synthetic sentence).
@@ -103,9 +104,12 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
 /// Reads text aloud: chunks it on sentence boundaries, synthesizes one chunk ahead of the one playing, and plays
 /// through `SpeechAudioPlaying` (the app's one audio session; recording pauses it).
 ///
-/// **Routing:** before anything is sent, and again before every chunk, `PrivacyRoutingPolicy` decides. Clinical text
-/// bound for a cloud voice (or an untrusted Mac) waits in `.needsConfirmation` until the user answers; declining sends
-/// nothing. A confirmation covers this utterance's route only (engine, locality, host).
+/// **Routing:** before anything is sent, and again before every chunk and every retry of a chunk, `PrivacyRoutingPolicy`
+/// decides, with the item's class **as stored at that moment** (`currentPrivacyClass`, never lower than the class the
+/// reading started with). Clinical text bound for a cloud voice (or an untrusted Mac) waits in `.needsConfirmation`
+/// until the user answers; declining sends nothing. When the class rises to clinical mid-reading, the reading stops
+/// before the next chunk is sent and asks; Read aloud continues from the chunk that was playing. A confirmation covers
+/// this utterance's route and class only (engine, locality, host).
 @MainActor @Observable public final class VoicePlayer {
     public enum State: Equatable {
         case idle
@@ -136,19 +140,34 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
         let engineID: String
         let locality: EngineLocality
         let host: String?
+        let privacyClass: PrivacyClass
     }
 
     private struct Utterance {
         let chunks: [SpeechTextChunk]
-        let privacyClass: PrivacyClass
+        /// The class this reading routes with: the class it started with, raised (never lowered) by the item's class
+        /// as stored at each check.
+        var privacyClass: PrivacyClass
         let source: VoiceSource
         let selection: VoiceSelection
         var confirmedRoute: ConfirmedRoute?
     }
 
+    /// What routing says about the next request of this reading.
+    private enum RouteCheck {
+        case allowed
+        /// Clinical text to a cloud voice or an untrusted Mac: ask first.
+        case needsConfirmation
+        /// Not even a confirmation may send it.
+        case refused
+        /// The reading was stopped or replaced while the class was read.
+        case stale
+    }
+
     @ObservationIgnored private let player: any SpeechAudioPlaying
     @ObservationIgnored private let selection: @MainActor () throws -> VoiceSelection
     @ObservationIgnored private let routingPolicy: @Sendable () -> PrivacyRoutingPolicy
+    @ObservationIgnored private let currentPrivacyClass: @MainActor (VoiceSource) async -> PrivacyClass?
     @ObservationIgnored private let retryDelays: [Duration]
     @ObservationIgnored private let logger = Log.logger("voice")
 
@@ -171,16 +190,22 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
     /// - Parameters:
     ///   - selection: the engine and voice from Settings → Voices, read once per utterance.
     ///   - routingPolicy: read before every chunk, so un-trusting a Mac stops the next chunk of a running reading.
+    ///   - currentPrivacyClass: the class of the item `source` names, **as stored now** (nil: nothing stored, such as
+    ///     the Test voice sentence). Read before the first chunk, every later chunk and every retry, so marking a
+    ///     transcript clinical while it is read stops the next chunk. The app answers with
+    ///     `VoiceSourcePrivacy.current(for:…)` (the `EffectivePrivacyClass` rule).
     ///   - retryDelays: waits between attempts of one chunk after a transient error (Readback: 0.5 s, 2 s).
     public init(
         player: any SpeechAudioPlaying,
         selection: @escaping @MainActor () throws -> VoiceSelection,
         routingPolicy: @escaping @Sendable () -> PrivacyRoutingPolicy,
+        currentPrivacyClass: @escaping @MainActor (VoiceSource) async -> PrivacyClass?,
         retryDelays: [Duration] = [.milliseconds(500), .seconds(2)]
     ) {
         self.player = player
         self.selection = selection
         self.routingPolicy = routingPolicy
+        self.currentPrivacyClass = currentPrivacyClass
         self.retryDelays = retryDelays
     }
 
@@ -189,10 +214,17 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
         isActive && self.source == source
     }
 
+    /// Whether `retry()` can do anything for the current failure (a reading with no text cannot be retried).
+    public var canRetry: Bool {
+        guard case .failed = state else { return false }
+        return lastRequest != nil
+    }
+
     // MARK: - Speaking
 
     /// Reads `text` aloud, replacing whatever was being read. Returns once reading started, or it is waiting for the
-    /// clinical confirmation, or it failed. **Plan 015's dictation "read back" command calls this.**
+    /// clinical confirmation, or it failed. `privacyClass` is the class the screen knows; routing uses the stricter of
+    /// it and the item's class as stored at each check. **Plan 015's dictation "read back" command calls this.**
     public func speak(text: String, privacyClass: PrivacyClass, source: VoiceSource) async {
         stop()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -224,14 +256,18 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
         await prepare(from: 0, generation: generation)
     }
 
-    /// The user tapped Read aloud in the clinical confirmation: this utterance only.
-    public func confirmPendingSpeech() {
-        guard case .needsConfirmation(let request) = state, pendingRequest?.id == request.id, var utterance else {
+    /// The user tapped Read aloud in the clinical confirmation that showed `requestID`: this utterance only. A stale
+    /// answer (the question was replaced by another reading's) confirms nothing.
+    public func confirmPendingSpeech(requestID: UUID) {
+        guard case .needsConfirmation(let request) = state, request.id == requestID, pendingRequest?.id == requestID,
+            var utterance
+        else {
             return
         }
         pendingRequest = nil
         utterance.confirmedRoute = ConfirmedRoute(
-            engineID: request.engineID, locality: request.locality, host: request.host)
+            engineID: request.engineID, locality: request.locality, host: request.host,
+            privacyClass: utterance.privacyClass)
         self.utterance = utterance
         logger.notice(
             "voice_privacy_override_confirmed engine=\(request.engineID, privacy: .public) locality=\(request.locality.rawValue, privacy: .public)"
@@ -321,14 +357,58 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
             fail(sentence)
             return
         }
-        if isAllowed(utterance) {
+        switch await checkRoute(generation: generation) {
+        case .allowed:
             start(from: index)
+        case .needsConfirmation:
+            ask(resumingAt: index)
+        case .refused:
+            failedIndex = index
+            fail(SpeechSynthesisError.privacyRefused.errorDescription ?? "")
+        case .stale:
             return
         }
+    }
+
+    /// Re-reads the item's class as stored now (raising this reading's class, never lowering it) and routes the next
+    /// request with it. Main actor; nothing is sent here.
+    private func checkRoute(generation: Int) async -> RouteCheck {
+        guard let source = utterance?.source else { return .stale }
+        let stored = await currentPrivacyClass(source)
+        guard generation == self.generation, var utterance else { return .stale }
+        let raised = utterance.privacyClass.stricter(stored)
+        if raised != utterance.privacyClass {
+            logger.notice(
+                "voice_class_raised source=\(utterance.source.logName, privacy: .public) class=\(raised.rawValue, privacy: .public)"
+            )
+            utterance.privacyClass = raised
+            self.utterance = utterance
+        }
+        let engine = utterance.selection.engine
+        let descriptor = engine.descriptor
+        let host = engine.endpointHost?.lowercased()
+        let covered =
+            utterance.confirmedRoute
+            == ConfirmedRoute(
+                engineID: descriptor.id, locality: descriptor.locality, host: host,
+                privacyClass: utterance.privacyClass)
+        let policy = routingPolicy()
+        if policy.allows(descriptor, for: utterance.privacyClass, host: host, userOverride: covered) {
+            return .allowed
+        }
+        return policy.allows(descriptor, for: utterance.privacyClass, host: host, userOverride: true)
+            ? .needsConfirmation : .refused
+    }
+
+    /// Shows the clinical question; Read aloud starts (again) at `index`. Nothing more is sent until then.
+    private func ask(resumingAt index: Int) {
+        guard let utterance else { return }
+        let engine = utterance.selection.engine
         let descriptor = engine.descriptor
         let request = VoiceConfirmationRequest(
             id: UUID(), engineID: descriptor.id, providerName: descriptor.displayName, locality: descriptor.locality,
             host: engine.endpointHost?.lowercased())
+        startIndex = index
         pendingRequest = request
         state = .needsConfirmation(request)
         logger.notice(
@@ -336,14 +416,20 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
         )
     }
 
-    private func isAllowed(_ utterance: Utterance) -> Bool {
-        let engine = utterance.selection.engine
-        let descriptor = engine.descriptor
-        let host = engine.endpointHost?.lowercased()
-        let override =
-            utterance.confirmedRoute
-            == ConfirmedRoute(engineID: descriptor.id, locality: descriptor.locality, host: host)
-        return routingPolicy().allows(descriptor, for: utterance.privacyClass, host: host, userOverride: override)
+    /// The class rose (or the Mac lost its trust) during a reading and the next chunk needs the question: stop the
+    /// audio and pending work at once, then ask. Read aloud resumes at the chunk that was playing.
+    private func askMidReading(beforeChunk index: Int) {
+        generation += 1
+        synthTask?.cancel()
+        synthTask = nil
+        player.stop()
+        results = [:]
+        playerDrained = false
+        pendingFailure = nil
+        failedIndex = nil
+        let resumeAt = max(startIndex, min(playingIndex, index))
+        logger.notice("voice_confirmation_mid_reading chunk=\(index, privacy: .public)")
+        ask(resumingAt: resumeAt)
     }
 
     private func start(from index: Int) {
@@ -398,23 +484,8 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
     }
 
     private func spawnSynthesis(for index: Int, utterance: Utterance) {
-        // Routing before every call: the class or the Mac's trust may have changed since the last chunk.
-        guard isAllowed(utterance) else {
-            logger.notice("voice_privacy_refused engine=\(utterance.selection.engine.descriptor.id, privacy: .public)")
-            chunkFailed(at: index, message: SpeechSynthesisError.privacyRefused.errorDescription ?? "")
-            return
-        }
         let chunks = utterance.chunks
         let selection = utterance.selection
-        let request = SynthesisRequest(
-            text: chunks[index].text,
-            voiceID: selection.voiceID,
-            style: selection.style,
-            language: selection.language,
-            previousText: index > 0 ? chunks[index - 1].text : nil,
-            nextText: index < chunks.count - 1 ? chunks[index + 1].text : nil,
-            privacyClass: utterance.privacyClass
-        )
         let engine = selection.engine
         let delays = retryDelays
         let generation = self.generation
@@ -422,10 +493,22 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
             var lastError: Error = SpeechSynthesisError.emptyAudio
             for attempt in 0...delays.count {
                 if Task.isCancelled { return }
+                // Routing before every call, retries included: the class as stored now, the Mac's trust now.
+                guard let self, let privacyClass = await self.routedClass(forChunk: index, generation: generation)
+                else { return }
+                let request = SynthesisRequest(
+                    text: chunks[index].text,
+                    voiceID: selection.voiceID,
+                    style: selection.style,
+                    language: selection.language,
+                    previousText: index > 0 ? chunks[index - 1].text : nil,
+                    nextText: index < chunks.count - 1 ? chunks[index + 1].text : nil,
+                    privacyClass: privacyClass
+                )
                 do {
                     let audio = try await engine.synthesize(request)
                     guard !Task.isCancelled else { return }
-                    self?.synthesized(audio, index: index, generation: generation)
+                    self.synthesized(audio, index: index, generation: generation)
                     return
                 } catch is CancellationError {
                     return
@@ -437,6 +520,26 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
             }
             guard !Task.isCancelled else { return }
             self?.synthesisFailed(lastError, index: index, generation: generation)
+        }
+    }
+
+    /// The class to send chunk `index` with, or nil when it must not be sent now: the reading changed, the question is
+    /// asked (the class rose to clinical, or the Mac lost its trust), or routing refuses it.
+    private func routedClass(forChunk index: Int, generation: Int) async -> PrivacyClass? {
+        switch await checkRoute(generation: generation) {
+        case .allowed:
+            return utterance?.privacyClass
+        case .needsConfirmation:
+            askMidReading(beforeChunk: index)
+            return nil
+        case .refused:
+            guard let utterance else { return nil }
+            logger.notice("voice_privacy_refused engine=\(utterance.selection.engine.descriptor.id, privacy: .public)")
+            synthTask = nil
+            chunkFailed(at: index, message: SpeechSynthesisError.privacyRefused.errorDescription ?? "")
+            return nil
+        case .stale:
+            return nil
         }
     }
 
@@ -540,5 +643,38 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
                 + "Pair again in Settings → Mac companion."
         }
         return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+}
+
+/// The class a reading's source has **as stored now**, for `VoicePlayer`'s `currentPrivacyClass` provider: the
+/// transcript's (or document's) `EffectivePrivacyClass`; a deliverable's own class raised by its transcript's; an Ask
+/// answer's transcript. nil for the Test voice sentence and for an item that no longer exists (the reading keeps the
+/// class it has). A store that cannot be read answers `.clinical`, so a failure never lowers routing.
+public enum VoiceSourcePrivacy {
+    public static func current(
+        for source: VoiceSource,
+        transcripts: any TranscriptionStoring,
+        deliverables: any DeliverableStoring
+    ) async -> PrivacyClass? {
+        do {
+            switch source {
+            case .transcript(let id), .document(let id), .askAnswer(_, let id):
+                return try await EffectivePrivacyClass.current(
+                    transcriptionID: id, transcripts: transcripts, deliverables: deliverables)
+            case .dictationReadBack(let id):
+                guard let id else { return nil }
+                return try await EffectivePrivacyClass.current(
+                    transcriptionID: id, transcripts: transcripts, deliverables: deliverables)
+            case .deliverable(let id):
+                guard let deliverable = try await deliverables.fetchDeliverable(id: id) else { return nil }
+                let transcript = try await EffectivePrivacyClass.current(
+                    transcriptionID: deliverable.transcriptionID, transcripts: transcripts, deliverables: deliverables)
+                return deliverable.privacyClass.stricter(transcript)
+            case .voiceTest:
+                return nil
+            }
+        } catch {
+            return .clinical
+        }
     }
 }

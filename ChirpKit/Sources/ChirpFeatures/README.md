@@ -211,11 +211,18 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   dictation "read back" (`speak(text:privacyClass:source:)`), ported from Readback's `SynthQueue`. States `idle`,
   `preparing`, `needsConfirmation`, `speaking(chunk, of)`, `paused`, `failed` (with `retry()` from the failed
   chunk). One synthesis at a time, exactly one chunk ahead of the one playing; transient errors retried twice.
-  **Routing:** `availability()` first (sends no text), then `PrivacyRoutingPolicy` before the first and every later
-  chunk; clinical text to a cloud voice or an untrusted Mac waits in `.needsConfirmation` (`VoiceConfirmationRequest`,
-  "Read this clinical text aloud with Grok voices?") until `confirmPendingSpeech()` (the dialog's Read aloud button
-  only) or `declinePendingSpeech()`; the confirmation covers that utterance's engine, locality and host only.
-  `VoiceSource` names what is read (logs carry its kind, engine id, class and counts, never text).
+  **Routing:** `availability()` first (sends no text), then `PrivacyRoutingPolicy` before the first chunk, every
+  later chunk and every retry, with the class **as stored at that moment**: the injected `currentPrivacyClass`
+  provider (the app passes `VoiceSourcePrivacy.current(for:…)`, the `EffectivePrivacyClass` rule) raises, never
+  lowers, the class the reading started with. Clinical text to a cloud voice or an untrusted Mac waits in
+  `.needsConfirmation` (`VoiceConfirmationRequest`, "Read this clinical text aloud with Grok voices?") until
+  `confirmPendingSpeech(requestID:)` (the dialog's Read aloud button only, for the question it showed) or
+  `declinePendingSpeech()`; when the class rises (or the Mac loses its trust) mid-reading, the audio stops before the
+  next chunk is sent and the question is asked, and Read aloud resumes at the chunk that was playing. The confirmation
+  covers that utterance's engine, locality, host and class only. `canRetry` is false for a failure with nothing to
+  retry. `VoiceSource` names what is read (an Ask answer carries its transcript's id; logs carry its kind, engine id,
+  class and counts, never text). `VoiceSourcePrivacy` maps a source to its stored class (`.clinical` when the store
+  cannot be read).
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link
