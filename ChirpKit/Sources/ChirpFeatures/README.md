@@ -112,8 +112,21 @@ pipeline's `Task`s and publishes its progress to the UI.
     with its model state, or a row this build or device cannot run, listed with the reason: not in this build, over
     the memory budget, or `SpeechEngineAvailabilityReporting`.
   - `choices(for:)` returns only ready engines (for live, also able to preview) plus the current choice.
-  - `select` goes through `SpeechEngineRouter.select`, which refuses during a meeting. `download` and `delete` go
-    through the engine.
+  - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting and refuses a live
+    engine too big to share memory with the final one; a Transcripts choice too big for the live engine moves live
+    text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()` unloads the engine that left both
+    routes (review I3).
+  - `download` goes through the engine. `delete` (review I2) refuses an engine a route uses while a meeting holds the
+    lease; otherwise each route that used it goes back to Parakeet first (Transcripts first), `lastNotice` says so,
+    and then the model is deleted. `routesUsing(_:)` lets the delete dialog say it beforehand. Deleting Parakeet
+    itself leaves the routes (it is the fallback).
+- `SpeechModelMissing.swift` (review I2): `SpeechModelMissingError`, built from the engine a job resolved. For
+  Parakeet, or when the consumer was given one engine instead of a router, it keeps
+  `FileTranscriptionPipeline.modelMissingMessage`. For another routed engine it names it: "Whisper Base isn’t
+  downloaded on this iPhone. Download it in Settings → Speech engines, or switch Transcripts to Parakeet".
+  `mapping(_:engine:configured:)` turns an engine's own `modelNotDownloaded` into it. The file pipeline, the dictation
+  (start check and final pass) and `MeetingFinalizer` all use it, so a route pointing at a deleted or never-restored
+  model is never a dead end; Retry resolves the route again.
 - `SpeechRouteStore.swift` (M7): `SpeechRouteStoring` and `UserDefaultsSpeechRouteStore`. The live and final routes
   are saved as JSON under `ichirp.speechRoutes`. A missing or unreadable value means Parakeet on both.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
@@ -129,7 +142,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   the recording, **finishes (cancels and drains) the live session**, inserts a `.processing` `dictation` row, runs
   the final pass (`scheduler.run(.dictation)`, purpose `.dictation`), refines with `TextRefinement` (Clean when
   "Polish after" is on, else the saved clean-up mode; custom words and snippets from `textRules`), saves, and copies
-  the text through `ClipboardWriting`. Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
+  the text through `ClipboardWriting`. `failureKind` (`DictationFailureKind`: speech model missing, microphone
+  denied, other) tells the Dictating screen which fix to offer, never by comparing sentences. M7: the start check
+  and the final pass use the final route's engine and name it when its model is missing (`SpeechModelMissingError`).
+  Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
@@ -359,9 +375,23 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `ASRBenchmarkStore.swift`: an actor holding one JSON file (`<library>/benchmarks/asr-benchmark-runs.json`) with the
   newest 20 runs. Before saving, it strips text from results without a reference. There is no database table and no
   migration.
+- `ASRDeviceBenchmark.swift` (fix/asr-review, DEBUG use): the controller's on-device run.
+  - `ASRDeviceBenchmarkRequest.parse` reads `-ChirpBenchmarkDevice parakeet,whisper-base,whisper-turbo,apple-speech`
+    (or `all`; order kept, repeats dropped, an unknown name is a readable failure).
+  - `ASRDeviceBenchmark.run` skips an engine not in the build, over the memory budget, unavailable here, or waiting
+    on a system permission prompt (`SpeechEnginePermissionReporting`: `permission-needed`, never waits on UI);
+    downloads a missing model (the one download without a tap, asked for by the launch argument); then runs
+    `ASRBenchmarkRunner` over the synthetic set. It never reads or changes the saved routes.
+  - `ASRDeviceBenchmarkReport` (`ichirp.asr-device-benchmark/v1`): status, device model, build and commit, one line
+    per engine (outcome, reason, WER, × real time, load, peak memory, download time) and the full run. The app writes
+    it to `Documents/asr-device-benchmark.json` (`App/Sources/Debug/DeviceBenchmarkLaunch.swift`) and
+    `scripts/device_benchmark.sh` reads it.
 - `ASRBenchmarkViewModel.swift`: the Benchmark screen.
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
-  - The reference-set toggle, and added files copied from the importer.
+  - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your
+    file n" and copied under a neutral name (a file name can hold a patient's name); the copies are deleted when a
+    run ends and at launch (`removeLeftoverImports`). `ASRBenchmarkStore` also replaces a file name an earlier build
+    saved (items with a UUID id) when it reads the file.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
 
 ## Number fidelity (on-device language models, review I2, `Benchmark/NumberFidelity.swift`)
@@ -416,8 +446,10 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   - `.final`: `FileTranscriptionPipeline.run`, the dictation final pass and `MeetingFinalizer.run`.
   - `.live`: the dictation preview (through the router's `makeLiveSession`) and `MeetingCoordinator`'s live text.
   - A meeting holds the router's lease from `start()` until its state is finished (saved, failed or idle).
-  - `MeetingCoordinator` sends pause, resume and mute through one chain of tasks (`sendToRecorder`), so they reach
-    the recorder in order.
+  - A missing model on the resolved engine fails the job with `SpeechModelMissingError`, which names that engine and
+    says what to do (review I2). Retry resolves the route again, so switching Transcripts recovers.
+  - `MeetingCoordinator` sends pause, resume, mute and the microphone restart through one chain of tasks
+    (`sendToRecorder`), so they reach the recorder in order; stop and discard wait for the chain first.
 
 - **Privacy routing runs before any engine gets audio** (ADR-002, `spec/12-privacy.md`). `run` asks
   `PrivacyRoutingPolicy` (injected, default: no trusted LAN hosts) whether the speech engine's locality may process
@@ -428,8 +460,10 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   locality and class, never content. M1 has no per-run cloud override. Copy this pattern at every new engine call
   site (M4 language models, M6 structure models).
 - **The pipeline never downloads.** If `speech.assetStatus()` is not `.ready`, or `prepare`/`transcribe` throws
-  `SpeechEngineError.modelNotDownloaded`, the row fails with `FileTranscriptionPipeline.modelMissingMessage`
-  ("Download the Parakeet speech model in Settings → Speech model"). A diarizer that is not ready is skipped and
+  `SpeechEngineError.modelNotDownloaded`, the row fails with `SpeechModelMissingError`'s sentence: for Parakeet
+  `FileTranscriptionPipeline.modelMissingMessage` ("Download the Parakeet speech model in Settings → Speech model"),
+  for another engine a route chose its name and "Download it in Settings → Speech engines, or switch Transcripts to
+  Parakeet". A diarizer that is not ready is skipped and
   logged; a diarization error is logged and the job still completes without speakers (upstream: non-fatal).
 - **Diarization runs inside the same scheduler job as transcription.** Upstream diarizes after releasing its STT
   slot; here both models run in one background slot, so two files never hold Parakeet and the diarizer in memory at

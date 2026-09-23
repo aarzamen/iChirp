@@ -388,13 +388,13 @@ actor FakeSpeech: SpeechEngine {
 
     init(
         status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000), locality: EngineLocality = .onDevice,
-        id: String = "fake.parakeet"
+        id: String = "fake.parakeet", displayName: String = "Fake Parakeet"
     ) {
         self.descriptor = EngineDescriptor(
             id: id,
             kind: .speech,
             provider: "Fake",
-            displayName: "Fake Parakeet",
+            displayName: displayName,
             locality: locality,
             license: "CC-BY-4.0",
             providesWordTimestamps: true

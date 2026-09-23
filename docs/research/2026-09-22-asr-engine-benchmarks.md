@@ -79,7 +79,16 @@ speed**. Apple Speech is listed as unavailable here, as expected.
 
 ## iPhone run (controller: to do)
 
-On the iPhone 17 Pro, install the build (`scripts/run_device.sh`) and download the engines in Settings → Speech
+Headless (fix/asr-review): `scripts/device_benchmark.sh` builds and installs the Debug app on the phone that
+`scripts/run_device.sh --print-device` picks, launches it with `-ChirpBenchmarkDevice
+parakeet,whisper-base,whisper-turbo,apple-speech`, and prints one line per engine from
+`Documents/asr-device-benchmark.json` (kept in `.build/device-benchmarks/`). It downloads missing models; Apple Speech
+reads "permission-needed" until Speech Recognition was allowed once through its Download button. Run it twice: the
+first run's load time includes the one-time Core ML compile, the second is the warm load. It measures each engine
+alone; the combined live-plus-final memory (review I3) still needs a dictation with two different engines and Xcode's
+memory gauge.
+
+By hand: install the build (`scripts/run_device.sh`) and download the engines in Settings → Speech
 engines: Apple Speech, Whisper Base and Whisper Large v3 Turbo. Then Settings → Speech engines → Benchmark engines,
 turn on every engine, Run, and Export CSV and JSON. Paste the summary here, with:
 

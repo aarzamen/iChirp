@@ -631,7 +631,9 @@ Speech engines and routes
       v3**. The Engines list shows Parakeet v3, Apple Speech, Whisper Base, Whisper Large v3 Turbo, and Whisper Large v3
       marked "needs about 3.6 GB … more than this build's 2.5 GB model budget", with no Download button.
 - [ ] Apple Speech → Download: iOS asks once for Speech Recognition; the row ends "Ready · managed by iOS". Delete asks
-      first and says iOS may remove the model later.
+      first and says iOS may remove the model later. Before that Download the row says "Not downloaded" even when
+      another app installed the language, and no Speech Recognition prompt ever appears while importing, dictating or
+      recording a meeting.
 - [ ] Whisper Base → Download: progress, then "On device · about 150 MB". Only downloaded engines appear in the Live
       text and Transcripts menus.
 - [ ] Transcripts → Whisper Base, then import a `say` file: the transcript is Whisper's; the Library row still works;
@@ -640,6 +642,20 @@ Speech engines and routes
       **Transcripts** engine's text.
 - [ ] Start a meeting, then open Speech engines and pick another engine: the alert says it can't change during a
       meeting. After Stop & save it can.
+- [ ] During a meeting whose Transcripts is Whisper Base, Delete Whisper Base: the alert says it is in use by a
+      meeting; nothing is deleted. An engine on no route can still be deleted.
+- [ ] With Transcripts on Whisper Base and no meeting, Delete Whisper Base: the dialog first says Transcripts will use
+      Parakeet instead; after Delete the alert says "Whisper Base was deleted, so Transcripts uses Parakeet v3 now",
+      and the Use group shows Parakeet.
+- [ ] Missing model, not a dead end (restore-from-backup case; to reproduce, pick Whisper Base for Transcripts, then
+      delete `Application Support/Models/WhisperKit` through Xcode's container download/replace, or ask the
+      controller for a build that does it): importing a file fails with "Whisper Base isn’t downloaded on this iPhone.
+      Download it in Settings → Speech engines, or switch Transcripts to Parakeet"; Dictate says the same and offers
+      Open Settings; Capture's banner says "Download Whisper Base to transcribe". It never says to download Parakeet.
+      Switch Transcripts to Parakeet, then Retry: it transcribes.
+- [ ] Switch Transcripts from Whisper Large v3 Turbo back to Parakeet (with Live text on Parakeet): Xcode's memory
+      gauge (or Settings → About → memory) drops by about the Turbo model; nothing stays loaded for an engine on no
+      route.
 - [ ] Airplane mode: every downloaded engine still transcribes (all on-device); Download says it needs a connection.
 
 Benchmark
@@ -648,15 +664,19 @@ Benchmark
 - [ ] Run: the progress line names the engine and the recording; the phone stays usable; Stop ends it at once.
 - [ ] Latest results: one line per engine with WER, "× real time", load and peak memory; Export CSV and JSON opens the
       share sheet with two files.
-- [ ] Add files… → pick a Voice Memo: its rows show speed and memory but no WER, and the exported JSON has no text for
-      it.
+- [ ] Add files… → pick a Voice Memo: it is listed as "Your file 1" (never its name); its rows show speed and memory
+      but no WER, and the exported JSON has neither its text nor its name. After the run it is no longer listed (the
+      copy is deleted); add it again to rerun.
 
 Screenshots to attach
 - [ ] Speech engines (routes and engine list); the Benchmark screen with results.
 
 Device-only numbers (controller): Apple Speech works only on the phone (the Simulator lists it as unavailable);
 record Whisper Large v3 Turbo's peak memory and every engine's WER, speed and load time into
-`docs/research/2026-09-22-asr-engine-benchmarks.md`.
+`docs/research/2026-09-22-asr-engine-benchmarks.md`. `scripts/device_benchmark.sh` does this headless (DEBUG build:
+downloads missing models, runs the synthetic set, prints the table and keeps the JSON in `.build/device-benchmarks/`).
+Apple Speech shows "permission-needed" there until Speech Recognition was allowed once through its Download button.
+`scripts/device_smoke.sh` always transcribes with Parakeet, whatever Transcripts is set to, and prints `engine:`.
 
 ## Writing a checklist (for agents)
 

@@ -26,7 +26,11 @@ struct CaptureScreen: View {
                 VStack(alignment: .leading, spacing: 14) {
                     header
                     if environment.isLaunched, !environment.isSpeechModelReady {
-                        ModelMissingBanner(status: environment.speechSettings.speechStatus) {
+                        // M7 (review I2): the final route's engine, which may not be Parakeet.
+                        let model = environment.finalSpeechModel
+                        ModelMissingBanner(
+                            engineName: model.name, status: model.status, isParakeet: model.isParakeet
+                        ) {
                             openTab(.settings)
                         }
                     }
@@ -278,9 +282,12 @@ struct CaptureScreen: View {
     }
 }
 
-/// "Download the speech model to transcribe", with a button that opens Settings.
+/// "Download the speech model to transcribe", with a button that opens Settings. M7: it names the engine the
+/// Transcripts route uses; for an engine other than Parakeet it says where to download it or how to switch back.
 struct ModelMissingBanner: View {
+    let engineName: String
     let status: ModelAssetStatus
+    let isParakeet: Bool
     let openSettings: () -> Void
 
     var body: some View {
@@ -290,7 +297,7 @@ struct ModelMissingBanner: View {
                 .foregroundStyle(AppColor.accentText)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Download the speech model to transcribe")
+                Text(isParakeet ? "Download the speech model to transcribe" : "Download \(engineName) to transcribe")
                     .chirpFont(14.5, .semibold)
                     .foregroundStyle(Tokens.Color.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -314,9 +321,16 @@ struct ModelMissingBanner: View {
 
     private var detail: String {
         switch status {
-        case .downloading(let fraction): "Downloading · \(Formatting.percent(fraction))%"
-        case .failed: "The last download failed. Try again in Settings."
-        case .notDownloaded, .ready: "Parakeet runs on this iPhone after a one-time download."
+        case .downloading(let fraction):
+            return "Downloading · \(Formatting.percent(fraction))%"
+        case .failed(let message):
+            if isParakeet { return "The last download failed. Try again in Settings." }
+            return (message.components(separatedBy: " Details: ").first ?? message)
+                + " Or switch Transcripts to Parakeet in Settings → Speech engines."
+        case .notDownloaded, .ready:
+            if isParakeet { return "Parakeet runs on this iPhone after a one-time download." }
+            return "Transcripts uses \(engineName). Download it in Settings → Speech engines, or switch Transcripts "
+                + "to Parakeet."
         }
     }
 }

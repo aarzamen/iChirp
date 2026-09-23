@@ -3,7 +3,8 @@ import Foundation
 
 /// Where benchmark runs are kept: one JSON file (`ichirp.asr-benchmark/v1`), newest last, the last `limit` runs. No
 /// database table (plan 016 refinement: no migration). Holds engine names, timings and the recognized text of the
-/// synthetic set; a person's own files contribute only their file name and numbers (their text is not kept).
+/// synthetic set; a person's own files contribute only a neutral label ("Your file n") and numbers, never their name
+/// or text (review M6). A name an earlier build saved is replaced when the file is read.
 public actor ASRBenchmarkStore {
     public let fileURL: URL
     private let limit: Int
@@ -26,7 +27,7 @@ public actor ASRBenchmarkStore {
         struct Document: Decodable { let runs: [ASRBenchmarkRun] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode(Document.self, from: data))?.runs ?? []
+        return ((try? decoder.decode(Document.self, from: data))?.runs ?? []).map(Self.stored)
     }
 
     /// Appends `run` and keeps the newest `limit` runs.
@@ -39,12 +40,17 @@ public actor ASRBenchmarkStore {
         try ASRBenchmarkExport.json(runs).write(to: fileURL, options: .atomic)
     }
 
-    /// A person's own recordings may be clinical: their recognized text is not written to disk.
+    /// A person's own recordings may be clinical: their recognized text is not written to disk, and their title is a
+    /// neutral label. Their ids are UUIDs (the reference set's are words), which is how a title an earlier build saved
+    /// (the file name) is recognized and replaced.
     static func stored(_ run: ASRBenchmarkRun) -> ASRBenchmarkRun {
         var copy = run
         copy.results = run.results.map { result in
             var result = result
             if result.wordErrorRate == nil { result.hypothesis = nil }
+            if UUID(uuidString: result.itemID) != nil, !result.itemTitle.hasPrefix("Your file") {
+                result.itemTitle = "Your file"
+            }
             return result
         }
         return copy

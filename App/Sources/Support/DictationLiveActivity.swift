@@ -6,13 +6,14 @@ import Foundation
 /// Keeps the dictation Live Activity in step with the coordinator (M2). It starts the moment recording begins — an
 /// `AudioRecordingIntent` requires one while recording, or iOS stops it — shows Paused and Finishing, and ends after
 /// the outcome (Copied / Not copied stays a few seconds; a discard ends it at once). Without Live Activities allowed
-/// (Settings → Parakeet → Live Activities off) dictation still works in the app.
+/// (Settings → Parakeet → Live Activities off) dictation still works in the app. The engine it names is read when the
+/// activity starts: the Transcripts route's engine, the same one the Dictating screen shows (review M4).
 @MainActor final class DictationLiveActivity {
     private var activity: Activity<DictationActivityAttributes>?
-    private let modelName: String
+    private let modelName: @MainActor () -> String
     private let logger = Log.logger("live-activity")
 
-    init(modelName: String) {
+    init(modelName: @escaping @MainActor () -> String) {
         self.modelName = modelName
     }
 
@@ -48,7 +49,7 @@ import Foundation
         guard state.phase == .recording, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         do {
             activity = try Activity.request(
-                attributes: DictationActivityAttributes(modelName: modelName), content: content, pushType: nil)
+                attributes: DictationActivityAttributes(modelName: modelName()), content: content, pushType: nil)
             logger.notice("live_activity_started")
         } catch {
             logger.error("live_activity_failed error_type=\(String(describing: type(of: error)), privacy: .public)")

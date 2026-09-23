@@ -9,11 +9,13 @@ import Foundation
 ///   `prepare` and `transcribe` never download: a missing model throws `modelNotDownloaded`.
 /// - **Not everywhere.** `SpeechTranscriber.isAvailable` is false in the Simulator: the engine then reports why
 ///   (`SpeechEngineAvailabilityReporting`) and Settings lists it as unavailable.
-/// - **Permission (iOS).** Speech recognition must be allowed. Download asks; a job asks only when iOS has never
-///   asked, and a refusal fails the job with a sentence that says where to allow it.
+/// - **Permission (iOS).** Speech recognition must be allowed. Only Download asks (review M10): until iOS has asked,
+///   an installed model still reads as not downloaded, so Settings shows Download; a job never asks (it refuses with
+///   `modelNotDownloaded`), so no prompt appears from a background file, a dictation or a live preview. A refusal reads
+///   as `.failed` with a sentence that says where to allow it. `needsPermissionPrompt()` tells headless callers.
 /// - Word timings come from `audioTimeRange`, confidence from `transcriptionConfidence`; `language` is the locale
 ///   used (BCP-47). It runs in a system process, so the app's memory barely grows and no Neural Engine gate applies.
-public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting {
+public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting, SpeechEnginePermissionReporting {
     public static let engineID = SpeechEngineCapabilityRegistry.appleSpeechEngineID
 
     public static let descriptor = EngineDescriptor(
@@ -61,6 +63,11 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting 
         return nil
     }
 
+    /// Download would first show the Speech Recognition prompt (iOS has never asked).
+    public func needsPermissionPrompt() async -> Bool {
+        backend.isAvailable && backend.authorizationStatus() == .notDetermined
+    }
+
     // MARK: - ModelAssetManaging
 
     public func assetStatus() async -> ModelAssetStatus {
@@ -71,8 +78,16 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting 
         }
         switch await backend.assetState(for: locale) {
         case .installed:
-            // iOS keeps the files; their size is not reported to apps.
-            return .ready(bytesOnDisk: 0)
+            // Not ready until speech recognition is allowed: Download is where iOS asks (review M10).
+            switch backend.authorizationStatus() {
+            case .authorized:
+                // iOS keeps the files; their size is not reported to apps.
+                return .ready(bytesOnDisk: 0)
+            case .notDetermined:
+                return .notDownloaded
+            case .denied:
+                return .failed(message: Self.permissionMessage)
+            }
         case .downloading:
             return .downloading(fraction: 0)
         case .notInstalled:
@@ -101,6 +116,10 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting 
             let message = "iOS could not download the Apple Speech model. Details: \(error.localizedDescription)"
             lastFailure = message
             throw SpeechEngineError.underlying(message)
+        }
+        // The model is installed and reserved; without the permission it still cannot run: say where to allow it.
+        guard backend.authorizationStatus() == .authorized else {
+            throw SpeechEngineError.underlying(Self.permissionMessage)
         }
         reported.report(1)
     }
@@ -143,7 +162,8 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting 
 
     // MARK: - Helpers
 
-    /// The locale this job uses, once its model is installed and speech recognition is allowed. Never downloads.
+    /// The locale this job uses, once its model is installed and speech recognition is allowed. Never downloads and
+    /// never asks for permission (review M10): until Download has asked, it refuses like a missing model.
     private func readyLocale(hint: String?) async throws -> Locale {
         guard backend.isAvailable else { throw SpeechEngineError.underlying(Self.notAvailableMessage) }
         let requested = hint.map { Locale(identifier: $0) } ?? preferredLocale
@@ -153,12 +173,11 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting 
         guard await backend.assetState(for: locale) == .installed else {
             throw SpeechEngineError.modelNotDownloaded(Self.engineID)
         }
-        var authorization = backend.authorizationStatus()
-        if authorization == .notDetermined {
-            authorization = await backend.requestAuthorization()
+        switch backend.authorizationStatus() {
+        case .authorized: return locale
+        case .notDetermined: throw SpeechEngineError.modelNotDownloaded(Self.engineID)
+        case .denied: throw SpeechEngineError.underlying(Self.permissionMessage)
         }
-        guard authorization == .authorized else { throw SpeechEngineError.underlying(Self.permissionMessage) }
-        return locale
     }
 
     /// Joins the final results and maps words to milliseconds with the contract's guarantees: non-decreasing

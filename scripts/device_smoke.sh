@@ -10,7 +10,9 @@
 #                                                       # Debug-only download logging) to .build/device-logs/
 #
 # The first run downloads ~0.5 GB of models on the phone: keep it unlocked and on Wi-Fi.
-# Needs the app's DEBUG smoke runner (launch argument -ChirpSmoke transcribe-sample).
+# Needs the app's DEBUG smoke runner (launch argument -ChirpSmoke transcribe-sample). The smoke always transcribes with
+# Parakeet, whatever engine Settings → Speech engines has saved for Transcripts (the saved choice is never changed), and
+# the result's "engine" must say so.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -93,9 +95,12 @@ if "quick brown fox" not in text.lower():
     problems.append("text does not contain 'quick brown fox'")
 if "iphone" not in text.lower():
     problems.append("text does not contain 'iphone'")
+engine = str(data.get("engine") or "")
+if data.get("status") == "completed" and not engine.startswith("fluidaudio.parakeet-tdt"):
+    problems.append(f"engine is {engine!r}, expected Parakeet (fluidaudio.parakeet-tdt)")
 
 print(f"text:          {text}")
-for key in ("elapsedMs", "modelLoadMs", "speakerCount", "peakMemoryMB", "wordCount", "build"):
+for key in ("engine", "elapsedMs", "modelLoadMs", "speakerCount", "peakMemoryMB", "wordCount", "build"):
     print(f"{key + ':':<15}{data.get(key, 'n/a')}")
 if problems:
     for problem in problems:
