@@ -87,4 +87,35 @@ final class MeetingLiveTranscriberTests: XCTestCase {
         XCTAssertTrue(all.contains { $0.isLagging }, "a dropped chunk marks the preview lagging")
         XCTAssertFalse(try XCTUnwrap(all.last).isLagging, "a later chunk clears it")
     }
+
+    /// A chunk task reports only after it has released the recognizer slot, so the chunk after a drop can report
+    /// before the chunk ahead of the drop. All three outcomes then apply in one pass; the drop must still be published
+    /// (with the text so far) before the later result clears it.
+    func testADropAppliedInTheSamePassAsALaterResultIsStillPublishedAsLagging() async throws {
+        let live = MeetingLiveTranscriber(
+            chunker: FixedMeetingLiveAudioChunker(), speech: FakeSpeech(), scheduler: SpeechJobScheduler(),
+            chunkFolder: folder)
+        let updates = collect(live.updates)
+        let result = SpeechResult(
+            text: FakeSpeech.helloText, words: FakeSpeech.helloWords, language: "en", engineID: "fake",
+            engineVariant: nil)
+        await live.complete(1, .skipped(lagging: true))  // chunk 2: dropped by backpressure
+        await live.complete(2, .result(result, MeetingAudioChunk(samples: [], startMs: 8_000, endMs: 13_000)))
+        await live.complete(0, .result(result, MeetingAudioChunk(samples: [], startMs: 0, endMs: 5_000)))
+        await live.finish()
+
+        let all = await updates.value
+        XCTAssertEqual(all.map(\.isLagging), [true, false], "the drop is published before the later chunk clears it")
+        XCTAssertEqual(all.first?.paragraphs, [MeetingLiveParagraph(startMs: 0, text: FakeSpeech.helloText)])
+        XCTAssertEqual(
+            all.last?.paragraphs,
+            [
+                MeetingLiveParagraph(startMs: 0, text: FakeSpeech.helloText),
+                MeetingLiveParagraph(startMs: 8_000, text: FakeSpeech.helloText),
+            ])
+        let transcribed = await live.transcribedCount
+        let dropped = await live.droppedCount
+        XCTAssertEqual(transcribed, 2)
+        XCTAssertEqual(dropped, 1)
+    }
 }

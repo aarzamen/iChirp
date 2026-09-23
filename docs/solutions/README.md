@@ -63,3 +63,5 @@ Add a line here for each new entry: `- [<title>](<category>/<slug>.md) — <one-
   — `duplicate symbol '_rust_eh_personality'` when a second Rust `staticlib` is linked
 - [Send order-sensitive commands through one chained task](concurrency/order-sensitive-commands-need-one-chained-task.md)
   — a command test passes alone, fails in the full suite; a resume overtook a pause
+- [Publish transient state when an in-order apply loop applies it](concurrency/in-order-apply-loop-must-publish-transient-state.md)
+  — a live-preview drop never showed as lagging when a later chunk reported first
