@@ -54,7 +54,22 @@ dark mode (via `UIColor`'s dynamic-provider initializer on iOS; a plain light va
 where there's no UIKit dynamic provider). Every other token (accent, tint, success, the speaker
 palette, the night/cover-night backgrounds, etc.) is intentionally identical in both modes —
 they're either already dark-appropriate (the night surfaces) or brand colors the canvas never
-varies.
+varies. `successInk` (added by polish lane u1-design) is the one exception among the "brand
+colors" group: it's built with the same `adaptive(light:dark:)` two-value pattern as the five
+surfaces above even though its dark value is currently identical to `success`'s — that keeps the
+door open for the owner's dark palette (plan 023, ux-audit-2b9ad612 F6) to give it a real dark
+value later without any call site changing.
+
+**Some tokens read Increase Contrast, in light mode only.** `border`, `secondary`, `accentInk`
+and `mutedText` swap to a higher-contrast light value while the system's Increase Contrast
+setting is on (`adaptive(...highContrastLight:)` and the private `contrastAwareLight(...)`
+helper in `Tokens.swift`, ux-audit-2b9ad612 F5). Dark mode never reads the contrast trait —
+that's deliberately left to the owner's dark palette pass rather than guessed at here.
+
+**Not every color that *looks* like it should be text-safe is.** `success` and `mutedText` are
+icon/dot-fill colors only — 3.06:1 and 2.75:1 as text, both below WCAG's 4.5:1. Text needs
+`successInk` (new) or `secondary` instead; see each token's doc comment in `Tokens.swift`, and
+`ChirpKit/Tests/ChirpUITests/ContrastTests.swift` for the numbers.
 
 **`ParakeetMark` parses real SVG path data at runtime**, via a small private `SVGPathParser` in
 the same file (supports `M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`, `C`/`c`, `Z`/`z`, including SVG's
@@ -84,7 +99,9 @@ rather than eyeballing new numbers.
   temporarily render a component in the app's root view and run it on the simulator
   (`scripts/run_sim.sh`) for a real-device screenshot — revert the temporary App change
   afterward, since screens are Task 12b's job, not this module's.
-- There is no `ChirpUITests` target (`ChirpKit/Package.swift` isn't part of this task's scope), so the
-  one piece of genuinely pure logic — `Tokens.Color.rgbComponents(fromHex:)` and
-  `Tokens.Color.speaker(at:)`'s modulo wraparound — should be spot-checked by copying the
-  function body into a throwaway `swift` script and running it, rather than skipped.
+- `swift test --package-path ChirpKit --filter ChirpUITests` —
+  `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` (polish lane u1-design) computes WCAG contrast
+  ratios for the text-safe tokens
+  (`successInk`, `secondary`, `accentInk`, the Increase Contrast values) straight from
+  `Tokens.Color.rgbComponents(fromHex:)`, the same pure function this section used to point at for a
+  throwaway spot-check script — now it's a real, always-run test instead.
