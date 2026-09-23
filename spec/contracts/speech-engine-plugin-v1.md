@@ -116,18 +116,33 @@ an engine that breaks them corrupts transcripts silently.
   saved pair over the budget starts with live on the final engine. After a change, `releaseUnroutedModels()` unloads
   every engine on neither route. With today's rows every pair fits (Parakeet 0.8 + Turbo 1.5 GB); the iPhone
   benchmark must measure two engines loaded together before the estimates are trusted.
+  - **A job that held its engine past the change** (review N4). The unload above is refused while a job holds the
+    engine (busy) or is about to (`ModelAssetLifecycle.pendingAcquires`, review N5), so it is a no-op for exactly
+    the engine that is working. `SpeechRouting.releaseUnroutedModels(on:)` retries it once that job ends: the file
+    pipeline, `MeetingFinalizer` (needed because `MeetingRecoveryService` runs it with no lease) and the dictation
+    final pass all call it, success or not.
+  - **A narrow Parakeet/diarizer unload race** (review N5). `ModelAssetLifecycle.unload()` refuses while an
+    `acquire()` is in flight (`pendingAcquires`), not only while its lease is held: otherwise a route change's
+    unload landing between a shared load finishing and the acquiring caller's own resumption could drop the model
+    an instant before the caller's guard re-checks it, failing that job with `modelNotDownloaded` for a model that
+    is on disk.
 - **A route whose model is missing** (review I2): a restored backup keeps `ichirp.speechRoutes` but not the Whisper
   folders, and iOS can remove an Apple Speech asset. Consumers check the resolved engine's `assetStatus()` and fail
   with a message that names that engine and says to download it in Settings → Speech engines or switch the route to
   Parakeet (`ChirpFeatures.SpeechModelMissingError`); they never tell the person to download Parakeet when Parakeet
-  is not the engine. Settings → Speech engines never deletes an engine a route uses while a lease is out, and moves
-  such routes back to Parakeet before deleting.
+  is not the engine. The Meeting screen's "no live text" message names the live route's own engine the same way
+  (`MeetingCoordinator.liveSpeechEngine`, review N6): a restored backup or a revoked Apple Speech permission can
+  leave a non-Parakeet engine on Live text. Settings → Speech engines never deletes an engine a route uses while a
+  lease is out; otherwise the delete is asked for first (review N3, e.g. WhisperKit's "in use by a running job"),
+  and only once it succeeds do such routes move back to Parakeet, named from the fallback's own row, never the
+  untouched route's engine (review N2).
 - `SpeechEngineAvailabilityReporting` (optional) lets an engine say it cannot run on this device. Settings lists it
   with the reason and never downloads it.
 - `SpeechEnginePermissionReporting` (optional, review M10) is for an engine that needs a system permission (Apple
   Speech: Speech Recognition). It asks only from `downloadAssets`, reads as not downloaded until then, and never asks
   from `prepare` or `transcribe` (it refuses with `modelNotDownloaded`). `needsPermissionPrompt()` tells a headless
-  caller (the DEBUG device benchmark) to skip it rather than wait on a prompt.
+  caller (the DEBUG device benchmark) to skip it (`permission-needed`) rather than wait on a prompt nobody can tap or
+  download a model it cannot use: true while permission was never asked and while it was already denied (review N7).
 
 **Target rule**
 - An engine target depends only on `ChirpCore` plus its SDK and exposes one registration entry point (M1:
@@ -161,9 +176,18 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
   `testAPairOverTheMemoryBudgetKeepsOneModelResident`, `testTheDefaultBudgetAllowsEveryPairThisBuildOffers`,
   `testASavedPairOverTheBudgetPreviewsWithTheFinalEngine`. `SpeechRouteConsumersTests` (ChirpFeaturesTests): files and
   meetings use the final route, a queued file keeps its engine, a meeting holds and releases the lease; review I2: a
-  file, a dictation and a meeting name the routed engine whose model is missing, and Retry works after switching.
+  file, a dictation and a meeting name the routed engine whose model is missing, and Retry works after switching;
+  review N4: `testAFileJobReleasesAModelItHeldPastARouteChangeWhenItEnds`,
+  `testDictationsFinalPassReleasesAModelItHeldPastARouteChangeWhenItEnds`.
   `SpeechEnginesViewModelTests`: deleting a routed engine is refused during a meeting and otherwise moves its routes
-  to Parakeet with a notice; a route change unloads the engine that left both routes.
+  to Parakeet with a notice; a route change unloads the engine that left both routes; review N2:
+  `testDeletingAnEngineOnlyLiveTextUsesNamesTheFallbackNotTheUntouchedFinalEngine`; review N3:
+  `testDeletingAnEngineAJobIsUsingIsRefusedWithoutMovingTheRoutesOrTouchingTheFiles`.
+  `MeetingFinalizerTests.testAModelThisPassHoldsPastARouteChangeIsReleasedWhenItEnds` (review N4).
+  `MeetingCoordinatorTests.testNoLiveTextNamesTheLiveRoutesEngineNotParakeet` (review N6).
+  `ModelAssetLifecycleTests.testAnAcquireInFlightKeepsItsModelAgainstAConcurrentUnload` (review N5, ChirpEngineFluidAudioTests).
+  `AppleSpeechEngineTests.testNeedsPermissionPromptIsTrueWhenAlreadyDeniedSoAHeadlessCallerNeverDownloads` (review N7,
+  ChirpEngineAppleSpeechTests).
 - `TailWindowPreviewSessionTests` (ChirpCoreTests since M7; single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
   interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
   `.dictation` purpose uses it, `.file` never does).

@@ -67,6 +67,36 @@ final class MeetingFinalizerTests: XCTestCase {
         XCTAssertNil(saved?.speakers)
     }
 
+    // MARK: - Review N4: a model this pass holds past a route change is released once it ends
+
+    /// `MeetingRecoveryService` runs `finalize` with no lease at all (the coordinator that would hold one never
+    /// started this launch), so a route change can reach the router while this pass still holds its engine.
+    func testAModelThisPassHoldsPastARouteChangeIsReleasedWhenItEnds() async throws {
+        let keyA = SpeechEngineVariantKey(engineID: "fake.a")
+        let keyB = SpeechEngineVariantKey(engineID: "fake.b")
+        let a = FakeSpeech(id: "fake.a")
+        let b = FakeSpeech(id: "fake.b")
+        let router = SpeechEngineRouter(
+            engines: [.init(key: keyA, engine: a), .init(key: keyB, engine: b)],
+            selection: SpeechRouteSelection(live: keyB, final: keyA))
+        let h = try MeetingHarness(engine: router)
+        harness = h
+        let id = try await insertStoppedMeeting(h)
+        let hold = await a.holdNextTranscription()
+
+        let pass = Task { await h.finalizer.finalize(id: id) }
+        await hold.entered.wait()
+        try router.select(keyB, for: .final)
+        var unloads = await a.unloadCalls
+        XCTAssertEqual(unloads, 0, "busy: refused while this pass still holds it")
+
+        hold.release.fire()
+        _ = await pass.value
+
+        unloads = await a.unloadCalls
+        XCTAssertEqual(unloads, 1, "the finalizer retries the release once its pass ends")
+    }
+
     func testANonMeetingOrNonProcessingRowIsLeftAlone() async throws {
         let h = try MeetingHarness()
         harness = h

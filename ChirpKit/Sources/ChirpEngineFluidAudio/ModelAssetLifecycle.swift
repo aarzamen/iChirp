@@ -27,6 +27,9 @@ struct ModelLease<Runtime: Sendable>: Sendable {
 ///   in-flight download and load, and only then removes files. A load that finishes for an older generation is
 ///   discarded, so a delete can never be undone by a load that was already compiling.
 /// - A download requested during a delete waits for the delete to finish, then starts fresh.
+/// - `unload()` refuses while an `acquire()` is in flight, not only while its lease is held (review N5): otherwise a
+///   route change's unload could land in the narrow window between a shared load finishing and the acquiring
+///   caller's resumption, and that caller would see `modelNotDownloaded` for a model that is on disk.
 actor ModelAssetLifecycle<Runtime: Sendable> {
     struct Hooks: Sendable {
         /// The engine's `EngineDescriptor.id`, carried by `.modelNotDownloaded` as the engine contract requires.
@@ -59,6 +62,11 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
     private var deletion: Task<Void, any Error>?
     private var loaded: ModelLease<Runtime>?
     private var leaseCount = 0
+    /// Callers inside `acquire()`, from before `prepare()` to the lease (or the throw): review N5. `unload()`
+    /// refuses while this is nonzero, so a route change reaching this actor right after a shared load finishes
+    /// cannot drop the model out from under a caller that is about to take the lease but has not incremented
+    /// `leaseCount` yet.
+    private var pendingAcquires = 0
 
     /// - Parameter network: the pre-flight path check and retry backoff for `download`; `.live` in the app.
     init(hooks: Hooks, network: DownloadNetworkPolicy) {
@@ -220,9 +228,26 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         }
     }
 
-    /// `prepare()`, then checks out the runtime. While any lease is out, `delete()` refuses.
+    /// Test seam only (review N5): the real gap is a handful of scheduler hops (`awaitSharedTask`'s own relay
+    /// task), too narrow to land a real `unload()` call in reliably. When set, awaited right after `prepare()`
+    /// returns and before the guard below re-checks `loaded`, so a test can put `unload()` in that window
+    /// deterministically instead of racing real scheduling. Nil in production; never set outside a test target.
+    private var afterPrepareForTesting: (@Sendable () async -> Void)?
+
+    func set(afterPrepareForTesting hook: (@Sendable () async -> Void)?) {
+        afterPrepareForTesting = hook
+    }
+
+    /// `prepare()`, then checks out the runtime. While any lease is out, `delete()` refuses. While this call is in
+    /// flight (from before `prepare()` to the lease or the throw), `unload()` refuses too (review N5): otherwise a
+    /// route change reaching this actor right after a shared load finishes, but before this resumes, could drop the
+    /// model an instant before the guard below re-checks it, and this call would fail with `modelNotDownloaded`
+    /// while the model is on disk.
     func acquire() async throws -> ModelLease<Runtime> {
+        pendingAcquires += 1
+        defer { pendingAcquires -= 1 }
         try await prepare()
+        await afterPrepareForTesting?()
         // Re-check after the suspension: a delete may have run between the load finishing and this resumption.
         guard deletion == nil, let loaded, loaded.generation == generation else {
             throw SpeechEngineError.modelNotDownloaded(hooks.engineID)
@@ -235,11 +260,13 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         leaseCount -= 1
     }
 
-    /// M7 (benchmark): drops the loaded runtime so the next `prepare` loads it again from local files. Refused (false)
-    /// while a job holds a lease, a load or a delete is in flight. Bumps the generation, so pooled workers built on
-    /// the old runtime are not reused.
+    /// M7 (benchmark): drops the loaded runtime so the next `prepare` loads it again from local files. Refused
+    /// (false) while a job holds a lease, an `acquire()` is in flight (review N5), or a load or a delete is in
+    /// flight. Bumps the generation, so pooled workers built on the old runtime are not reused.
     @discardableResult func unload() -> Bool {
-        guard leaseCount == 0, loadJob == nil, deletion == nil, loaded != nil else { return false }
+        guard leaseCount == 0, pendingAcquires == 0, loadJob == nil, deletion == nil, loaded != nil else {
+            return false
+        }
         generation += 1
         loaded = nil
         return true

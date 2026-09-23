@@ -235,4 +235,69 @@ final class SpeechRouteConsumersTests: XCTestCase {
         await h.coordinator.settle()
         XCTAssertEqual(router.activeLeaseCount, 0)
     }
+
+    // MARK: - Review N4: a model a job holds past a route change is released once the job ends
+
+    func testAFileJobReleasesAModelItHeldPastARouteChangeWhenItEnds() async throws {
+        let a = FakeSpeech(id: "fake.a")
+        let b = FakeSpeech(id: "fake.b")
+        // Both routes start on `a`, so switching `.final` alone still leaves it on `.live` too; select `.live`
+        // first so the only route left on `a` is the one this job is about to move.
+        let router = SpeechEngineRouter(
+            engines: [.init(key: keyA, engine: a), .init(key: keyB, engine: b)],
+            selection: SpeechRouteSelection(live: keyB, final: keyA))
+        let hold = await a.holdNextTranscription()
+        let h = try PipelineHarness(testCase: self, engine: router)
+        let id = try await h.importSample()
+
+        let job = Task { await h.pipeline.process(id: id) }
+        await hold.entered.wait()
+        try router.select(keyB, for: .final)
+        // The router's own release right after `select` finds `a` busy (the job still holds it) and is refused.
+        await router.releaseUnroutedModels()
+        var unloads = await a.unloadCalls
+        XCTAssertEqual(unloads, 0, "busy: refused while the job still holds it")
+        var refusals = await a.unloadRefusals
+        XCTAssertEqual(refusals, 1)
+
+        hold.release.fire()
+        _ = await job.value
+
+        unloads = await a.unloadCalls
+        XCTAssertEqual(unloads, 1, "the pipeline retries the release once its job ends")
+        refusals = await a.unloadRefusals
+        XCTAssertEqual(refusals, 1, "no further refusal: the job was done by the time it retried")
+    }
+
+    func testDictationsFinalPassReleasesAModelItHeldPastARouteChangeWhenItEnds() async throws {
+        let a = FakeSpeech(id: "fake.a")
+        let b = FakeSpeech(id: "fake.b")
+        let router = SpeechEngineRouter(
+            engines: [.init(key: keyA, engine: a), .init(key: keyB, engine: b)],
+            selection: SpeechRouteSelection(live: keyB, final: keyA))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("routes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let capture = FakeCapture()
+        let coordinator = DictationCoordinator(
+            capture: capture, speech: router, liveSessions: router, scheduler: SpeechJobScheduler(),
+            store: FakeStore(), paths: AppPaths(root: root), settings: InMemorySettingsStore(),
+            clipboard: FakeClipboard())
+        coordinator.start()
+        await waitUntil { coordinator.state == .recording }
+        capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+
+        let hold = await a.holdNextTranscription()
+        coordinator.stop()
+        await hold.entered.wait()
+        // Dictation holds no lease: a route change can reach the router while the final pass still holds `a`.
+        try router.select(keyB, for: .final)
+        var unloads = await a.unloadCalls
+        XCTAssertEqual(unloads, 0, "busy: refused while the final pass still holds it")
+
+        hold.release.fire()
+        await waitUntil { coordinator.state.isFinished }
+
+        unloads = await a.unloadCalls
+        XCTAssertEqual(unloads, 1, "the final pass retries the release once it ends")
+    }
 }

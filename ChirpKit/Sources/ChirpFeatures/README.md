@@ -29,6 +29,8 @@ pipeline's `Task`s and publishes its progress to the UI.
     `media/<id>/normalized-16k.wav` → one scheduler
     `.fileTranscription` job (`prepare`, `transcribe`, then `diarize` if enabled and ready) → `SpeakerMerger` →
     `TextRefinement` → `TitleDeriver` / `SnippetDeriver` → `FileTranscriptSegments` → `savePreservingUserMetadata`.
+    Every run, success or not, ends with `SpeechRouting.releaseUnroutedModels(on:)` (review N4): a route change
+    could not unload the engine this job held (busy), so the release is retried once the job is done with it.
   - `retry(id:)` moves a `.failed` / `.cancelled` / `.interrupted` row back to `.processing` and runs `process`
     again from the stored source.
   - `sweepOrphanedTemporaryAudio()` deletes `normalized-16k.wav` files left by a killed process (call at launch).
@@ -116,10 +118,13 @@ pipeline's `Task`s and publishes its progress to the UI.
     engine too big to share memory with the final one; a Transcripts choice too big for the live engine moves live
     text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()` unloads the engine that left both
     routes (review I3).
-  - `download` goes through the engine. `delete` (review I2) refuses an engine a route uses while a meeting holds the
-    lease; otherwise each route that used it goes back to Parakeet first (Transcripts first), `lastNotice` says so,
-    and then the model is deleted. `routesUsing(_:)` lets the delete dialog say it beforehand. Deleting Parakeet
-    itself leaves the routes (it is the fallback).
+  - `download` goes through the engine. `delete` (review I2, N3) refuses an engine a route uses while a meeting
+    holds the lease; otherwise the delete is asked for first, and only once the engine agrees do its routes move
+    back to Parakeet (Transcripts first), `lastNotice` names the fallback's own row (review N2, never
+    `row(for: .final)`, which is wrong when the delete only moved Live text). An engine that refuses the delete
+    itself (a running job holds it, review N3) leaves the routes untouched and reports that in `lastError`, never
+    moving them first and then contradicting itself. `routesUsing(_:)` lets the delete dialog say what will change
+    beforehand. Deleting Parakeet itself leaves the routes (it is the fallback).
 - `SpeechModelMissing.swift` (review I2): `SpeechModelMissingError`, built from the engine a job resolved. For
   Parakeet, or when the consumer was given one engine instead of a router, it keeps
   `FileTranscriptionPipeline.modelMissingMessage`. For another routed engine it names it: "Whisper Base isn’t
@@ -145,7 +150,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   the text through `ClipboardWriting`. `failureKind` (`DictationFailureKind`: speech model missing, microphone
   denied, other) tells the Dictating screen which fix to offer, never by comparing sentences. M7: the start check
   and the final pass use the final route's engine and name it when its model is missing (`SpeechModelMissingError`).
-  Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
+  Dictation holds no lease, so a route change can reach the router while the final pass still holds its engine
+  (busy, refused); `runFinalPass` retries `SpeechRouting.releaseUnroutedModels(on:)` once it ends, success or not
+  (review N4). Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
@@ -224,7 +231,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
   after typing stops and at Stop. The only deletes: `discard()` (the screen confirms first), a start that failed
   before any audio, and a recording under 0.3 s (the dictation rule). Low storage refuses to start under 200 MB and
-  warns under 1 GB.
+  warns under 1 GB. `liveSpeechEngine` (review N6) is the live route's own engine name and whether it is Parakeet,
+  for the "no live text" message: a restored backup or a revoked Apple Speech permission can leave a non-Parakeet
+  engine on Live text, and the Meeting screen names that engine instead of assuming Parakeet.
 - `MeetingSessionLockStore.swift`: atomic `recording.lock` writes, reads (malformed notes lose only the notes; a
   newer schema is opaque), `hasLockFile` (the retention barrier) and `discoverOrphans()` (locks from another app
   launch; one store per launch, whose `launchId` it stamps).
@@ -240,7 +249,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the
   row (`.failed`, Retry), the lock and the audio. Privacy routing is checked before any audio is prepared and again
   inside the slot. Diarization shares the background slot with the final pass, so dictation's interactive slot is
-  never blocked; its cost is part of the finalize time.
+  never blocked; its cost is part of the finalize time. A meeting's own lease blocks a route change for its whole
+  final pass, but `MeetingRecoveryService` runs `finalize` with no lease at all, so `finalize` also retries
+  `SpeechRouting.releaseUnroutedModels(on:)` when it ends, success or not (review N4).
 - `MeetingRecoveryService.swift`: `discoverPendingRecoveries()` (orphans whose row is missing, processing or
   interrupted; a completed row only settles its leftover lock; failed rows are the Library's Retry), `recover`
   (claims the lock for this launch, removes `chunks/`, inserts or reuses the row with the lock's notes and

@@ -264,6 +264,19 @@ final class AppleSpeechEngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Review N7: a headless caller must never download while permission is denied
+
+    func testNeedsPermissionPromptIsTrueWhenAlreadyDeniedSoAHeadlessCallerNeverDownloads() async {
+        // `.denied` means iOS will never show a prompt again, but the DEBUG device benchmark must still skip
+        // (`permission-needed`) rather than call `downloadAssets`, which would install the model and only then
+        // fail on the permission sentence (spec/12-privacy.md: "only once Speech Recognition is already allowed").
+        let backend = FakeBackend(state: .notInstalled, authorization: .denied)
+        let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
+        let prompts = await engine.needsPermissionPrompt()
+        XCTAssertTrue(prompts, "denied must not look like a green light to download")
+        XCTAssertEqual(backend.installCalls, [], "nothing installed just by asking")
+    }
+
     func testCancellationStopsTheJobPromptly() async {
         let backend = FakeBackend(segments: Self.twoSegments)
         backend.holdTranscription = true

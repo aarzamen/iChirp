@@ -254,9 +254,15 @@ struct MeetingScreen: View {
                     "Live text is behind; the saved transcript will still cover everything.", systemImage: "hourglass")
             }
             if !meeting.hasLivePreview {
+                // Review N6: name the live route's engine, the same way the Capture banner does — it may not be
+                // Parakeet (a restored backup, or a revoked Apple Speech permission).
+                let engine = meeting.liveSpeechEngine
                 Text(
-                    "No live text: the Parakeet speech model is not on this iPhone yet. The meeting is still recorded "
-                        + "and transcribed after you download it (Settings → Speech)."
+                    engine.isParakeet
+                        ? "No live text: the Parakeet speech model is not on this iPhone yet. The meeting is still "
+                            + "recorded and transcribed after you download it (Settings → Speech)."
+                        : "No live text: \(engine.name) isn’t ready on this iPhone (Settings → Speech engines). The "
+                            + "meeting is still recorded and transcribed after you fix that."
                 )
                 .chirpFont(14)
                 .foregroundStyle(Tokens.Color.secondary)

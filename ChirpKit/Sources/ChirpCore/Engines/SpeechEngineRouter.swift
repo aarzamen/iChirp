@@ -96,6 +96,10 @@ public protocol SpeechEngineRouting: SpeechEngine, LiveSpeechSessionProviding {
     /// Pins the current routes until `endLease` (a meeting, from start to its final pass).
     func beginLease() -> SpeechEngineLease
     func endLease(_ lease: SpeechEngineLease)
+    /// Frees the model of every engine on neither route now (review N4): call once a job that resolved its engine
+    /// through `SpeechRouting.resolve` ends. A route change already retries this itself, but a job that held an
+    /// engine past the change (busy) is refused there and must be retried once the job releases it.
+    func releaseUnroutedModels() async
 }
 
 /// How consumers take a route's engine without knowing whether they were given a router.
@@ -114,6 +118,14 @@ public enum SpeechRouting {
     public static func endLease(_ lease: SpeechEngineLease?, on engine: any SpeechEngine) {
         guard let lease else { return }
         (engine as? any SpeechEngineRouting)?.endLease(lease)
+    }
+
+    /// Frees the model of any engine on neither route now, when `engine` is a router; a no-op otherwise (review N4).
+    /// Call once a job that took its engine through `resolve(_:for:)` ends: a job that held its engine past a route
+    /// change is refused there, so the release must be retried after the job is done with it, in case that engine is
+    /// still on no route.
+    public static func releaseUnroutedModels(on engine: any SpeechEngine) async {
+        await (engine as? any SpeechEngineRouting)?.releaseUnroutedModels()
     }
 }
 

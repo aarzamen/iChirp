@@ -293,22 +293,28 @@ public actor FileTranscriptionPipeline {
         // M7: the final route's engine as the job is queued; a route change later applies to the next job only.
         let speech = SpeechRouting.resolve(self.speech, for: .final)
 
+        let result: Transcription?
         do {
             let transcription = try await run(row, speech: speech, normalizedURL: normalizedURL)
-            return try await saveCompleted(transcription)
+            result = try await saveCompleted(transcription)
         } catch {
             if Self.isCancellation(error) {
                 logger.notice("process_cancelled id=\(id, privacy: .public)")
-                return await markEnded(id, fallback: row, status: .cancelled, message: nil)
+                result = await markEnded(id, fallback: row, status: .cancelled, message: nil)
+            } else {
+                // Review I2: a missing model names the engine this job resolved and what to do.
+                let message = Self.userMessage(
+                    for: SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
+                logger.error(
+                    "process_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(message, privacy: .private)"
+                )
+                result = await markEnded(id, fallback: row, status: .failed, message: message)
             }
-            // Review I2: a missing model names the engine this job resolved and what to do.
-            let message = Self.userMessage(
-                for: SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
-            logger.error(
-                "process_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(message, privacy: .private)"
-            )
-            return await markEnded(id, fallback: row, status: .failed, message: message)
         }
+        // Review N4: a route change while this job held `speech` (busy) was refused there; retry now that the job
+        // is done with it, in case that engine is still on no route.
+        await SpeechRouting.releaseUnroutedModels(on: self.speech)
+        return result
     }
 
     /// Moves a `.failed`, `.cancelled` or `.interrupted` row back to `.processing` (clearing its error) and runs

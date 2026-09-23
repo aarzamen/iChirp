@@ -9,9 +9,13 @@ import Observation
 /// here (not in this build, not on this device, or above the memory budget) is listed with the reason and cannot be
 /// chosen or downloaded. Route changes go through `SpeechEngineRouter.select`, which refuses them during a meeting.
 ///
-/// Review fixes (fix/asr-review):
-/// - **Delete of a routed engine (I2).** Refused while a meeting holds the routes. Otherwise every route that used it
-///   goes back to Parakeet first, and `lastNotice` says so (the delete dialog says it beforehand, `routesUsing`).
+/// Review fixes (fix/asr-review, fix/asr-minors):
+/// - **Delete of a routed engine (I2, N3).** Refused while a meeting holds the routes. Otherwise the delete is asked
+///   for first; only once the engine agrees do its routes move back to Parakeet, and `lastNotice` says so (the
+///   dialog says it beforehand, `routesUsing`). An engine that refuses because a job is using it (N3) leaves the
+///   routes untouched and says so, never moving them and then contradicting itself.
+/// - **The delete notice names the right engine (N2).** Read from the fallback's own row, not `row(for: .final)`,
+///   which is wrong when the delete only moved Live text.
 /// - **Memory (I3).** After a route change, the engine that is on no route any more is unloaded
 ///   (`SpeechEngineRouter.releaseUnroutedModels`); a Transcripts choice too big to share memory with the live engine
 ///   moves live text to it as well, and `lastNotice` says so.
@@ -171,10 +175,12 @@ import Observation
 
     /// Deletes `key`'s model files (the screen asks first). For a system-managed model this releases the app's claim.
     ///
-    /// Review I2: an engine a route uses is never deleted while a meeting holds the routes. Otherwise each route that
-    /// used it goes back to Parakeet before the files go, and `lastNotice` says so, so no route is left pointing at a
-    /// missing model. (Deleting Parakeet itself leaves the routes: it is the fallback, and a job then says to download
-    /// it.)
+    /// Review I2: an engine a route uses is never deleted while a meeting holds the routes. Review N3: the engine
+    /// itself can still refuse (a running job holds it, e.g. WhisperKit's `busy`), so the delete is asked for first;
+    /// only once it succeeds do the routes that used it move back to Parakeet, and `lastNotice` says so — never the
+    /// other way around, which could move the routes and then have the delete refuse, leaving a notice that
+    /// contradicts the alert right above it. (Deleting Parakeet itself leaves the routes: it is the fallback, and a
+    /// job then says to download it.)
     public func delete(_ key: SpeechEngineVariantKey) async {
         guard let entry = Self.catalog(router: router).first(where: { $0.capabilities.key == key }),
             let engine = entry.engine
@@ -184,36 +190,44 @@ import Observation
         let name = entry.capabilities.displayName
         let routes = routesUsing(key)
         if !routes.isEmpty {
-            // Checked and changed before any suspension: a meeting cannot start in between (both on the main actor).
+            // Checked before any suspension: a meeting cannot start in between (both on the main actor).
             guard router.activeLeaseCount == 0 else {
                 lastError = "\(name) is in use by a meeting. Delete it after the meeting finishes."
                 return
-            }
-            let fallback = SpeechEngineCapabilityRegistry.defaultKey
-            if router.registeredKey(for: fallback) != router.registeredKey(for: key) {
-                do {
-                    // Transcripts first: a final choice may move live text along with it (memory), never the reverse.
-                    for route in [SpeechRoute.final, .live] where routes.contains(route) {
-                        try router.select(fallback, for: route)
-                    }
-                } catch {
-                    lastError = error.localizedDescription
-                    selection = router.selection
-                    return
-                }
-                selection = router.selection
-                let parakeetName = row(for: .final)?.capabilities.displayName ?? "Parakeet"
-                lastNotice =
-                    "\(name) was deleted, so \(Self.routeNames(routes)) use\(routes.count == 1 ? "s" : "") "
-                    + "\(parakeetName) now."
             }
         }
         do {
             try await engine.deleteAssets()
         } catch {
+            // Review N3: e.g. "Whisper Base is in use by a running job. Delete it after the job finishes." The
+            // routes must not have moved: they still point at the model that is still there.
             lastError = error.localizedDescription
+            return
         }
         replace(await makeRow(entry))
+        guard !routes.isEmpty else { return }
+        let fallback = SpeechEngineCapabilityRegistry.defaultKey
+        guard router.registeredKey(for: fallback) != router.registeredKey(for: key) else { return }
+        do {
+            // Transcripts first: a final choice may move live text along with it (memory), never the reverse.
+            for route in [SpeechRoute.final, .live] where routes.contains(route) {
+                try router.select(fallback, for: route)
+            }
+        } catch {
+            // The files are already gone; only a meeting that started in the instant after the delete's await
+            // (the lease check above ran before it) could refuse this. Rare, and still honest: a job on the
+            // untouched route now names this engine as missing, with Retry after switching in Settings.
+            lastError = error.localizedDescription
+            return
+        }
+        selection = router.selection
+        // Review N2: the fallback's own row, not `row(for: .final)` — a delete that only moves Live text (Transcripts
+        // already used something else) leaves `.final` unchanged, so that route's name is the wrong one to read.
+        let fallbackKey = router.registeredKey(for: fallback)
+        let fallbackName = rows.first(where: { $0.id == fallbackKey })?.capabilities.displayName ?? "Parakeet"
+        lastNotice =
+            "\(name) was deleted, so \(Self.routeNames(routes)) use\(routes.count == 1 ? "s" : "") "
+            + "\(fallbackName) now."
     }
 
     // MARK: - Catalog

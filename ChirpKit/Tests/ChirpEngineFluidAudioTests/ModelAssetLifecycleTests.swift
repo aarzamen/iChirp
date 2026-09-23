@@ -186,6 +186,39 @@ final class ModelAssetLifecycleTests: XCTestCase {
         XCTAssertTrue(assets.isPresent, "unload never touches the files")
     }
 
+    /// Review N5: an unload reaching the actor after a shared load finishes, but before the caller waiting in
+    /// `acquire()` has resumed and taken the lease, must not steal the model out from under it. Before the fix,
+    /// `unload()` checked only `leaseCount` (still 0 at this point) and could drop `loaded` in that narrow window,
+    /// failing the acquiring caller with `modelNotDownloaded` for a model that was on disk the whole time.
+    ///
+    /// The window is a handful of real scheduler hops (`awaitSharedTask`'s own relay task in
+    /// `SharedTaskWait.swift`) — too narrow to land a plain concurrent `unload()` call in reliably from a test (it
+    /// was empirically flaky: it reproduced the bug once in dozens of runs). `afterPrepareForTesting` is a test-only
+    /// seam on `ModelAssetLifecycle`, awaited at exactly that point, so the race is deterministic here.
+    func testAnAcquireInFlightKeepsItsModelAgainstAConcurrentUnload() async throws {
+        let assets = FakeAssets(present: true)
+        let lifecycle = ModelAssetLifecycle(hooks: assets.hooks(), network: .testing())
+        let unloadResults = LockedLog<Bool>()
+        await lifecycle.set(afterPrepareForTesting: {
+            // `prepare()` has just returned inside `acquire()`: the runtime is loaded, but the lease has not been
+            // taken yet. A route change's unload reaching the actor right here must be refused.
+            let refused = await lifecycle.unload()
+            unloadResults.append(refused)
+        })
+
+        let lease = try await lifecycle.acquire()
+
+        XCTAssertEqual(
+            unloadResults.values, [false], "an acquire in flight must hold the model against a concurrent unload")
+        let isLoaded = await lifecycle.isLoaded
+        XCTAssertTrue(isLoaded, "the race must not fail the job's acquire with modelNotDownloaded")
+        await lifecycle.release(lease)
+
+        // Once nothing is acquiring, unload works normally again.
+        let unloaded = await lifecycle.unload()
+        XCTAssertTrue(unloaded)
+    }
+
     func testConcurrentPreparesShareOneLoad() async throws {
         let assets = FakeAssets(present: true, loadBlocks: true)
         let lifecycle = ModelAssetLifecycle(hooks: assets.hooks(), network: .testing())
