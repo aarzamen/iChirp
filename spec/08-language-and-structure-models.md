@@ -1,7 +1,8 @@
 # 08 - Language and Structure Models
 
-> Status: ACTIVE for language models (M4 core, plan 013 Steps 1–5: engines, keys, routing, templates, deliverables,
-> map-reduce; the screens land in the M4-UI lane). PROPOSAL for structure models (M6).
+> Status: ACTIVE for language models (M4: plan 013 Steps 1–5 in the core lane: engines, keys, routing, templates,
+> deliverables, map-reduce; Step 6 in the M4-UI lane: the screens, see "Screens (M4)"). PROPOSAL for structure models
+> (M6).
 > Contracts: [language-model-plugin-v1](contracts/language-model-plugin-v1.md), [deliverables-v1](contracts/deliverables-v1.md).
 > Decision on providers: [ADR-011](adr/011-language-model-providers-direct-ports.md).
 
@@ -134,3 +135,24 @@ override only as a `PrivacyOverride` token that `confirmOverride` mints from a r
 transcript, engine, host, locality and class, single use, valid 10 minutes.
 
 Details: [`12-privacy.md`](12-privacy.md).
+
+## Screens (M4)
+
+- **Wiring.** `AppEnvironment` builds `KeychainSecretStore` → `UserDefaultsLanguageModelProviderStore`,
+  `GRDBDeliverableStore` and the one `DeliverableService` (routing policy read from the provider store at every
+  check), installs the built-in templates at launch, and owns `LanguageModelsViewModel` and
+  `DeliverableLibraryViewModel`. `App/Sources/LanguageModels/AppLanguageModelFactory.swift` is the only app code that
+  imports `ChirpEngineAppleFM` / `ChirpEngineHTTPLLM`; engines are built right before a run or a test, with the key
+  read from the Keychain just then.
+- **Settings → Models** (`ModelsSettingsScreen`, `ProviderEditorSheet`): the default model for Transform and Ask
+  (Apple's on-device model unless a provider is picked), Apple's availability as a sentence, providers with locality
+  derived from the address, the trusted switch only for a home-network host, key to the Keychain (a blank field keeps
+  the stored key; the key is never shown), model list from the server, context window, Test connection, Delete.
+- **Transcript**: the privacy-class chip (through `DeliverableService.setPrivacyClass`), the Ask tab
+  (`AskSessionViewModel`, one routed run per question) and the Transform sheet (`TransformRunHost` over
+  `DeliverableRunViewModel`); **Transforms tab**: recent documents and templates.
+- **The clinical confirmation** (`ClinicalConfirmation.swift`) is an alert titled and worded by the
+  `PrivacyOverrideRequest`. Its Send button calls `ClinicalConfirmationActions.userTappedSend()`, the only app code
+  that calls `confirmOverride`; `AppTests/ClinicalConfirmationTests` enforces that by a source scan and proves with a
+  real database and a recording cloud model that Stop, Cancel, a late Send, Retry, choosing another template and Ask
+  send nothing until Send.

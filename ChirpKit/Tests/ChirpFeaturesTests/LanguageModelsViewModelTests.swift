@@ -98,7 +98,7 @@ final class LanguageModelsViewModelTests: XCTestCase {
         XCTAssertTrue(draft.showsTrustToggle)
         draft.trustsLocalNetworkHost = true
         XCTAssertTrue(draft.configuration.isTrustedLocalNetworkHost)
-        XCTAssertEqual(draft.configuration.displayName, "Ollama on mac-studio")
+        XCTAssertEqual(draft.configuration.displayName, "mac-studio (Ollama)")
 
         draft.baseURLText = "https://ollama.example.com"
         XCTAssertEqual(draft.locality, .cloud)
@@ -182,7 +182,7 @@ final class LanguageModelsViewModelTests: XCTestCase {
         let provider = try XCTUnwrap(viewModel.providers.first)
         let choice = try XCTUnwrap(viewModel.choice(id: provider.id.uuidString))
         XCTAssertTrue(choice.isTrustedForClinical)
-        XCTAssertEqual(choice.place, "on Ollama on mac-studio")
+        XCTAssertEqual(choice.place, "on mac-studio (Ollama)")
 
         try viewModel.setDefault(choice)
         XCTAssertEqual(viewModel.defaultChoice, choice)

@@ -20,7 +20,7 @@ public protocol LanguageModelFactory: Sendable {
     func listModels(of provider: LanguageModelProviderConfiguration, apiKey: SecretValue?) async throws -> [String]
 }
 
-/// Where a model runs, as the UI says it: "on this iPhone", "on Mac Studio (Ollama)", "in the cloud (Claude)".
+/// Where a model runs, as the UI says it: "on this iPhone", "on mac-studio (Ollama)", "in the cloud (Claude)".
 public enum ModelPlace {
     public static func phrase(locality: EngineLocality, name: String) -> String {
         switch locality {
@@ -199,9 +199,9 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
         let local = host.hasSuffix(".local") ? String(host.dropLast(".local".count)) : host
         switch kind {
         case .anthropic: return "Claude"
-        case .ollama: return "Ollama on \(local)"
+        case .ollama: return "\(local) (Ollama)"
         case .openAICompatible:
-            return LocalNetworkHost.isLocal(host) ? "Server on \(local)" : host
+            return LocalNetworkHost.isLocal(host) ? "\(local) (server)" : host
         case .appleFoundationModels: return kind.displayName
         }
     }

@@ -83,7 +83,21 @@ targets:
         # M4: lets a simulator run that signs the test bundle ad hoc (Xcode's default) host the real Keychain test.
         # Not a signing setting; the unsigned CODE_SIGNING_ALLOWED=NO runs in scripts/ are unchanged.
         GENERATE_INFOPLIST_FILE: YES
+  # M4: a screen tour for QA screenshots (Settings → Models, Transcript, Transform, the clinical confirmation, Ask,
+  # Transforms). Its own scheme, never part of scripts/test.sh; see UITests/M4ScreenTourUITests.swift.
+  iChirpUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies: [{ target: iChirp }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: iChirp
 schemes:
+  iChirpUITour:
+    build: { targets: { iChirp: all, iChirpUITests: [test] } }
+    test: { targets: [iChirpUITests], gatherCoverageData: false }
   iChirp:
     build: { targets: { iChirp: all, iChirpTests: [test] } }
     test: { targets: [iChirpTests], gatherCoverageData: false }

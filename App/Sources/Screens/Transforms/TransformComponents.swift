@@ -45,6 +45,8 @@ struct PrivacyClassBadge: View {
         Label(privacyClass.title, systemImage: privacyClass.systemImage)
             .labelStyle(.titleAndIcon)
             .chirpFont(11.5, .semibold)
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(privacyClass == .clinical ? Tokens.Color.privacyBadgeInk : Tokens.Color.secondary)
             .padding(.horizontal, 9)
             .frame(minHeight: 24)
@@ -145,7 +147,7 @@ struct TemplateStyle: Equatable {
         "action-items": TemplateStyle(systemImage: "checklist", summary: "Who does what, by when"),
         "agenda": TemplateStyle(systemImage: "list.number", summary: "Topics and time boxes for the next meeting"),
         "soap-note": TemplateStyle(
-            systemImage: "stethoscope", summary: "Subjective, objective, assessment and plan · always clinical"),
+            systemImage: "stethoscope", summary: "Subjective, objective, assessment and plan"),
         "polish": TemplateStyle(systemImage: "wand.and.stars", summary: "Clean up the wording, keep your voice"),
         "distill": TemplateStyle(systemImage: "line.3.horizontal.decrease", summary: "Cut to the essential points"),
         "decide": TemplateStyle(systemImage: "scalemass", summary: "Turn this into a recommendation"),

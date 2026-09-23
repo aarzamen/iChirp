@@ -21,7 +21,7 @@
   [ADR-002](../../spec/adr/002-local-first-and-privacy-classes.md), [ADR-004](../../spec/adr/004-engine-plugin-architecture.md),
   [design handoff: Ask and Transform](2026-09-22-001-feat-iphone-app-design-handoff.md)
 - **Planned at:** commit `bd8cfc7c`, 2026-09-22
-- **Status:** IN PROGRESS — Steps 1–5 (core, no UI) done on `m4/language-models-core`; Step 6 (UI, Info.plist, `project.yml`) in the M4-UI lane after M1.5 merges. Report: `.superpowers/sdd/milestones/m4-core-report.md`
+- **Status:** IN PROGRESS — Steps 1–5 (core, no UI) done on `m4/language-models-core` and merged; Step 6 (UI, Info.plist, `project.yml`) done on `m4/language-models-ui`, verified in the simulator (app tests and the `iChirpUITour` screen tour); owner device QA pending (human QA guide, "M4 checklist"). Reports: `.superpowers/sdd/milestones/m4-core-report.md`, `.superpowers/sdd/milestones/m4-ui-report.md`
 
 ## Why this matters
 
@@ -136,6 +136,13 @@ cannot be processed, say so.
 Transforms tab lists templates and recent deliverables; Transcript → Transform opens the template picker; results
 stream into an editable document with Copy and Share; Ask tab per the handoff (locality chip shows the real route,
 citation chips seek the player). Replace every M4 placeholder.
+
+**Done (M4-UI lane).** Screens in `App/Sources/Screens/Transforms/`, `Screens/Ask/` and
+`Screens/Settings/Models*.swift`; view models `LanguageModelsViewModel`, `DeliverableLibraryViewModel`,
+`DeliverableDocumentViewModel` and `AskSessionViewModel` in ChirpFeatures. The clinical confirmation's Send button is
+the only caller of `confirmOverride` (`AppTests/ClinicalConfirmationTests`). The three M4 placeholders (Ask,
+Transform, Cloud models) are gone. `scripts/llm_stub_server.py` plus the `iChirpUITour` scheme walk every screen in
+the simulator with synthetic answers.
 
 ## Test plan
 

@@ -146,11 +146,11 @@ struct ModelsSettingsScreen: View {
     }
 
     private func choiceCaption(_ choice: LanguageModelChoice) -> String {
-        let place = choice.place.capitalizedFirst
         switch choice.locality {
-        case .onDevice: return place
+        case .onDevice: return "On this iPhone"
         case .localNetwork:
-            return choice.isTrustedForClinical ? "\(place) · trusted for clinical" : "\(place) · asks for clinical"
+            return choice.isTrustedForClinical
+                ? "Home network · trusted for clinical" : "Home network · asks for clinical"
         case .cloud: return "Internet · asks for clinical"
         }
     }

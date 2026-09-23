@@ -88,14 +88,9 @@ struct AskView: View {
 
     private var intro: some View {
         HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                Circle().fill(AppColor.tintFill)
-                ParakeetMark()
-                    .fill(Tokens.Color.accentInk)
-                    .padding(6)
-            }
-            .frame(width: 30, height: 30)
-            .accessibilityHidden(true)
+            // The Capture header's mark, at its size (smaller renders illegibly).
+            ParakeetMarkView()
+                .frame(width: 27, height: 27)
             Text(introText)
                 .chirpFont(15)
                 .foregroundStyle(Tokens.Color.ink)
