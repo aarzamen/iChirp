@@ -57,5 +57,10 @@ final class LocalLanguageModelsLifecycleAppTests: XCTestCase {
         XCTAssertTrue(
             local.debugIsForeground,
             "every foreground launch posts this notification once UIKit reaches the active state")
+
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        XCTAssertFalse(local.debugIsForeground)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertTrue(local.debugIsForeground, "becoming active also restores the foreground state")
     }
 }

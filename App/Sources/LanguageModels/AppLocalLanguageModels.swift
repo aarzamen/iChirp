@@ -75,6 +75,12 @@ final class AppLocalLanguageModels: Sendable {
         _ = center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { _ in
             engine.setForeground(true)
         }
+        // Belt and braces for the seed above: `didBecomeActiveNotification` is posted on every foreground launch and
+        // never during a background launch, so the models can never stay "backgrounded" on screen even if a launch
+        // does not post `willEnterForegroundNotification`.
+        _ = center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { _ in
+            engine.setForeground(true)
+        }
     }
 
     private static func option(for spec: LlamaCppModelSpec) -> LocalModelOption {
