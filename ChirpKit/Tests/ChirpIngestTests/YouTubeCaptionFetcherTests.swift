@@ -72,10 +72,14 @@ final class YouTubeCaptionFetcherTests: XCTestCase {
         XCTAssertEqual(player.url.query(), "key=SYNTHETIC_key-123")
         let client = (player.json?["context"] as? [String: Any])?["client"] as? [String: Any]
         XCTAssertEqual(client?["clientName"] as? String, "ANDROID")
+        XCTAssertEqual(client?["clientVersion"] as? String, "20.10.38", "youtube-transcript-api v1.2.4's client")
         XCTAssertEqual(player.json?["videoId"] as? String, Self.videoID)
         XCTAssertEqual(player.json?.keys.sorted(), ["context", "videoId"], "only the video id is sent")
         XCTAssertFalse(requests[2].url.absoluteString.contains("fmt=srv3"), "the classic XML format is requested")
         XCTAssertNil(requests[0].header("Cookie"))
+        XCTAssertEqual(
+            Set(requests.map { $0.header("User-Agent") }), [YouTubeCaptionFetcher.userAgent],
+            "YouTube sends Parakeet's own agent to an unsupported-browser page")
     }
 
     func testConsentPageIsPassedWithAOneRequestCookie() async throws {
