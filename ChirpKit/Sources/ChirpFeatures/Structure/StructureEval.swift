@@ -402,10 +402,10 @@ public struct StructureEvalRunner: Sendable {
                     modelSHA256 = output.modelSHA256 ?? modelSHA256
                     if !output.isAbstention {
                         if let calls = StructuredCall.parseArray(output.json) {
-                            predicted = calls.map { call in
-                                let validated = StructuredCallValidator.validate(
-                                    call, sentence: normalized, catalog: catalog)
-                                return StructureEvalScorer.predicted(
+                            predicted = StructuredCallValidator.validate(
+                                calls, sentence: normalized, catalog: catalog
+                            ).map { validated in
+                                StructureEvalScorer.predicted(
                                     validated,
                                     verdict: gate.verdict(confidence: output.confidence, problems: validated.problems))
                             }

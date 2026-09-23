@@ -72,6 +72,12 @@ public struct NormalizedText: Sendable, Equatable {
     /// In source order, non-overlapping.
     public var tags: [NumericTag]
 
+    public init(original: String, tagged: String, tags: [NumericTag]) {
+        self.original = original
+        self.tagged = tagged
+        self.tags = tags
+    }
+
     public func tag(named name: String) -> NumericTag? {
         let key = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return tags.first { $0.tag == key }

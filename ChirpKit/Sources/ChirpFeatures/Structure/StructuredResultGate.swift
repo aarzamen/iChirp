@@ -119,24 +119,64 @@ public struct ValidatedCall: Sendable, Equatable {
     public var tagRanges: [Range<Int>]
 }
 
-/// Re-parses and range-checks every number a structure model returned, in code. The model only ever copies tags;
-/// anything that does not trace back to the normalizer's side table, or falls outside a plausible range, forces review.
+/// Checks every call a structure model returned, in code. The model only ever copies tags; anything that does not
+/// trace back to the normalizer's side table, disagrees with an independent reading of the words
+/// (`IndependentNumberCheck`, review L3 I1), sits away from its drug, carries a spoken correction, or falls outside a
+/// plausible range forces review.
 public enum StructuredCallValidator {
+    static let tagArguments: [String: [NumericTag.Kind]] = [
+        "value_tag": [.bloodPressure, .rate, .oxygenSaturation, .temperature],
+        "dose_tag": [.dose],
+        "frequency_tag": [.frequency],
+    ]
+
+    /// Every call from one sentence: each checked on its own (the others name the sentence's drugs), then against
+    /// each other (review L3 I3: two values for one vital sign both need review).
     public static func validate(
-        _ call: StructuredCall, sentence: NormalizedText, catalog: StructureCatalog
+        _ calls: [StructuredCall], sentence: NormalizedText, catalog: StructureCatalog
+    ) -> [ValidatedCall] {
+        var results = calls.map { validate($0, sentence: sentence, catalog: catalog, siblings: calls) }
+        var byKind: [String: [Int]] = [:]
+        for (index, call) in calls.enumerated() where call.name == "record_vital" {
+            if let kind = call.string("kind"), !kind.isEmpty { byKind[kind, default: []].append(index) }
+        }
+        for (kind, indices) in byKind where indices.count > 1 {
+            for index in indices {
+                results[index].problems.append("\(indices.count) \(kind) values in one sentence: check which is which.")
+            }
+        }
+        return results
+    }
+
+    public static func validate(
+        _ call: StructuredCall, sentence: NormalizedText, catalog: StructureCatalog, siblings: [StructuredCall] = []
     ) -> ValidatedCall {
         var problems = call.problems(against: catalog)
         var hardFail = false
         var ranges: [Range<Int>] = []
         var arguments: [String: JSONValue] = [:]
-        let tagArguments: [String: [NumericTag.Kind]] = [
-            "value_tag": [.bloodPressure, .rate, .oxygenSaturation, .temperature],
-            "dose_tag": [.dose],
-            "frequency_tag": [.frequency],
-        ]
-        for (key, value) in call.arguments {
+        var used: [(key: String, tag: NumericTag)] = []
+        let tool = catalog.tool(named: call.name)
+        let known = Set(tool?.argumentNames ?? [])
+        for key in call.arguments.keys.sorted() {
+            guard let value = call.arguments[key] else { continue }
+            // Review L3 I5: an argument the tool does not have is dropped, never shown.
+            if tool != nil, !known.contains(key) {
+                problems.append("Unknown argument “\(key)” was dropped.")
+                continue
+            }
             guard let kinds = tagArguments[key] else {
-                arguments[key] = freeText(value, sentence: sentence)
+                switch value {
+                case .string(let text):
+                    arguments[key] = freeText(value, sentence: sentence)
+                    if tool?.allowedValues(for: key) == nil {
+                        problems += inventedNumbers(in: text, key: key, sentence: sentence)
+                    }
+                case .null:
+                    break
+                default:
+                    problems.append("“\(key)” was not text, so it was dropped.")
+                }
                 continue
             }
             guard let raw = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
@@ -158,29 +198,123 @@ public enum StructuredCallValidator {
                 hardFail = true
                 problems.append("\(key) points at a \(tag.kind.rawValue) (\(tag.display)), not a \(outputKey).")
             }
-            if tag.needsReview, let reason = tag.reviewReason { problems.append(reason) }
-            // Re-parse the sentence in code: the same words must give the same value and unit.
-            let reparsed = NumericNormalizer.normalize(sentence.original).tags.first {
-                $0.sourceRange == tag.sourceRange && $0.kind == tag.kind
-            }
-            if reparsed?.value != tag.value || reparsed?.unit != tag.unit || reparsed?.secondValue != tag.secondValue {
-                problems.append("\(tag.display) did not re-parse to the same value.")
-            }
+            // Review L3 I1: an independent reading of the tag's words and of the words next to it.
+            problems += IndependentNumberCheck.problems(for: tag, in: sentence.original)
             problems += rangeProblems(for: tag, vitalKind: call.string("kind"), tool: call.name)
             arguments[outputKey] = describe(tag)
+            used.append((outputKey, tag))
         }
-        if call.name == "add_medication", let drug = call.string("drug"), !drug.isEmpty,
-            !sentence.original.lowercased().contains(drug.lowercased())
-        {
-            problems.append("“\(drug)” is not in this sentence.")
+        if call.name == "add_medication", let drug = call.string("drug"), !drug.isEmpty {
+            if !sentence.original.lowercased().contains(drug.lowercased()) {
+                problems.append("“\(drug)” is not in this sentence.")
+            } else {
+                problems += adjacencyProblems(drug: drug, used: used, sentence: sentence, siblings: siblings)
+            }
         }
         if call.name == "add_allergy", let substance = call.string("substance"), !substance.isEmpty,
             !sentence.original.lowercased().contains(substance.lowercased())
         {
             problems.append("“\(substance)” is not in this sentence.")
         }
+        if call.name == "record_vital" {
+            for (_, tag) in used { problems += vitalAfterDrug(tag, sentence: sentence, siblings: siblings) }
+        }
+        // Review L3 I4: a flagged number or side, or a spoken correction, anywhere in the sentence reaches every call
+        // from it (the model reads laterality and corrections as plain words).
+        if call.name != "none" {
+            let flagged = sentence.tags.filter(\.needsReview).compactMap(\.reviewReason)
+            for reason in flagged where !problems.contains(reason) { problems.append(reason) }
+            if flagged.isEmpty, let marker = SentenceNeighbours.correction(in: sentence.original) {
+                problems.append("The sentence has a spoken correction (“\(marker)”): check every field from it.")
+            }
+        }
         return ValidatedCall(
             tool: call.name, arguments: arguments, problems: problems, numericHardFail: hardFail, tagRanges: ranges)
+    }
+
+    /// Drug names the checks know besides the call's own: the STUB's list and every drug the sentence's calls name.
+    static func otherDrugs(than drug: String, siblings: [StructuredCall]) -> [String] {
+        let named = siblings.filter { $0.name == "add_medication" }.compactMap { $0.string("drug") }
+        let own = drug.lowercased()
+        return Set((StubStructureModel.drugs + named).map { $0.lowercased() }).filter { $0 != own && !own.contains($0) }
+            .sorted()
+    }
+
+    /// Review L3 I2: a dose or frequency belongs to the drug it sits next to. Another drug or another value of the same
+    /// kind between them, or more than eight words, forces review.
+    static func adjacencyProblems(
+        drug: String, used: [(key: String, tag: NumericTag)], sentence: NormalizedText, siblings: [StructuredCall]
+    ) -> [String] {
+        let original = sentence.original
+        let mentions = SentenceNeighbours.mentions(of: drug, in: original)
+        guard !mentions.isEmpty else { return [] }
+        let others = otherDrugs(than: drug, siblings: siblings).flatMap {
+            SentenceNeighbours.mentions(of: $0, in: original)
+        }
+        .filter { other in !mentions.contains { $0.overlaps(other) } }
+        func distance(_ a: Range<Int>, _ b: Range<Int>) -> Int {
+            a.upperBound <= b.lowerBound ? b.lowerBound - a.upperBound : max(0, a.lowerBound - b.upperBound)
+        }
+        var problems: [String] = []
+        for (key, tag) in used where key == "dose" || key == "frequency" {
+            guard let nearest = mentions.min(by: { distance($0, tag.sourceRange) < distance($1, tag.sourceRange) })
+            else { continue }
+            let low = min(nearest.upperBound, tag.sourceRange.upperBound)
+            let high = max(nearest.lowerBound, tag.sourceRange.lowerBound)
+            let between = low..<max(low, high)
+            func inside(_ range: Range<Int>) -> Bool {
+                range.lowerBound >= between.lowerBound && range.upperBound <= between.upperBound
+            }
+            let drugBetween = others.first(where: inside)
+            let sameKind = sentence.tags.contains { $0.kind == tag.kind && $0.tag != tag.tag && inside($0.sourceRange) }
+            let count = SentenceNeighbours.wordsBetween(nearest, tag.sourceRange, in: original).count
+            let why: String?
+            if let drugBetween {
+                let name = (original as NSString).substring(
+                    with: NSRange(location: drugBetween.lowerBound, length: drugBetween.count))
+                why = "“\(name)” comes between them"
+            } else if sameKind {
+                why = "another \(key) comes between them"
+            } else if count > 8 {
+                why = "\(count) words apart"
+            } else {
+                why = nil
+            }
+            if let why {
+                problems.append("\(tag.display) is not next to \(drug) (\(why)): check which drug it belongs to.")
+            }
+        }
+        return problems
+    }
+
+    /// Review L3 I3: a vital-sign number right after a drug name is more likely that drug's strength.
+    static func vitalAfterDrug(_ tag: NumericTag, sentence: NormalizedText, siblings: [StructuredCall]) -> [String] {
+        let original = sentence.original
+        for drug in otherDrugs(than: "", siblings: siblings) {
+            for mention in SentenceNeighbours.mentions(of: drug, in: original)
+            where mention.upperBound <= tag.sourceRange.lowerBound
+                && SentenceNeighbours.wordsBetween(mention, tag.sourceRange, in: original).count <= 1
+            {
+                return ["\(tag.display) comes right after “\(drug)”: a dose, not a vital sign? Check it."]
+            }
+        }
+        return []
+    }
+
+    /// Review L3 I5: numbers written in free text that the sentence never said (tag names aside).
+    static func inventedNumbers(in text: String, key: String, sentence: NormalizedText) -> [String] {
+        let withoutTags = text.replacingOccurrences(
+            of: #"\b(time|bp|rate|spo2|temp|dose|freq|dur|side)_\d+\b"#, with: " ",
+            options: [.regularExpression, .caseInsensitive])
+        let said = IndependentNumberReader.read(sentence.original).numbers
+        let invented = IndependentNumberReader.read(withoutTags).numbers.filter { value in
+            !said.contains { IndependentNumberReader.same($0, value) }
+        }
+        guard !invented.isEmpty else { return [] }
+        return [
+            "The \(key) has \(invented.map(NumericNormalizer.format).joined(separator: ", ")), which this sentence "
+                + "does not say."
+        ]
     }
 
     /// The tag `raw` names, or (flagged inexact) the tag whose spoken words or display equal it.
@@ -219,14 +353,30 @@ public enum StructuredCallValidator {
         case ("record_vital", let kind?, _):
             return ["\(kind) was given \(tag.display)."]
         case (_, _, .dose):
-            guard let value = tag.value, value > 0, value < 100_000, tag.unit != nil else {
+            guard let value = tag.value, value > 0, let unit = tag.unit else {
                 return ["The dose \(tag.display) is not a usable amount."]
             }
-            return []
+            // Per weight or per time is always flagged by the normalizer; a plain amount has a per-unit ceiling.
+            guard !unit.contains("/"), let limit = doseLimits[unit] else { return [] }
+            return value <= limit
+                ? [] : ["The dose \(tag.display) is outside 0–\(NumericNormalizer.format(limit)) \(unit)."]
+        case (_, _, .frequency):
+            guard let value = tag.value, let unit = tag.unit else { return [] }
+            let limits: [String: ClosedRange<Double>] = [
+                "per day": 0.1...24, "per week": 0.1...21, "h": 0.5...168, "min": 1...1440,
+            ]
+            guard let range = limits[unit], !range.contains(value) else { return [] }
+            return ["\(tag.display) is outside a usable frequency."]
         default:
             return []
         }
     }
+
+    /// Review L3 minor 1: the largest plausible single amount per unit (a check, not a dosing rule).
+    static let doseLimits: [String: Double] = [
+        "mg": 5000, "mcg": 2000, "g": 10, "units": 50_000, "mL": 5000, "tablet": 10, "puff": 12, "drop": 20,
+        "mEq": 200,
+    ]
 
     static func describe(_ tag: NumericTag) -> JSONValue {
         var object: [String: JSONValue] = ["tag": .string(tag.tag), "display": .string(tag.display)]

@@ -35,10 +35,19 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
 - **Gate:** act ≥ `actThreshold` (default 0.85), provisional ≥ `provisionalThreshold` (default 0.60), else
   `needsReview`; any validator problem forces `needsReview`. Thresholds are settings and are stored with each run.
   An unknown stored verdict reads as `needsReview`, never `act`.
-- **Numbers:** a model only copies normalizer tags. Every number is mapped back through the side table, re-parsed in
-  code from its source words, and range-checked (BP 50–260 / 20–160 and systolic above diastolic, HR 20–250, RR 4–60,
-  SpO₂ 50–100, temperature 90–110 °F or 32–43.5 °C, dose > 0 with a unit). A number that traces to nothing is a
-  numeric hard fail. A spoken self-correction always needs review.
+- **Numbers:** a model only copies normalizer tags. Every number is mapped back through the side table, then
+  re-read **independently of the normalizer** (`IndependentNumberCheck`: digits by regex, spelled numbers by
+  Foundation's spell-out `NumberFormatter`, its own unit list) from its source words, and the words right around it
+  are checked (a number said just before a dose, "per kg", "/min", "an hour" just after one, a correction word next to
+  any value); any disagreement forces review. Then it is range-checked (BP 50–260 / 20–160 and systolic above
+  diastolic, HR 20–250, RR 4–60, SpO₂ 50–100, temperature 90–110 °F or 32–43.5 °C; a dose > 0 with a unit and at most
+  5000 mg, 2000 mcg, 10 g, 50,000 units, 5000 mL, 10 tablets, 12 puffs, 20 drops or 200 mEq; a frequency at most 24 a
+  day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review.
+- **Every call from a sentence** (review L3 I2–I5): a flagged tag (number or side) or a spoken correction anywhere in
+  the sentence forces review on every call from it; a dose or frequency must sit next to its own drug (no other drug
+  or same-kind value between, at most eight words apart); a vital right after a drug name, or two values for one vital
+  in a sentence, needs review; numbers in free text (plan items, problems, names) must be numbers the sentence said;
+  an argument the tool does not define, or a non-text value for a text argument, is dropped and flagged.
 - **Review state:** `reviewed` is false when saved. Screens show every field as a draft until the person reviews
   it; `act` renders solid, `provisional` dashed, `needsReview` only in the "Needs review" bin, never in the draft.
 - **Spans:** `spanChar*` are UTF-16 offsets into the run's source text (the transcript's words joined by single
@@ -59,8 +68,9 @@ value; old runs keep theirs.
 
 - `ChirpStoreTests.StructuredResultsMigrationTests` (tables, upgrade from `v6-documents`, round trip, review,
   cascade delete, eval runs).
-- `ChirpFeaturesTests.StructuredResultGateTests` (0.849 / 0.85 / 0.599 / 0.60 boundaries, forced review, re-parse and
-  range checks, hard fails, self-corrections, spans to words and milliseconds).
+- `ChirpFeaturesTests.StructuredResultGateTests` (0.849 / 0.85 / 0.599 / 0.60 boundaries, forced review, the
+  independent re-parse against hand-built wrong side tables, neighbour checks, drug adjacency, sentence-wide
+  corrections, free-text numbers, unknown arguments, per-unit ranges, hard fails, spans to words and milliseconds).
 - `ChirpFeaturesTests.StructuredExtractionServiceTests` (clinical never reaches a non-on-device engine; runs saved
   with spans).
 

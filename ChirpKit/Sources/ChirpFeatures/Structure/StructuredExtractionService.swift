@@ -211,7 +211,7 @@ public actor StructuredExtractionService {
                 modelSHA256: output.modelSHA256)
         }
         return SentenceOutcome(
-            items: calls.map { StructuredCallValidator.validate($0, sentence: sentence, catalog: catalog) },
+            items: StructuredCallValidator.validate(calls, sentence: sentence, catalog: catalog),
             confidence: output.confidence, modelSHA256: output.modelSHA256)
     }
 

@@ -259,10 +259,13 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 
 - `Structure/StructuredResultGate.swift`: `StructureSettings` (voice commands off by default, gate thresholds,
   engine choice; its own UserDefaults key) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
-  else needs review; any problem forces needs review); `StructuredCallValidator` (maps tags back to the normalizer's
-  values, traces digits a model copied, **re-parses every number in code and range-checks vitals and doses**, flags
-  self-corrections, drug or substance names missing from the sentence and schema problems; a number that traces to
-  nothing is a numeric hard fail).
+  else needs review; any problem forces needs review); `StructuredCallValidator` (per sentence: maps tags back to the
+  normalizer's values, traces digits a model copied, **re-reads every number independently of the normalizer**
+  (`IndependentNumberCheck.swift`: regex digits, spell-out `NumberFormatter`, its own unit list, plus the words right
+  around the tag), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug and a
+  vital is not a drug's strength, carries any flagged tag or spoken correction to every call from the sentence, checks
+  numbers in free text against the sentence, drops unknown or non-text arguments, flags drug or substance names
+  missing from the sentence and schema problems; a number that traces to nothing is a numeric hard fail).
 - `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
   text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
   milliseconds).
