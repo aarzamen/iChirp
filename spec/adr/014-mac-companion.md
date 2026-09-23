@@ -20,6 +20,12 @@ engine for language models (Ollama or LM Studio, M4).
 - Pairing uses a random bearer token generated on the Mac and entered once on the phone (Keychain).
 - The phone treats the companion as a `localNetwork` engine: clinical text needs the owner's "trusted" mark on that
   host; links are confirmed once per link before leaving the phone.
+- **Home network only (review round 1, 2026-09-22).** The companion speaks plain http, so the phone refuses an
+  address that is not a home-network name or address (`LocalNetworkHost.isLocal`) before sending the token or
+  anything else. "Home network" and "trusted" are judged by the address form (a `.local` name, a private or
+  link-local IP), not by which Wi-Fi the Mac is on: a MacBook on a café or hospital network is still reached as
+  `my-mac.local`. The companion's banner says it listens on every network the Mac joins and suggests
+  `--host <home IP>`. Tailscale (100.64/10, encrypted) would be an explicit, separate exception if it is ever wanted.
 - The companion stores nothing it receives and logs no content.
 - App Store review is not a constraint (Parakeet is never submitted, owner, 2026-09-22); YouTube's terms still forbid
   automated download, which the owner accepts for personal use.

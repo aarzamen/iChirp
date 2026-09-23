@@ -446,6 +446,14 @@ All must hold:
 - [ ] No simulated progress or placeholder that pretends to work
 - [ ] `scripts/scan_secrets.sh` clean; `git status` shows only in-scope files changed; everything committed; nothing pushed
 
+## Review round 1 (`fix/review-round-1`, 2026-09-22)
+
+Fixed from the independent review (`.superpowers/sdd/milestones/l4-jev-review.md`): one effective privacy class (a
+transcript with a clinical deliverable is clinical for Jev, Transform, Ask and Listen; M1); the pre-send re-check is
+tested and a deleted transcript is never sent (M2); the ledger's sent flag and labels are exact, and an HTTP 413 is a
+`providerError` (M3); routing comes before the key read (M4); bodies are capped as they arrive (M5); the sheet's sent
+note (M6); stale badge and typed key (M7); Mark as clinical at any confidence (M8); spec/12 headers (M9).
+
 ## STOP conditions
 
 Stop and report (do not improvise) if:
