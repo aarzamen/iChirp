@@ -109,7 +109,10 @@ It installs the Debug build and launches it with `-ChirpLLMSmoke <model> -ChirpL
 `Documents/llm-smoke.json`: model id, device model, build stamp, GPU, available memory before the load, the engine's
 estimate, load ms, first-token ms, time to first text, prompt and generation tokens/s, whole-note ms, peak
 `phys_footprint`, whether every number survived (both notes), and status. The script prints them, keeps a copy in
-`.build/llm-smoke-<model>.json` and ends with `LLM SMOKE PASS`. Record the numbers here.
+`.build/llm-smoke-<model>.json` and ends with `LLM SMOKE PASS`. Record the numbers here. Until a model's numbers are
+recorded, its catalog entry keeps `isMeasuredOnIPhone = false`: Settings marks it "Not yet measured on iPhone" (in red
+for the 4B, which may not fit), and Download asks first with the size and the memory it needs against what iOS lets
+Parakeet use now (`os_proc_available_memory`). A model that would not fit asks "Download Anyway".
 Simulator check of the runner (CPU, 2B staged, 2026-09-22): completed, numbers survived, cold load 20.5 s, 17.6 tok/s
 — wiring only, not phone speed.
 

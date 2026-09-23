@@ -124,6 +124,9 @@ public struct LlamaCppModelSpec: Sendable, Equatable, Identifiable {
     public var promptFormat: LlamaPromptFormat
     /// For general and personal requests; clinical requests always use `LlamaSampling.faithful`.
     public var sampling: LlamaSampling
+    /// True only once the model's load time, speed and peak memory on an iPhone are recorded in the research note
+    /// (`scripts/device_llm_smoke.sh`, review I3). Until then Settings says "Not yet measured on iPhone".
+    public var isMeasuredOnIPhone = false
 
     public var remoteURL: URL {
         URL(string: "https://huggingface.co/\(repository)/resolve/\(revision)/\(fileName)")!

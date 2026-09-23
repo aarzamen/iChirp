@@ -38,7 +38,8 @@ final class LlamaCppModelCatalogTests: XCTestCase {
         }
     }
 
-    func testMemoryEstimatesFitA12GBPhoneWithoutEntitlements() {
+    /// Constants only: whether a model fits a phone is measured there (`scripts/device_llm_smoke.sh`, review minor 14).
+    func testMemoryEstimatesAreWeightsPlusAFullWindowPlusBuffers() {
         let twoB = LlamaCppModelCatalog.qwen35_2B
         let fourB = LlamaCppModelCatalog.qwen3_4BInstruct2507
         // Weights + a full window's cache + buffers.
@@ -47,6 +48,14 @@ final class LlamaCppModelCatalogTests: XCTestCase {
         XCTAssertLessThan(twoB.estimatedMemoryBytes, 2_500_000_000)
         XCTAssertLessThan(fourB.estimatedMemoryBytes, 4_500_000_000)
         XCTAssertLessThan(twoB.estimatedMemoryBytes, fourB.estimatedMemoryBytes)
+    }
+
+    /// Review I3: no model is marked measured until its iPhone numbers are recorded in the research note. Flip one
+    /// only together with those numbers.
+    func testNoModelIsMarkedMeasuredOnIPhoneYet() {
+        for spec in LlamaCppModelCatalog.all {
+            XCTAssertFalse(spec.isMeasuredOnIPhone, spec.id)
+        }
     }
 
     func testChatMLPiecesKeepContentApartFromControlTokens() {

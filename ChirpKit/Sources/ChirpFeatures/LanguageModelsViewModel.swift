@@ -26,6 +26,9 @@ public protocol LanguageModelFactory: Sendable {
     func makeLocalModel(id: String) throws -> any LanguageModel
     /// The model file of one of `localModelOptions`: status, explicit download, delete.
     func localModelAssets(id: String) -> (any ModelAssetManaging)?
+    /// Whether one of `localModelOptions` could run now (downloaded, on screen, fits in memory), or nil when unknown.
+    /// Never touches the network and never loads the model.
+    func localModelAvailability(id: String) async -> LanguageModelAvailability?
 }
 
 /// Where a model runs, as the UI says it: "on this iPhone", "on mac-studio (Ollama)", "in the cloud (Claude)".
@@ -244,6 +247,8 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
     public let localModelRuntimeProblem: String?
     /// Each small model's file; a model is offered for runs only once `.ready`.
     public private(set) var localModelStatus: [String: ModelAssetStatus] = [:]
+    /// Whether each small model could run now (review I3d): not downloaded, would not fit in memory, not on screen.
+    public private(set) var localModelAvailability: [String: LanguageModelAvailability] = [:]
     /// The last download or delete failure, as a sentence for an alert.
     public var localModelError: String?
 
@@ -304,13 +309,58 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
 
     // MARK: - Small models on this iPhone (M7)
 
-    /// Re-reads every small model's file status (no network).
+    /// Re-reads every small model's file status and whether it could run now (no network, nothing loaded).
     public func refreshLocalModelStatus() async {
         for option in localModels {
             guard let assets = factory.localModelAssets(id: option.id) else { continue }
             localModelStatus[option.id] = await assets.assetStatus()
         }
+        for option in localModels {
+            if let availability = await factory.localModelAvailability(id: option.id) {
+                localModelAvailability[option.id] = availability
+            } else if !isReady(localModelStatus[option.id]) {
+                localModelAvailability[option.id] = .unavailable(
+                    .notConfigured("download \(option.name) in Settings → Models."))
+            } else {
+                localModelAvailability[option.id] = nil
+            }
+        }
         reloadProviders()
+    }
+
+    /// Why `choice` cannot run now, as a sentence, or nil (review I3d): Apple's model and the small models on this
+    /// iPhone, from their last `refresh()`. Providers are checked when the run starts.
+    public func unavailableReason(for choice: LanguageModelChoice) -> String? {
+        let availability: LanguageModelAvailability? =
+            switch choice.source {
+            case .onDevice: onDeviceAvailability
+            case .localModel(let id): localModelAvailability[id]
+            case .provider: nil
+            }
+        guard case .unavailable(let reason)? = availability else { return nil }
+        return reason.message
+    }
+
+    /// Small models the pickers cannot offer yet (not downloaded, or the runtime cannot take them), with why.
+    public var unavailableLocalModels: [UnavailableLocalModel] {
+        localModels.filter { !isReady(localModelStatus[$0.id]) }.map { option in
+            let reason: String
+            if case .downloading(let fraction)? = localModelStatus[option.id] {
+                reason = "Downloading \(Int((fraction * 100).rounded()))%"
+            } else if case .unavailable(let why)? = localModelAvailability[option.id],
+                !Self.isNotDownloaded(why)
+            {
+                reason = why.message
+            } else {
+                reason = "Not downloaded · Settings → Models"
+            }
+            return UnavailableLocalModel(option: option, reason: reason)
+        }
+    }
+
+    private static func isNotDownloaded(_ reason: LanguageModelUnavailableReason) -> Bool {
+        if case .notConfigured = reason { return true }
+        return false
     }
 
     /// Settings → Download (the only way a model file is fetched). Returns true when the model is ready.

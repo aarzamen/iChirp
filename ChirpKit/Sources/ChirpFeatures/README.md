@@ -169,8 +169,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` and
     (M7) `ChirpEngineLlamaCpp` (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`,
     `App/Sources/LanguageModels/AppLocalLanguageModels.swift`); tests use a fake. Its small-model requirements
-    (`localModelOptions`, `localModelRuntimeProblem`, `makeLocalModel(id:)`, `localModelAssets(id:)`) have empty
-    defaults.
+    (`localModelOptions`, `localModelRuntimeProblem`, `makeLocalModel(id:)`, `localModelAssets(id:)`,
+    `localModelAvailability(id:)`) have empty defaults.
   - `LanguageModelChoice` is Apple's on-device model, a downloaded small model on this iPhone (`.localModel(id)`, on
     device, trusted for clinical items) or one provider; `ModelPlace` words where it runs ("on this iPhone", "on Mac
     Studio", "in the cloud (Claude)").
@@ -181,8 +181,16 @@ pipeline's `Task`s and publishes its progress to the UI.
     one), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists the small models
     (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`, downloads (only on a
     Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one default at a time.
+    Review I3d: `refresh()` also reads each small model's `localModelAvailability` (no network, nothing loaded);
+    `unavailableReason(for:)` gives the sentence the Transform and Ask sheets show before Start (Apple's model and
+    small models: not downloaded, would not fit in memory), and `unavailableLocalModels` lists the ones the pickers
+    show disabled, with why.
 - `LocalLanguageModels.swift` (M7, ADR-015): `LocalModelOption` (catalog id, name, tier, runtime, license, source,
-  download size, memory while loaded, window), the `LanguageModelFactory` defaults and `LanguageModelChoice(localModel:)`.
+  download size, memory while loaded, window, `isMeasuredOnIPhone`), the `LanguageModelFactory` defaults and
+  `LanguageModelChoice(localModel:)`. Review I3: `LocalModelFit` (memory need against `os_proc_available_memory`),
+  `downloadNotice(availableMemoryBytes:)` (the question before any download over 1 GB, an unmeasured model, or one
+  that would not fit: size, memory, "Download Anyway"), `measurementCaution` ("Not yet measured on iPhone", louder for
+  the quality tier) and `UnavailableLocalModel`. Tests: `LocalModelFitTests`.
 - `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
   category and recent documents) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.

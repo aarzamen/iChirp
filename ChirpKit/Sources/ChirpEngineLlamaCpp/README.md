@@ -60,6 +60,8 @@ and without the runtime the models say "not in this build".
 - The pin lives in two places, `scripts/build_llamacpp.sh` and `LlamaCppRuntimeInfo.pinnedCommit`; a test keeps them
   equal. Bumping it means re-running the opt-in real-model test and updating ADR-015.
 - New weights must be Apache-2.0 or MIT (a test checks the catalog), pinned to a revision, with SHA-256 and size.
+- `isMeasuredOnIPhone` stays false until `scripts/device_llm_smoke.sh` numbers for that model are in the research note
+  (a test pins it); Settings says "Not yet measured on iPhone" and Download asks first until then (review I3).
 
 ## How to verify
 

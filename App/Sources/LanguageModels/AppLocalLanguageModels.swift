@@ -46,6 +46,12 @@ final class AppLocalLanguageModels: Sendable {
         LlamaCppModels.isRuntimeInBuild ? assets[id] : nil
     }
 
+    /// Whether the model could run now (runtime, file, on screen, memory); never touches the network or loads it.
+    func availability(id: String) -> LanguageModelAvailability? {
+        guard let spec = LlamaCppModelCatalog.spec(id: id), let assets = assets[id] else { return nil }
+        return engine.availability(for: spec, isDownloaded: assets.isReady)
+    }
+
     /// Forwards the app's lifecycle to the runtime for the life of the process. Call once, at launch.
     @MainActor func observeLifecycle() {
         let center = NotificationCenter.default
@@ -66,7 +72,8 @@ final class AppLocalLanguageModels: Sendable {
         LocalModelOption(
             id: spec.id, name: spec.displayName, tier: spec.tier == .quality ? .quality : .standard,
             runtime: "llama.cpp", license: spec.license, source: "\(spec.baseModel) · \(spec.quantization)",
-            downloadBytes: spec.byteCount, memoryBytes: spec.estimatedMemoryBytes, contextTokens: spec.contextTokens)
+            downloadBytes: spec.byteCount, memoryBytes: spec.estimatedMemoryBytes, contextTokens: spec.contextTokens,
+            isMeasuredOnIPhone: spec.isMeasuredOnIPhone)
     }
 }
 
