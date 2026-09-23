@@ -19,14 +19,13 @@ struct VoiceCommandChipView: View {
                 .font(.system(size: 13))
                 .monospacedDigit()
                 .opacity(0.8)
-            if chip.isStub {
-                Text("STUB")
-                    .font(.system(size: 11, weight: .bold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Tokens.Color.partialAudioFill))
-                    .foregroundStyle(Tokens.Color.partialAudioInk)
-            }
+            // STUB, or Needle's experimental label (review L3 I10).
+            Text(chip.isStub ? "STUB" : "Experimental")
+                .font(.system(size: 11, weight: .bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Tokens.Color.partialAudioFill))
+                .foregroundStyle(Tokens.Color.partialAudioInk)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -34,7 +33,8 @@ struct VoiceCommandChipView: View {
         .background(Capsule().strokeBorder(Tokens.Color.dictationAccent.opacity(0.7), lineWidth: 1.5))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Voice command heard: \(chip.title)\(chip.isStub ? ", rule-based stub" : ""). Applied when you stop.")
+            "Voice command heard: \(chip.title)\(chip.isStub ? ", rule-based stub" : ", experimental"). "
+                + "Applied when you stop.")
     }
 }
 
@@ -50,17 +50,13 @@ struct DictationVoiceCommandBar: View {
             if state.isCapturing || state == .stopping || state == .pendingStop, let chip = commands.chip {
                 VoiceCommandChipView(chip: chip)
             }
-            if state == .done, let result = commands.lastResult, !result.applied.isEmpty {
-                Text(
-                    "Voice commands applied: "
-                        + result.applied.map { DictationVoiceCommands.title(for: $0.command) }
-                        .joined(separator: ", ")
-                )
-                .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.72))
+            if state == .done, let summary = commands.appliedSummary {
+                Text(summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.72))
             }
             if state == .done, commands.readBackUnavailable {
-                Text("“Read back” needs a voice. Voices are not set up in this build yet.")
+                Text("“Read back” needs a voice. Set one up in Settings → Voices.")
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.72))
             }
@@ -201,7 +197,8 @@ struct VoiceCommandTesterScreen: View {
         let (engine, fallback) = await environment.structureEngines.resolve(settings.engine)
         engineName =
             engine.descriptor.id == StubStructureModel.engineID
-            ? "STUB · rules, not Needle" + (fallback.map { " · \($0)" } ?? "") : engine.descriptor.displayName
+            ? "STUB · rules, not Needle" + (fallback.map { " · \($0)" } ?? "")
+            : "\(engine.descriptor.displayName) · \(NeedleExperimental.commandChip)"
         let resolver = VoiceCommandResolver(engine: engine, gate: settings.gate)
         if let match = await resolver.liveCommand(in: liveText) {
             chip = VoiceCommandChip(

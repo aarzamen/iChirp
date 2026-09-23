@@ -288,15 +288,16 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   surface shows until argument accuracy reaches 0.9).
 
 - `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
-  (≤ 8 words) equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
+  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows)
+  equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
   removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
 - `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects
   a `ReadBackRelay` to plan 020's `VoicePlayer` with source `.dictationReadBack(id:)`, so every chunk routes on that
   dictation's effective class; `SilentReadBack` is the unconnected default), `DictationVoiceCommanding` (the coordinator's hooks)
-  and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, the final-pass resolution, the
-  pending Transform). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+  and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, chip only, even for "stop"; the
+  final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental"). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
   order (Needle answered differently, and worse, when the schema keys were sorted).
