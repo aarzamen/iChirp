@@ -131,7 +131,9 @@ struct DocumentScreen: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(item.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+                    // F67: one name ("Favorite") across the app; VoiceOver says "selected" while it is on.
+                    .accessibilityLabel("Favorite")
+                    .accessibilityAddTraits(item.isFavorite ? .isSelected : [])
                     Button {
                         startRename()
                     } label: {
@@ -166,8 +168,9 @@ struct DocumentScreen: View {
                 Button {
                     Task { await toggleFavorite() }
                 } label: {
+                    // F67: one name for favorites app-wide.
                     Label(
-                        item.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                        LibraryFavoriteCopy.title(isFavorite: item.isFavorite),
                         systemImage: item.isFavorite ? "star.slash" : "star")
                 }
             }
@@ -298,7 +301,8 @@ struct DocumentScreen: View {
                 if page.method == .ocr {
                     Text("OCR")
                         .chirpFont(10.5, .bold)
-                        .foregroundStyle(AppColor.accentText)
+                        // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                        .foregroundStyle(AppColor.accentTextOnTint)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(AppColor.tintFill))
