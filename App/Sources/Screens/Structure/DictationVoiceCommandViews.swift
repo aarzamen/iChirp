@@ -14,14 +14,14 @@ struct VoiceCommandChipView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .accessibilityHidden(true)
             Text(chip.title)
-                .font(.system(size: 15, weight: .semibold))
+                .chirpFont(15, .semibold)
             Text("\(Int((chip.confidence * 100).rounded()))%")
-                .font(.system(size: 13))
+                .chirpFont(13)
                 .monospacedDigit()
                 .opacity(0.8)
             // STUB, or Needle's experimental label (review L3 I10).
             Text(chip.isStub ? "STUB" : "Experimental")
-                .font(.system(size: 11, weight: .bold))
+                .chirpFont(11, .bold)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(Tokens.Color.partialAudioFill))
@@ -54,22 +54,25 @@ struct DictationVoiceCommandBar: View {
             // holds the words, so say it where the person looks before pasting.
             if state == .done, let warning = commands.unresolvedSummary {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .chirpFont(14, .semibold)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Capsule().fill(Tokens.Color.dictationAccent.opacity(0.35)))
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Voice command not applied. \(warning)")
             }
             if state == .done, let summary = commands.appliedSummary {
                 Text(summary)
-                    .font(.system(size: 13))
+                    .chirpFont(13)
                     .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if state == .done, commands.readBackUnavailable {
                 Text("“Read back” needs a voice. Set one up in Settings → Voices.")
-                    .font(.system(size: 13))
+                    .chirpFont(13)
                     .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -145,7 +148,7 @@ struct VoiceCommandTesterScreen: View {
                         VoiceCommandChipView(chip: chip).padding(12)
                     } else {
                         Text(checkedLive ? "No command at the act threshold" : "…")
-                            .font(.system(size: 14))
+                            .chirpFont(14)
                             .foregroundStyle(.white.opacity(0.6))
                             .padding(12)
                     }

@@ -82,7 +82,8 @@ struct TransformsScreen: View {
                     } label: {
                         Text("Show older documents")
                             .chirpFont(14, .semibold)
-                            .foregroundStyle(AppColor.accentText)
+                            // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                            .foregroundStyle(AppColor.accentTextOnTint)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .background(Capsule().fill(AppColor.tintFill))
                             .contentShape(Capsule())

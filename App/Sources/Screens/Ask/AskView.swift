@@ -154,7 +154,8 @@ struct AskView: View {
                         } label: {
                             Text(suggestion.title)
                                 .chirpFont(13, .semibold)
-                                .foregroundStyle(AppColor.accentText)
+                                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                                .foregroundStyle(AppColor.accentTextOnTint)
                                 .lineLimit(1)
                                 .fixedSize()
                                 .padding(.horizontal, 12)
@@ -329,7 +330,8 @@ private struct ExchangeView: View {
             Label(listenState.title, systemImage: listenState.systemImage)
                 .labelStyle(.titleAndIcon)
                 .chirpFont(12.5, .semibold)
-                .foregroundStyle(AppColor.accentText)
+                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(AppColor.accentTextOnTint)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 10)
@@ -354,7 +356,8 @@ private struct ExchangeView: View {
                                 .labelStyle(.titleAndIcon)
                                 .chirpFont(12.5, .semibold)
                                 .monospacedDigit()
-                                .foregroundStyle(AppColor.accentText)
+                                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                                .foregroundStyle(AppColor.accentTextOnTint)
                                 .lineLimit(1)
                                 .fixedSize()
                                 .padding(.horizontal, 10)
@@ -390,7 +393,8 @@ private struct SpeakAnswersToggle: View {
             Label("Speak answers", systemImage: isOn ? "speaker.wave.2.fill" : "speaker.slash")
                 .labelStyle(.titleAndIcon)
                 .chirpFont(12.5, .semibold)
-                .foregroundStyle(isOn ? AppColor.accentText : Tokens.Color.secondary)
+                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(isOn ? AppColor.accentTextOnTint : Tokens.Color.secondary)
                 .padding(.horizontal, 10)
                 .frame(minHeight: 30)
                 .background(Capsule().fill(isOn ? AppColor.tintFill : AppColor.quietFill))

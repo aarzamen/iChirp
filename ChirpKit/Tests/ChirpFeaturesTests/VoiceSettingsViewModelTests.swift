@@ -29,6 +29,8 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         let (model, _, _, _) = make()
         XCTAssertEqual(model.summary, "Not chosen")
         XCTAssertEqual(model.setupProblem, "Choose Mac companion or Grok voices in Settings → Voices.")
+        // F83: Settings → Voices' own Test voice row points at the picker already on that screen, not at itself.
+        XCTAssertEqual(model.setupProblemOnThisScreen, "Choose a voice above.")
     }
 
     func testChoicesAreSavedAtOnce() {
@@ -74,6 +76,8 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         await model.refresh()
         XCTAssertEqual(model.companionState, .unavailable("Set up the Mac companion in Settings → Mac companion."))
         XCTAssertEqual(model.setupProblem, "Set up the Mac companion in Settings → Mac companion.")
+        // Still points at the Mac companion screen even from Settings → Voices — that really is a different screen.
+        XCTAssertEqual(model.setupProblemOnThisScreen, "Set up the Mac companion in Settings → Mac companion.")
         XCTAssertEqual(model.summary, "Mac companion · Ryan", "the saved choice still shows")
 
         await model.recheckCompanion()
@@ -85,6 +89,7 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         let (model, store, _, _) = make(VoiceSettings(provider: .xai), secrets: secrets)
         XCTAssertEqual(model.keyState, .missing)
         XCTAssertEqual(model.setupProblem, "Add your xAI API key in Settings → Voices.")
+        XCTAssertEqual(model.setupProblemOnThisScreen, "Add your xAI API key above.")
 
         model.keyDraft = "  XAI_API_KEY=\"xai-TESTKEY-0123456789\"  "
         model.saveKey()
@@ -92,6 +97,7 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(model.keyDraft, "", "the field is cleared")
         XCTAssertEqual(model.keyState, .saved)
         XCTAssertNil(model.setupProblem)
+        XCTAssertNil(model.setupProblemOnThisScreen)
         let encoded = String(decoding: try! JSONEncoder().encode(store.load()), as: UTF8.self)
         XCTAssertFalse(encoded.contains("TESTKEY"), "no key in settings")
 

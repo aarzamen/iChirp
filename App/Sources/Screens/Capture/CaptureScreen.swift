@@ -443,10 +443,9 @@ struct ModelMissingBanner: View {
                     .foregroundStyle(Tokens.Color.secondary)
             }
             Spacer(minLength: 8)
+            // CapsuleButtonLabel already grows its own hit area to 44pt (F7); no outer frame needed.
             Button(action: openSettings) {
                 CapsuleButtonLabel(title: "Settings", kind: .filled)
-                    .frame(minHeight: 44)  // inside the label: a frame outside a Button does not widen its hit area
-                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
