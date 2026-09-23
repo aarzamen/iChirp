@@ -129,7 +129,10 @@ final class StructureCatalogTests: XCTestCase {
                 StructuredCall(
                     name: "record_vital", arguments: ["kind": .string("temp"), "value_tag": .string("temp_1")]),
             ])
-        XCTAssertGreaterThanOrEqual(result.confidence, 0.85)
+        XCTAssertEqual(
+            result.confidence, StubStructureModel.maxClinicalConfidence,
+            "review L3 I6: the STUB's clinical pseudo-confidence stays below act")
+        XCTAssertLessThan(result.confidence, StructuredResultGate.defaultAct)
     }
 
     func testStubMedicationsWithStatusRouteDoseAndFrequency() async throws {

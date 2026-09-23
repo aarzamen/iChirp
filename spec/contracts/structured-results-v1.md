@@ -49,10 +49,17 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   in a sentence, needs review; numbers in free text (plan items, problems, names) must be numbers the sentence said;
   an argument the tool does not define, or a non-text value for a text argument, is dropped and flagged.
 - **Review state:** `reviewed` is false when saved. Screens show every field as a draft until the person reviews
-  it; `act` renders solid, `provisional` dashed, `needsReview` only in the "Needs review" bin, never in the draft.
+  it; `act` renders solid, `provisional` dashed, `needsReview` only in the "Needs review" bin, never in the draft. A
+  field with review reasons (a failed check) is never accepted in one tap: the review sheet shows its reasons and lets
+  the person edit each value first; edits are saved in `argumentsJson` (a tag value becomes
+  `{"display", "editedInReview": true}`, and the object gets `"editedInReview": true`), and the reasons stay with the
+  field. "Use in SOAP note" sends **only reviewed fields**, each accepted-despite or edited one with its reasons
+  (review L3 I7, I8).
 - **Spans:** `spanChar*` are UTF-16 offsets into the run's source text (the transcript's words joined by single
   spaces, or its text when it has no words); `spanWord*` index `Transcription.wordTimestamps`; `spanStartMs` /
-  `spanEndMs` let a tap seek the player. A field with a number spans that number's words; otherwise its sentence.
+  `spanEndMs` let a tap seek the player. A field with a number spans that number's words; otherwise its sentence. The card
+  shows the whole sentence with the number's words highlighted, so the reviewer sees which drug or vital it belongs to
+  (review L3 I2).
 - **Privacy:** clinical items only ever run on `.onDevice` structure engines. Logs carry run ids and counts only.
 
 ## Non-stable fields
@@ -72,7 +79,8 @@ value; old runs keep theirs.
   independent re-parse against hand-built wrong side tables, neighbour checks, drug adjacency, sentence-wide
   corrections, free-text numbers, unknown arguments, per-unit ranges, hard fails, spans to words and milliseconds).
 - `ChirpFeaturesTests.StructuredExtractionServiceTests` (clinical never reaches a non-on-device engine; runs saved
-  with spans).
+  with spans; the evidence sentence; the STUB never `act`; only reviewed fields in the SOAP hand-off; a failed check
+  needs the review sheet, keeps its reasons and saves edits).
 
 ## When this changes
 

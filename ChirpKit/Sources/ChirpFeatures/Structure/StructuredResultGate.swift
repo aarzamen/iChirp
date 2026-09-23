@@ -103,6 +103,12 @@ public struct StructuredResultGate: Sendable, Equatable {
         if confidence >= provisional { return .provisional }
         return .needsReview
     }
+
+    /// A clinical field's verdict. The STUB (rules, not a model) is never `act`, whatever the thresholds (review L3 I6).
+    public func verdict(confidence: Double, problems: [String], engineID: String) -> StructuredVerdict {
+        let verdict = verdict(confidence: confidence, problems: problems)
+        return verdict == .act && engineID == StubStructureModel.engineID ? .provisional : verdict
+    }
 }
 
 /// A call after tag mapping and checks: what the ledger stores and the draft card shows.

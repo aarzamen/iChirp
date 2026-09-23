@@ -10,6 +10,10 @@ public struct StubStructureModel: StructureModel {
     public static let engineID = "stub.rules"
     /// The label every screen shows next to STUB results.
     public static let label = "STUB"
+    /// Review L3 I6: on the clinical catalog the STUB's pseudo-confidence stays below the default act threshold, and
+    /// `StructuredResultGate.verdict(confidence:problems:engineID:)` caps a STUB field at provisional whatever the
+    /// thresholds, so a STUB field is never solid or "Confident".
+    public static let maxClinicalConfidence = 0.84
 
     public let descriptor = EngineDescriptor(
         id: StubStructureModel.engineID, kind: .structure, provider: "iChirp", displayName: "STUB (rules)",
@@ -24,7 +28,7 @@ public struct StubStructureModel: StructureModel {
         if jsonSchema.contains(#""new_paragraph""#) {
             calls = Self.command(in: text).map { [$0] } ?? []
         } else if jsonSchema.contains(#""add_medication""#) {
-            calls = Self.soap(in: text)
+            calls = Self.soap(in: text).map { ($0.0, min($0.1, Self.maxClinicalConfidence)) }
         } else {
             throw StructureModelError.unsupported("the STUB knows only soap-meds.v1 and dictation-commands.v1")
         }
@@ -188,6 +192,8 @@ public struct StubStructureModel: StructureModel {
                     .map { (status, $0.range.location) }
             }
         }
+        // A hedge before the drug wins over a later verb: "considering starting metoprolol" is not "started".
+        if matches(before).contains(where: { $0.status == "considering" }) { return "considering" }
         if let last = matches(before).max(by: { $0.location < $1.location }) { return last.status }
         return matches(window).min(by: { $0.location < $1.location })?.status
     }

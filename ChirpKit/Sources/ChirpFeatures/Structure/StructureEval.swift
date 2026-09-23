@@ -407,7 +407,9 @@ public struct StructureEvalRunner: Sendable {
                             ).map { validated in
                                 StructureEvalScorer.predicted(
                                     validated,
-                                    verdict: gate.verdict(confidence: output.confidence, problems: validated.problems))
+                                    verdict: gate.verdict(
+                                        confidence: output.confidence, problems: validated.problems,
+                                        engineID: engine.descriptor.id))
                             }
                         } else {
                             failure = "not a call array: \(output.json.prefix(80))"

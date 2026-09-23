@@ -13,9 +13,9 @@ struct StructureModelsSettingsGroup: View {
         SettingsGroup(
             title: "Structure models",
             footer:
-                "Needle 3 turns dictated text into typed fields on this iPhone. Its answers are drafts: numbers are "
-                + "re-checked in code and every field waits for your review. The STUB is a rule-based stand-in, "
-                + "never a model."
+                "Needle 3 turns dictated text into typed fields on this iPhone. \(NeedleExperimental.sentence) "
+                + "Numbers are re-checked in code, only fields you reviewed go to a SOAP note, and the STUB is a "
+                + "rule-based stand-in, never a model."
         ) {
             if structure.needleInBuild {
                 ModelAssetRow(
@@ -42,8 +42,9 @@ struct StructureModelsSettingsGroup: View {
                 .labelsHidden()
             }
             SettingsRow(
-                title: "Voice commands (Needle)",
-                caption: "“New paragraph”, “scratch that”, “send to SOAP”… said as their own sentence. Off by default."
+                title: "Voice commands (experimental)",
+                caption: "“New paragraph”, “scratch that”, “send to SOAP”… said as their own sentence. Off by default. "
+                    + NeedleExperimental.commandChip + "."
             ) {
                 Toggle("Voice commands", isOn: $structure.settingsValue.voiceCommandsEnabled)
                     .labelsHidden()

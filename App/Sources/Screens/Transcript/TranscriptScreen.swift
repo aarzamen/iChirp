@@ -234,7 +234,7 @@ struct TranscriptScreen: View {
                 Button {
                     isExtractingFields = true
                 } label: {
-                    Label("Extract fields (Needle)", systemImage: "list.bullet.rectangle")
+                    Label(ExtractFieldsViewModel.menuTitle, systemImage: "list.bullet.rectangle")
                 }
             }
         } label: {

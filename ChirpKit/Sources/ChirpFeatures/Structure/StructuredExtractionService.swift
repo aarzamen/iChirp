@@ -60,6 +60,26 @@ public struct StructuredDraft: Sendable, Equatable {
     public var isStub: Bool { run.engineID == StubStructureModel.engineID }
     public var engineName: String { StructureEngines.displayName(for: run.engineID) }
 
+    /// The whole sentence a field came from, and the UTF-16 range of the field's words inside it (nil when the field
+    /// spans the whole sentence). Review L3 I2: the reviewer sees which drug and which vital a value belongs to.
+    public func evidenceSentence(for field: StructuredField, sentences: [Range<Int>]) -> (
+        text: String, highlight: Range<Int>?
+    ) {
+        let ns = sourceText as NSString
+        guard
+            let range = sentences.first(where: { $0.contains(field.span.characterStart) })
+                ?? sentences.last(where: { $0.lowerBound <= field.span.characterStart })
+        else { return (evidence(for: field), nil) }
+        let raw = ns.substring(with: NSRange(location: range.lowerBound, length: range.count))
+        let leading = raw.utf16.count - String(raw.drop { $0.isWhitespace || $0.isNewline }).utf16.count
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let start = range.lowerBound + leading
+        let low = max(field.span.characterStart - start, 0)
+        let high = min(field.span.characterEnd - start, text.utf16.count)
+        let whole = low == 0 && high == text.utf16.count
+        return (text, low < high && !whole ? low..<high : nil)
+    }
+
     /// The words a field's span covers.
     public func evidence(for field: StructuredField) -> String {
         let ns = sourceText as NSString
@@ -153,7 +173,8 @@ public actor StructuredExtractionService {
                     StructuredField(
                         runID: run.id, tool: item.tool, argumentsJSON: JSONValue.object(item.arguments).compactJSON,
                         span: span, confidence: outcome.confidence,
-                        verdict: gate.verdict(confidence: outcome.confidence, problems: item.problems),
+                        verdict: gate.verdict(
+                            confidence: outcome.confidence, problems: item.problems, engineID: engine.descriptor.id),
                         reviewReasons: item.problems, ordinal: fields.count))
             }
             progress(index + 1, sentences.count)
@@ -178,8 +199,9 @@ public actor StructuredExtractionService {
             sentenceCount: source.sentenceRanges().count, seconds: nil)
     }
 
-    public func setReviewed(_ field: StructuredField, reviewed: Bool) async throws {
-        try await results.setReviewed(fieldID: field.id, reviewed: reviewed, argumentsJSON: nil)
+    /// Records a review; `argumentsJSON` carries the person's edits (nil keeps the arguments).
+    public func setReviewed(_ field: StructuredField, reviewed: Bool, argumentsJSON: String? = nil) async throws {
+        try await results.setReviewed(fieldID: field.id, reviewed: reviewed, argumentsJSON: argumentsJSON)
     }
 
     // MARK: - One sentence

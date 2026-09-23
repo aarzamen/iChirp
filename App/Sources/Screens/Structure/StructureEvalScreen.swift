@@ -140,10 +140,13 @@ struct StructureEvalScreen: View {
                     .foregroundStyle(Tokens.Color.secondary)
             }
             if !report.isStub, report.soap.argumentAccuracy < 0.9 {
-                Text("Experimental: argument accuracy is below the 90% bar (ADR-012). Every field stays in review.")
-                    .chirpFont(12.5, .semibold)
-                    .foregroundStyle(AppColor.error)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "Experimental: argument accuracy is below the 90% bar (ADR-012). Every field is a draft: a failed "
+                        + "check waits in Needs review, and only fields you reviewed go to a SOAP note."
+                )
+                .chirpFont(12.5, .semibold)
+                .foregroundStyle(AppColor.error)
+                .fixedSize(horizontal: false, vertical: true)
             }
             Text("SOAP fields and medications · \(report.soap.sentences) sentences")
                 .chirpFont(13, .semibold)

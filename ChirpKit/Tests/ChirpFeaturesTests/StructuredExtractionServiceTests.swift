@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpText
 import Foundation
 import XCTest
 
@@ -42,10 +43,10 @@ final class StructuredExtractionServiceTests: XCTestCase {
 
         let privacy: PrivacyClass
 
-        func insertEncounter() async throws {
+        func insertEncounter(_ text: String = StructuredExtractionServiceTests.encounter) async throws {
             var row = Transcription(id: id, sourceType: .dictation, fileName: "Synthetic.wav", status: .completed)
-            row.rawTranscript = StructuredExtractionServiceTests.encounter
-            row.wordTimestamps = StructuredExtractionServiceTests.words(StructuredExtractionServiceTests.encounter)
+            row.rawTranscript = text
+            row.wordTimestamps = StructuredExtractionServiceTests.words(text)
             try await store.insert(row)
             await store.setPrivacyClass(privacy, for: id)
         }
@@ -71,6 +72,12 @@ final class StructuredExtractionServiceTests: XCTestCase {
         // Evidence: the BP field cites "142/88" and its audio time.
         let bp = try XCTUnwrap(sections.vitals.first)
         XCTAssertEqual(bp.evidence, "142/88")
+        XCTAssertEqual(bp.evidenceSentence, "BP 142/88, pulse 76.", "review L3 I2: the whole sentence is the evidence")
+        let highlight = try XCTUnwrap(bp.highlight)
+        XCTAssertEqual(
+            (bp.evidenceSentence as NSString).substring(
+                with: NSRange(location: highlight.lowerBound, length: highlight.count)),
+            "142/88")
         let words = Self.words(Self.encounter)
         let bpIndex = try XCTUnwrap(words.firstIndex { $0.word.hasPrefix("142/88") })
         XCTAssertEqual(bp.field.span.wordStart, bpIndex)
@@ -141,18 +148,124 @@ final class StructuredExtractionServiceTests: XCTestCase {
         await model.extract()
         XCTAssertEqual(model.phase, .ready)
         XCTAssertTrue(model.engineBadge.hasPrefix("STUB"))
-        let notes = try XCTUnwrap(model.soapNotes)
-        XCTAssertTrue(notes.contains("lisinopril: 10 mg · PO · once daily · started [unreviewed]"), notes)
+        XCTAssertNil(model.soapNotes, "review L3 I7: nothing reviewed yet, so nothing goes to the SOAP note")
 
         let item = try XCTUnwrap(model.sections?.medications.first)
         await model.toggleReviewed(item)
         XCTAssertEqual(model.sections?.medications.first?.field.reviewed, true)
-        XCTAssertTrue(model.soapNotes?.contains("lisinopril: 10 mg · PO · once daily · started\n") ?? false)
+        let notes = try XCTUnwrap(model.soapNotes)
+        XCTAssertTrue(notes.contains("- lisinopril: 10 mg · PO · once daily · started"), notes)
+        XCTAssertFalse(notes.contains("142/88"), "an unreviewed vital stays out: \(notes)")
+        XCTAssertFalse(notes.contains("[unreviewed]"), notes)
+        XCTAssertEqual(model.reviewedDraftCount, 1)
         let reviewed = await h.results.reviewedIDs
         XCTAssertEqual(reviewed, [item.id])
 
         XCTAssertEqual(SOAPDraftHandoff.modelChoice.locality, .onDevice)
         XCTAssertEqual(SOAPDraftHandoff.templateKey, BuiltInTemplates.soapNote.canonicalKey)
+    }
+
+    // MARK: - Review L3 I2, I6, I8
+
+    func testTheEvidenceIsTheWholeSentenceSoTheDrugIsVisible() async throws {
+        let h = Harness()
+        try await h.insertEncounter("Lisinopril 10 mg and levothyroxine 50 mcg daily.")
+        let draft = try await h.service.extractSOAP(transcriptionID: h.id)
+        let sections = DraftSections(draft: draft)
+        let items = sections.draftItems + sections.needsReview
+        XCTAssertFalse(items.isEmpty)
+        for item in items {
+            XCTAssertEqual(item.evidenceSentence, "Lisinopril 10 mg and levothyroxine 50 mcg daily.")
+        }
+    }
+
+    func testTheStubIsNeverConfidentOnClinicalFields() async throws {
+        let tagged = NumericNormalizer.normalize("Considering starting metoprolol 25 mg.").tagged
+        let output = try await StubStructureModel().extract(
+            jsonSchema: StructureCatalog.soapMeds.toolsJSON, from: tagged, privacyClass: .clinical)
+        XCTAssertLessThan(output.confidence, StructuredResultGate.defaultAct)
+        XCTAssertEqual(StructuredCall.parseArray(output.json)?.first?.string("status"), "considering")
+
+        // Even with the act threshold at its lowest setting, a STUB field is never "Confident".
+        let h = Harness()
+        var settings = h.settings.load()
+        settings.actThreshold = 0.5
+        settings.provisionalThreshold = 0.3
+        h.settings.save(settings)
+        try await h.insertEncounter()
+        let draft = try await h.service.extractSOAP(transcriptionID: h.id)
+        XCTAssertFalse(draft.fields.isEmpty)
+        XCTAssertFalse(draft.fields.contains { $0.verdict == .act }, "\(draft.fields.map(\.verdict))")
+    }
+
+    func testAFieldThatFailedACheckNeedsItsReasonsSeenAndCanBeEdited() async throws {
+        let wrong = RecordingStructureModel(
+            locality: .onDevice,
+            reply:
+                #"[{"name":"add_medication","arguments":{"drug":"lisinopril","dose_tag":"dose_9","status":"started"}}]"#,
+            confidence: 0.95)
+        let h = Harness(choice: .needle, needle: wrong, needleAvailability: .ready)
+        try await h.insertEncounter("Started lisinopril 10 mg by mouth once daily.")
+        let model = ExtractFieldsViewModel(service: h.service, transcriptionID: h.id)
+        await model.extract()
+        let item = try XCTUnwrap(model.sections?.needsReview.first { $0.title == "lisinopril" })
+        XCTAssertFalse(item.field.reviewReasons.isEmpty)
+
+        await model.toggleReviewed(item)
+        XCTAssertEqual(
+            model.draft?.fields.first { $0.id == item.id }?.reviewed, false, "one tap cannot accept a failed check")
+        XCTAssertEqual(model.reviewRequest?.id, item.id, "the reasons are shown first")
+        XCTAssertEqual(item.editableFields.map(\.key), ["drug", "dose", "route", "frequency", "status"])
+
+        await model.confirmReview(item, edits: ["dose": "10 mg"])
+        XCTAssertNil(model.reviewRequest)
+        let reviewed = try XCTUnwrap(model.sections?.medications.first { $0.id == item.id })
+        XCTAssertTrue(reviewed.field.reviewed)
+        XCTAssertTrue(reviewed.isEdited)
+        XCTAssertTrue(reviewed.detail.hasPrefix("10 mg"), reviewed.detail)
+        XCTAssertEqual(reviewed.field.reviewReasons, item.field.reviewReasons, "the reasons travel with the field")
+        let notes = try XCTUnwrap(model.soapNotes)
+        XCTAssertTrue(notes.contains("- lisinopril: 10 mg"), notes)
+        XCTAssertTrue(notes.contains("edited in review"), notes)
+        XCTAssertTrue(notes.contains("does not match any number"), notes)
+        let saved = await h.results.reviewedArguments[item.id]
+        XCTAssertTrue(saved?.contains("10 mg") ?? false, saved ?? "nil")
+    }
+
+    func testAcceptingAFailedCheckWithoutAnEditSaysSoInTheHandoff() async throws {
+        let wrong = RecordingStructureModel(
+            locality: .onDevice, reply: #"[{"name":"record_vital","arguments":{"kind":"HR","value_tag":"rate_1"}}]"#,
+            confidence: 0.95)
+        let h = Harness(choice: .needle, needle: wrong, needleAvailability: .ready)
+        try await h.insertEncounter("Heart rate 300.")
+        let model = ExtractFieldsViewModel(service: h.service, transcriptionID: h.id)
+        await model.extract()
+        let item = try XCTUnwrap(model.sections?.needsReview.first)
+        await model.confirmReview(item, edits: [:])
+        let notes = try XCTUnwrap(model.soapNotes)
+        XCTAssertTrue(notes.contains("- HR: 300/min (accepted in review despite: Heart rate 300 is outside"), notes)
+    }
+
+    // MARK: - Review L3 I10: Needle is labelled experimental where it is used
+
+    func testNeedleIsLabelledExperimentalWithItsEvalNumbers() async throws {
+        XCTAssertTrue(NeedleExperimental.isExperimental)
+        XCTAssertTrue(NeedleExperimental.chip.hasPrefix("Experimental"))
+        XCTAssertTrue(NeedleExperimental.chip.contains("%"), NeedleExperimental.chip)
+
+        let settings = StructureSettingsViewModel(
+            store: InMemoryStructureSettingsStore(), needleAssets: nil, needleInBuild: true, notInBuildMessage: "x",
+            needleDownloadBytes: nil, needleModelSHA256: nil)
+        XCTAssertTrue(settings.engineCaption.contains("Experimental"), settings.engineCaption)
+
+        let answered = RecordingStructureModel(
+            locality: .onDevice, reply: #"[{"name":"record_vital","arguments":{"kind":"BP","value_tag":"bp_1"}}]"#)
+        let h = Harness(choice: .needle, needle: answered, needleAvailability: .ready)
+        try await h.insertEncounter()
+        let model = ExtractFieldsViewModel(service: h.service, transcriptionID: h.id)
+        await model.extract()
+        XCTAssertTrue(model.engineBadge.contains("Experimental"), model.engineBadge)
+        XCTAssertTrue(ExtractFieldsViewModel.menuTitle.contains("experimental"))
     }
 
     func testTheSOAPRunOfAClinicalItemRoutesToTheOnDeviceModelWithoutAConfirmation() async throws {
@@ -176,6 +289,7 @@ final class StructuredExtractionServiceTests: XCTestCase {
 actor FakeStructuredResultStore: StructuredResultStoring {
     private(set) var saved: [(run: StructuredRun, fields: [StructuredField])] = []
     private(set) var reviewedIDs: [UUID] = []
+    private(set) var reviewedArguments: [UUID: String] = [:]
     private(set) var evals: [StructuredEvalRun] = []
 
     func save(_ run: StructuredRun, fields: [StructuredField]) async throws { saved.append((run, fields)) }
@@ -187,6 +301,7 @@ actor FakeStructuredResultStore: StructuredResultStoring {
     }
     func setReviewed(fieldID: UUID, reviewed: Bool, argumentsJSON: String?) async throws {
         if reviewed { reviewedIDs.append(fieldID) }
+        if let argumentsJSON { reviewedArguments[fieldID] = argumentsJSON }
     }
     func saveEvalRun(_ run: StructuredEvalRun) async throws { evals.append(run) }
     func evalRuns() async throws -> [StructuredEvalRun] { evals }

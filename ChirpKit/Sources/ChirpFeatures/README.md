@@ -254,7 +254,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   tools, missing required arguments and values outside an enum). A test pins each catalog file's SHA-256: a change
   ships as a new version file.
 - `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
-  pseudo-confidence; always available and always labelled STUB. `VoiceCommandText` (a command is a whole short
+  pseudo-confidence (at most 0.84 on `soap-meds`, and `StructuredResultGate.verdict(…engineID:)` never gives a STUB
+  field `act`; a hedge like "considering" before a drug wins over a later "starting"); always available and always
+  labelled STUB. `VoiceCommandText` (a command is a whole short
   utterance that equals one of its phrases, optionally after "okay"/"please").
 
 - `Structure/StructuredResultGate.swift`: `StructureSettings` (voice commands off by default, gate thresholds,
@@ -275,12 +277,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
   gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
   (`mayRun`); engine failures become needs-review items, never silent gaps.
-- `Structure/ExtractFieldsViewModel.swift`: `DraftItem` / `DraftSections` (vitals, medications, allergies, problems,
-  plan, the needs-review bin, skipped sentences), `SOAPDraftHandoff` (the reviewed draft as `{{userNotes}}` for the
-  SOAP template, always the on-device model; needs-review items left out, unreviewed ones marked) and
-  `ExtractFieldsViewModel` (extract, load the latest run, mark reviewed, engine badge).
+- `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
+  editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
+  bin, skipped sentences), `SOAPDraftHandoff` (**only reviewed fields** as `{{userNotes}}` for the SOAP template,
+  always the on-device model; an accepted-despite or edited field carries its reasons) and `ExtractFieldsViewModel`
+  (extract, load the latest run, mark reviewed; a field that failed a check opens `reviewRequest` instead, and
+  `confirmReview(_:edits:)` saves edits; engine badge with Needle's experimental label; `menuTitle`).
 - `Structure/StructureSettingsViewModel.swift`: Settings → Structure models (Needle's download and delete, engine,
-  thresholds).
+  thresholds) and `NeedleExperimental` (the latest eval numbers and the "Experimental" chip and sentence every Needle
+  surface shows until argument accuracy reaches 0.9).
 
 - `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
   (≤ 8 words) equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
