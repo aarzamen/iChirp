@@ -358,6 +358,29 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertEqual(flow.phase, .cancelled)
     }
 
+    /// A chain dropped (Create another, Done) while its dictation was still being saved: the dictation's row, made
+    /// with the default class by the Dictating screen, is still raised to the class the chain was started with.
+    func testAResetDuringTheInputStillRaisesTheItemItMade() async throws {
+        let harness = try await CreateHarness()
+        let hold = Hold()
+        harness.hold = (.input, hold)
+        let flow = harness.makeFlow()
+        let running = Task { @MainActor in
+            await flow.start(
+                CreateRequest(input: .speak, output: .summary, privacyClass: .clinical),
+                makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        }
+        await hold.entered.wait()
+        flow.reset()
+        hold.release.fire()
+        await running.value
+        await settle()
+        let rows = try await harness.transcripts.fetchAll()
+        XCTAssertEqual(rows.map(\.privacyClass), [.clinical])
+        XCTAssertNil(flow.itemID, "a reset chain reports nothing")
+        XCTAssertEqual(flow.phase, .idle)
+    }
+
     // MARK: - Privacy
 
     func testClinicalChainWaitsForTheQuestionAndOnlySendAnswers() async throws {
@@ -528,6 +551,7 @@ final class CreateHarness {
         CreateFlow(
             dependencies: CreateFlowDependencies(
                 recordSpeech: { [unowned self] in
+                    await parkIfHeld(.input)
                     if let outcome = speechOutcome { return outcome }
                     var row = Transcription(sourceType: .dictation, fileName: "Dictation.wav", status: .completed)
                     row.rawTranscript = Self.dictationText

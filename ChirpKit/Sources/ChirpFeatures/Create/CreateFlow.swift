@@ -265,6 +265,9 @@ public struct CreateFlowDependencies {
         if isActive { cancel() }
         stopWork()
         generation += 1
+        // A new chain id: an input still running for the old chain raises its item but no longer reports it here.
+        chainID = UUID()
+        isMakingInput = false
         request = nil
         phase = .idle
         stages = [:]
@@ -312,16 +315,20 @@ public struct CreateFlowDependencies {
     // MARK: Input
 
     private func runInput(generation: Int) async -> StepResult {
+        // The request and chain as this input started: a Stop or reset while a service call runs must not change which
+        // class the item it makes gets (review I1).
         guard let request else { return .stop }
-        if itemID == nil {
+        let chain = chainID
+        var madeID = itemID
+        if madeID == nil {
             isMakingInput = true
-            defer { isMakingInput = false }
+            defer { if chain == chainID { isMakingInput = false } }
             do {
                 switch request.input {
                 case .speak:
                     switch await dependencies.recordSpeech() {
                     case .saved(let id):
-                        itemID = id
+                        madeID = id
                     case .failed(let id, let message):
                         guard let id else {
                             guard generation == self.generation else { return .stop }
@@ -329,8 +336,8 @@ public struct CreateFlowDependencies {
                         }
                         // The recording was kept: the item exists and its transcription is what failed. Its class
                         // first, even after a Stop.
-                        itemID = id
-                        await applyPrivacyClass(generation: generation)
+                        if chain == chainID { itemID = id }
+                        await applyPrivacyClass(request, to: id, generation: generation)
                         guard generation == self.generation else { return .stop }
                         stages[.input] = .done
                         return fail(.transcribe, message)
@@ -343,25 +350,27 @@ public struct CreateFlowDependencies {
                     }
                 case .text(let text):
                     let saved = try await dependencies.saveText(text, request.privacyClass)
-                    itemID = saved.id
-                    item = saved
+                    madeID = saved.id
+                    if chain == chainID { item = saved }
                 case .link(let link):
-                    itemID = try await dependencies.startLink(link, request.privacyClass)
+                    madeID = try await dependencies.startLink(link, request.privacyClass)
                 case .file(let url):
-                    itemID = try await dependencies.startFile(url, request.privacyClass)
+                    madeID = try await dependencies.startFile(url, request.privacyClass)
                 }
             } catch {
                 guard generation == self.generation else { return .stop }
                 return fail(.input, Self.message(for: error))
             }
+            // A stopped chain still knows the item it made (the run view offers it); a reset one does not.
+            if chain == chainID { itemID = madeID }
         }
         // Review I1: the class before the Stop check. The item exists now whatever the chain does next, and raising
         // only ever makes it more private (link, file and text rows already have it; this covers a dictation's row).
-        let marked = await applyPrivacyClass(generation: generation)
+        let marked = await applyPrivacyClass(request, to: madeID, generation: generation)
         guard generation == self.generation else {
-            if let itemID {
+            if let madeID {
                 logger.notice(
-                    "create_item_after_stop chain=\(self.chainID, privacy: .public) item=\(itemID, privacy: .public)")
+                    "create_item_after_stop chain=\(chain, privacy: .public) item=\(madeID, privacy: .public)")
             }
             return .stop
         }
@@ -373,15 +382,15 @@ public struct CreateFlowDependencies {
         return .done
     }
 
-    /// Raises the new item to the requested class before anything else runs on it. Only a stricter class than the
-    /// default is applied (a text item is saved with its class already), so an item is never lowered here.
+    /// Raises item `id` to `request`'s class before anything else runs on it. Only a stricter class than the default
+    /// is applied (a text item is saved with its class already), so an item is never lowered here.
     @discardableResult
-    private func applyPrivacyClass(generation: Int) async -> Bool {
-        guard let request, let itemID, request.input.kind != .text,
+    private func applyPrivacyClass(_ request: CreateRequest, to id: UUID?, generation: Int) async -> Bool {
+        guard let id, request.input.kind != .text,
             request.privacyClass.strictness > PrivacyClass.personal.strictness
         else { return true }
         do {
-            try await dependencies.deliverables.setPrivacyClass(request.privacyClass, transcriptionID: itemID)
+            try await dependencies.deliverables.setPrivacyClass(request.privacyClass, transcriptionID: id)
             return true
         } catch {
             guard generation == self.generation else { return false }
