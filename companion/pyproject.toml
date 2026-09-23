@@ -1,0 +1,42 @@
+[project]
+name = "parakeet-companion"
+version = "1.0.0"
+description = "Parakeet companion: the owner's local voices and YouTube audio for the Parakeet iPhone app, served from their Mac"
+requires-python = ">=3.12"
+license = "GPL-3.0-only"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "mlx-audio>=0.4.3",
+    "yt-dlp[default]>=2026.8.19",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+# Kokoro-82M needs the misaki phonemizer (Apache-2.0); Qwen3-TTS does not.
+kokoro = ["misaki[en]>=0.9"]
+
+[project.scripts]
+parakeet-companion = "parakeet_companion.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["parakeet_companion*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient`",
+    "ignore:The anyio.abc.BlockingPortal alias",
+]

@@ -28,5 +28,11 @@ journal/
 *.mobileprovision
 logs/
 
+# Python (the Mac companion)
+companion/.venv/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+
 # macOS Finder metadata
 .DS_Store
