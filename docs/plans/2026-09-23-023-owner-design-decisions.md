@@ -27,7 +27,7 @@ mark.
 
 1. **Documents in the Library (F43):** `LibraryViewModel` gains documents and a Documents filter; source items list their
    documents; Transforms tab keeps "start" + recent with "Show all"; tests for reachability of every document.
-   **Built** on `wave4/docs-library` (2026-09-23, not merged yet): `DeliverableListing` (read-only store queries, no
+   **Merged** from `wave4/docs-library` (2026-09-23): `DeliverableListing` (read-only store queries, no
    migration) feeds the Library every document as a row (source title, template badge, effective class) with a
    Documents chip after the unchanged five; search reads document text in the store; rows page 100 at a time (the
    next page loads at the end of the list); "Made from this" on the Transcript and Document screens; Transforms →
@@ -35,6 +35,14 @@ mark.
    8,000 rows within budget), `LibraryDocumentsAppTests`. QA: `docs/human-qa-guide.md` "Documents in the Library".
 2. **Capture recipes (F14):** a `CreateRecipe` value (input, output, template, clinical) saved from Create's choices;
    Capture shows Create + up to four recipes + Recent above the fold; editing and deleting recipes; tests.
+   **Status: merged from `wave4/capture-recipes`** (no migration: recipes are UserDefaults settings,
+   `ichirp.create.recipes`). `CreateRecipe` = Create's `CreateChoices` + name + the model when the output needs one;
+   four starters keep the old shortcuts; Save as recipe in Create; the Recipes sheet renames, reorders, deletes and
+   restores the starters; a Speak recipe hands off to the Dictating screen ("Then: SOAP note"); a recipe whose
+   template, model, voice or speech model is missing says so and starts nothing; a clinical recipe's item is clinical
+   from the first write and every clinical question still appears. Tests: `CreateRecipeTests`,
+   `CaptureRecipesAppTests`; tour `UITests/RecipesTourUITests.swift`. Open: the Speak recipe on the owner's phone
+   (the simulator never records).
 3. **Formatted view, plain copy (F23) — DONE (wave4/formatted-docs):** `ChirpText.MarkdownBlockParser` /
    `MarkdownInline` / `MarkdownDocument` (SwiftUI renderer, Dynamic Type, text selection, VoiceOver headings) and
    `PlainTextFlattener` (Copy; bullets are `"- "`, numbers keep their own value, headings get a blank line after,

@@ -736,6 +736,22 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
 - `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,
   `ichirp.create.choices`; choices only, never text); `validated(templateIDs:)` drops a removed template.
+- `Create/CreateRecipe.swift` (plan 023 lane 2, UX audit F14 "Create + recipes"): a `CreateRecipe` is Create's
+  `CreateChoices` exactly (input, output, template, voice-message variant, Clinical switch), plus a name ("Dictate →
+  SOAP note", `suggestedName`), the model chosen when saved (`modelID`/`modelName`, kept only when the output needs
+  one; nil runs on the default model) and the template's name for messages. The four **starters** (`Starter`:
+  Dictate, Type or paste, Paste a link, Import a file; fixed ids) keep Capture's former shortcuts and show when nothing
+  was ever saved. `request(input:)` is the same `CreateRequest` Create builds, so a clinical recipe makes its item
+  clinical from the first write (the chain's review-I1 rule) and never answers a clinical question.
+  `CreateRecipeCheck.problem` says in one sentence what a recipe needs that is gone or not set up (template, model,
+  voice, speech model); `CreateRecipeLaunch.plan` turns a tap into `.starter`, `.speak(request)` (straight to the
+  Dictating screen), `.openCreate(choices)` (Type, Link), `.pickFile(choices)`, `.busy` (a chain is running; nothing
+  new starts) or `.blocked(sentence)` (nothing starts). `UserDefaultsCreateRecipeStore` keeps them as settings
+  (`ichirp.create.recipes`, `{"version":1,"recipes":[…]}`; never text, links or files; no database row): nil when never
+  saved, an empty list stays empty, one unreadable recipe is skipped, an unreadable list is copied once to
+  `ichirp.create.recipes.unreadable`. `Create/CreateRecipesViewModel.swift`: the list (`onCapture` = the first four),
+  `save` (first in the list; `duplicate`, `full` at 12, `incomplete` without a template), `rename` (blank refused),
+  `delete`, `reorder`, `moveUp`/`moveDown`, `restoreStarters`. Tests: `CreateRecipeTests`.
 - Step 4, Edit by voice: `DeliverableService.routeEdit(deliverableID:model:)` and `edit(deliverableID:instruction:spoken:
   model:override:)` (in `DeliverableService.swift`, the "Edits" section): routes like every run (the transcript's
   effective class raised by the document's), one model call with `Create/DocumentEditPrompt.swift`'s request (the

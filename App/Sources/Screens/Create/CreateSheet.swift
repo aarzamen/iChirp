@@ -16,6 +16,10 @@ enum CreateDestination: Hashable {
 /// tapped (no speech model, no language model, no voice); clinical steps ask through the existing dialogs. Typed text or
 /// a pasted link is never lost: swipe-down is off while there is some, Cancel asks first, and a sheet hidden by
 /// something else (the Action Button's dictation) keeps it for the next open (UX audit F19).
+///
+/// Plan 023 lane 2 (UX audit F14): "Save as recipe" keeps these choices (and the model, when the output needs one) as a
+/// one-tap recipe on Capture, with a suggested name the person can change. A Type or Link recipe opens this sheet with
+/// its own choices and model, and says so at the top.
 struct CreateSheet: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -29,6 +33,12 @@ struct CreateSheet: View {
     @State private var isConfirmingDiscard = false
     /// Cancel → Discard: the sheet goes and its text is not kept.
     @State private var isDiscarding = false
+    /// The recipe this sheet was opened from (Type or Link), for its note; nil for a plain Create.
+    @State private var recipe: CreateRecipe?
+    /// "Save as recipe": the name being typed, and the recipe just saved from here.
+    @State private var isNamingRecipe = false
+    @State private var recipeName = ""
+    @State private var savedRecipeID: UUID?
     @FocusState private var textFocused: Bool
     @FocusState private var linkFocused: Bool
 
@@ -40,12 +50,24 @@ struct CreateSheet: View {
         let templateIDs = Set(
             (environment.deliverableLibrary.documentTemplates + environment.deliverableLibrary.transformTemplates)
                 .map(\.id))
+        // A recipe's choices win over the last answers (plan 023 lane 2).
+        let recipe = host.pendingRecipe
+        let choices = recipe?.choices ?? remembered
         var initial = CreateDraft(
-            choices: templateIDs.isEmpty ? remembered : remembered.validated(templateIDs: templateIDs))
+            choices: templateIDs.isEmpty ? choices : choices.validated(templateIDs: templateIDs))
         initial.file = CreatePreviewLaunch.file()  // DEBUG tour only; always nil in Release
-        // What was typed when the sheet last went away without a Discard (cleared in onAppear, once it is shown).
-        _draft = State(initialValue: host.keptDraft ?? initial)
-        _choice = State(initialValue: environment.languageModels.defaultChoice)
+        if recipe != nil, let kept = host.keptDraft {
+            // Text or a link typed before, and kept when the sheet went away, is not lost to the recipe (F19).
+            initial.text = kept.text
+            initial.link = kept.link
+            _draft = State(initialValue: initial)
+        } else {
+            // What was typed when the sheet last went away without a Discard (cleared in onAppear, once it is shown).
+            _draft = State(initialValue: host.keptDraft ?? initial)
+        }
+        _recipe = State(initialValue: recipe)
+        let models = environment.languageModels
+        _choice = State(initialValue: recipe?.modelID.flatMap(models.choice(id:)) ?? models.defaultChoice)
     }
 
     var body: some View {
@@ -92,7 +114,10 @@ struct CreateSheet: View {
             await environment.voiceSettings.refresh()
         }
         .onChange(of: draft.choices) { _, choices in choicesStore.save(choices) }
-        .onAppear { host.keptDraft = nil }
+        .onAppear {
+            host.keptDraft = nil
+            host.pendingRecipe = nil
+        }
         .onDisappear {
             // Hidden by something other than Cancel → Discard while text was typed: keep it for the next open.
             if host.flow == nil, !isDiscarding, draft.hasUnsavedInput { host.keptDraft = draft }
@@ -114,6 +139,13 @@ struct CreateSheet: View {
                         .foregroundStyle(Tokens.Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let recipe {
+                    CreateNote(
+                        text: "From your recipe “\(recipe.name)”. "
+                            + (recipe.choices.input == .link ? "Paste the link" : "Type or paste the text")
+                            + ", then tap Create.",
+                        systemImage: "bookmark")
+                }
                 SectionLabel("What do you have?")
                     .padding(.top, 6)
                 grid(CreateInputKind.allCases) { kind in
@@ -129,11 +161,18 @@ struct CreateSheet: View {
                     CreateOptionTile(
                         title: kind.title, subtitle: kind.subtitle, systemImage: kind.systemImage,
                         isSelected: draft.output == kind
-                    ) { draft.output = kind }
+                    ) {
+                        draft.output = kind
+                        // The first question is answered: the keyboard goes, so the template, model, Clinical and
+                        // Save as recipe below are in view (with the keyboard up the start bar covers them).
+                        textFocused = false
+                        linkFocused = false
+                    }
                 }
                 outputDetail
                 ClinicalToggleRow(isClinical: $draft.isClinical)
                     .padding(.top, 4)
+                saveRecipeRow
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)
@@ -142,6 +181,13 @@ struct CreateSheet: View {
         .scrollDismissesKeyboard(.interactively)
         .background(Tokens.Color.ground)
         .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
+        .task {
+            // A Type or Link recipe: the field it needs is ready to type in once the sheet is up.
+            guard let recipe, recipe.choices.input == .text || recipe.choices.input == .link else { return }
+            try? await Task.sleep(for: .milliseconds(450))
+            textFocused = recipe.choices.input == .text
+            linkFocused = recipe.choices.input == .link && draft.link.isEmpty
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -385,6 +431,102 @@ struct CreateSheet: View {
         }
     }
 
+    // MARK: - Save as recipe (plan 023 lane 2)
+
+    private var recipeTemplateName: String? {
+        guard draft.output == .document else { return nil }
+        return templates.first { $0.id == draft.templateID }?.name
+    }
+
+    /// The model kept with a recipe: the chosen one, when the output needs one.
+    private var recipeModel: LanguageModelChoice? {
+        draft.choices.createOutput?.needsLanguageModel == true ? choice : nil
+    }
+
+    /// "Save as recipe" and one line that says what it will do, or why it cannot (no template yet, already a recipe,
+    /// the list is full).
+    private var saveRecipeRow: some View {
+        let recipes = host.recipes
+        let choices = draft.choices
+        let existing = recipes.existing(choices: choices, modelID: recipeModel?.id)
+        let canSave = choices.createOutput != nil && existing == nil && !recipes.isFull
+        let note: String =
+            if choices.createOutput == nil {
+                "Choose a template first."
+            } else if let existing, existing.id == savedRecipeID {
+                "Saved. “\(existing.name)” is first on Capture."
+            } else if let existing {
+                "Already a recipe: “\(existing.name)”."
+            } else if recipes.isFull {
+                "You have \(CreateRecipesViewModel.maxCount) recipes. Delete one in Capture → Recipes first."
+            } else {
+                "These choices as one tap on Capture. Never the text, link or file."
+            }
+        let row = HStack(spacing: 12) {
+            Image(systemName: existing == nil ? "bookmark" : "bookmark.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Tokens.Color.accentInk)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
+                        .fill(AppColor.tintFill)
+                )
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Save as recipe")
+                    .chirpFont(15, .semibold)
+                    .foregroundStyle(canSave ? Tokens.Color.ink : Tokens.Color.secondary)
+                Text(note)
+                    .chirpFont(12)
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .background(CardBackground(radius: Tokens.Radius.s))
+        .contentShape(Rectangle())
+        return Group {
+            if canSave {
+                Button {
+                    recipeName = CreateRecipe.suggestedName(for: choices, templateName: recipeTemplateName)
+                    isNamingRecipe = true
+                } label: {
+                    row
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityHint("Names these choices as a recipe for Capture.")
+            } else {
+                // Not a dimmed button: the line says why at full contrast.
+                row.accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.top, 4)
+        .alert("Save as recipe", isPresented: $isNamingRecipe) {
+            TextField("Name", text: $recipeName)
+            Button("Save") { saveRecipe() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(recipeAlertMessage)
+        }
+    }
+
+    /// The whole recipe in words, so the person knows what one tap will do.
+    private var recipeAlertMessage: String {
+        let preview = CreateRecipe(
+            name: "", choices: draft.choices, modelName: recipeModel?.name, templateName: recipeTemplateName)
+        return "\(preview.spokenDescription) It goes first on Capture."
+    }
+
+    private func saveRecipe() {
+        let result = host.recipes.save(
+            name: recipeName, choices: draft.choices, modelID: recipeModel?.id, modelName: recipeModel?.name,
+            templateName: recipeTemplateName)
+        if case .saved(let saved) = result { savedRecipeID = saved.id }
+    }
+
     // MARK: - Start
 
     private var startBar: some View {
@@ -433,7 +575,8 @@ struct CreateSheet: View {
 
     private func start() {
         guard let request = draft.request else { return }
-        choicesStore.save(draft.choices)
+        // A recipe's own choices are not Create's last answers; anything changed here is.
+        if recipe?.choices != draft.choices { choicesStore.save(draft.choices) }
         textFocused = false
         linkFocused = false
         host.start(
@@ -441,12 +584,7 @@ struct CreateSheet: View {
     }
 
     private func outputTitle(for output: CreateOutput) -> String {
-        switch output {
-        case .transcript: "Transcript"
-        case .summary: "Summary"
-        case .document(let id): templates.first { $0.id == id }?.name ?? "Document"
-        case .voiceMessage(let summarizeFirst): summarizeFirst ? "Voice message of a summary" : "Voice message"
-        }
+        CreateReadiness.outputTitle(for: output, templates: templates)
     }
 }
 
