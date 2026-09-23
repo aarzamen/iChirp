@@ -17,6 +17,9 @@ Config/Device.local
 .superpowers/
 MEMORY.md
 journal/
+# Needle (ADR-012): the needle-rs clone, the built NeedleC.xcframework and downloaded .cact weights
+vendor/
+*.cact
 # Data and secrets
 *.db
 *.db-*

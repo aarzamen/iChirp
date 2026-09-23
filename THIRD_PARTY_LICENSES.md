@@ -55,6 +55,17 @@ M5 adds **no Swift package dependency**. DOCX files are unzipped by ChirpIngest'
   Lookup API (`itunes.apple.com/lookup`), podcast RSS feeds and audio hosts, and YouTube (watch page, player API,
   caption track). YouTube's terms forbid automated access; see the owner decision recorded in plan 014.
 
+## Built from source by a script (not in the repo)
+
+### needle-rs (Needle 3 runtime, M6)
+
+- License: MIT. Copyright (c) Abdalrahman Ibrahim (see the clone's `LICENSE` and `NOTICE`).
+- Source: <https://github.com/Geekgineer/needle-rs>, pinned commit `4de50494fd60f417b24c37e4d972f95d128f8a0f`
+  (v0.3.1 + docs), cloned into the gitignored `vendor/needle-rs` by `scripts/build_needle.sh`.
+- Used for: the `needle-c` C API (`needle_v3_*`) compiled into `vendor/NeedleC.xcframework` and linked by
+  `ChirpEngineNeedle` ([ADR-012](spec/adr/012-needle-from-needle-rs-source.md)). Its Rust crate dependencies (rayon,
+  crossbeam, either, libm; MIT or Apache-2.0) come from its `Cargo.lock`.
+
 ## Models downloaded at run time (not in the repo or the app bundle)
 
 The app downloads these from Hugging Face the first time the user asks for them in Settings. They are stored in the
@@ -66,6 +77,16 @@ app's container and excluded from device backups.
 - Sources: <https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3>, <https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2>
   and the FluidInference Core ML repositories that FluidAudio resolves.
 - Used for: speech-to-text (v3 multilingual default; v2 English-only option).
+
+### Needle 3 (Cactus Compute)
+
+- License: Apache-2.0 (model card and `LICENSE` of the Hugging Face repo). Attribution: Cactus Compute.
+- Source: <https://huggingface.co/Cactus-Compute/needle3>, file `needle3.cact` (35,335,380 bytes) at revision
+  `b274efcb211a9eef48c9a88da4b43bd569696a39`, SHA-256
+  `c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38` (checked after download, recorded with every
+  structured result).
+- Used for: structured fields from clinical dictation and dictation voice commands (M6, `ChirpEngineNeedle`). The
+  same repo's binary `libneedle.a` is never downloaded or linked.
 
 ### Speaker diarization models (pyannote segmentation, WeSpeaker embeddings, VBx clustering)
 
@@ -80,7 +101,7 @@ These are recorded so their license verdicts are not rediscovered each time. Eac
 | Component | License | Verdict |
 |---|---|---|
 | Cactus engine | Custom source-available license with company-size limits | Not GPL-compatible for distribution: opt-in personal builds only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
-| Needle 3 (`libneedle.a` runtime) | Weights Apache-2.0; runtime binary-only | Personal builds only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
+| Needle 3 (`libneedle.a` runtime) | Weights Apache-2.0; runtime binary-only | Not used: Needle runs on needle-rs source instead ([ADR-012](spec/adr/012-needle-from-needle-rs-source.md)); `libneedle.a` stays personal-builds-only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
 | Jev | Proprietary cloud API | No linking issue; privacy router keeps clinical content away |
 | AnyLanguageModel | Apache-2.0 | Compatible, **evaluated and not linked** (ADR-011: 0.9.0 pulls 8 packages incl. swift-nio and swift-syntax; its Ollama adapter omits `num_ctx`) |
 | WhisperKit (`argmax-oss-swift`) | MIT | Compatible |

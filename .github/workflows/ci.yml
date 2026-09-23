@@ -39,6 +39,12 @@ jobs:
       - name: Format lint
         run: swift format lint --strict --recursive ChirpKit/Sources App/Sources App/Shared Widgets
 
+      # M6 (ADR-012): Needle 3's runtime from needle-rs source, so the tests and the app build cover ChirpEngineNeedle.
+      - name: Build Needle runtime (needle-rs → vendor/NeedleC.xcframework)
+        run: |
+          command -v rustup >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          scripts/build_needle.sh
+
       - name: ChirpKit package tests
         run: swift test --package-path ChirpKit
 
