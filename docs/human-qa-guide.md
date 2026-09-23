@@ -739,7 +739,8 @@ PDF and Word (Step 6)
       and times, and the last words of the meeting are on the last page (nothing cut).
 - [ ] Share → Word on the same meeting and on a generated document: it opens in Word or Pages with the title, the
       headings, real bullet points and the paragraphs; nothing is plain text pretending to be Word.
-- [ ] A clinical item's PDF and Word files say "Privacy: Clinical" under the title.
+- [ ] A clinical item's PDF and Word files say "Privacy: Clinical" under the title; so do a Personal transcript's
+      once it has a SOAP note (and the Summary made from it).
 - [ ] Text, Markdown, SRT, VTT and JSON exports are unchanged.
 
 Voice messages (Step 5; Settings → Voices has a voice)
@@ -753,6 +754,10 @@ Voice messages (Step 5; Settings → Voices has a voice)
 - [ ] No voice set up: the sheet says what is missing (Settings → Voices) and sends nothing. Turn off Wi-Fi mid-way:
       a sentence and Retry, which continues from the part that failed.
 - [ ] Saving twice keeps both (`voice-1.m4a`, `voice-2.m4a` in the item's folder); deleting the item deletes them.
+      A generated document's sheet says its voice message is kept with the transcript it came from (deleting only
+      the document keeps it).
+- [ ] Create → Link (a YouTube video with captions) → Transcript: the Transcribe step says "Captions saved from
+      YouTube; nothing was transcribed".
 
 ## Writing a checklist (for agents)
 

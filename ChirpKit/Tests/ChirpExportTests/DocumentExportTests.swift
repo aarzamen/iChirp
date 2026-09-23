@@ -76,6 +76,20 @@ final class DocumentExportTests: XCTestCase {
         XCTAssertEqual(document.blocks, [.paragraph("Synthetic line one."), .paragraph("Synthetic line two.")])
     }
 
+    /// Plan 022 review M5: the file is marked by the class the privacy rules use (the effective class the caller
+    /// passes: a personal transcript with a clinical SOAP note counts as clinical), never lower than the row's own.
+    func testTheEffectiveClassMarksTheFileClinical() {
+        var row = Transcription(sourceType: .file, fileName: "Visit.m4a", status: .completed)
+        row.rawTranscript = "Synthetic visit."
+        XCTAssertFalse(ExportDocument.transcript(row, cleanupMode: .raw).metadata.contains { $0.label == "Privacy" })
+        let effective = ExportDocument.transcript(row, cleanupMode: .raw, effectivePrivacyClass: .clinical)
+        XCTAssertEqual(
+            effective.metadata.first { $0.label == "Privacy" }?.value, "Clinical: contains patient information")
+        row.privacyClass = .clinical
+        let lower = ExportDocument.transcript(row, cleanupMode: .raw, effectivePrivacyClass: .personal)
+        XCTAssertTrue(lower.metadata.contains { $0.label == "Privacy" }, "never lower than the row's own class")
+    }
+
     func testGeneratedMarkdownBecomesHeadingsListsAndParagraphs() {
         let body = """
             # Summary

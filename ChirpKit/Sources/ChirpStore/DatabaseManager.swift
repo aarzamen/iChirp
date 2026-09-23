@@ -38,7 +38,9 @@ public final class DatabaseManager: Sendable {
         return try DatabaseManager(writer: queue)
     }
 
-    private init(writer: any DatabaseWriter) throws {
+    /// Runs every pending migration on `writer`. Internal so an upgrade test can hand it a database migrated only up
+    /// to an earlier version (plan 022 review M8).
+    init(writer: any DatabaseWriter) throws {
         self.writer = writer
         try Self.migrator.migrate(writer)
     }

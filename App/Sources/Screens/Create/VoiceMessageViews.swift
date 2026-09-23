@@ -20,6 +20,17 @@ struct VoiceMessageJob: Identifiable {
                 title: item.displayTitle))
     }
 
+    /// Where the file is kept and what deletes it, for the sheet (review M4): a generated document's voice message lives
+    /// with the transcript it came from, so deleting only the document keeps it.
+    var storageNote: String {
+        let routing = "The text goes to the voice you chose in Settings → Voices; clinical text asks first."
+        if case .deliverable = request.source {
+            return "Saved on your iPhone with the transcript this document came from. Deleting that transcript deletes "
+                + "its voice messages; deleting only this document keeps them. " + routing
+        }
+        return "Saved with this item on your iPhone. Deleting the item deletes its voice messages. " + routing
+    }
+
     /// A generated document, spoken as edited now (`text`); the file lives with its transcript.
     static func deliverable(_ deliverable: Deliverable, text: String) -> VoiceMessageJob? {
         let speakable = SpeakableText.prepare(text)
@@ -88,13 +99,10 @@ struct VoiceMessageSheet: View {
                         phase: exporter.phase, voiceName: exporter.voiceName,
                         onRetry: { Task { await exporter.retry() } },
                         onShare: { file in shareItem = ShareItem(url: shareURL(file)) })
-                    Text(
-                        "Saved with this item on your iPhone. Deleting the item deletes its voice messages. The text "
-                            + "goes to the voice you chose in Settings → Voices; clinical text asks first."
-                    )
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(job.storageNote)
+                        .chirpFont(12.5)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)

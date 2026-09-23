@@ -103,7 +103,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
   `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` into
-  `<tmp>/export-<id>/`, rename and favorite.
+  `<tmp>/export-<id>/`, rename and favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
+  item's `EffectivePrivacyClass` when the app passes `deliverables` (plan 022 review M5: a personal transcript with a
+  clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
@@ -182,7 +184,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
-  `.answered` or `.failed(sentence)`.
+  `.answered` or `.failed(sentence)`. `cancel()` is final (plan 022 review M1): a route still being checked neither
+  streams nor asks, a question still up can no longer send, and both end at once in `.failed(stoppedMessage)`
+  ("Stopped. Nothing was sent."); a retry makes a new view model.
 - `LanguageModelsViewModel.swift` (M4 UI): Settings → Models and the model a run uses.
   - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` and
     (M7) `ChirpEngineLlamaCpp` (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`,
@@ -630,7 +634,9 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   private, not even for a moment; a dictation's row is raised (`DeliverableService.setPrivacyClass`) the moment the
   chain learns its id, before the Stop check, since raising only ever makes it more private. A Stop while a lookup or
   copy runs lets it finish: the item it makes stays in the Library with its class, `itemID` names it and
-  `isMakingInput` says one may still come (the run view says so and offers Open). Logs carry the chain id, item ids,
+  `isMakingInput` says one may still come (the run view says so and offers Open). `reset()` also cancels a
+  finished or failed chain's model run and voice message (review M2), and the app resets a chain whenever it drops
+  it (Done, Create another), so a failed voice message's chunk audio does not wait in `tmp` for the next launch. Logs carry the chain id, item ids,
   kinds and stage names only (`create_item_after_stop` for an item made after a Stop).
 - `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
   `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).

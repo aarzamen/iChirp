@@ -674,7 +674,7 @@ import Observation
     }
 
     func makeTranscriptViewModel(id: UUID) -> TranscriptViewModel {
-        TranscriptViewModel(id: id, store: store, paths: paths, settings: settings)
+        TranscriptViewModel(id: id, store: store, paths: paths, settings: settings, deliverables: deliverableStore)
     }
 
     /// M4: one generated document (Transforms tab, or a finished Transform run).

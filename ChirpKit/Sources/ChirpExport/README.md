@@ -23,8 +23,9 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 ## PDF and Word (plan 022 Step 6; plan 017 items 1–2)
 
 - `ExportDocument.swift` — the page content both formats share: title, `ExportMetadataLine`s and blocks (`heading`,
-  `paragraph`, `turn` with speaker and timestamp, `bullet`, `numbered`). `ExportDocument.transcript(_:cleanupMode:)`
-  builds paragraphs from the word timings (`TranscriptParagraphBuilder`, the speaker only when it changes, every
+  `paragraph`, `turn` with speaker and timestamp, `bullet`, `numbered`). `ExportDocument.transcript(_:cleanupMode:effectivePrivacyClass:)`
+  says "Privacy: Clinical" when the row's own class or the effective class the caller passes (review M5) is clinical,
+  and builds paragraphs from the word timings (`TranscriptParagraphBuilder`, the speaker only when it changes, every
   paragraph's `mm:ss`) or from the text's own paragraphs; `ExportDocument.text(title:body:metadata:)` reads a
   generated document's Markdown (`#`/`##` headings, `-`/`*`/`•` bullets, `1.` items; bold and code markers dropped;
   a first heading equal to the title is not repeated).

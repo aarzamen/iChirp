@@ -56,6 +56,8 @@ enum FakeStoreError: Error {
 actor FakeStore: TranscriptionStoring {
     enum Call: Hashable, Sendable {
         case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, updatePrivacyClass, transitionStatus
+        /// `fetch(id:)` (plan 022 review M1: park a route check).
+        case fetch
     }
 
     private var rows: [UUID: Transcription] = [:]
@@ -151,6 +153,7 @@ actor FakeStore: TranscriptionStoring {
     }
 
     func fetch(id: UUID) async throws -> Transcription? {
+        await parkIfHeld(.fetch)
         try Task.checkCancellation()
         return rows[id]
     }

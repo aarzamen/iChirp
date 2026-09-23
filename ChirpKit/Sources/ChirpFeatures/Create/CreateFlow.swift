@@ -258,9 +258,12 @@ public struct CreateFlowDependencies {
         logger.notice("create_cancelled chain=\(self.chainID, privacy: .public)")
     }
 
-    /// Back to nothing (a new chain can start).
+    /// Back to nothing (a new chain can start). Also cancels a finished or failed chain's model run and voice message
+    /// (review M2): a failed voice message keeps its chunk audio for Retry, which must not wait in `tmp` once the chain
+    /// is dropped.
     public func reset() {
         if isActive { cancel() }
+        stopWork()
         generation += 1
         request = nil
         phase = .idle

@@ -197,6 +197,29 @@ final class TranscriptViewModelTests: XCTestCase {
         }
     }
 
+    /// Plan 022 review M5: a personal transcript with a clinical SOAP note exports its PDF and Word files marked
+    /// "Privacy: Clinical", by `EffectivePrivacyClass` as Jev and voices route it.
+    func testTheWordFileOfATranscriptWithAClinicalNoteSaysClinical() async throws {
+        var row = completedRow()
+        row.privacyClass = .personal
+        let store = FakeStore(rows: [row])
+        let deliverables = FakeDeliverableStore()
+        let note = Deliverable(
+            transcriptionID: row.id, promptID: nil, promptVersionID: nil, title: "SOAP note", engineID: "x",
+            provider: "x", model: nil, locality: .onDevice, text: "Synthetic SOAP note.", privacyClass: .clinical)
+        try await deliverables.insertDeliverable(note)
+        let viewModel = TranscriptViewModel(
+            id: row.id, store: store, paths: makePaths(), settings: InMemorySettingsStore(),
+            deliverables: deliverables)
+        await viewModel.load()
+        let url = try await viewModel.exportDocument(.docx)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let bytes = try Data(contentsOf: url)
+        // The package is a stored (uncompressed) ZIP, so the document's XML text is in the bytes as written.
+        XCTAssertNotNil(
+            bytes.range(of: Data("Clinical: contains patient information".utf8)), "the effective class marks the file")
+    }
+
     func testLoadOfMissingRowLeavesTranscriptionNil() async {
         let store = FakeStore()
         let viewModel = TranscriptViewModel(

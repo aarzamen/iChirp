@@ -249,7 +249,7 @@ struct CreateRunView: View {
             guard let id = flow.itemID else { return "Waiting to start" }
             return environment.jobCenter.progress[id].map(Formatting.progress) ?? "Waiting to start"
         case (.transcribe, .done):
-            return isDocumentInput ? "Read on this iPhone" : "Transcribed on this iPhone"
+            return Self.transcribedLine(flow.item, isDocument: isDocumentInput)
         case (.operation, .running):
             if flow.phase == .waitingForAnswer(.operation) {
                 return "Waiting for your answer. Nothing has been sent."
@@ -333,6 +333,18 @@ struct CreateRunView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    /// The transcribe stage's done line. YouTube captions (review M7) were downloaded from YouTube and nothing was
+    /// transcribed; the rule is Paste a link's (a `.url` row with no media, or the captions engine).
+    static func transcribedLine(_ item: Transcription?, isDocument: Bool) -> String {
+        if let item,
+            item.engine == LinkIngestService.captionsEngineID
+                || (item.sourceType == .url && item.mediaRelativePath == nil)
+        {
+            return "Captions saved from YouTube; nothing was transcribed"
+        }
+        return isDocument ? "Read on this iPhone" : "Transcribed on this iPhone"
     }
 
     /// What a stopped chain left (review I1): an item made before or during the Stop stays in the Library with the

@@ -23,6 +23,9 @@ import Observation
         case failed(String)
     }
 
+    /// A run stopped before anything was sent (while its route was checked or its question was up).
+    public static let stoppedMessage = "Stopped. Nothing was sent."
+
     public private(set) var phase: Phase = .idle
     /// The final text as it streams in (reset whenever the writing step starts).
     public private(set) var text = ""
@@ -34,6 +37,9 @@ import Observation
     @ObservationIgnored private let transcriptionID: UUID
     @ObservationIgnored private let request: Request
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// Plan 022 review M1: `cancel()` stops the run for good, in every phase: a route still being checked neither
+    /// streams nor asks, and a question still up can no longer send. A retry makes a new view model.
+    @ObservationIgnored private var isCancelled = false
     /// Plan 022: called after the person answered the clinical question (the run then finished, failed, asked again
     /// or, after Cancel, went back to `.idle`), so a chain waiting on this run (`CreateFlow`) can go on. Only the
     /// dialog answers; this hook never confirms anything itself.
@@ -47,7 +53,9 @@ import Observation
     }
 
     /// Asks the router; runs at once when allowed, otherwise waits in `.needsConfirmation`. Sends nothing before that.
+    /// A run cancelled while its route was checked stops there (nothing sent, no question).
     public func start() async {
+        guard !isCancelled else { return }
         phase = .checking
         let templateID: UUID?
         if case .template(let id, _) = request { templateID = id } else { templateID = nil }
@@ -59,6 +67,7 @@ import Observation
                 decision = try await service.route(
                     transcriptionID: transcriptionID, templateID: templateID, model: model)
             }
+            guard !isCancelled else { return }
             switch decision {
             case .allowed(let route):
                 self.route = route
@@ -68,13 +77,14 @@ import Observation
                 phase = .needsConfirmation(request)
             }
         } catch {
+            guard !isCancelled else { return }
             phase = .failed(error.localizedDescription)
         }
     }
 
-    /// The user tapped Send in the clinical confirmation: this run only.
+    /// The user tapped Send in the clinical confirmation: this run only. After `cancel()` it sends nothing.
     public func confirmOverride() async {
-        guard case .needsConfirmation(let request) = phase else { return }
+        guard !isCancelled, case .needsConfirmation(let request) = phase else { return }
         do {
             let token = try await service.confirmOverride(request)
             await run(override: token)
@@ -91,11 +101,20 @@ import Observation
         onAnswered?()
     }
 
+    /// Stops the run: a stream in progress ends and stores nothing ("Cancelled. Nothing was saved."); a route still
+    /// being checked or a question still up ends at once with `stoppedMessage`, and nothing is sent afterwards.
     public func cancel() {
+        isCancelled = true
         task?.cancel()
+        switch phase {
+        case .checking, .needsConfirmation: phase = .failed(Self.stoppedMessage)
+        case .idle, .running, .completed, .answered, .failed: break
+        }
     }
 
     private func run(override: PrivacyOverride?) async {
+        // A Stop between Send and here (the token is minted on another actor): nothing is sent; the token expires.
+        guard !isCancelled else { return }
         phase = .running(nil)
         text = ""
         let stream: AsyncThrowingStream<DeliverableRunEvent, Error>

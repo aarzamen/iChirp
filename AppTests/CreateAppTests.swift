@@ -129,6 +129,47 @@ final class CreateAppTests: XCTestCase {
         XCTAssertEqual(draft.choices.input, .link, "only the choices are remembered")
     }
 
+    /// Review M6: the chain keeps its output's name, so Record again shows "Then: Summary" again (the Dictating
+    /// screen's chip title is cleared when that screen closes). The Record again tap itself needs the microphone, so
+    /// it is not driven here.
+    func testASpokenChainKeepsItsOutputTitle() {
+        let host = CreateHost()
+        host.queueSpeech(
+            CreateRequest(input: .speak, output: .summary), choice: .onDevice, outputTitle: "Summary")
+        XCTAssertEqual(host.speechOutputTitle, "Summary")
+        XCTAssertEqual(host.outputTitle, "Summary")
+        XCTAssertFalse(host.isSheetPresented, "the sheet steps aside for the Dictating screen")
+        host.startOver()
+        XCTAssertNil(host.outputTitle)
+    }
+
+    /// Review M7: a Link that became YouTube captions says captions were saved, not "Transcribed on this iPhone".
+    func testCaptionsAreNotCalledTranscribed() {
+        var captions = Transcription(sourceType: .url, fileName: "YouTube video", status: .completed)
+        captions.engine = LinkIngestService.captionsEngineID
+        XCTAssertEqual(
+            CreateRunView.transcribedLine(captions, isDocument: false),
+            "Captions saved from YouTube; nothing was transcribed")
+        var downloaded = Transcription(
+            sourceType: .url, fileName: "talk.m4a", mediaRelativePath: "media/x/source.m4a", status: .completed)
+        downloaded.engine = "parakeet"
+        XCTAssertEqual(CreateRunView.transcribedLine(downloaded, isDocument: false), "Transcribed on this iPhone")
+        XCTAssertEqual(CreateRunView.transcribedLine(nil, isDocument: true), "Read on this iPhone")
+    }
+
+    /// Review M4: a generated document's voice message says it is kept with its transcript, not with the document.
+    func testAVoiceMessageSaysWhereItIsKept() throws {
+        var text = Transcription(sourceType: .text, fileName: "Text", status: .completed)
+        text.rawTranscript = "Synthetic body."
+        let item = try XCTUnwrap(VoiceMessageJob.item(text))
+        XCTAssertTrue(item.storageNote.hasPrefix("Saved with this item on your iPhone. Deleting the item deletes"))
+        let deliverable = Deliverable(
+            transcriptionID: text.id, promptID: nil, promptVersionID: nil, title: "Summary", engineID: "x",
+            provider: "x", model: nil, locality: .onDevice, text: "Summary text.", privacyClass: .personal)
+        let document = try XCTUnwrap(VoiceMessageJob.deliverable(deliverable, text: "Summary text."))
+        XCTAssertTrue(document.storageNote.contains("deleting only this document keeps them"))
+    }
+
     /// Review I1: a stopped chain says what it left, and a lookup or copy still running after the Stop is not called
     /// "nothing was created".
     func testAStoppedChainSaysWhatItLeft() {

@@ -238,6 +238,51 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertTrue(stored.isEmpty, "a cancelled run stores nothing")
     }
 
+    /// Review M1: a Stop while the operation's route is checked (before its task exists) stops it: nothing is sent,
+    /// no document is stored, and no question comes up over the stopped chain.
+    func testCancelWhileTheOperationIsRoutedStoresNothing() async throws {
+        for privacy in [PrivacyClass.personal, .clinical] {
+            let harness = try await CreateHarness()
+            let flow = harness.makeFlow()
+            let cloud = RecordingLanguageModel(locality: .cloud, host: "api.example.com")
+            // A text item makes no fetch before the route check, so the next fetch is the route's.
+            let hold = await harness.transcripts.holdNext([.fetch])
+            let running = Task { @MainActor in
+                await flow.start(
+                    CreateRequest(input: .text("Synthetic text"), output: .summary, privacyClass: privacy),
+                    makeModel: { cloud })
+            }
+            await hold.entered.wait()
+            XCTAssertEqual(flow.operationRun?.phase, .checking, "\(privacy)")
+            flow.cancel()
+            hold.release.fire()
+            await running.value
+            await settle()
+            XCTAssertEqual(flow.phase, .cancelled, "\(privacy)")
+            XCTAssertTrue(cloud.requests.isEmpty, "\(privacy)")
+            if case .needsConfirmation = flow.operationRun?.phase { XCTFail("a question over a stopped chain") }
+            let stored = try await harness.deliverables.fetchDeliverables(transcriptionID: try XCTUnwrap(flow.itemID))
+            XCTAssertTrue(stored.isEmpty, "\(privacy)")
+        }
+    }
+
+    /// Review M2: a chain that is dropped or reset cancels its voice message, so a failed one's chunk audio (possibly
+    /// clinical text) does not wait in `tmp` for the next launch.
+    func testResetCancelsAFailedVoiceMessage() async throws {
+        let harness = try await CreateHarness()
+        harness.voiceScript = .fail("Could not reach the voice provider.")
+        let flow = harness.makeFlow()
+        await flow.start(
+            CreateRequest(input: .text("Synthetic text"), output: .voiceMessage(summarizeFirst: false)),
+            makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        XCTAssertEqual(flow.phase, .failed(.output, "Could not reach the voice provider."))
+        let voice = try XCTUnwrap(harness.voices.first)
+        XCTAssertEqual(voice.cancels, 0)
+        flow.reset()
+        XCTAssertEqual(voice.cancels, 1, "the failed voice message's work is removed")
+        XCTAssertEqual(flow.phase, .idle)
+    }
+
     // MARK: - Review I1: a Stop never leaves an item less private than the person chose
 
     /// Link and File, stopped while each stage runs (the lookup or copy, the job, the model call, the voice message),
