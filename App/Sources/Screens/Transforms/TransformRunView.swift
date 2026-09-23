@@ -93,6 +93,7 @@ struct ShareText: Identifiable {
 
 /// The running or finished Transform: status, streaming text, then the editable document with Copy and Share.
 struct TransformRunView: View {
+    @Environment(AppEnvironment.self) private var environment
     let host: TransformRunHost
     let run: DeliverableRunViewModel
     let request: TransformRunHost.Request
@@ -115,8 +116,12 @@ struct TransformRunView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 24)
             }
+            .voiceReading(environment.voicePlayer) { source in  // plan 020: the result's reading
+                if case .deliverable = source { return true }
+                return false
+            }
             if case .completed(let deliverable) = run.phase {
-                bottomBar(text: host.document(for: deliverable).draft)
+                bottomBar(text: host.document(for: deliverable).draft, deliverable: deliverable)
             }
         }
         .background(Tokens.Color.ground)
@@ -243,8 +248,12 @@ struct TransformRunView: View {
         return document.hasUnsavedChanges ? "Editing…" : "Saved in Transforms. Your edits save as you type."
     }
 
-    private func bottomBar(text: String) -> some View {
+    private func bottomBar(text: String, deliverable: Deliverable) -> some View {
         HStack(spacing: 0) {
+            // Plan 020: Listen to the result as edited now.
+            ListenBarButton(source: .deliverable(id: deliverable.id), privacyClass: deliverable.privacyClass) {
+                host.document(for: deliverable).draft
+            }
             Button {
                 LocalPasteboard.copy(text)
                 copied = true

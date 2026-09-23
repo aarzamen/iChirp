@@ -13,8 +13,12 @@ import Observation
 /// What is being read, for logs (never content) and the now-playing bar.
 public enum VoiceSource: Sendable, Equatable {
     case transcript(id: UUID)
+    /// An imported document (M5): PDF, Word, text.
+    case document(id: UUID)
+    /// A generated document (a Transform result).
     case deliverable(id: UUID)
-    case askAnswer(transcriptionID: UUID)
+    /// One Ask answer (the exchange's id).
+    case askAnswer(id: UUID)
     /// Plan 015's dictation "read back" command.
     case dictationReadBack(id: UUID?)
     /// Settings → Voices' Test voice (a fixed synthetic sentence).
@@ -24,6 +28,7 @@ public enum VoiceSource: Sendable, Equatable {
     public var title: String {
         switch self {
         case .transcript: "Transcript"
+        case .document: "Document"
         case .deliverable: "Document"
         case .askAnswer: "Answer"
         case .dictationReadBack: "Dictation"
@@ -34,6 +39,7 @@ public enum VoiceSource: Sendable, Equatable {
     var logName: String {
         switch self {
         case .transcript: "transcript"
+        case .document: "document"
         case .deliverable: "deliverable"
         case .askAnswer: "ask_answer"
         case .dictationReadBack: "dictation_read_back"
@@ -66,6 +72,14 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
     public let providerName: String
     public let locality: EngineLocality
     public let host: String?
+
+    public init(id: UUID, engineID: String, providerName: String, locality: EngineLocality, host: String?) {
+        self.id = id
+        self.engineID = engineID
+        self.providerName = providerName
+        self.locality = locality
+        self.host = host
+    }
 
     /// "Read this clinical text aloud with Grok voices?"
     public var title: String {

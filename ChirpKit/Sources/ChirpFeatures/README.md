@@ -197,6 +197,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `VoiceSource` names what is read (logs carry its kind, engine id, class and counts, never text).
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
+- `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link
+  targets removed, a full stop after heading and list lines; words never changed.
 - `Voice/VoiceProviderKind.swift`: the two voice providers (Mac companion, Grok voices) and their engine ids.
 - `Voice/VoiceSettings.swift`: `VoiceSettings` (provider, companion voice and style, Grok stock voice, a free-text
   Voice ID that wins over it, Speak Ask answers; no secret), `UserDefaultsVoiceSettingsStore`

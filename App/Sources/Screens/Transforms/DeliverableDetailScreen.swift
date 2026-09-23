@@ -54,10 +54,15 @@ struct DeliverableDetailScreen: View {
             .padding(.bottom, 24)
         }
         .background(Tokens.Color.ground)
+        .voiceReading(environment.voicePlayer) { $0 == .deliverable(id: id) }  // plan 020
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Plan 020: reads the text as edited now.
+                ListenToolbarButton(
+                    source: .deliverable(id: id), privacyClass: document.deliverable?.privacyClass ?? .clinical
+                ) { document.draft }
                 Button {
                     LocalPasteboard.copy(document.draft)
                     copied = true

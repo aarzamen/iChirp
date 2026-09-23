@@ -83,3 +83,212 @@ extension View {
         modifier(VoiceConfirmationModifier(player: player, isEnabled: isEnabled))
     }
 }
+
+// MARK: - Listen (plan 020 Step 5)
+
+/// What a Listen button shows for `source`, from the one voice player's state.
+enum ListenButtonState: Equatable {
+    /// Nothing is read, another text is, or this one failed (the now-playing bar says why and offers Retry).
+    case listen
+    /// This text is being prepared or waits for the clinical confirmation: tapping stops it.
+    case preparing
+    /// This text is being read or is paused: tapping stops it.
+    case stop
+
+    static func of(_ source: VoiceSource, current: VoiceSource?, state: VoicePlayer.State) -> ListenButtonState {
+        guard current == source else { return .listen }
+        switch state {
+        case .idle, .failed: return .listen
+        case .preparing, .needsConfirmation: return .preparing
+        case .speaking, .paused: return .stop
+        }
+    }
+
+    @MainActor static func of(_ source: VoiceSource, player: VoicePlayer) -> ListenButtonState {
+        of(source, current: player.source, state: player.state)
+    }
+
+    var title: String {
+        self == .listen ? "Listen" : "Stop"
+    }
+
+    var systemImage: String {
+        switch self {
+        case .listen: "speaker.wave.2"
+        case .preparing: "hourglass"
+        case .stop: "stop.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .listen: "Listen"
+        case .preparing: "Stop preparing to read aloud"
+        case .stop: "Stop reading aloud"
+        }
+    }
+}
+
+extension VoicePlayer {
+    /// A Listen button's tap: stops this text when it is the one being read, otherwise reads it (display text is
+    /// cleaned of citations and Markdown first).
+    func toggleListening(to source: VoiceSource, privacyClass: PrivacyClass, text: () -> String) {
+        guard ListenButtonState.of(source, player: self) == .listen else {
+            stop()
+            return
+        }
+        let speakable = SpeakableText.prepare(text())
+        Task { await speak(text: speakable, privacyClass: privacyClass, source: source) }
+    }
+}
+
+/// A toolbar Listen button (document screens).
+struct ListenToolbarButton: View {
+    @Environment(AppEnvironment.self) private var environment
+    let source: VoiceSource
+    let privacyClass: PrivacyClass
+    let text: () -> String
+
+    var body: some View {
+        let player = environment.voicePlayer
+        let state = ListenButtonState.of(source, player: player)
+        Button {
+            player.toggleListening(to: source, privacyClass: privacyClass, text: text)
+        } label: {
+            Label(state.title, systemImage: state.systemImage)
+        }
+        .accessibilityLabel(state.accessibilityLabel)
+    }
+}
+
+/// A Listen item for the bottom action bars (icon over a small title, like Copy and Share).
+struct ListenBarButton: View {
+    @Environment(AppEnvironment.self) private var environment
+    let source: VoiceSource
+    let privacyClass: PrivacyClass
+    let text: () -> String
+    /// Runs before reading starts (the Transcript screen pauses its media player).
+    var willListen: () -> Void = {}
+
+    var body: some View {
+        let player = environment.voicePlayer
+        let state = ListenButtonState.of(source, player: player)
+        Button {
+            if state == .listen { willListen() }
+            player.toggleListening(to: source, privacyClass: privacyClass, text: text)
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: state.systemImage)
+                    .font(.system(size: 19, weight: .medium))
+                Text(state.title)
+                    .chirpFont(11, .semibold)
+            }
+            .foregroundStyle(Tokens.Color.ink)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(state.accessibilityLabel)
+    }
+}
+
+/// The mini now-playing bar: what is read and by which voice, progress in chunks, pause/resume and stop; on a
+/// failure the sentence, Retry and close. Hidden while idle and while the clinical question is up.
+struct VoiceNowPlayingBar: View {
+    let player: VoicePlayer
+
+    var body: some View {
+        if let source = player.source, isShown {
+            HStack(spacing: 12) {
+                Image(systemName: isFailed ? "exclamationmark.triangle.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isFailed ? AppColor.error : AppColor.accentText)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isFailed ? "Couldn’t read aloud" : title(source))
+                        .chirpFont(14, .semibold)
+                        .foregroundStyle(Tokens.Color.ink)
+                        .lineLimit(1)
+                    Text(VoiceStatus.text(player.state) ?? "")
+                        .chirpFont(12.5)
+                        .monospacedDigit()
+                        .foregroundStyle(isFailed ? AppColor.error : Tokens.Color.secondary)
+                        .lineLimit(isFailed ? 3 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 4)
+                controls
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(CardBackground(radius: Tokens.Radius.m))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Read aloud")
+        }
+    }
+
+    @ViewBuilder private var controls: some View {
+        if isFailed {
+            Button {
+                Task { await player.retry() }
+            } label: {
+                CapsuleButtonLabel(title: "Retry", kind: .filled)
+            }
+            .buttonStyle(.plain)
+        } else if case .paused = player.state {
+            iconButton("play.fill", label: "Resume reading") { player.resume() }
+        } else if case .speaking = player.state {
+            iconButton("pause.fill", label: "Pause reading") { player.pause() }
+        } else {
+            ProgressView().controlSize(.small)
+        }
+        iconButton("xmark", label: isFailed ? "Close" : "Stop reading") { player.stop() }
+    }
+
+    private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Tokens.Color.ink)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(AppColor.quietFill))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private var isShown: Bool {
+        switch player.state {
+        case .idle, .needsConfirmation: false
+        default: true
+        }
+    }
+
+    private var isFailed: Bool { VoiceStatus.isFailure(player.state) }
+
+    private func title(_ source: VoiceSource) -> String {
+        [source.title, player.voiceName].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+extension View {
+    /// The now-playing bar above the screen's bottom edge, plus the voice confirmation (only one view on screen
+    /// should present it: pass `confirmationEnabled: false` while this screen shows a sheet that has its own). A
+    /// reading this screen `owns` stops when the screen goes away, so audio never plays without its Stop button.
+    func voiceReading(
+        _ player: VoicePlayer, confirmationEnabled: Bool = true, owns: @escaping (VoiceSource) -> Bool
+    ) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            VoiceNowPlayingBar(player: player)
+        }
+        .voiceConfirmation(for: player, isEnabled: confirmationEnabled)
+        .onDisappear {
+            if let source = player.source, owns(source) { player.stop() }
+        }
+    }
+}
