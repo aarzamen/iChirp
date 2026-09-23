@@ -19,6 +19,10 @@ import Observation
     /// The chain's output name ("Summary"), kept for as long as the chain: Record again shows it on the Dictating
     /// screen's chip again (review M6; `speechOutputTitle` is cleared when that screen closes).
     private(set) var outputTitle: String?
+    /// Text or a link typed into the questions when the sheet went away without Cancel → Discard (a dictation started
+    /// from the Action Button hides the sheet): the next open starts from it, so nothing typed is lost (UX audit F19).
+    /// In memory only, never saved.
+    @ObservationIgnored var keptDraft: CreateDraft?
 
     @ObservationIgnored private var pendingSpeech: (request: CreateRequest, choice: LanguageModelChoice, title: String)?
     @ObservationIgnored private var returnsAfterDictation = false

@@ -31,8 +31,10 @@ Before any engine processes an item, the caller asks
 | `localNetwork` (e.g. Ollama on the owner's Mac) | allowed | allowed only if the host is in the user's trusted list, or with a per-run override |
 | `cloud` | allowed (the user configured the provider) | **only with an explicit per-run override** |
 
-- An override is a deliberate, per-run confirmation ("Send this clinical transcript to <provider>?"), never a
-  remembered setting. The app logs that an override happened (engine, time, item id; host private) and records it in
+- An override is a deliberate, per-run confirmation ("Send this clinical text to <provider>?"), never a
+  remembered setting. When the item is not itself marked clinical, the question says why it counts as clinical ("Marked
+  Personal, but it counts as clinical because a SOAP note was made from it.", "The SOAP note template makes clinical
+  documents."; `ClinicalRunReason`), and the voice questions do the same (`EffectivePrivacyExplanation`). The app logs that an override happened (engine, time, item id; host private) and records it in
   the run ledger (`llm_runs.privacyOverride`), **never the content**. In code it is a `PrivacyOverride` token that
   only `DeliverableService.confirmOverride` mints, bound to one transcript, engine, host, locality and class, used
   once, valid 10 minutes (M4).
@@ -147,7 +149,7 @@ contract that proves no content or identifiers leave the device.
   issues, or chat transcripts.
 - Exports and shares are user actions; the app never shares automatically. Copy of a transcript or a generated
   document is local-only (`UIPasteboard` `.localOnly`), so it never reaches Universal Clipboard.
-- The clinical confirmation (M4) is shown per run, titled "Send this clinical transcript to <provider>?"; only its
+- The clinical confirmation (M4) is shown per run, titled "Send this clinical text to <provider>?"; only its
   Send button mints the override (enforced by `AppTests/ClinicalConfirmationTests`). Lowering a transcript from
   Clinical asks first. The first contact with a Mac shows iOS's local-network prompt (`NSLocalNetworkUsageDescription`);
   App Transport Security allows plain http only to local hosts (`NSAllowsLocalNetworking`).

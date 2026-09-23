@@ -22,7 +22,7 @@ import SwiftUI
 }
 
 /// The per-run question before clinical text goes to a cloud or untrusted home-network model. The title and message
-/// come from the service's `PrivacyOverrideRequest` ("Send this clinical transcript to Claude?"); the answer is never
+/// come from the service's `PrivacyOverrideRequest` ("Send this clinical text to Claude?"); the answer is never
 /// remembered, so the next run asks again.
 struct ClinicalConfirmationModifier: ViewModifier {
     let run: DeliverableRunViewModel?
@@ -40,7 +40,8 @@ struct ClinicalConfirmationModifier: ViewModifier {
                 answeredRequestID = request.id
                 if let run { ClinicalConfirmationActions(run: run).userTappedCancel() }
             }
-            Button("Send") {
+            // The choice that sends clinical text away looks like one (UX audit F46).
+            Button("Send", role: .destructive) {
                 answeredRequestID = request.id
                 guard let run else { return }
                 Task { await ClinicalConfirmationActions(run: run).userTappedSend() }

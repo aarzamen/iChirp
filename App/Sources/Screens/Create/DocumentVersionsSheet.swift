@@ -8,6 +8,7 @@ import SwiftUI
 /// new version; nothing is ever overwritten or removed.
 struct DocumentVersionsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     let onRestored: () -> Void
 
     @State private var model: DocumentVersionsViewModel
@@ -68,20 +69,29 @@ struct DocumentVersionsSheet: View {
     private func row(_ version: DeliverableVersion) -> some View {
         let isCurrent = model.currentVersionNumber == version.versionNumber
         let isExpanded = expanded.contains(version.versionNumber)
+        // At accessibility sizes the heading, the Current badge and the time stack instead of squeezing into one line.
+        let stacked = typeSize.isAccessibilitySize
+        let header =
+            stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            header {
                 Text("Version \(version.versionNumber)")
                     .chirpFont(15, .semibold)
                     .foregroundStyle(Tokens.Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if isCurrent {
                     Text("Current")
                         .chirpFont(11, .bold)
                         .foregroundStyle(Tokens.Color.privacyBadgeInk)
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, 8)
                         .frame(minHeight: 20)
                         .background(Capsule().fill(Tokens.Color.privacyBadgeFill))
                 }
-                Spacer(minLength: 8)
+                if !stacked { Spacer(minLength: 8) }
                 Text(Formatting.day(version.createdAt) + " " + Formatting.timeOfDay(version.createdAt))
                     .chirpFont(12)
                     .foregroundStyle(Tokens.Color.secondary)
@@ -89,6 +99,12 @@ struct DocumentVersionsSheet: View {
             Label(Self.origin(version), systemImage: Self.symbol(version.origin))
                 .chirpFont(12.5, .semibold)
                 .foregroundStyle(AppColor.accentText)
+            if let change = Self.changeSummary(version.text, previous: previousText(of: version)) {
+                Text(change)
+                    .chirpFont(12.5)
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .accessibilityLabel("Changes from the version before: \(change)")
+            }
             if let instruction = version.instruction {
                 Text("“\(instruction)”")
                     .chirpFont(13.5)
@@ -101,18 +117,27 @@ struct DocumentVersionsSheet: View {
                 .foregroundStyle(Tokens.Color.secondary)
                 .lineLimit(isExpanded ? nil : 3)
                 .textSelection(.enabled)
-            HStack(spacing: 10) {
-                Button(isExpanded ? "Show less" : "Show all") {
+            (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 10)))
+            {
+                Button {
                     if isExpanded {
                         expanded.remove(version.versionNumber)
                     } else {
                         expanded.insert(version.versionNumber)
                     }
+                } label: {
+                    Text(isExpanded ? "Show less" : "Show all")
+                        .chirpFont(13, .semibold)
+                        .foregroundStyle(AppColor.accentText)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // the hit area (UX audit F29)
+                        .contentShape(Rectangle())
                 }
-                .chirpFont(13, .semibold)
-                .foregroundStyle(AppColor.accentText)
-                .frame(minHeight: 32)
-                Spacer(minLength: 0)
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    isExpanded
+                        ? "Show less of version \(version.versionNumber)"
+                        : "Show all of version \(version.versionNumber)")
+                if !stacked { Spacer(minLength: 0) }
                 if !isCurrent {
                     Button {
                         Task {
@@ -131,6 +156,26 @@ struct DocumentVersionsSheet: View {
             CardBackground(
                 radius: Tokens.Radius.m, fill: Tokens.Color.surface,
                 stroke: isCurrent ? AppColor.tintStrokeSelected : Tokens.Color.border))
+    }
+
+    private func previousText(of version: DeliverableVersion) -> String? {
+        model.versions.first { $0.versionNumber == version.versionNumber - 1 }?.text
+    }
+
+    /// What changed from the version before, in lines (UX audit F30): "2 lines changed, 1 added", "1 line removed",
+    /// "No text changes"; nil for the first version.
+    static func changeSummary(_ text: String, previous: String?) -> String? {
+        guard let previous else { return nil }
+        let difference = text.components(separatedBy: "\n").difference(from: previous.components(separatedBy: "\n"))
+        let added = difference.insertions.count
+        let removed = difference.removals.count
+        let changed = min(added, removed)
+        let counts = [(changed, "changed"), (added - changed, "added"), (removed - changed, "removed")]
+            .filter { $0.0 > 0 }
+        guard let first = counts.first else { return "No text changes" }
+        // The first count names the unit ("2 lines changed"); the rest follow it (", 1 added").
+        let head = "\(first.0) \(first.0 == 1 ? "line" : "lines") \(first.1)"
+        return ([head] + counts.dropFirst().map { "\($0.0) \($0.1)" }).joined(separator: ", ")
     }
 
     /// "Original", "Your edit", "By voice · on this iPhone", "Typed instruction · Claude", "Restored version 1".

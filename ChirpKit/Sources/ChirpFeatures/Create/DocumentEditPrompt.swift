@@ -26,4 +26,20 @@ extension DeliverablePromptAssembler {
             prompt: "<document>\n\(document)\n</document>\n\nInstruction: \(instruction)",
             privacyClass: privacyClass, maxOutputTokens: maxOutputTokens)
     }
+
+    /// The model's rewrite without the `<document>` … `</document>` wrapper `editRequest` put around the text: models
+    /// often echo it, and it must never be saved into the next version (UX audit F32; every later edit would carry it
+    /// again). Only a wrapper at the very start or end goes, in any letter case; the tags anywhere else stay as written.
+    static func unwrappedEdit(_ written: String) -> String {
+        let open = "<document>"
+        let close = "</document>"
+        var text = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.lowercased().hasPrefix(open) {
+            text = String(text.dropFirst(open.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if text.lowercased().hasSuffix(close) {
+            text = String(text.dropLast(close.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text
+    }
 }

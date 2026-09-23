@@ -91,7 +91,8 @@ struct ShareText: Identifiable {
     let text: String
 }
 
-/// The running or finished Transform: status, streaming text, then the editable document with Copy and Share.
+/// The running or finished Transform: status, streaming text, then the editable document with Copy and Share. A run in
+/// progress is never dropped silently (UX audit F38): Done asks "Stop writing this document?" and swipe-down is off.
 struct TransformRunView: View {
     @Environment(AppEnvironment.self) private var environment
     let host: TransformRunHost
@@ -103,6 +104,12 @@ struct TransformRunView: View {
 
     @State private var shareText: ShareText?
     @State private var copied = false
+    @State private var isConfirmingStop = false
+
+    /// Done closes a finished or stopped run at once; a run still writing asks first (nothing is saved until it ends).
+    static func doneDecision(_ phase: DeliverableRunViewModel.Phase) -> DiscardDecision {
+        DiscardDecision.onCancel(hasInput: RunStatus.isActive(phase))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -140,8 +147,28 @@ struct TransformRunView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Done", action: onDone).bold()
+                Button("Done") {
+                    switch Self.doneDecision(run.phase) {
+                    case .close: onDone()
+                    case .ask: isConfirmingStop = true
+                    }
+                }
+                .bold()
             }
+        }
+        .interactiveDismissDisabled(RunStatus.isActive(run.phase))
+        // A run that ends while "Stop writing this document?" is up: the question no longer applies.
+        .onChange(of: RunStatus.isActive(run.phase)) { _, active in
+            if !active { isConfirmingStop = false }
+        }
+        .confirmationDialog("Stop writing this document?", isPresented: $isConfirmingStop, titleVisibility: .visible) {
+            Button("Stop and Close", role: .destructive) {
+                host.cancel()
+                onDone()
+            }
+            Button("Keep Writing", role: .cancel) {}
+        } message: {
+            Text("Nothing is saved until it finishes.")
         }
         .sheet(item: $shareText) { item in
             ActivityView(items: [item.text])
@@ -164,12 +191,13 @@ struct TransformRunView: View {
                 // The real route once the router has answered; the chosen model before that.
                 if let route = run.route {
                     LocalityChip(
-                        text: "Runs \(ModelPlace.phrase(for: route))",
+                        text: "Runs \(route.placeWithName)",
                         staysPrivate: route.locality == .onDevice
                             || (route.locality == .localNetwork && request.choice.isTrustedForClinical))
                     PrivacyClassBadge(privacyClass: route.privacyClass)
                 } else {
-                    LocalityChip(text: "Runs \(request.choice.place)", staysPrivate: request.choice.staysPrivate)
+                    LocalityChip(
+                        text: "Runs \(request.choice.placeWithName)", staysPrivate: request.choice.staysPrivate)
                 }
             }
         }
@@ -284,8 +312,11 @@ struct TransformRunView: View {
         VStack(spacing: 4) {
             Image(systemName: systemImage)
                 .font(.system(size: 19, weight: .medium))
+                .frame(height: 22)  // one icon box for every bar item, so the labels line up (UX audit F40)
             Text(title)
                 .chirpFont(11, .semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
         .foregroundStyle(Tokens.Color.ink)
         .frame(maxWidth: .infinity, minHeight: 58)

@@ -4,8 +4,9 @@ import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
-/// One generated document from the Transforms tab: the editable text, where it came from (template and version,
-/// provider, model, where it ran, privacy class), Copy, Share and Delete (with confirmation).
+/// One generated document from the Transforms tab: title and privacy class, Edit by voice and Versions, the editable
+/// text, then where it came from under "Details" (template and version, provider, model, where it ran; UX audit F34),
+/// Copy, Share (PDF, Word, Text, Voice message…) and Delete (with confirmation).
 struct DeliverableDetailScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -16,7 +17,7 @@ struct DeliverableDetailScreen: View {
     @State private var confirmingDelete = false
     @State private var copied = false
     @State private var deleteError: String?
-    /// Plan 022: More → Save as voice message.
+    /// Plan 022: Share → Voice message… (the same place and words as on transcripts and documents; UX audit F37).
     @State private var voiceMessage: VoiceMessageJob?
     /// Plan 022 Step 6: a PDF or Word copy for the share sheet.
     @State private var shareFile: ShareItem?
@@ -24,6 +25,8 @@ struct DeliverableDetailScreen: View {
     /// Plan 022 Step 4: Edit by voice and the Versions sheet.
     @State private var isEditingByVoice = false
     @State private var isShowingVersions = false
+    /// The provenance card under "Details".
+    @State private var isShowingDetails = false
 
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
@@ -38,10 +41,7 @@ struct DeliverableDetailScreen: View {
                         .chirpTitleFont(24, .heavy)
                         .foregroundStyle(Tokens.Color.ink)
                         .accessibilityAddTraits(.isHeader)
-                    DeliverableMetadataCard(
-                        rows: Self.metadata(
-                            deliverable, versionNumber: document.templateVersionNumber,
-                            sourceTitle: sourceTitle(deliverable)))
+                    PrivacyClassBadge(privacyClass: deliverable.privacyClass)
                     if deliverable.privacyClass == .clinical {
                         ClinicalDraftNote()
                     }
@@ -53,6 +53,21 @@ struct DeliverableDetailScreen: View {
                             .chirpFont(12)
                             .foregroundStyle(AppColor.error)
                     }
+                    // Provenance after the text, folded (UX audit F34): the document is what you came for.
+                    DisclosureGroup(isExpanded: $isShowingDetails) {
+                        DeliverableMetadataCard(
+                            rows: Self.metadata(
+                                deliverable, versionNumber: document.templateVersionNumber,
+                                sourceTitle: sourceTitle(deliverable))
+                        )
+                        .padding(.top, 8)
+                    } label: {
+                        Text("Details")
+                            .chirpFont(15, .semibold)
+                            .foregroundStyle(Tokens.Color.ink)
+                            .frame(minHeight: 44, alignment: .leading)
+                    }
+                    .tint(AppColor.accentText)
                 } else if let error = document.loadError {
                     EmptyStateView(title: "Couldn’t open this document", message: error)
                 } else if document.isDeleted {
@@ -87,24 +102,25 @@ struct DeliverableDetailScreen: View {
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
+                // One Share order on every screen: PDF, Word, Text, Voice message… (UX audit F37, F54).
                 Menu {
-                    Button("Text") { shareText = ShareText(text: document.draft) }
                     // Plan 022 Step 6: the document as edited now, as a PDF or Word file.
                     ForEach(DocumentExportFormat.allCases, id: \.self) { format in
                         Button(format.displayName) { shareDocument(format) }
                     }
-                } label: {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
-                Menu {
+                    Button("Text") { shareText = ShareText(text: document.draft) }
+                    Divider()
                     Button {
                         voiceMessage = document.deliverable.flatMap {
                             VoiceMessageJob.deliverable($0, text: document.draft)
                         }
                     } label: {
-                        Label("Save as voice message", systemImage: "waveform.badge.plus")
+                        Label("Voice message…", systemImage: "waveform.badge.plus")
                     }
-                    Divider()
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                Menu {
                     Button(role: .destructive) {
                         confirmingDelete = true
                     } label: {
@@ -159,34 +175,44 @@ struct DeliverableDetailScreen: View {
         }
     }
 
-    /// Plan 022 Step 4: Edit by voice (a new version, never an overwrite) and the version list.
+    /// Plan 022 Step 4: Edit by voice (a new version, never an overwrite) and the version list; stacked when they do
+    /// not fit side by side (large text).
     private var editActions: some View {
-        HStack(spacing: 10) {
-            Button {
-                isEditingByVoice = true
-            } label: {
-                Label("Edit by voice", systemImage: "mic.fill")
-                    .chirpFont(14, .bold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 38)
-                    .background(Capsule().fill(Tokens.Color.accentInk))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                editButtons
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("Say or type what to change. The result is saved as a new version.")
-            Button {
-                isShowingVersions = true
-            } label: {
-                Label("Versions", systemImage: "clock.arrow.circlepath")
-                    .chirpFont(14, .semibold)
-                    .foregroundStyle(AppColor.accentText)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 38)
-                    .background(Capsule().fill(AppColor.tintFill))
-            }
-            .buttonStyle(.plain)
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 8) { editButtons }
         }
+    }
+
+    @ViewBuilder private var editButtons: some View {
+        Button {
+            isEditingByVoice = true
+        } label: {
+            Label("Edit by voice", systemImage: "mic.fill")
+                .chirpFont(14, .bold)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 44)  // UX audit F36
+                .background(Capsule().fill(Tokens.Color.accentInk))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Say or type what to change. The result is saved as a new version.")
+        Button {
+            isShowingVersions = true
+        } label: {
+            Label("Versions", systemImage: "clock.arrow.circlepath")
+                .chirpFont(14, .semibold)
+                .foregroundStyle(AppColor.accentText)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(Capsule().fill(AppColor.tintFill))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// The document's title, provenance and text (as edited now) into `<tmp>/export-<transcript id>/`, which goes with
@@ -248,12 +274,21 @@ struct DeliverableDetailScreen: View {
         }
     }
 
+    /// The model row's value, or nil when it would only repeat the provider (UX audit F35: Apple's model reports the
+    /// internal id "apple-on-device", and the Provider row already says "Apple on-device model") or was not reported.
+    static func modelLabel(_ model: String?) -> String? {
+        guard let model = model?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty,
+            model != "apple-on-device"
+        else { return nil }
+        return model
+    }
+
     /// The provenance rows, in reading order.
     static func metadata(_ deliverable: Deliverable, versionNumber: Int?, sourceTitle: String) -> [(String, String)] {
         var rows: [(String, String)] = [("From", sourceTitle)]
         rows.append(("Template", versionNumber.map { "\(deliverable.title) · version \($0)" } ?? deliverable.title))
         rows.append(("Provider", deliverable.provider))
-        rows.append(("Model", deliverable.model ?? "Not reported"))
+        if let model = modelLabel(deliverable.model) { rows.append(("Model", model)) }
         rows.append(
             ("Ran", ModelPlace.phrase(locality: deliverable.locality, name: deliverable.provider).capitalizedFirst))
         rows.append(("Privacy", deliverable.privacyClass.title))
@@ -265,8 +300,10 @@ struct DeliverableDetailScreen: View {
     }
 }
 
-/// Label/value rows in a card.
+/// Label/value rows in a card; the label goes above its value at accessibility text sizes.
 struct DeliverableMetadataCard: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .subheadline) private var labelWidth: CGFloat = 76
     let rows: [(String, String)]
 
     var body: some View {
@@ -275,11 +312,15 @@ struct DeliverableMetadataCard: View {
                 if index > 0 {
                     Rectangle().fill(AppColor.quietFill).frame(height: 1)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                let layout =
+                    typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                    : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 10))
+                layout {
                     Text(row.0)
                         .chirpFont(13)
                         .foregroundStyle(Tokens.Color.secondary)
-                        .frame(width: 76, alignment: .leading)
+                        .frame(width: typeSize.isAccessibilitySize ? nil : labelWidth, alignment: .leading)
                     Text(row.1)
                         .chirpFont(13.5, .medium)
                         .foregroundStyle(Tokens.Color.ink)

@@ -49,6 +49,11 @@ struct CreateDraft: Equatable {
         guard let input = createInput, let output = choices.createOutput else { return nil }
         return CreateRequest(input: input, output: output, privacyClass: choices.privacyClass)
     }
+
+    /// Typed text or a pasted link that closing the sheet would lose (UX audit F19), whichever input is selected.
+    var hasUnsavedInput: Bool {
+        DiscardDecision.holdsInput(text) || DiscardDecision.holdsInput(link)
+    }
 }
 
 /// Whether the sheet can start, and if not, the one sentence that says why (honest states: no model, no voice, no
@@ -68,7 +73,7 @@ enum CreateReadiness {
         case .link:
             let kind = LinkClassifier.classify(draft.link)
             if !kind.isActionable {
-                return draft.link.isEmpty ? "Paste a podcast, YouTube or audio link." : kind.detail
+                return draft.link.isEmpty ? "Paste a podcast, YouTube or web link." : kind.detail
             }
         case .file where draft.file == nil:
             return "Choose a file."
@@ -110,10 +115,10 @@ extension CreateInputKind {
 
     var subtitle: String {
         switch self {
-        case .speak: "Dictate it now"
+        case .speak: "Record your voice"
         case .text: "Notes, any text"
-        case .link: "Podcast, YouTube"
-        case .file: "Audio, video, PDF"
+        case .link: "Podcast, YouTube, web link"
+        case .file: "Audio, video, PDF, Word"
         }
     }
 
@@ -142,7 +147,7 @@ extension CreateChoices.OutputKind {
         case .transcript: "The text itself"
         case .summary: "The key points"
         case .document: "Notes, SOAP, more"
-        case .voiceMessage: "Spoken, as an .m4a"
+        case .voiceMessage: "An audio file you can send"
         }
     }
 
@@ -157,6 +162,8 @@ extension CreateChoices.OutputKind {
 }
 
 /// One answer tile in the Create sheet: an icon tile, a title and a short line; the chosen one is tinted and ticked.
+/// Title and line wrap to two lines instead of shrinking or cutting off (UX audit F18); the sheet puts the tiles in one
+/// column at large text sizes (`CreateOptionTile.columns`).
 struct CreateOptionTile: View {
     let title: String
     let subtitle: String
@@ -180,14 +187,15 @@ struct CreateOptionTile: View {
                     Text(title)
                         .chirpFont(14.5, .semibold)
                         .foregroundStyle(Tokens.Color.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(subtitle)
                         .chirpFont(11.5)
                         .foregroundStyle(Tokens.Color.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.vertical, 8)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 11)
@@ -211,6 +219,11 @@ struct CreateOptionTile: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
+    }
+
+    /// Two columns, or one from XX Large text up, so a title never has to be cut off.
+    static func columns(for size: DynamicTypeSize) -> Int {
+        size >= .xxLarge ? 1 : 2
     }
 }
 
@@ -246,11 +259,12 @@ struct CreateNextChip: View {
                 .font(.system(size: 11, weight: .bold))
                 .accessibilityHidden(true)
             Text("Then: \(title)")
-                .font(.system(size: 12.5, weight: .semibold))
+                .chirpFont(12.5, .semibold)
         }
         .foregroundStyle(Tokens.Color.dictationAccent)
         .padding(.horizontal, 12)
-        .frame(height: 28)
+        .padding(.vertical, 4)
+        .frame(minHeight: 28)
         .background(Capsule().fill(.white.opacity(0.10)))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)

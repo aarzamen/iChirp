@@ -35,7 +35,7 @@ final class ClinicalConfirmationTests: XCTestCase {
             pattern: #"\.userTappedSend\(\)"#, under: repo.appendingPathComponent("App/Sources"))
         XCTAssertEqual(send.matches.map(\.file), ["ClinicalConfirmation.swift"], "userTappedSend has one caller")
         XCTAssertTrue(
-            send.matches.first?.before.contains(#"Button("Send") {"#) == true,
+            send.matches.first?.before.contains(#"Button("Send", role: .destructive) {"#) == true,
             "that caller is the Send button's action")
 
         let kit = try Self.codeMatches(
@@ -55,7 +55,7 @@ final class ClinicalConfirmationTests: XCTestCase {
         await host.start(request)
         let first = try XCTUnwrap(host.run)
         guard case .needsConfirmation(let asked) = first.phase else { return XCTFail("\(first.phase)") }
-        XCTAssertEqual(asked.title, "Send this clinical transcript to Synthetic Cloud?")
+        XCTAssertEqual(asked.title, "Send this clinical text to Synthetic Cloud?")
         try await harness.assertNothingSent("after start")
 
         // Stop / closing the sheet while the dialog is up.

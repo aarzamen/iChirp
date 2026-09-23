@@ -37,38 +37,58 @@ extension PrivacyClass {
     }
 }
 
-/// A small capsule naming a privacy class; clinical is emphasized.
+/// A small capsule naming a privacy class; clinical is emphasized. `text` replaces the class name with a longer label
+/// ("Clinical (it has a SOAP note)"), which may wrap to two lines.
 struct PrivacyClassBadge: View {
     let privacyClass: PrivacyClass
+    var text: String?
 
     var body: some View {
-        Label(privacyClass.title, systemImage: privacyClass.systemImage)
+        Label(text ?? privacyClass.title, systemImage: privacyClass.systemImage)
             .labelStyle(.titleAndIcon)
             .chirpFont(11.5, .semibold)
-            .lineLimit(1)
-            .fixedSize()
+            .lineLimit(text == nil ? 1 : 2)
+            .fixedSize(horizontal: text == nil, vertical: true)
             .foregroundStyle(privacyClass == .clinical ? Tokens.Color.privacyBadgeInk : Tokens.Color.secondary)
             .padding(.horizontal, 9)
+            .padding(.vertical, text == nil ? 0 : 3)
             .frame(minHeight: 24)
             .background(
                 Capsule().fill(privacyClass == .clinical ? Tokens.Color.privacyBadgeFill : AppColor.quietFill)
             )
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Privacy: \(privacyClass.title)")
+            .accessibilityLabel("Privacy: \(text ?? privacyClass.title)")
     }
 }
 
-/// The Transcript screen's privacy-class control. Changes go through `DeliverableService.setPrivacyClass` (the
-/// caller's `apply`), which also raises the transcript's documents. Lowering a clinical transcript asks first.
+/// The Transcript and Document screens' privacy-class control. Changes go through `DeliverableService.setPrivacyClass`
+/// (the caller's `apply`), which also raises the transcript's documents. Lowering a clinical transcript asks first.
+///
+/// UX audit F51: with `effective`, the badge shows the class the privacy rules use and why it is stricter than the mark
+/// ("Clinical (it has a SOAP note)"), and the menu says so above the choices, so a label never reads "Personal" while
+/// Listen or Transform asks about clinical text. The menu still sets the item's own mark (`current`).
 struct PrivacyClassControl: View {
     let current: PrivacyClass
+    /// The class as the routers use it (`EffectivePrivacyExplanation`); nil shows `current` only.
+    var effective: EffectivePrivacyExplanation?
     let apply: (PrivacyClass) async throws -> Void
 
     @State private var pendingLowering: PrivacyClass?
     @State private var error: String?
 
+    /// The raised explanation, when the effective class is stricter than the mark.
+    private var raised: EffectivePrivacyExplanation? {
+        guard let effective, effective.isRaised, effective.stored == current else { return nil }
+        return effective
+    }
+
     var body: some View {
         Menu {
+            // Why the badge reads stricter than the mark, above the choices (a menu shows text as an inert line).
+            if let sentence = raised?.sentence {
+                Text(sentence)
+                Divider()
+            }
             Picker("Privacy", selection: Binding(get: { current }, set: { choose($0) })) {
                 ForEach(PrivacyClass.allCases, id: \.self) { value in
                     Label {
@@ -82,7 +102,7 @@ struct PrivacyClassControl: View {
             }
         } label: {
             HStack(spacing: 3) {
-                PrivacyClassBadge(privacyClass: current)
+                PrivacyClassBadge(privacyClass: raised?.effective ?? current, text: raised?.label)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(Tokens.Color.secondary)
@@ -91,7 +111,9 @@ struct PrivacyClassControl: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .accessibilityLabel("Privacy class: \(current.title)")
+        .accessibilityLabel(
+            raised.map { "Privacy class: \($0.label). Marked \(current.title)" } ?? "Privacy class: \(current.title)"
+        )
         .accessibilityHint("Changes who may read this transcript")
         .alert(
             "Mark as \(pendingLowering?.title ?? "")?",
@@ -207,7 +229,8 @@ struct TemplateRow: View {
 
 // MARK: - Model choice and locality
 
-/// The locality chip: where content goes. Green lock when it stays on the iPhone or a trusted Mac.
+/// The locality chip: where content goes. Green lock when it stays on the iPhone or a trusted Mac. The text wraps to a
+/// second line rather than hiding the model's name.
 struct LocalityChip: View {
     let text: String
     let staysPrivate: Bool
@@ -221,10 +244,12 @@ struct LocalityChip: View {
             Text(text)
                 .chirpFont(12.5, .semibold)
                 .foregroundStyle(Tokens.Color.ink)
-                .lineLimit(1)
+                .lineLimit(2)
                 .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 10)
+        .padding(.vertical, 4)
         .frame(minHeight: 28)
         .background(Capsule().fill(staysPrivate ? Tokens.Color.privacyBadgeFill.opacity(0.7) : AppColor.quietFill))
     }
@@ -233,6 +258,20 @@ struct LocalityChip: View {
 extension LanguageModelChoice {
     /// Content stays on the iPhone or a Mac the user trusted.
     var staysPrivate: Bool { isTrustedForClinical }
+
+    /// Where it runs and which model (UX audit F41): "on this iPhone · Apple on-device model". A home-network or cloud
+    /// place already names it ("in the cloud (Claude)").
+    var placeWithName: String {
+        locality == .onDevice ? "\(place) · \(name)" : place
+    }
+}
+
+extension ModelRoute {
+    /// A run's real route with the model's name when the place does not say it: "on this iPhone · Apple on-device model".
+    var placeWithName: String {
+        let place = ModelPlace.phrase(for: self)
+        return locality == .onDevice ? "\(place) · \(providerName)" : place
+    }
 }
 
 /// A menu chip that picks the model for this run: "Runs on this iPhone ▾". Lists Apple's model, the downloaded small
@@ -271,7 +310,7 @@ struct ModelChoiceMenu: View {
             }
         } label: {
             HStack(spacing: 4) {
-                LocalityChip(text: "\(prefix) \(choice.place)", staysPrivate: choice.staysPrivate)
+                LocalityChip(text: "\(prefix) \(choice.placeWithName)", staysPrivate: choice.staysPrivate)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(Tokens.Color.secondary)
@@ -280,7 +319,7 @@ struct ModelChoiceMenu: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .accessibilityLabel("\(prefix) \(choice.place)")
+        .accessibilityLabel("\(prefix) \(choice.placeWithName)")
         .accessibilityHint("Chooses the model")
     }
 }

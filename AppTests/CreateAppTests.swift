@@ -25,7 +25,7 @@ final class CreateAppTests: XCTestCase {
         let tap = try ClinicalConfirmationTests.codeMatches(
             pattern: #"\.userTappedMakeVoiceMessage\("#, under: repo.appendingPathComponent("App/Sources"))
         XCTAssertEqual(tap.matches.map(\.file), ["VoiceMessageViews.swift"], "one caller")
-        XCTAssertTrue(tap.matches.first?.before.contains(#"Button("Send") {"#) == true, "the Send button's action")
+        XCTAssertTrue(tap.matches.first?.before.contains(#"Button("Send", role: .destructive) {"#) == true, "the Send button's action")
 
         let kit = try ClinicalConfirmationTests.codeMatches(
             pattern: #"\.confirmPendingSynthesis\("#, under: repo.appendingPathComponent("ChirpKit/Sources"))

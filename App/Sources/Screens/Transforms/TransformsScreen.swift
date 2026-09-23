@@ -3,8 +3,9 @@ import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
-/// Tab 3: recent generated documents (open one to read, edit, copy or share it) and every template (tap one to run it
-/// on a transcript). Transcript → Transform runs the same templates on the transcript at hand.
+/// Tab 3: the generated documents, newest first, a page at a time ("Show more" reaches every one; UX audit F43), and
+/// every template (tap one to run it on a transcript). Transcript → Transform runs the same templates on the transcript
+/// at hand.
 struct TransformsScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var launching: PromptTemplate?
@@ -34,7 +35,7 @@ struct TransformsScreen: View {
                             .foregroundStyle(AppColor.error)
                             .padding(.top, 12)
                     }
-                    recentSection(library.recent)
+                    recentSection(library.recent, hasMore: library.hasMore)
                     templateSection("Documents", library.documentTemplates)
                     templateSection("Rewrites", library.transformTemplates)
                 }
@@ -56,7 +57,7 @@ struct TransformsScreen: View {
         }
     }
 
-    @ViewBuilder private func recentSection(_ recent: [Deliverable]) -> some View {
+    @ViewBuilder private func recentSection(_ recent: [Deliverable], hasMore: Bool) -> some View {
         SectionLabel("Recent documents")
             .padding(.leading, 4)
             .padding(.top, 20)
@@ -68,12 +69,27 @@ struct TransformsScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .chirpCard(radius: Tokens.Radius.m, padding: 14)
         } else {
-            VStack(spacing: 8) {
+            LazyVStack(spacing: 8) {
                 ForEach(recent) { deliverable in
                     NavigationLink(value: deliverable.id) {
                         DeliverableRow(deliverable: deliverable, sourceTitle: sourceTitle(deliverable))
                     }
                     .buttonStyle(.plain)
+                }
+                if hasMore {
+                    Button {
+                        Task { await environment.deliverableLibrary.showMore() }
+                    } label: {
+                        Text("Show older documents")
+                            .chirpFont(14, .semibold)
+                            .foregroundStyle(AppColor.accentText)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Capsule().fill(AppColor.tintFill))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                    .accessibilityHint("Adds the next older documents to this list")
                 }
             }
         }

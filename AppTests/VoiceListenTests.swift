@@ -64,7 +64,7 @@ final class VoiceListenTests: XCTestCase {
             pattern: #"\.userTappedReadAloud\("#, under: repo.appendingPathComponent("App/Sources"))
         XCTAssertEqual(tap.matches.map(\.file), ["VoiceViews.swift"], "userTappedReadAloud has one caller")
         XCTAssertTrue(
-            tap.matches.first?.before.contains(#"Button("Read aloud") {"#) == true,
+            tap.matches.first?.before.contains(#"Button("Read aloud", role: .destructive) {"#) == true,
             "that caller is the Read aloud button's action")
 
         let kit = try ClinicalConfirmationTests.codeMatches(

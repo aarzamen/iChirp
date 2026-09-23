@@ -29,22 +29,29 @@ public struct ModelRoute: Sendable, Equatable {
 public struct PrivacyOverrideRequest: Sendable, Equatable, Identifiable {
     public let id: UUID
     public let route: ModelRoute
+    /// Why the run counts as clinical when the item is not marked so, in words ("Marked Personal, but it counts as
+    /// clinical because a SOAP note was made from it."): `ClinicalRunReason`. Nil when the item is marked clinical.
+    public var reason: String? = nil
 
-    /// "Send this clinical transcript to Claude?"
+    /// "Send this clinical text to Claude?" (the item may be a transcript, a typed text or a document; UX audit F33).
     public var title: String {
-        "Send this clinical transcript to \(route.providerName)?"
+        "Send this clinical text to \(route.providerName)?"
     }
 
     public var message: String {
-        switch route.locality {
-        case .cloud:
-            "It will leave this iPhone and go to \(route.providerName) over the internet. This applies to this run only."
-        case .localNetwork:
-            "It will go to \(route.host ?? "a computer") on your network, which you have not marked as trusted. "
-                + "This applies to this run only."
-        case .onDevice:
-            "It stays on this iPhone."
-        }
+        let destination =
+            switch route.locality {
+            case .cloud:
+                "It will leave this iPhone and go to \(route.providerName) over the internet. This applies to this run "
+                    + "only."
+            case .localNetwork:
+                "It will go to \(route.host ?? "a computer") on your network, which you have not marked as trusted. "
+                    + "This applies to this run only."
+            case .onDevice:
+                "It stays on this iPhone."
+            }
+        guard let reason else { return destination }
+        return reason + " " + destination
     }
 }
 
@@ -224,16 +231,19 @@ public actor DeliverableService {
             throw DeliverableError.transcriptNotFound
         }
         var outputClass: PrivacyClass?
+        var templateOutput: ClinicalRunReason.Output?
         if let templateID {
             guard let template = try await deliverables.fetchTemplate(id: templateID) else {
                 throw DeliverableError.templateNotFound
             }
             outputClass = template.outputPrivacyClass
+            templateOutput = template.outputPrivacyClass.map { ($0, template.name, false) }
         }
         let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
         let route = makeRoute(transcription, baseClass: effective, outputClass: outputClass, model: model)
         if isAllowed(route, model: model, override: false) { return .allowed(route) }
-        return .needsOverride(issueRequest(for: route))
+        let reason = await clinicalReason(transcription, output: templateOutput)
+        return .needsOverride(issueRequest(for: route, reason: reason))
     }
 
     /// The user confirmed `request`: returns the single-use token for that route.
@@ -271,10 +281,20 @@ public actor DeliverableService {
         routingPolicy().allows(model.descriptor, for: route.privacyClass, host: route.host, userOverride: override)
     }
 
-    private func issueRequest(for route: ModelRoute) -> PrivacyOverrideRequest {
-        let request = PrivacyOverrideRequest(id: UUID(), route: route)
+    private func issueRequest(for route: ModelRoute, reason: String? = nil) -> PrivacyOverrideRequest {
+        let request = PrivacyOverrideRequest(id: UUID(), route: route, reason: reason)
         pendingRequests[request.id] = request
         return request
+    }
+
+    /// The question's reason in words: why this run counts as clinical (`ClinicalRunReason`). Best effort: when the
+    /// documents cannot be read the question is asked without it (routing never depends on it).
+    private func clinicalReason(_ transcription: Transcription, output: ClinicalRunReason.Output?) async -> String? {
+        guard let made = try? await deliverables.fetchDeliverables(transcriptionID: transcription.id) else {
+            return nil
+        }
+        return ClinicalRunReason.sentence(
+            EffectivePrivacyExplanation(transcription, deliverables: made), output: output)
     }
 
     /// Uses up `token` if it is unused, unexpired and for exactly `route`. A token is gone after one attempt.
@@ -406,7 +426,12 @@ public actor DeliverableService {
         if !isAllowed(route, model: model, override: false) {
             overrideUsed = consume(token, for: route)
             guard overrideUsed, isAllowed(route, model: model, override: true) else {
-                let request = issueRequest(for: route)
+                let request = issueRequest(
+                    for: route,
+                    reason: await clinicalReason(
+                        transcription,
+                        output: template.flatMap { t in t.outputPrivacyClass.map { ($0, t.name, false) } }
+                    ))
                 privacyLogger.notice(
                     "privacy_routing_refused run=\(runID, privacy: .public) transcription=\(transcriptionID, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public)"
                 )
@@ -558,7 +583,11 @@ public actor DeliverableService {
             privacyLogger.notice(
                 "privacy_routing_refused_mid_run transcription=\(route.transcriptionID, privacy: .public) engine=\(route.engineID, privacy: .public) class=\(now.privacyClass.rawValue, privacy: .public)"
             )
-            throw DeliverableError.privacyOverrideRequired(issueRequest(for: now))
+            var reason: String?
+            if let transcription = try? await transcripts.fetch(id: route.transcriptionID) {
+                reason = await clinicalReason(transcription, output: nil)
+            }
+            throw DeliverableError.privacyOverrideRequired(issueRequest(for: now, reason: reason))
         }
         return now.privacyClass
     }
@@ -650,7 +679,8 @@ public actor DeliverableService {
         let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
         let route = makeRoute(transcription, baseClass: effective, outputClass: document.privacyClass, model: model)
         if isAllowed(route, model: model, override: false) { return .allowed(route) }
-        return .needsOverride(issueRequest(for: route))
+        let reason = await clinicalReason(transcription, output: (document.privacyClass, document.title, true))
+        return .needsOverride(issueRequest(for: route, reason: reason))
     }
 
     /// Rewrites a document from the person's instruction and stores the result as its **next version** (the text it
@@ -709,7 +739,9 @@ public actor DeliverableService {
         if !isAllowed(route, model: model, override: false) {
             overrideUsed = consume(token, for: route)
             guard overrideUsed, isAllowed(route, model: model, override: true) else {
-                let request = issueRequest(for: route)
+                let request = issueRequest(
+                    for: route,
+                    reason: await clinicalReason(transcription, output: (document.privacyClass, document.title, true)))
                 privacyLogger.notice(
                     "privacy_routing_refused run=\(runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public)"
                 )
@@ -757,7 +789,8 @@ public actor DeliverableService {
             } catch LanguageModelError.contextTooLong {
                 throw DeliverableError.documentTooLongToEdit
             }
-            let text = written.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Models often echo the prompt's `<document>` wrapper (UX audit F32): it never reaches the saved version.
+            let text = DeliverablePromptAssembler.unwrappedEdit(written)
             guard !text.isEmpty else { throw DeliverableError.emptyResult }
             guard
                 let appended = try await versionStore.appendDeliverableVersion(
