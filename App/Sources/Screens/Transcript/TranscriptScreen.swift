@@ -12,9 +12,9 @@ import UniformTypeIdentifiers
 /// Transform (M4).
 ///
 /// Polish (UX audit T): 44 pt targets for the star, timestamps and More; the tabs never break mid-word (the privacy
-/// control moves to its own row when they do not fit); the class the privacy rules really use is named when a
-/// document made from the transcript is stricter (F51); Share lists Text, PDF, Word, Voice message and then "More
-/// formats"; More → Delete… asks like the Library.
+/// control moves to its own row when they do not fit); the privacy badge names the class the routers really use,
+/// and which document raised it, when it is stricter than the stored mark (F51); Share lists PDF, Word, Text,
+/// Voice message and then "More formats"; More → Delete… asks like the Library.
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -44,9 +44,10 @@ struct TranscriptScreen: View {
     @State private var isExtractingFields = false
     /// Plan 022: Share → Voice message.
     @State private var voiceMessage: VoiceMessageJob?
-    /// F51: the class the privacy rules use (`EffectivePrivacyClass`), when it is read; bumped after a Transform so a new
-    /// document's class is seen.
-    @State private var effectiveClass: PrivacyClass?
+    /// F51: the class the privacy rules use, and why when it is stricter than the stored mark — the same
+    /// `EffectivePrivacyExplanation` the document screens pass to `PrivacyClassControl`, so the badge and the
+    /// routing never disagree unexplained. Bumped after a Transform so a new document's class is seen.
+    @State private var privacy: EffectivePrivacyExplanation?
     @State private var documentsRevision = 0
     /// F53: More → Delete… is asking.
     @State private var isConfirmingDelete = false
@@ -106,7 +107,7 @@ struct TranscriptScreen: View {
             hasLoaded = true
             player.load(model.mediaURL)
         }
-        .task(id: effectiveClassKey) { await refreshEffectiveClass() }
+        .task(id: privacyKey) { await refreshPrivacy() }
         .onChange(of: environment.jobCenter.progress[id]?.stage) { _, _ in
             // A job started, moved on or ended for this row: re-read it (the text appears when it completes).
             Task {
@@ -309,7 +310,6 @@ struct TranscriptScreen: View {
             .overlay(alignment: .bottom) {
                 Rectangle().fill(Tokens.Color.border).frame(height: 1)
             }
-            effectiveClassNote
         }
         .padding(.horizontal, 24)
     }
@@ -337,32 +337,14 @@ struct TranscriptScreen: View {
 
     @ViewBuilder private var privacyControl: some View {
         if let item = model.transcription {
-            PrivacyClassControl(current: item.privacyClass) { newClass in
+            // F51: `effective:` names which document (e.g. "Clinical (it has a SOAP note)") raises the badge
+            // above the stored mark, the same control the document screens use, so it and the badge never
+            // disagree with what Listen, Ask and Transform actually do.
+            PrivacyClassControl(current: item.privacyClass, effective: privacy) { newClass in
                 // Through the service, so the transcript's documents are raised with it (never lowered).
                 try await environment.deliverables.setPrivacyClass(newClass, transcriptionID: id)
                 await model.load()
             }
-        }
-    }
-
-    /// F51: when a document made from this transcript is stricter than the transcript, say which class the privacy
-    /// rules use (Listen, Ask and Transform follow it), so the chip and the behavior never disagree unexplained.
-    @ViewBuilder private var effectiveClassNote: some View {
-        if let item = model.transcription, let effective = effectiveClass,
-            effective.strictness > item.privacyClass.strictness
-        {
-            Label {
-                Text("Treated as \(effective.title): a document made from it is \(effective.title.lowercased()).")
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(Tokens.Color.secondary)
-            }
-            .padding(.vertical, 6)
-            .accessibilityElement(children: .combine)
         }
     }
 
@@ -496,7 +478,13 @@ struct TranscriptScreen: View {
                         Text(Formatting.clock(ms: paragraph.startMs))
                             .chirpFont(11.5)
                             .monospacedDigit()
-                            .foregroundStyle(player.isAvailable ? AppColor.accentText : Tokens.Color.secondary)
+                            // Text-safe ink on the current paragraph's tint fill (F8): `accentText` alone is
+                            // 4.39:1 there.
+                            .foregroundStyle(
+                                player.isAvailable
+                                    ? (isCurrent ? AppColor.accentTextOnTint : AppColor.accentText)
+                                    : Tokens.Color.secondary
+                            )
                             .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // F49: 44 pt to tap
                             .contentShape(Rectangle())
                     }
@@ -564,12 +552,11 @@ struct TranscriptScreen: View {
                 copyText()
             }
             Menu {
-                // F54: the everyday formats first, in the order the document screens use; the rest under one menu.
-                Button(ExportFormat.txt.displayName) { share(.txt) }
-                // Plan 022 Step 6: page formats.
+                // F54: PDF, Word, Text — the same order as the document screens' Share menu; the rest under one menu.
                 ForEach(DocumentExportFormat.allCases, id: \.self) { format in
                     Button(format.displayName) { shareDocument(format) }
                 }
+                Button(ExportFormat.txt.displayName) { share(.txt) }
                 Button {
                     voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
                 } label: {
@@ -716,17 +703,18 @@ struct TranscriptScreen: View {
     }
 
     /// Re-read when the stored class changes or a Transform or Jev sheet closes (F51).
-    private var effectiveClassKey: String {
+    private var privacyKey: String {
         "\(model.transcription?.privacyClass.rawValue ?? "-")#\(documentsRevision)"
     }
 
-    private func refreshEffectiveClass() async {
-        guard let item = model.transcription else {
-            effectiveClass = nil
+    private func refreshPrivacy() async {
+        guard model.transcription != nil else {
+            privacy = nil
             return
         }
         // Unreadable documents: say nothing extra rather than guess (the routers themselves fail safe to clinical).
-        effectiveClass = try? await EffectivePrivacyClass.of(item, in: environment.deliverableStore)
+        privacy = try? await EffectivePrivacyExplanation.current(
+            transcriptionID: id, transcripts: environment.store, deliverables: environment.deliverableStore)
     }
 
     /// F54: the formats under Share → More formats, in this order.
