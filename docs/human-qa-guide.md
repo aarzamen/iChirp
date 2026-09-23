@@ -138,7 +138,10 @@ Dictating screen
       row.
 - [ ] Dictate a few seconds of silence, Stop & copy: "Didn’t catch that — no speech was recognized." with Retry; the
       Library row is Failed and keeps its audio.
-- [ ] Cancel while recording: the screen closes, no Recent row appears.
+- [ ] Cancel within the first few seconds of recording: the screen closes at once, no Recent row appears.
+- [ ] Dictate for 10 seconds or more, tap Cancel: "Discard this 10-second dictation?" (the length is the recorded
+      time). **Keep dictating**: recording continues and the timer keeps counting. Cancel again → **Discard dictation**:
+      the screen closes, no Recent row appears.
 - [ ] Airplane mode on: dictation still works end to end (nothing uses the network).
 
 Action Button, Control, Live Activity (Step 7)

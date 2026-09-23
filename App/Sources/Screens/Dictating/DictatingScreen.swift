@@ -8,12 +8,20 @@ import UIKit
 /// words bright, the still-forming tail dimmed, a coral caret), a waveform from the real input level, the timer, and
 /// Cancel / Stop & copy / Polish after.
 ///
+/// Every text follows Dynamic Type (`chirpFont`; the timer grows up to AX1), and the layout tightens at accessibility
+/// sizes (status row stacks, fewer live-text lines, control labels wrap). Cancel discards a false start at once and
+/// asks first once more than a few seconds are recorded (`DictationDiscardPrompt`, UX audit F72).
+///
 /// The live text is only a preview. What lands on the clipboard is the final Parakeet pass over the recording, shown
 /// here after "Copied" (plan 011's rule). Every state is real: the timer counts recorded audio, the waveform draws the
 /// microphone's level, and the finishing bar is the engine's own progress.
 struct DictatingScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let openTab: (AppTab) -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The question Cancel is asking, while it is up (F72).
+    @State private var discardPrompt: DictationDiscardPrompt?
 
     private var dictation: DictationCoordinator { environment.dictation }
 
@@ -27,12 +35,16 @@ struct DictatingScreen: View {
                     .padding(.top, 10)
             }
             Spacer(minLength: 16)
-            VStack(spacing: 30) {
+            VStack(spacing: dynamicTypeSize.isAccessibilitySize ? 18 : 30) {
                 centerContent
                 if showsMeter {
                     Waveform(levels: dictation.levels, isLive: dictation.state == .recording)
-                        .frame(height: 64)
-                    timer
+                        .frame(height: dynamicTypeSize.isAccessibilitySize ? 44 : 64)
+                    DictationTimer(
+                        seconds: dictation.elapsedLabelSeconds, isLive: dictation.state == .recording
+                    )
+                    // Big already: it grows with the text size up to AX1, then stops.
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
             }
             Spacer(minLength: 16)
@@ -47,31 +59,74 @@ struct DictatingScreen: View {
         .preferredColorScheme(.dark)
         .statusBarHidden(false)
         .dictationVoiceCommandSheets(environment: environment)  // M6: "send to SOAP / Transform" after the copy
+        .confirmationDialog(
+            discardPrompt?.title ?? "",
+            isPresented: Binding(get: { discardPrompt != nil }, set: { if !$0 { discardPrompt = nil } }),
+            titleVisibility: .visible,
+            presenting: discardPrompt
+        ) { prompt in
+            Button(prompt.discardTitle, role: .destructive) {
+                // The explicit discard, unchanged; skipped if the dictation ended while the question was up.
+                if DictationDiscardPrompt.canDiscard(in: dictation.state) { dictation.cancel() }
+            }
+            Button(prompt.keepTitle, role: .cancel) {}
+        } message: { prompt in
+            Text(prompt.message)
+        }
+        .onChange(of: dictation.state) { _, state in
+            // A dictation that ended meanwhile (Lock Screen Stop & copy, a failure) has nothing left to discard.
+            if discardPrompt != nil, !DictationDiscardPrompt.canDiscard(in: state) { discardPrompt = nil }
+        }
+    }
+
+    /// Cancel: a false start goes at once; a longer dictation asks first (F72).
+    private func requestCancel() {
+        if let prompt = DictationDiscardPrompt.forCancel(
+            state: dictation.state, recordedSeconds: dictation.recordedSeconds)
+        {
+            discardPrompt = prompt
+        } else {
+            dictation.cancel()
+        }
+    }
+
+    private var cancelHint: String {
+        dictation.recordedSeconds >= DictationDiscardPrompt.confirmAfterSeconds
+            ? "Asks first, then discards this dictation. Nothing is saved."
+            : "Discards this dictation. Nothing is saved."
     }
 
     // MARK: - Status row
 
+    /// The state and the engine chip side by side; stacked at accessibility sizes so neither is squeezed.
     private var statusRow: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(statusDotColor)
-                .frame(width: 9, height: 9)
-                .accessibilityHidden(true)
-            Text(statusTitle)
-                .font(.system(size: 12.5, weight: .bold))
-                .tracking(1.25)
-                .textCase(.uppercase)
-                .foregroundStyle(.white.opacity(0.72))
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+        let layout =
+            dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(statusDotColor)
+                    .frame(width: 9, height: 9)
+                    .accessibilityHidden(true)
+                Text(statusTitle)
+                    .chirpFont(12.5, .bold)
+                    .tracking(1.25)
+                    .textCase(.uppercase)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .accessibilityAddTraits(.isHeader)
+            }
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
             Text("\(modelName) · on device")
-                .font(.system(size: 11.5, weight: .semibold))
+                .chirpFont(11.5, .semibold)
                 .foregroundStyle(.white.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 11)
-                .frame(height: 26)
+                .padding(.vertical, 4)
+                .frame(minHeight: 26)
                 .background(Capsule().fill(.white.opacity(0.10)))
         }
-        .frame(minHeight: 30)
+        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
     }
 
     /// M7: the engine that writes the kept text (the final route); Parakeet unless Settings → Speech engines says so.
@@ -148,10 +203,10 @@ struct DictatingScreen: View {
                 text + Text(dimmed ? "" : " ▍").foregroundStyle(Tokens.Color.dictationAccent)
             }
         }
-        .font(.system(size: 19))
-        .lineSpacing(10)
+        .chirpFont(19)
+        .lineSpacing(dynamicTypeSize.isAccessibilitySize ? 4 : 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .lineLimit(8)
+        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 8)
         .truncationMode(.head)
         .accessibilityLabel(isEmpty ? "Listening" : "Live preview: \(committed) \(tentative)")
         .accessibilityHint("A preview only. The copied text comes from the final pass.")
@@ -160,13 +215,14 @@ struct DictatingScreen: View {
     private var finishingProgress: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Transcribing the recording on this iPhone")
-                .font(.system(size: 14, weight: .semibold))
+                .chirpFont(14, .semibold)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.white.opacity(0.82))
             ProgressView(value: dictation.finalPassProgress ?? 0)
                 .tint(Tokens.Color.dictationAccent)
             if dictation.isBusyNoticeVisible {
                 Text("Still finishing the last dictation.")
-                    .font(.system(size: 12.5))
+                    .chirpFont(12.5)
                     .foregroundStyle(.white.opacity(0.72))
             }
         }
@@ -180,12 +236,13 @@ struct DictatingScreen: View {
                     ? "Paused — a call, Siri or an alarm has the microphone. What you said so far is kept."
                     : "Paused. Resume to keep dictating, or Stop & copy what you have."
             )
-            .font(.system(size: 15, weight: .semibold))
+            .chirpFont(15, .semibold)
             .foregroundStyle(.white.opacity(0.9))
             .fixedSize(horizontal: false, vertical: true)
             if let error = dictation.resumeError {
                 Text(error)
-                    .font(.system(size: 13))
+                    .chirpFont(13)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(Tokens.Color.dictationAccent)
             }
             if pause == .waitingForResume {
@@ -193,7 +250,7 @@ struct DictatingScreen: View {
                     dictation.resume()
                 } label: {
                     Label("Resume", systemImage: "mic.fill")
-                        .font(.system(size: 15, weight: .bold))
+                        .chirpFont(15, .bold)
                         .padding(.horizontal, 18)
                         .frame(minHeight: 44)
                         .background(Capsule().fill(Tokens.Color.accent))
@@ -207,19 +264,20 @@ struct DictatingScreen: View {
     private var finalText: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Copied to your clipboard", systemImage: "checkmark.circle.fill")
-                .font(.system(size: 15, weight: .semibold))
+                .chirpFont(15, .semibold)
                 .foregroundStyle(Tokens.Color.success)
             ScrollView {
                 Text(dictation.copiedText ?? "")
-                    .font(.system(size: 19))
-                    .lineSpacing(10)
+                    .chirpFont(19)
+                    .lineSpacing(dynamicTypeSize.isAccessibilitySize ? 4 : 10)
                     .foregroundStyle(.white.opacity(0.94))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
             .frame(maxHeight: 320)
             Text("Paste it anywhere. It is also saved in your Library.")
-                .font(.system(size: 13))
+                .chirpFont(13)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.white.opacity(0.72))
         }
         .accessibilityElement(children: .combine)
@@ -228,31 +286,20 @@ struct DictatingScreen: View {
     private func failure(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Nothing was copied", systemImage: "exclamationmark.circle.fill")
-                .font(.system(size: 15, weight: .semibold))
+                .chirpFont(15, .semibold)
                 .foregroundStyle(Tokens.Color.dictationAccent)
             Text(message)
-                .font(.system(size: 17))
+                .chirpFont(17)
                 .foregroundStyle(.white.opacity(0.94))
                 .fixedSize(horizontal: false, vertical: true)
             if dictation.canRetry {
                 Text("The recording is kept in your Library.")
-                    .font(.system(size: 13))
+                    .chirpFont(13)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(.white.opacity(0.72))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Timer
-
-    private var timer: some View {
-        let seconds = dictation.elapsedLabelSeconds
-        return Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
-            .font(.system(size: 44, weight: .bold))
-            .monospacedDigit()
-            .tracking(0.4)
-            .foregroundStyle(.white.opacity(dictation.state == .recording ? 1 : 0.6))
-            .accessibilityLabel("\(seconds) seconds recorded")
     }
 
     // MARK: - Bottom
@@ -273,11 +320,12 @@ struct DictatingScreen: View {
             VStack(spacing: 0) {
                 controls
                 Text(footerText)
-                    .font(.system(size: 12.5))
+                    .chirpFont(12.5)
                     .lineSpacing(3)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.72))
-                    .padding(.top, 26)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, dynamicTypeSize.isAccessibilitySize ? 14 : 26)
             }
         }
     }
@@ -317,7 +365,7 @@ struct DictatingScreen: View {
         VStack(spacing: 12) {
             Button(action: primary.1) {
                 Text(primary.0)
-                    .font(.system(size: 17, weight: .bold))
+                    .chirpFont(17, .bold)
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .background(Capsule().fill(Tokens.Color.accent))
             }
@@ -325,7 +373,7 @@ struct DictatingScreen: View {
             if let secondary {
                 Button(action: secondary.1) {
                     Text(secondary.0)
-                        .font(.system(size: 16, weight: .semibold))
+                        .chirpFont(16, .semibold)
                         .frame(maxWidth: .infinity, minHeight: 50)
                         .background(Capsule().fill(.white.opacity(0.10)))
                 }
@@ -336,14 +384,16 @@ struct DictatingScreen: View {
     }
 
     private var controls: some View {
-        HStack(alignment: .bottom, spacing: 34) {
+        // Each column is its circle plus `controlLabelExtra` wide (room for the label); the spacing keeps the canvas's
+        // 34 pt between circles.
+        HStack(alignment: .bottom, spacing: 34 - controlLabelExtra) {
             circleControl(label: "Cancel", size: 62, fill: .white.opacity(0.10), stroke: .clear) {
                 Image(systemName: "xmark")
                     .font(.system(size: 22, weight: .semibold))
             } action: {
-                dictation.cancel()
+                requestCancel()
             }
-            .accessibilityHint("Discards this dictation. Nothing is saved.")
+            .accessibilityHint(cancelHint)
 
             circleControl(label: "Stop & copy", size: 88, fill: Tokens.Color.accent, stroke: .clear, glow: true) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -373,6 +423,10 @@ struct DictatingScreen: View {
         }
     }
 
+    /// How much wider than its circle a control's label may be: a little more at accessibility sizes, where the labels
+    /// wrap to two lines.
+    private var controlLabelExtra: CGFloat { dynamicTypeSize.isAccessibilitySize ? 32 : 28 }
+
     private func circleControl<Icon: View>(
         label: String, size: CGFloat, fill: Color, stroke: Color, glow: Bool = false,
         labelColor: Color = .white.opacity(0.72),
@@ -388,14 +442,36 @@ struct DictatingScreen: View {
                     icon()
                 }
                 .frame(width: size, height: size)
+                // Wraps to two lines at large sizes instead of widening the row off the screen.
                 Text(label)
-                    .font(.system(size: 11.5, weight: glow ? .bold : .semibold))
+                    .chirpFont(11.5, glow ? .bold : .semibold)
                     .foregroundStyle(glow ? .white : labelColor)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: size + controlLabelExtra)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+/// The recorded time ("1:07"), 44 pt at the default text size and scaled with Dynamic Type (the caller caps it at
+/// AX1, where it is already as large as the screen allows).
+private struct DictationTimer: View {
+    let seconds: Int
+    let isLive: Bool
+    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 44
+
+    var body: some View {
+        Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
+            .font(.system(size: size, weight: .bold))
+            .monospacedDigit()
+            .tracking(0.4)
+            .foregroundStyle(.white.opacity(isLive ? 1 : 0.6))
+            .accessibilityLabel("\(seconds) seconds recorded")
     }
 }
 

@@ -159,6 +159,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   (review N4). Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
+- `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
+  (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
+  ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final
+  pass). `canDiscard(in:)` says whether Cancel still discards anything in a state. It only decides the question: the
+  discard stays `DictationCoordinator.cancel()`, unchanged.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
   add (trimmed; a blank replacement is none), edit, on/off, delete, readable errors for empty fields and duplicates;
   `DictationTextRules.enabled(in:)` reads the enabled lists for a dictation.
