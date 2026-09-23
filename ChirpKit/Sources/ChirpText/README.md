@@ -57,7 +57,10 @@ pipeline directly.
   "Norco 5/325 mg") is a combination strength: a dose tag with no `value`, displayed as said, flagged "Combination
   strength", never a blood pressure. A unit-less slash pair is a blood pressure only with a pressure word before it in
   its clause ("BP", "pressure", "vitals", …) or "mmHg" after it; otherwise it is still tagged but flagged ("Advair
-  250/50", "insulin 70/30") (`combinationStrength`, `pressureWords`, re-review N4).
+  250/50", "insulin 70/30") (`combinationStrength`, `pressureWords`, re-review N4). "No" corrects only before a
+  number, a dose unit or another correction word ("76, no, 86"); "temp 37, no fever" and "10 mg, no cough" stay
+  clean (re-review minor 3). "q4 hours", "q 6 hours" and "q6hr" are frequencies, not durations (minor 6). Another
+  strength unit right after a dose with no number ("50 micrograms, milligrams") flags it (minor 7).
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.

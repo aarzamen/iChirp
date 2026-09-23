@@ -436,6 +436,16 @@ private struct NumericScanner {
                         "“\(words)” was said right before \(result[index].display): check which amount was meant.")
                 }
             }
+            // Re-review minor 7: another strength unit right after a dose, with no number ("50 micrograms,
+            // milligrams").
+            if result[index].kind == .dose, let unit = result[index].unit?.split(separator: "/").first,
+                Self.strengthUnits.contains(String(unit)), let word = peek(skipPunctuation(result[index].nextToken)),
+                let other = Self.doseUnits[word], Self.strengthUnits.contains(other), other != String(unit)
+            {
+                reasons.append(
+                    "“\(tokens[skipPunctuation(result[index].nextToken)].original)” follows \(result[index].display) "
+                        + "with no number: check the unit.")
+            }
             if ["hundred", "thousand"].contains(tokens[first].text) {
                 let said = text.utf16Substring(result[index].start, result[index].end)
                 reasons.append(
@@ -503,13 +513,24 @@ private struct NumericScanner {
         guard let word = peek(index) else { return nil }
         let following = peek(index + 1)
         switch word {
-        case "no", "sorry", "correction", "rather", "actually", "wait", "oops": return index + 1
+        case "no": return noCorrects(after: index) ? index + 1 : nil
+        case "sorry", "correction", "rather", "actually", "wait", "oops": return index + 1
         case "i" where following == "mean" || following == "meant": return index + 2
         case "make" where following == "that" || following == "it": return index + 2
         case "scratch" where following == "that": return index + 2
         case "strike" where following == "that": return index + 2
         default: return nil
         }
+    }
+
+    /// Re-review minor 3: "no" corrects only before a number, a dose unit, another correction word or the end ("76,
+    /// no, 86"; "micrograms, no, milligrams"; "no wait"); "no fever" and "no cough" start a finding.
+    func noCorrects(after index: Int) -> Bool {
+        let next = skipPunctuation(index + 1)
+        guard next < tokens.count else { return true }
+        if isNumberWord(next) || isHundredAfterA(next) || Self.doseUnits[tokens[next].text] != nil { return true }
+        if tokens[next].text == "no" { return noCorrects(after: next) }
+        return markerEnd(at: next) != nil
     }
 
     /// A correction phrase that ends right before `index` (punctuation between is fine), at or after `floor`. Plain
@@ -556,6 +577,13 @@ private struct NumericScanner {
         case "qhs": return make(1, "per day", "at bedtime", index)
         case "prn": return make(nil, nil, "as needed", index)
         case "weekly": return make(1, "per week", "weekly", index)
+        case "q":
+            // Re-review minor 6: "q4 hours", "q 6 hours", "q6hr" (the tokenizer keeps only "q6h" whole).
+            guard let number = cardinal(at: index + 1), let unit = timeUnit(peekSkippingHyphen(number.next)) else {
+                return nil
+            }
+            let display = "every \(NumericNormalizer.format(number.value)) \(Self.spelledUnit(unit, number.value))"
+            return extendAsNeeded(make(number.value, unit, display, indexSkippingHyphen(number.next)))
         case "as" where peek(index + 1) == "needed": return make(nil, nil, "as needed", index + 1)
         case "at" where peek(index + 1) == "bedtime": return make(1, "per day", "at bedtime", index + 1)
         case "once", "twice":

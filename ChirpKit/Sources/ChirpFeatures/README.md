@@ -274,7 +274,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   ships as a new version file.
 - `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
   pseudo-confidence (at most 0.84 on `soap-meds`, and `StructuredResultGate.verdict(…engineID:)` never gives a STUB
-  field `act`; a hedge like "considering" before a drug wins over a later "starting"); always available and always
+  field `act`; a hedge like "considering" before a drug wins over a later "starting"; "no longer taking" is stopped,
+  and "denies taking", "not taking", "never took" or "no" right before a drug record no medication); always
+  available and always
   labelled STUB. `VoiceCommandText` (a command is a whole short
   utterance that equals one of its phrases, optionally after "okay"/"please").
 

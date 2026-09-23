@@ -402,6 +402,42 @@ final class NumericNormalizerTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review minors 3, 6, 7
+
+    func testANoThatStartsAFindingDoesNotFlagTheValueBeforeIt() {
+        for text in ["Temp 37, no fever.", "Lisinopril 10 mg, no cough.", "Pulse 76, no palpitations."] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy { !$0.needsReview }, "\(text): \(tags.compactMap(\.reviewReason))")
+        }
+        for text in [
+            "Pulse 76, no, 86.", "Ketorolac fifty milligrams, no, five.", "Give 50 mg, no wait, 5 mg.",
+            "Fentanyl 50 micrograms, no, milligrams.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy(\.needsReview), "a correction is still a correction: \(text)")
+        }
+    }
+
+    func testQFollowedByANumberAndHoursIsAFrequencyNeverADuration() throws {
+        for (text, display) in [
+            ("Ondansetron 4 mg q4 hours as needed.", "every 4 hours as needed"), ("Morphine 2 mg q 6 hours.", "every 6 hours"),
+            ("Ibuprofen 400 mg q6hr.", "every 6 hours"),
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.contains { $0.kind == .duration }, "\(text): \(tags.map(\.display))")
+            XCTAssertEqual(tags.first { $0.kind == .frequency }?.display, display, text)
+        }
+    }
+
+    func testASecondStrengthUnitWithNoNumberIsFlagged() throws {
+        let dose = try XCTUnwrap(NumericNormalizer.normalize("Fentanyl 50 micrograms, milligrams.").tags.first)
+        XCTAssertTrue(dose.needsReview, "a unit-only restart with no correction word")
+        let form = try XCTUnwrap(NumericNormalizer.normalize("Metformin 500 mg tablets twice daily.").tags.first)
+        XCTAssertFalse(form.needsReview, "a tablet after a strength is its form, not a restart")
+    }
+
     // MARK: - Review L3 I3: a vital's name does not reach across a clause
 
     func testARateWordDoesNotTagADrugStrengthAsAVital() {

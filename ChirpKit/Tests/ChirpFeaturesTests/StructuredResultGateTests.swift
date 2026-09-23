@@ -322,6 +322,17 @@ final class StructuredResultGateTests: XCTestCase {
             StructuredCallValidator.validate(medication("metoprolol"), sentence: one, catalog: .soapMeds).problems, [])
     }
 
+    // MARK: - Re-review minor 7: a unit-only restart with no correction word
+
+    func testTheIndependentCheckFlagsASecondStrengthUnitRightAfterADose() {
+        let sentence = handTagged("Fentanyl 50 micrograms, milligrams.", [("50 micrograms", "dose_1", .dose, 50, "mcg")])
+        let result = StructuredCallValidator.validate(medication("fentanyl"), sentence: sentence, catalog: .soapMeds)
+        XCTAssertTrue(result.problems.contains { $0.contains("milligrams") }, "\(result.problems)")
+        let form = handTagged("Metformin 500 mg tablets twice daily.", [("500 mg", "dose_1", .dose, 500, "mg")])
+        XCTAssertEqual(
+            StructuredCallValidator.validate(medication("metformin"), sentence: form, catalog: .soapMeds).problems, [])
+    }
+
     // MARK: - Re-review N4: a combination strength is never a blood pressure
 
     private func bloodPressure(_ text: String, _ source: String, _ systolic: Double, _ diastolic: Double)

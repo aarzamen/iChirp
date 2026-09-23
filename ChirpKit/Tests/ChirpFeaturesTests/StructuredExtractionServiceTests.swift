@@ -198,6 +198,22 @@ final class StructuredExtractionServiceTests: XCTestCase {
         XCTAssertFalse(draft.fields.contains { $0.verdict == .act }, "\(draft.fields.map(\.verdict))")
     }
 
+    func testTheStubReadsNegationBeforeADrug() {
+        func calls(_ text: String) -> [StructuredCall] {
+            StubStructureModel.soap(in: NumericNormalizer.normalize(text).tagged).map(\.0)
+        }
+        XCTAssertEqual(
+            calls("No longer taking lisinopril 10 mg.").first { $0.name == "add_medication" }?.string("status"),
+            "stopped", "re-review minor 4")
+        for text in ["Denies taking aspirin.", "Not taking metformin.", "Never took ibuprofen."] {
+            XCTAssertFalse(calls(text).contains { $0.name == "add_medication" }, text)
+        }
+        XCTAssertEqual(calls("Takes aspirin 81 mg daily.").first?.string("status"), "taking")
+        XCTAssertEqual(
+            calls("No fever, takes aspirin 81 mg daily.").first { $0.name == "add_medication" }?.string("status"),
+            "taking")
+    }
+
     func testAFieldThatFailedACheckNeedsItsReasonsSeenAndCanBeEdited() async throws {
         let wrong = RecordingStructureModel(
             locality: .onDevice,

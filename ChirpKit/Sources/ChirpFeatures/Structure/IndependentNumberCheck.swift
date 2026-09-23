@@ -104,6 +104,10 @@ enum IndependentNumberReader {
         doseUnits[word] != nil
     }
 
+    static func doseUnit(_ word: String) -> String? {
+        doseUnits[word]
+    }
+
     /// The first range in the words, or nil (re-review N2): "4 to 8", "4-8", "500 or 1000", "fifty and a hundred".
     /// "a hundred and twenty" is one number, not a range.
     static func range(in text: String) -> String? {
@@ -335,6 +339,15 @@ enum SentenceNeighbours {
                 problems.append(
                     "No blood-pressure word before “\(tag.sourceText)”: it may be a drug's strength. Check it.")
             }
+        }
+        // Re-review minor 7: another strength unit right after a dose, with no number ("50 micrograms, milligrams").
+        if tag.kind == .dose, let next = after.first,
+            let unit = IndependentNumberReader.read(tag.sourceText).units.last,
+            let other = IndependentNumberReader.doseUnit(next.text), strengthUnits.contains(unit),
+            strengthUnits.contains(other), other != unit,
+            gap(tag.sourceRange.upperBound, next.range.lowerBound).allSatisfy({ $0 == " " || $0 == "," })
+        {
+            problems.append("“\(next.text)” follows “\(tag.sourceText)” with no number: check the unit.")
         }
         if tag.kind == .dose, let unit = IndependentNumberReader.read(tag.sourceText).units.last,
             strengthUnits.contains(unit),
