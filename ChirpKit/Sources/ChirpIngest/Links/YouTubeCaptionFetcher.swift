@@ -110,9 +110,16 @@ public protocol YouTubeCaptionFetching: Sendable {
 public struct YouTubeCaptionFetcher: YouTubeCaptionFetching {
     static let watchBase = "https://www.youtube.com/watch"
     static let playerBase = "https://www.youtube.com/youtubei/v1/player"
-    /// The ANDROID client youtube-transcript-api uses; YouTube does not require a proof-of-origin token for its
-    /// captions (yt-dlp's PO-token guide, July 2026). Update when YouTube retires this version.
-    static let androidClientVersion = "20.10.38"
+    /// The one InnerTube client this fetcher speaks as: exactly youtube-transcript-api's `INNERTUBE_CONTEXT`
+    /// (`_settings.py`; the same on its master and in release v1.2.4, checked 2026-09-22, plan 019). YouTube does not
+    /// require a proof-of-origin token for captions with it (yt-dlp's PO-token guide, July 2026). When YouTube retires
+    /// it, copy the new name and version from youtube-transcript-api here; nothing else changes.
+    static let innertubeClient = (name: "ANDROID", version: "20.10.38")
+    /// The User-Agent of every YouTube request: python-requests' default, which is what youtube-transcript-api sends.
+    /// Parakeet's own agent looks like a mobile browser to YouTube, which then redirects the watch page to
+    /// m.youtube.com's "unsupported browser" page, a page without `INNERTUBE_API_KEY` (found by `LiveIngestTests`,
+    /// 2026-09-22). It carries no device or user detail.
+    static let userAgent = "python-requests/2.32.3"
 
     private let http: IngestHTTPClient
     private let logger = Log.logger("youtube")
@@ -132,7 +139,8 @@ public struct YouTubeCaptionFetcher: YouTubeCaptionFetching {
         if track.baseURL.absoluteString.contains("&exp=xpe") {
             throw YouTubeCaptionError.tokenRequired
         }
-        let (data, _) = try await http.get(track.baseURL, headers: ["Accept-Language": "en-US"])
+        let (data, _) = try await http.get(
+            track.baseURL, headers: ["Accept-Language": "en-US", "User-Agent": Self.userAgent])
         let cues = try Self.parseTimedText(data)
         guard !cues.isEmpty else { throw YouTubeCaptionError.emptyTranscript }
         let details = player["videoDetails"] as? [String: Any]
@@ -171,7 +179,7 @@ public struct YouTubeCaptionFetcher: YouTubeCaptionFetching {
         var components = URLComponents(string: Self.watchBase)
         components?.queryItems = [URLQueryItem(name: "v", value: videoID)]
         guard let url = components?.url else { throw YouTubeCaptionError.videoUnavailable }
-        var headers = ["Accept-Language": "en-US"]
+        var headers = ["Accept-Language": "en-US", "User-Agent": Self.userAgent]
         if let consentCookie { headers["Cookie"] = consentCookie }
         let (data, _) = try await http.get(url, headers: headers)
         return String(decoding: data, as: UTF8.self)
@@ -187,8 +195,11 @@ public struct YouTubeCaptionFetcher: YouTubeCaptionFetching {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("en-US", forHTTPHeaderField: "Accept-Language")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         let body: [String: Any] = [
-            "context": ["client": ["clientName": "ANDROID", "clientVersion": Self.androidClientVersion]],
+            "context": [
+                "client": ["clientName": Self.innertubeClient.name, "clientVersion": Self.innertubeClient.version]
+            ],
             "videoId": videoID,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

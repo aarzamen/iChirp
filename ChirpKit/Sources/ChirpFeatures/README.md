@@ -17,7 +17,8 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `FileTranscriptionPipeline.swift`: the `FileTranscriptionPipeline` actor plus `PipelineStage` and `JobProgress`.
   M5 adds the stages `downloading` (a link's media) and `readingDocument`, and `JobProgress.overallFraction`: a
   download fills only the first `downloadShare` (0.15) of a link job's system progress, so it never goes backwards
-  when transcription starts.
+  when transcription starts. Plan 019 adds `JobProgress.isIndeterminate` (`.indeterminate(stage)`,
+  `determinateFraction`): a download whose size is unknown shows "Downloading…" and a spinner, never "0%".
   - `importFile(from:sourceType:audioTrackOrdinal:)` copies the file (security-scoped, never moved) into
     `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the person's
     audio-track choice (nil: automatic). `process` decodes that track on every run, Retry included.
@@ -53,7 +54,19 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `LinkImportViewModel.swift` (M5): the Paste a link sheet. `text` is classified locally on every change (`kind`);
   `transcribe()` is the one networked action: podcast and media links get their row and continue as a tracked job
   (`startMediaJob`, wired by the app to `startTracked`), YouTube links finish in the sheet; errors stay in the sheet
-  (`phase == .failed`) with no row created. `reset()` clears it for another link.
+  (`phase == .failed`) with no row created. `reset()` clears it for another link. Plan 019: when captions are missing
+  (or YouTube refuses them) and a Mac companion is set up, `phase == .companionOffer(reason)`; the person confirms
+  once per link (`needsCompanionConfirmation`, `confirmCompanion()`) and `getAudioFromMac()` starts a `.companion`
+  job. Without a companion the failure says how to set one up.
+- `CompanionSettingsStore.swift` (plan 019): Settings → Mac companion. Host, port and the trusted flag in
+  `UserDefaults` (`ichirp.companion`); the pairing token only in `SecretStoring` (`companion.pairing-token`). It is
+  **the concrete `CompanionConfiguration`** (ChirpCore) that plan 020's voices read, makes the `CompanionClient`
+  (`makeClient()`), and adds a trusted home-network companion to a routing policy (`routingPolicy(adding:)`); M4's
+  language-model routing is unchanged. `CompanionAddress.parse` reads "host", "host:port" or a pasted
+  `http://host:port/…`.
+- `CompanionSettingsViewModel.swift` (plan 019): the Mac companion form. The token field is write-only (empty keeps the
+  saved token); an internet address cannot be trusted; Test connection checks health without the token and the voices
+  list with it (`testState`).
 - `IncomingFileInbox.swift` also answers `kind(of:)` (M5): documents (and any other plain text) versus media, for
   routing a shared file.
 - `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
@@ -63,7 +76,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   kept), and `retryDownload(id:)` resumes it. `importCaptions(videoID:link:)` (Step 3) stores a YouTube video's captions as a
   `.completed` `.url` row (words timed across each caption, segments, `engine` `youtube.captions`, no audio); no row
   on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
-  pipeline then runs unchanged. Downloads never hold a speech-scheduler slot.
+  pipeline then runs unchanged. Downloads never hold a speech-scheduler slot. Plan 019: `LinkMediaSource.transport`
+  (`.direct` / `.companion`), `download(id:source:)` dispatches on it, and `downloadFromCompanion(id:link:)` sends only
+  the YouTube link to the Mac companion (`CompanionAudioFetching`, injected as a closure read at each use) and records
+  the returned `source.m4a` with the video's title and duration; Retry of a YouTube row asks the companion again.
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
   title, completion) are the two protocols the app implements over `BackgroundTasks`

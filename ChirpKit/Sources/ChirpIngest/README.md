@@ -38,8 +38,16 @@
 - `Links/YouTubeCaptionFetcher.swift`: captions by the youtube-transcript-api method (credited, re-implemented): watch
   page → `INNERTUBE_API_KEY` (passing the consent page with a one-request cookie) → `/youtubei/v1/player` as the
   ANDROID client → the best track (manual in a preferred language first) → timed text, classic or srv3, unescaped.
-  Errors (`YouTubeCaptionError`) say what happened and suggest sharing the file instead. **No audio**: YouTube audio
-  is an open owner decision (plan 014).
+  Errors (`YouTubeCaptionError`) say what happened and suggest sharing the file instead. The InnerTube client is one
+  constant (`innertubeClient`, youtube-transcript-api's, checked 2026-09-22) and every YouTube request sends
+  youtube-transcript-api's User-Agent (`userAgent`): with Parakeet's own agent YouTube redirects the watch page to an
+  "unsupported browser" page. **No audio here**: YouTube audio comes from the Mac companion (below).
+- `Links/CompanionClient.swift` (plan 019): the phone side of [mac-companion-v1](../../../spec/contracts/mac-companion-v1.md).
+  `health()` (no token), `voices()` (Bearer token; plan 020 may reuse it) and `youtubeAudio(url:into:fileStem:progress:)`
+  (`CompanionAudioFetching`): only the link is sent; the m4a streams into the item's media folder with byte progress,
+  with the video's title (`X-Companion-Title`) and duration. Redirects are refused; errors (`CompanionError`) carry the
+  companion's own sentence or say how to fix the setup. The endpoint and token come from ChirpCore's
+  `CompanionEndpoint` (the app's `CompanionSettingsStore` supplies them).
 - `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
   `itunes:duration`), plus the channel title.
 

@@ -9,6 +9,10 @@ import Observation
 /// Podcast and media links become a Library row at once and continue as a tracked job (download, then transcription)
 /// that outlives the sheet; YouTube links fetch captions while the sheet waits and then become a finished row. Errors
 /// before a row exists stay in the sheet; nothing is created for them.
+///
+/// Plan 019: when a YouTube video has no usable captions and a Mac companion is set up, the sheet offers "Get the
+/// audio from your Mac" (`companionOffer`). The person confirms once per link that the link leaves this iPhone for
+/// their Mac; the audio then comes back as a normal link job (download, then transcription on this iPhone).
 @MainActor @Observable public final class LinkImportViewModel {
     public enum Phase: Equatable, Sendable {
         /// Waiting for the person.
@@ -19,6 +23,9 @@ import Observation
         case started(UUID)
         /// Nothing was created; the message says why.
         case failed(String)
+        /// The video has no usable captions and a Mac companion is set up: the message says so, and
+        /// `getAudioFromMac()` is offered (after the person confirms sending the link to their Mac).
+        case companionOffer(String)
     }
 
     /// The pasted or typed text. Classified locally on every change; the network is never touched here.
@@ -26,7 +33,13 @@ import Observation
         didSet {
             guard text != oldValue else { return }
             kind = LinkClassifier.classify(text)
-            if case .failed = phase { phase = .editing }
+            switch phase {
+            case .failed, .companionOffer:
+                phase = .editing
+                companionLink = nil
+            case .editing, .working, .started:
+                break
+            }
         }
     }
 
@@ -44,7 +57,7 @@ import Observation
         guard kind.isActionable else { return false }
         switch phase {
         case .editing, .failed: return true
-        case .working, .started: return false
+        case .working, .started, .companionOffer: return false
         }
     }
 
@@ -54,9 +67,20 @@ import Observation
         return nil
     }
 
+    /// The YouTube link the companion offer is about.
+    public private(set) var companionLink: URL?
+
+    /// Whether `getAudioFromMac()` must be confirmed first: the person has not yet agreed to send this link to their
+    /// Mac in this sheet (asked once per link).
+    public var needsCompanionConfirmation: Bool {
+        guard let companionLink else { return false }
+        return !confirmedCompanionLinks.contains(companionLink.absoluteString)
+    }
+
     @ObservationIgnored private let service: LinkIngestService
     @ObservationIgnored private let startMediaJob: @MainActor (UUID, LinkMediaSource) -> Void
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var confirmedCompanionLinks: Set<String> = []
 
     /// - Parameter startMediaJob: runs a new link row's download and transcription as a tracked job (the app wires
     ///   `TranscriptionJobCenter.startTracked` with `LinkIngestService.download` and the file pipeline).
@@ -87,8 +111,12 @@ import Observation
                     self?.phase = .started(id)
                 case .youtubeCaptions(let videoID, let link):
                     self?.phase = .working("Fetching the captions from YouTube…")
-                    let id = try await service.importCaptions(videoID: videoID, link: link)
-                    self?.phase = .started(id)
+                    do {
+                        let id = try await service.importCaptions(videoID: videoID, link: link)
+                        self?.phase = .started(id)
+                    } catch let error as YouTubeCaptionError where Self.companionCanHelp(error) {
+                        self?.offerCompanion(for: link, captionsError: error)
+                    }
                 }
             } catch is CancellationError {
                 self?.phase = .editing
@@ -103,11 +131,67 @@ import Observation
         task?.cancel()
     }
 
+    /// The person agreed to send `companionLink` to their Mac (the sheet's confirmation). Remembered for this link.
+    public func confirmCompanion() {
+        guard let companionLink else { return }
+        confirmedCompanionLinks.insert(companionLink.absoluteString)
+    }
+
+    /// "Get the audio from your Mac": creates the row and starts its job (the companion downloads, this iPhone
+    /// transcribes). Does nothing until the person confirmed this link (`needsCompanionConfirmation`).
+    public func getAudioFromMac() {
+        guard case .companionOffer = phase, let link = companionLink, !needsCompanionConfirmation else { return }
+        let source = LinkMediaSource.companionYouTube(link)
+        phase = .working("Asking your Mac for the audio…")
+        let service = self.service
+        task = Task { [weak self] in
+            do {
+                let id = try await service.createRow(for: source)
+                self?.startMediaJob(id, source)
+                self?.phase = .started(id)
+            } catch is CancellationError {
+                self?.phase = .editing
+            } catch {
+                self?.phase = .failed(LinkIngestService.readable(error))
+            }
+        }
+    }
+
+    /// Caption failures the Mac companion can get around by fetching the audio itself.
+    static func companionCanHelp(_ error: YouTubeCaptionError) -> Bool {
+        switch error {
+        case .noCaptions, .emptyTranscript, .tokenRequired, .pageChanged, .blocked, .consentRequired: true
+        case .videoUnavailable, .ageRestricted, .unplayable: false
+        }
+    }
+
+    private func offerCompanion(for link: URL, captionsError: YouTubeCaptionError) {
+        let reason = Self.captionsReason(captionsError)
+        if service.isCompanionConfigured() {
+            companionLink = link
+            phase = .companionOffer(reason)
+        } else {
+            phase = .failed(
+                "\(reason) To transcribe its audio instead, set up the Mac companion in Settings → Mac companion.")
+        }
+    }
+
+    /// A short sentence about why there are no captions (without the "share the file" advice the full error adds).
+    static func captionsReason(_ error: YouTubeCaptionError) -> String {
+        switch error {
+        case .noCaptions, .emptyTranscript: "This video has no captions."
+        case .tokenRequired, .blocked, .consentRequired, .pageChanged:
+            "YouTube wouldn’t give Parakeet this video’s captions."
+        case .videoUnavailable, .ageRestricted, .unplayable: error.errorDescription ?? ""
+        }
+    }
+
     /// Clears the field for another link.
     public func reset() {
         task?.cancel()
         task = nil
         text = ""
+        companionLink = nil
         phase = .editing
     }
 

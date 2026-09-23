@@ -85,7 +85,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Parakeet connects to a model server on your Mac (Ollama or LM Studio) when you choose one in Settings → Models.</string>
+	<string>Parakeet connects to your Mac on your home network: a model server (Ollama or LM Studio) you choose in Settings → Models, and the Parakeet companion you set up in Settings → Mac companion.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.</string>
 	<key>NSSupportsLiveActivities</key>

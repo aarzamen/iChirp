@@ -273,7 +273,7 @@ struct TranscriptScreen: View {
                 statusPanel(
                     title: environment.jobCenter.progress[id].map(Formatting.progress) ?? "Waiting to start",
                     message: "The text appears here when Parakeet finishes. You can leave this screen meanwhile.",
-                    fraction: environment.jobCenter.progress[id]?.fraction,
+                    fraction: environment.jobCenter.progress[id]?.determinateFraction,
                     isError: false,
                     canRetry: false)
             case .failed, .interrupted, .cancelled:

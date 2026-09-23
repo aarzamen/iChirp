@@ -237,6 +237,42 @@ Storage and retention
       launch (the transcript and notes stay; the player has no audio). A meeting still recording or not transcribed is
       never touched. Set it back to Forever.
 
+## Mac companion checklist (plan 019: voices host and YouTube audio)
+
+> Preconditions: the iPhone runs the `lane/companion` build (or later); the iPhone and the Mac are on the same Wi-Fi;
+> on the Mac, `scripts/companion.sh --download qwen3-tts-1.7b` has run once. Use public, non-personal links only.
+> Console.app streams the phone with `subsystem:com.aarzamen.ichirp`.
+
+On the Mac
+- [ ] `scripts/companion.sh`: it prints the URL, host, port and pairing token, "Speech qwen3-tts-1.7b: ready" and
+      "YouTube audio: ready".
+- [ ] `curl -s localhost:8765/v1/companion` shows `"features": {"speech": true, "youtubeAudio": true}`;
+      `curl -s -o /dev/null -w '%{http_code}' localhost:8765/v1/voices` prints `401` (no token).
+- [ ] The README's `curl … /v1/audio/speech … && afplay` speaks "Hello from Parakeet." in Ryan's voice.
+
+On the iPhone
+- [ ] Settings → Mac companion: enter the host (`<name>.local`), port 8765 and the token; iOS asks once for
+      local-network access (allow). Test connection: "Connected to Parakeet companion 1.0.0", the voices and
+      "YouTube audio: ready". Save; the Settings row shows the host.
+- [ ] Type one wrong character into the token and Test: "Your Mac refused the pairing token…". Clear it (the saved
+      token stays) and Test again: Connected.
+- [ ] Stop the companion on the Mac and Test: "Parakeet couldn’t reach your Mac…". Start it again.
+- [ ] Trusted for clinical text is off by default; with the host set to a public name (e.g. `example.com`) the switch
+      is disabled and says it can't be trusted. Set the host back.
+- [ ] Capture → Paste a link → a public YouTube video **without** captions (e.g. Blender's "Big Buck Bunny",
+      `https://www.youtube.com/watch?v=aqz-KE-bpKQ`) → Transcribe: "This video has no captions." and **Get the audio from
+      your Mac**. Tap it: the confirmation names your Mac; Send link to my Mac. The row appears as "YouTube video",
+      then takes the video's title; the sheet shows "Downloading…" (no "0%"), then Transcribing, then Transcribed.
+- [ ] Paste the same link again in the same sheet: offered again, **not** asked again.
+- [ ] A video **with** captions still takes the captions path (no Mac involved), as in the M5 checklist.
+- [ ] Remove Mac companion (Settings), then a captionless video: the message says to set up the Mac companion; no row.
+- [ ] On the Mac, the companion's terminal shows only lines like `request method=POST path=/v1/youtube/audio
+      status=200 bytes_in=… bytes_out=… ms=…`: no link, no title. Console on the phone shows no link or title either.
+
+Screenshots to attach
+- [ ] Settings → Mac companion after Test connection; the no-captions offer; the confirmation; the finished row.
+  (A simulator walk-through with a throwaway token: `UITests/CompanionTourUITests.swift`.)
+
 ## M5 checklist (links and documents)
 
 > Preconditions: the iPhone 17 Pro runs the `m5/ingest` build (Settings → About shows its commit); the speech model
@@ -251,7 +287,8 @@ Links (Capture → Paste a link)
       episode's title.
 - [ ] Paste a direct `.mp3` link: "Audio or video file"; Transcribe downloads and transcribes it.
 - [ ] Paste a YouTube link of a video with captions: "YouTube video"; Transcribe shows "Fetching the captions…", then
-      Open shows the text with timestamps and no player. Paste one without captions: a clear message, no row.
+      Open shows the text with timestamps and no player. Paste one without captions: a clear message, no row (with a
+      Mac companion set up, the offer in the Mac companion checklist instead).
 - [ ] Paste an X, TikTok or Spotify link: "Can’t use this link" with what to do instead; Transcribe stays disabled.
 - [ ] Airplane mode, then Transcribe a podcast link: "You’re offline…", no row. Turn it off and tap Transcribe again.
 - [ ] Start a long episode and force-quit Parakeet while it says "Downloading". Relaunch: the row is Interrupted with

@@ -59,6 +59,9 @@ import Observation
     let linkIngest: LinkIngestService
     /// M5: PDF, Word, RTF, HTML, Markdown and text documents, read on this iPhone.
     let documents: DocumentImportPipeline
+    /// Plan 019: Settings → Mac companion (host, port, trusted in UserDefaults; pairing token only in the Keychain).
+    /// The `CompanionConfiguration` plan 020's voices read; YouTube audio uses its client.
+    let companionSettings: CompanionSettingsStore
     /// Submits the background keep-alive requests for user-started jobs and downloads (M1.5).
     let continuedProcessing: SystemContinuedProcessingScheduler?
     /// The Parakeet version the speech engine was built with.
@@ -188,10 +191,12 @@ import Observation
             liveActivity?.update(for: state, recordedSeconds: dictation?.recordedSeconds ?? 0)
         }
         let ingestHTTP = IngestHTTPClient()
+        let companionSettings = CompanionSettingsStore(secrets: KeychainSecretStore())
+        self.companionSettings = companionSettings
         self.linkIngest = LinkIngestService(
             paths: paths, store: store, http: ingestHTTP, downloader: MediaDownloader(),
             podcasts: PodcastEpisodeResolver(http: ingestHTTP), captions: YouTubeCaptionFetcher(http: ingestHTTP),
-            onProgress: jobCenter.progressHandler)
+            companion: { companionSettings.makeClient() }, onProgress: jobCenter.progressHandler)
         self.documents = DocumentImportPipeline(
             paths: paths, store: store, extractor: DocumentTextExtractor(), onProgress: jobCenter.progressHandler)
         let meeting = self.meeting
@@ -343,7 +348,7 @@ import Observation
     func makeLinkImportViewModel() -> LinkImportViewModel {
         LinkImportViewModel(service: linkIngest) { [weak self] id, source in
             self?.startLinkJob(id, title: source.title ?? "Download") { linkIngest in
-                await linkIngest.download(id: id, from: source.downloadURL)
+                await linkIngest.download(id: id, source: source)
             }
         }
     }

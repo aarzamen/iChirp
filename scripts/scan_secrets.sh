@@ -14,8 +14,9 @@ command -v trufflehog >/dev/null || { echo "trufflehog is not installed: brew in
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+# companion/.venv is the Mac companion's gitignored virtualenv (third-party packages, never committed).
 printf '%s\n' '/\.git/' '/\.build[^/]*/' '/DerivedData/' '/\.swiftpm/' '\.xcodeproj/' '/SourcePackages/' \
-  '/node_modules/' '/\.venv/' '/vendor/needle-rs/target/' >"$TMP/exclude.txt"
+  '/node_modules/' '/\.venv/' '/__pycache__/' '/vendor/needle-rs/target/' >"$TMP/exclude.txt"
 
 # In a lane worktree `.git` is a file, which trufflehog's git mode cannot open; scan the main repository instead (its
 # history holds every branch, including the worktree's).

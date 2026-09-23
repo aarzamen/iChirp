@@ -11,6 +11,15 @@ public enum ResolvedLink: Sendable, Equatable {
     case youtubeCaptions(videoID: String, link: URL)
 }
 
+/// How a link's media reaches this iPhone.
+public enum LinkTransport: String, Sendable, Equatable {
+    /// Downloaded here, from `downloadURL`.
+    case direct
+    /// Fetched by the owner's Mac companion (a YouTube video without captions, plan 019): only the link is sent to
+    /// the Mac, which downloads the audio from YouTube and sends it back.
+    case companion
+}
+
 /// What to download for a link, and what the Library shows about it.
 public struct LinkMediaSource: Sendable, Equatable {
     /// The audio or video file itself (a podcast's enclosure, or the pasted link).
@@ -23,15 +32,24 @@ public struct LinkMediaSource: Sendable, Equatable {
     public var title: String?
     /// The duration the source declared (replaced by the real one once transcribed).
     public var durationMs: Int?
+    /// `.direct` downloads `downloadURL` here; `.companion` asks the Mac companion for the link's audio.
+    public var transport: LinkTransport
 
     public init(
-        downloadURL: URL, link: URL, sourceType: Transcription.SourceType, title: String? = nil, durationMs: Int? = nil
+        downloadURL: URL, link: URL, sourceType: Transcription.SourceType, title: String? = nil, durationMs: Int? = nil,
+        transport: LinkTransport = .direct
     ) {
         self.downloadURL = downloadURL
         self.link = link
         self.sourceType = sourceType
         self.title = title
         self.durationMs = durationMs
+        self.transport = transport
+    }
+
+    /// A YouTube video's audio through the Mac companion (plan 019).
+    public static func companionYouTube(_ link: URL) -> LinkMediaSource {
+        LinkMediaSource(downloadURL: link, link: link, sourceType: .url, transport: .companion)
     }
 }
 
@@ -41,11 +59,15 @@ public enum LinkIngestError: Error, Equatable, LocalizedError {
     case unsupported(String)
     /// A Retry for a row that has no link to download again.
     case missingLink
+    /// YouTube audio needs the Mac companion, and none is set up (or it has no pairing token).
+    case companionNotConfigured
 
     public var errorDescription: String? {
         switch self {
         case .unsupported(let message): message
         case .missingLink: "This item has no link to download again. Delete it and paste the link again."
+        case .companionNotConfigured:
+            "Getting a YouTube video’s audio needs the Mac companion. Set it up in Settings → Mac companion."
         }
     }
 }
@@ -72,6 +94,7 @@ public actor LinkIngestService {
     private let downloader: any MediaDownloading
     private let podcasts: any PodcastResolving
     private let captions: any YouTubeCaptionFetching
+    private let companion: @Sendable () -> (any CompanionAudioFetching)?
     private let preferredLanguages: @Sendable () -> [String]
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private let logger = Log.logger("links")
@@ -79,6 +102,7 @@ public actor LinkIngestService {
     /// - Parameters:
     ///   - preferredLanguages: language codes for choosing a YouTube caption track (the device's languages).
     ///   - onProgress: download progress (`.downloading`), usually `TranscriptionJobCenter.progressHandler`.
+    ///   - companion: the Mac companion's client, read at each use (nil when none is set up with a pairing token).
     public init(
         paths: AppPaths,
         store: any TranscriptionStoring,
@@ -86,6 +110,7 @@ public actor LinkIngestService {
         downloader: any MediaDownloading,
         podcasts: any PodcastResolving,
         captions: any YouTubeCaptionFetching,
+        companion: @escaping @Sendable () -> (any CompanionAudioFetching)? = { nil },
         preferredLanguages: @escaping @Sendable () -> [String] = { Locale.preferredLanguages },
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
@@ -95,6 +120,7 @@ public actor LinkIngestService {
         self.downloader = downloader
         self.podcasts = podcasts
         self.captions = captions
+        self.companion = companion
         self.preferredLanguages = preferredLanguages
         self.onProgress = onProgress
     }
@@ -146,7 +172,8 @@ public actor LinkIngestService {
         row.sourceURL = source.link.absoluteString
         row.sourceTitle = source.title
         try await store.insert(row)
-        onProgress(id, JobProgress(stage: .downloading, fraction: 0))
+        // The size is unknown until the server answers: "Downloading…", not "0%".
+        onProgress(id, .indeterminate(.downloading))
         logger.info(
             "link_row_created id=\(id, privacy: .public) source=\(source.sourceType.rawValue, privacy: .public)")
         return id
@@ -160,29 +187,13 @@ public actor LinkIngestService {
         let onProgress = self.onProgress
         do {
             let file = try await downloader.download(from: url, into: directory, fileStem: "source") { progress in
-                if let fraction = progress.fraction {
-                    onProgress(id, JobProgress(stage: .downloading, fraction: fraction))
-                }
+                onProgress(id, Self.jobProgress(progress))
             }
             // A finished file is always recorded, even if the job was cancelled meanwhile: the pipeline then ends the
             // row `cancelled`, and Retry transcribes it without downloading again.
-            guard let relativePath = paths.relativePath(for: file.fileURL) else {
-                throw CocoaError(.fileWriteInvalidFileName)
-            }
-            let store = self.store
-            let saved = try await Self.detached { () -> Transcription? in
-                guard var row = try await store.fetch(id: id) else { return nil }
-                row.mediaRelativePath = relativePath
-                row.fileSizeBytes = Int(clamping: file.byteCount)
-                row.fileName = Self.fileName(row.fileName, withExtension: file.fileURL.pathExtension)
-                return try await store.savePreservingUserMetadata(row)
-            }
-            guard saved != nil else {
-                // Deleted during the download: the person's delete wins, the file goes with it.
-                logger.notice("link_row_deleted_during_download id=\(id, privacy: .public)")
-                try? FileManager.default.removeItem(at: directory)
-                return .ended(nil)
-            }
+            let recorded = try await record(
+                id: id, fileURL: file.fileURL, byteCount: file.byteCount, title: nil, durationMs: nil)
+            guard recorded else { return .ended(nil) }
             logger.info("link_download_ready id=\(id, privacy: .public) resumed=\(file.resumed, privacy: .public)")
             return .ready
         } catch {
@@ -198,9 +209,101 @@ public actor LinkIngestService {
         }
     }
 
+    /// The download for a new link row: here (`.direct`), or through the Mac companion (`.companion`).
+    public func download(id: UUID, source: LinkMediaSource) async -> LinkDownloadResult {
+        switch source.transport {
+        case .direct: await download(id: id, from: source.downloadURL)
+        case .companion: await downloadFromCompanion(id: id, link: source.link)
+        }
+    }
+
+    // MARK: - YouTube audio through the Mac companion (plan 019)
+
+    /// Whether a Mac companion is set up with a pairing token (the Paste a link sheet then offers YouTube audio).
+    public nonisolated func isCompanionConfigured() -> Bool {
+        companion() != nil
+    }
+
+    /// Sends the YouTube `link` to the Mac companion, which downloads the audio and sends it back into
+    /// `media/<id>/source.m4a`; records the file, the video's title and duration on the row. Only the link leaves
+    /// this iPhone (the person confirmed it). Failures end the row `failed` with the companion's sentence; cancelling
+    /// ends it `cancelled`; Retry asks the companion again.
+    public func downloadFromCompanion(id: UUID, link: URL) async -> LinkDownloadResult {
+        guard let companion = companion() else {
+            logger.notice("companion_download_refused id=\(id, privacy: .public) reason=not_configured")
+            return .ended(
+                await markEnded(id, status: .failed, message: LinkIngestError.companionNotConfigured.errorDescription))
+        }
+        let directory = paths.mediaDirectory(for: id)
+        let onProgress = self.onProgress
+        onProgress(id, .indeterminate(.downloading))
+        do {
+            let audio = try await companion.youtubeAudio(url: link, into: directory, fileStem: "source") { progress in
+                onProgress(id, Self.jobProgress(progress))
+            }
+            let recorded = try await record(
+                id: id, fileURL: audio.fileURL, byteCount: audio.byteCount, title: audio.title,
+                durationMs: audio.durationMs)
+            guard recorded else { return .ended(nil) }
+            logger.info(
+                "companion_download_ready id=\(id, privacy: .public) bytes=\(audio.byteCount, privacy: .public)")
+            return .ready
+        } catch {
+            if error is CancellationError || Task.isCancelled {
+                logger.notice("companion_download_cancelled id=\(id, privacy: .public)")
+                return .ended(await markEnded(id, status: .cancelled, message: nil))
+            }
+            logger.error(
+                "companion_download_failed id=\(id, privacy: .public) error_type=\(String(describing: type(of: error)), privacy: .public)"
+            )
+            return .ended(await markEnded(id, status: .failed, message: Self.readable(error)))
+        }
+    }
+
+    /// Download progress as a job's progress: a fraction when the size is known, else "Downloading…".
+    static func jobProgress(_ progress: DownloadProgress) -> JobProgress {
+        if let fraction = progress.fraction {
+            return JobProgress(stage: .downloading, fraction: fraction)
+        }
+        return .indeterminate(.downloading)
+    }
+
+    /// Records a finished file on the row (path, size, file name; and the source's title and duration when given).
+    /// Returns false when the row was deleted meanwhile: the person's delete wins and the file goes with it.
+    private func record(id: UUID, fileURL: URL, byteCount: Int64, title: String?, durationMs: Int?) async throws
+        -> Bool
+    {
+        guard let relativePath = paths.relativePath(for: fileURL) else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let store = self.store
+        let saved = try await Self.detached { () -> Transcription? in
+            guard var row = try await store.fetch(id: id) else { return nil }
+            row.mediaRelativePath = relativePath
+            row.fileSizeBytes = Int(clamping: byteCount)
+            if let title, !title.isEmpty {
+                row.sourceTitle = title
+                let stem = Self.sanitizedFileStem(title)
+                if !stem.isEmpty { row.fileName = stem }
+            }
+            if let durationMs, durationMs > 0 { row.durationMs = durationMs }
+            row.fileName = Self.fileName(row.fileName, withExtension: fileURL.pathExtension)
+            return try await store.savePreservingUserMetadata(row)
+        }
+        guard saved != nil else {
+            logger.notice("link_row_deleted_during_download id=\(id, privacy: .public)")
+            try? FileManager.default.removeItem(at: paths.mediaDirectory(for: id))
+            return false
+        }
+        return true
+    }
+
+    // MARK: - Retry
+
     /// Retry for a link row whose download never finished (`needsDownload`): moves it back to `.processing` and
     /// downloads again, resuming the partial file when the server allows. The URL comes from the partial download's
-    /// record, else the stored link is resolved again (a new tap, so the network is allowed).
+    /// record, else the stored link is resolved again (a new tap, so the network is allowed). A YouTube row goes back
+    /// to the Mac companion (the person confirmed that link when the row was made).
     public func retryDownload(id: UUID) async -> LinkDownloadResult {
         let store = self.store
         let reset = try? await Self.detached {
@@ -210,7 +313,12 @@ public actor LinkIngestService {
         guard let row = reset ?? nil else {
             return .ended(try? await store.fetch(id: id))
         }
-        onProgress(id, JobProgress(stage: .downloading, fraction: 0))
+        onProgress(id, .indeterminate(.downloading))
+        if let link = row.sourceURL.flatMap(URL.init(string:)),
+            case .youtube = LinkClassifier.classify(link.absoluteString)
+        {
+            return await downloadFromCompanion(id: id, link: link)
+        }
         do {
             let url = try await downloadURL(for: row)
             return await download(id: id, from: url)
@@ -357,10 +465,14 @@ public actor LinkIngestService {
             durationMs: episode.durationSeconds.map { $0 * 1000 })
     }
 
-    /// The row's file name before the download: the episode title, else the link's last path component.
+    /// The row's file name before the download: the episode title, else the link's last path component ("YouTube
+    /// video" for a companion download, whose title arrives with the audio).
     static func fileName(for source: LinkMediaSource) -> String {
         if let title = source.title.map(sanitizedFileStem), !title.isEmpty {
             return title
+        }
+        if source.transport == .companion {
+            return "YouTube video"
         }
         let last = source.downloadURL.lastPathComponent
         return last.isEmpty || last == "/" ? (source.downloadURL.host() ?? "Download") : last

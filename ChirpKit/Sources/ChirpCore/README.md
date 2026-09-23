@@ -38,6 +38,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   text, the seam for streaming engines (contract `spec/contracts/speech-engine-plugin-v1.md`).
 - `Engines/SpeechSynthesis.swift`: `SpeechSynthesizing` (text to speech: "Listen", spoken answers, read-back),
   `SynthesisRequest`, `SynthesisVoice`, `SynthesizedAudio`, `SpeechSynthesisError`. Engine kind `.speechSynthesis`.
+- `Engines/CompanionConfiguration.swift` (plan 020): `CompanionConfiguration` (the Mac companion's address and
+  pairing token, read at every call; plan 019's Settings → Mac companion store conforms), `CompanionEndpoint`
+  (locality follows the host: a non-local address is `.cloud`; trust counts only on the local network),
+  `FixedCompanionConfiguration`, and `PrivacyRoutingPolicy.trusting(_:)`.
   Contract: `spec/contracts/speech-synthesis-plugin-v1.md`; conformers arrive in plan 020.
 - `Engines/LanguageModel.swift`: the M4 text-generation contract (`LanguageModel` with `endpointHost`,
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
