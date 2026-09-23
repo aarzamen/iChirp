@@ -100,9 +100,18 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `IncomingFileInbox.swift`: the app's `Documents/Inbox/`, where iOS copies a file another app hands to Parakeet
   (Share sheet → Parakeet, Files → Open in; M1.5). `contains(_:)` and `removeIfInside(_:)` only ever touch files
   strictly inside that folder, never a file the user picked with the document picker.
-- `LibraryViewModel.swift`: all rows from `observeAll()`, filter chips, search, "Today" / "Yesterday" / "MMM d"
-  sections, delete (row plus its `media/<id>/` folder and any `ExportTempFiles` export folder for it), favorite, and
-  `loadError` / `dismissLoadError()`.
+- `LibraryViewModel.swift`: all rows from `observeAll()` and (plan 023, UX audit F43) every generated document from
+  `DeliverableListing.observeDeliverableSummaries()` as `LibraryDocument` (summary, source title and kind, and the
+  effective class: the stricter of its own, its source's and its siblings' classes; clinical when the source row is
+  unknown). `visibleEntries` merges both newest first as `LibraryEntry` (`.item` / `.document`, separate id spaces),
+  narrowed by the filter chips (a new `documents` chip holds exactly the documents; All shows both; the source chips
+  show no documents) and the settled search. `sections` ("Today" / "Yesterday" / "MMM d", with the year for another
+  year) hold only the first `pageSize` (100) rows plus one page per `showMore()`, until `hasMore` is false.
+  `documents(madeFrom:)` is an item's "Made from this", newest first. Search runs after `searchDebounce` (150 ms):
+  transcript title, text, file name and speakers off the main actor; document template name and source title in
+  memory; document text in the store (`searchError` when that fails; `searchSettled()` for tests). Delete (row plus
+  its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
+  favorite, and `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
   `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` into
   `<tmp>/export-<id>/`, rename and favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
@@ -247,7 +256,7 @@ pipeline's `Task`s and publishes its progress to the UI.
   the quality tier) and `UnavailableLocalModel`. Tests: `LocalModelFitTests`.
 - `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
   category and the generated documents a page at a time: `hasMore` and `showMore()`, so no document becomes
-  unreachable past the first 50; UX audit F43) and `DeliverableDocumentViewModel` (one document: text, template version number,
+  unreachable past the first 50; UX audit F43; every document is also in the Library, plan 023) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
 - `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
   time; answers are not stored (the ledger records each run without content).
@@ -529,7 +538,8 @@ _ = try await store.markStaleProcessingAsInterrupted()     // at launch, then:
 await pipeline.sweepOrphanedTemporaryAudio()
 jobs.onImportSettled = { url in inbox?.removeIfInside(url) } // inbox = IncomingFileInbox.appDefault()
 jobs.start(filesAt: pickedOrSharedURLs, pipeline: pipeline) // per user action
-LibraryViewModel(store: store, paths: paths)               // paths: delete removes media/<id>/ too
+LibraryViewModel(store: store, paths: paths, documents: deliverableStore)  // paths: delete removes media/<id>/;
+                                                           // documents: plan 023, generated documents in the Library
 let dictation = DictationCoordinator(                      // M2
     capture: DictationRecorder(stream: microphone, session: audioSession),
     speech: engines.speech, liveSessions: engines.speech, scheduler: scheduler, store: store, paths: paths,
@@ -616,8 +626,13 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
 - **Orphaned temp audio.** A process killed mid-job leaves `normalized-16k.wav` behind. The app calls
   `sweepOrphanedTemporaryAudio()` at launch; it skips ids running in this process, folders whose name is not a UUID,
   and every source file.
-- **Observed lists converge; they are not instant.** `LibraryViewModel.delete` removes the row from `items` right
-  away, but a snapshot queued in `observeAll()` before the delete can briefly re-add it until the next snapshot.
+- **Observed lists converge; they are not instant.** `LibraryViewModel.delete` removes the row from `items` (and its
+  documents from the list) right away, but a snapshot queued in `observeAll()` or `observeDeliverableSummaries()`
+  before the delete can briefly re-add it until the next snapshot.
+- **The Library stays smooth at thousands of rows** (plan 023). Every change rebuilds the merged list once
+  (linear; 8,000 rows in a few milliseconds in a debug build on the Mac, `LibraryDocumentsTests`), the screen lays out
+  one page at a time, and search never scans text on the main actor. Keep new per-row work out of `rebuildEntries`
+  and off the view's `body`.
 - **The background task never drives the job** (M1.5). Jobs start at once; `BackgroundContinuation` only mirrors
   their real progress to the system and cancels them on expiration. A refused request (the Simulator, or the system
   under load) changes nothing about the job. Every ending stays one of `completed`, `failed`, `cancelled` or, after a

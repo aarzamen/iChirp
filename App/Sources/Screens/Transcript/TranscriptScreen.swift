@@ -178,7 +178,11 @@ struct TranscriptScreen: View {
             Button("Delete", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(model.transcription.map { LibraryDeleteCopy.message(for: $0) } ?? "")
+            Text(
+                model.transcription.map {
+                    LibraryDeleteCopy.message(
+                        for: $0, documentTitles: environment.library.documents(madeFrom: id).map(\.typeTitle))
+                } ?? "")
         }
         .alert("Rename transcript", isPresented: $isRenaming) {
             TextField("Title", text: $renameText)
@@ -427,6 +431,8 @@ struct TranscriptScreen: View {
         _ paragraphs: [TranscriptParagraph], hasTimings: Bool, speakerOrder: [String: Int], current: Int?
     ) -> some View {
         ScrollView {
+            // Plan 023 (UX audit F43): the documents made from this transcript, above its text.
+            MadeFromThisSection(sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24))
             if paragraphs.isEmpty {
                 EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
             } else {

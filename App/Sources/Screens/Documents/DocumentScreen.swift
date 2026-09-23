@@ -228,6 +228,8 @@ struct DocumentScreen: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
                 summaryCard(item)
+                // Plan 023 (UX audit F43): the documents made from this item.
+                MadeFromThisSection(sourceID: id)
                 if let pages = item.documentPages, !pages.isEmpty {
                     ForEach(pages, id: \.number) { page in
                         pageView(page, total: pages.count)
