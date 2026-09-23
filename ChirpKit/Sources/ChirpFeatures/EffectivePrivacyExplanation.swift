@@ -68,6 +68,17 @@ public struct EffectivePrivacyExplanation: Sendable, Equatable {
             + "\(Self.article(raisedBy.first ?? "document")) \(names) \(made) made from it."
     }
 
+    /// For a document made from this item that is not clinical itself (a Summary read aloud): "It was made from a
+    /// transcript that counts as clinical because a SOAP note was made from it." or "It was made from a transcript marked
+    /// Clinical."; nil when the document is clinical itself or the item does not count as clinical.
+    public func sentence(forDocumentOfClass documentClass: PrivacyClass) -> String? {
+        guard documentClass != .clinical, effective == .clinical else { return nil }
+        guard isRaised else { return "It was made from a transcript marked Clinical." }
+        let made = raisedBy.count > 1 ? "were" : "was"
+        return "It was made from a transcript that counts as clinical because "
+            + "\(Self.article(raisedBy.first ?? "document")) \(Self.names(raisedBy)) \(made) made from it."
+    }
+
     /// "SOAP note", "SOAP note and Summary", "SOAP note, Summary and 1 more".
     static func names(_ titles: [String]) -> String {
         switch titles.count {

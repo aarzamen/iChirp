@@ -40,7 +40,8 @@ struct ClinicalConfirmationModifier: ViewModifier {
                 answeredRequestID = request.id
                 if let run { ClinicalConfirmationActions(run: run).userTappedCancel() }
             }
-            Button("Send") {
+            // The choice that sends clinical text away looks like one (UX audit F46).
+            Button("Send", role: .destructive) {
                 answeredRequestID = request.id
                 guard let run else { return }
                 Task { await ClinicalConfirmationActions(run: run).userTappedSend() }

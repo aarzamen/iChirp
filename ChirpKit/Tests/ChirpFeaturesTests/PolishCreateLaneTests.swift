@@ -83,6 +83,21 @@ final class PolishCreateLaneTests: XCTestCase {
             "the title already says clinical")
     }
 
+    func testADocumentReadAloudSaysItsTranscriptCountsAsClinical() {
+        let item = Transcription(fileName: "synthetic.m4a", status: .completed, privacyClass: .personal)
+        let raised = EffectivePrivacyExplanation(item, deliverables: [document("SOAP note", .clinical, of: item)])
+        XCTAssertEqual(
+            raised.sentence(forDocumentOfClass: .personal),
+            "It was made from a transcript that counts as clinical because a SOAP note was made from it.")
+        XCTAssertNil(raised.sentence(forDocumentOfClass: .clinical), "a clinical document needs no reason")
+
+        let marked = Transcription(fileName: "synthetic.m4a", status: .completed, privacyClass: .clinical)
+        XCTAssertEqual(
+            EffectivePrivacyExplanation(marked, deliverables: []).sentence(forDocumentOfClass: .personal),
+            "It was made from a transcript marked Clinical.")
+        XCTAssertNil(EffectivePrivacyExplanation(item, deliverables: []).sentence(forDocumentOfClass: .personal))
+    }
+
     // MARK: - The per-run question (F33, F51)
 
     func testTheQuestionSaysTextAndWhyAPersonalTranscriptCountsAsClinical() async throws {

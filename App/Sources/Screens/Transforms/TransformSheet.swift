@@ -17,6 +17,9 @@ struct TransformSheet: View {
     @State private var host: TransformRunHost
     @State private var choice: LanguageModelChoice
     @State private var notes = ""
+    /// The transcript's class as the router uses it, with why (UX audit F51).
+    @State private var explanation: EffectivePrivacyExplanation?
+    @State private var isConfirmingDiscard = false
 
     init(
         transcriptionID: UUID, transcriptTitle: String, privacyClass: PrivacyClass, environment: AppEnvironment,
@@ -42,7 +45,12 @@ struct TransformSheet: View {
         }
         .clinicalConfirmation(for: host.run)
         .onDisappear { host.cancel() }
-        .task { await environment.languageModels.refresh() }
+        .task {
+            explanation = try? await EffectivePrivacyExplanation.current(
+                transcriptionID: transcriptionID, transcripts: environment.store,
+                deliverables: environment.deliverableStore)
+            await environment.languageModels.refresh()
+        }
     }
 
     private var picker: some View {
@@ -57,7 +65,9 @@ struct TransformSheet: View {
                     .chirpFont(13)
                     .foregroundStyle(Tokens.Color.secondary)
                     .lineLimit(1)
-                TransformSetup(choice: $choice, notes: $notes, privacyClass: privacyClass, startError: host.startError)
+                TransformSetup(
+                    choice: $choice, notes: $notes, privacyClass: explanation?.effective ?? privacyClass,
+                    explanation: explanation, startError: host.startError)
                 if let error = library.loadError {
                     Text("Couldn’t read the templates: \(error)")
                         .chirpFont(13)
@@ -81,9 +91,18 @@ struct TransformSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") {
+                    switch DiscardDecision.onCancel(hasInput: DiscardDecision.holdsInput(notes)) {
+                    case .close: dismiss()
+                    case .ask: isConfirmingDiscard = true
+                    }
+                }
             }
         }
+        .discardInputConfirmation(
+            "Discard your notes?", message: "The notes you typed for the model are not kept.",
+            hasInput: DiscardDecision.holdsInput(notes), isAsking: $isConfirmingDiscard
+        ) { dismiss() }
     }
 
     @ViewBuilder private func templateSection(_ title: String, _ templates: [PromptTemplate]) -> some View {
@@ -122,6 +141,7 @@ struct TemplateLaunchSheet: View {
     @State private var choice: LanguageModelChoice
     @State private var notes = ""
     @State private var runTranscript: Transcription?
+    @State private var isConfirmingDiscard = false
 
     init(template: PromptTemplate, environment: AppEnvironment) {
         self.template = template
@@ -149,7 +169,8 @@ struct TemplateLaunchSheet: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 TemplateRow(template: template)
-                TransformSetup(choice: $choice, notes: $notes, privacyClass: nil, startError: host.startError)
+                TransformSetup(
+                    choice: $choice, notes: $notes, privacyClass: nil, explanation: nil, startError: host.startError)
                 SectionLabel("Choose a transcript")
                     .padding(.leading, 4)
                     .padding(.top, 8)
@@ -183,9 +204,18 @@ struct TemplateLaunchSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") {
+                    switch DiscardDecision.onCancel(hasInput: DiscardDecision.holdsInput(notes)) {
+                    case .close: dismiss()
+                    case .ask: isConfirmingDiscard = true
+                    }
+                }
             }
         }
+        .discardInputConfirmation(
+            "Discard your notes?", message: "The notes you typed for the model are not kept.",
+            hasInput: DiscardDecision.holdsInput(notes), isAsking: $isConfirmingDiscard
+        ) { dismiss() }
     }
 
     private func transcriptRow(_ item: Transcription) -> some View {
@@ -221,17 +251,17 @@ private struct TransformSetup: View {
     @Environment(AppEnvironment.self) private var environment
     @Binding var choice: LanguageModelChoice
     @Binding var notes: String
-    /// The transcript's class when it is already known (Transcript → Transform).
+    /// The transcript's class when it is already known (Transcript → Transform): the effective class once read.
     let privacyClass: PrivacyClass?
+    /// Why the effective class is stricter than the transcript's mark, when it is ("Clinical (it has a SOAP note)").
+    let explanation: EffectivePrivacyExplanation?
     let startError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ModelChoiceMenu(prefix: "Runs", choice: $choice)
-                if let privacyClass {
-                    PrivacyClassBadge(privacyClass: privacyClass)
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { chips }
+                VStack(alignment: .leading, spacing: 4) { chips }
             }
             if let message = environment.unavailableMessage(for: choice) {
                 ModelUnavailableNote(message: message)
@@ -258,6 +288,14 @@ private struct TransformSetup: View {
                 .padding(12)
                 .background(CardBackground(radius: Tokens.Radius.s))
                 .accessibilityHint("Added where a template asks for your notes")
+        }
+    }
+
+    @ViewBuilder private var chips: some View {
+        ModelChoiceMenu(prefix: "Runs", choice: $choice)
+        if let privacyClass {
+            PrivacyClassBadge(
+                privacyClass: privacyClass, text: explanation?.isRaised == true ? explanation?.label : nil)
         }
     }
 }

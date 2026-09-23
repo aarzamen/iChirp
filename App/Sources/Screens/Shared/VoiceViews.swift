@@ -43,12 +43,16 @@ enum VoiceStatus {
 }
 
 /// The per-reading question before clinical text goes to a cloud voice (or a Mac the owner has not trusted). Title and
-/// message come from `VoiceConfirmationRequest`; the answer is never remembered.
+/// message come from `VoiceConfirmationRequest`; the answer is never remembered. When the item is not marked clinical
+/// the message first says why it counts as clinical ("Marked Personal, but … a SOAP note was made from it."; UX audit
+/// F51): the question shows once that reason is read from the stores (a local read).
 struct VoiceConfirmationModifier: ViewModifier {
+    @Environment(AppEnvironment.self) private var environment: AppEnvironment?
     let player: VoicePlayer
     /// False while this screen presents a sheet that shows the question itself (only one view presents it).
     var isEnabled = true
     @State private var answeredRequestID: UUID?
+    @State private var reason: VoiceQuestionReason.Resolved?
 
     func body(content: Content) -> some View {
         let request = pendingRequest
@@ -61,20 +65,70 @@ struct VoiceConfirmationModifier: ViewModifier {
                 answeredRequestID = request.id
                 VoiceConfirmationActions(player: player).userTappedCancel()
             }
-            Button("Read aloud") {
+            // The choice that sends clinical text away looks like one (UX audit F46).
+            Button("Read aloud", role: .destructive) {
                 answeredRequestID = request.id
                 VoiceConfirmationActions(player: player).userTappedReadAloud(request)
             }
         } message: { request in
-            Text(request.message)
+            Text(VoiceQuestionReason.message(request.message, reason: reason?.text))
+        }
+        .task(id: waitingRequestID) {
+            guard let id = waitingRequestID else { return }
+            let text = await VoiceQuestionReason.text(for: player.source, environment: environment)
+            reason = VoiceQuestionReason.Resolved(requestID: id, text: text)
         }
     }
 
-    private var pendingRequest: VoiceConfirmationRequest? {
+    /// The question the player waits on, whether or not its reason is read yet.
+    private var waitingRequestID: UUID? {
         guard isEnabled, case .needsConfirmation(let request) = player.state, request.id != answeredRequestID else {
             return nil
         }
+        return request.id
+    }
+
+    private var pendingRequest: VoiceConfirmationRequest? {
+        guard isEnabled, case .needsConfirmation(let request) = player.state, request.id != answeredRequestID,
+            reason?.requestID == request.id
+        else {
+            return nil
+        }
         return request
+    }
+}
+
+/// Why a voice question's text counts as clinical when its item is not marked clinical (UX audit F51), from
+/// `EffectivePrivacyExplanation` as stored now. Nil when the item is marked clinical, is not raised, or cannot be read.
+enum VoiceQuestionReason {
+    struct Resolved: Equatable {
+        let requestID: UUID
+        let text: String?
+    }
+
+    /// The reason, then the question's own message.
+    static func message(_ message: String, reason: String?) -> String {
+        guard let reason else { return message }
+        return reason + " " + message
+    }
+
+    @MainActor static func text(for source: VoiceSource?, environment: AppEnvironment?) async -> String? {
+        guard let source, let environment else { return nil }
+        let transcripts = environment.store
+        let deliverables = environment.deliverableStore
+        switch source {
+        case .transcript(let id), .document(let id), .askAnswer(_, let id), .dictationReadBack(let id?):
+            let explanation = try? await EffectivePrivacyExplanation.current(
+                transcriptionID: id, transcripts: transcripts, deliverables: deliverables)
+            return explanation?.sentence
+        case .deliverable(let id):
+            guard let document = try? await deliverables.fetchDeliverable(id: id) else { return nil }
+            let explanation = try? await EffectivePrivacyExplanation.current(
+                transcriptionID: document.transcriptionID, transcripts: transcripts, deliverables: deliverables)
+            return explanation?.sentence(forDocumentOfClass: document.privacyClass)
+        case .dictationReadBack(nil), .voiceTest:
+            return nil
+        }
     }
 }
 
@@ -181,6 +235,7 @@ struct ListenBarButton: View {
             VStack(spacing: 4) {
                 Image(systemName: state.systemImage)
                     .font(.system(size: 19, weight: .medium))
+                    .frame(height: 22)  // the same icon box as Copy and Share, so the labels line up (UX audit F40)
                 Text(state.title)
                     .chirpFont(11, .semibold)
             }

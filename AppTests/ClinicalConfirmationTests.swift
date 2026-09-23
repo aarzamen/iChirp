@@ -35,7 +35,7 @@ final class ClinicalConfirmationTests: XCTestCase {
             pattern: #"\.userTappedSend\(\)"#, under: repo.appendingPathComponent("App/Sources"))
         XCTAssertEqual(send.matches.map(\.file), ["ClinicalConfirmation.swift"], "userTappedSend has one caller")
         XCTAssertTrue(
-            send.matches.first?.before.contains(#"Button("Send") {"#) == true,
+            send.matches.first?.before.contains(#"Button("Send", role: .destructive) {"#) == true,
             "that caller is the Send button's action")
 
         let kit = try Self.codeMatches(
