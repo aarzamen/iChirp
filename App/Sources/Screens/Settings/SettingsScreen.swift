@@ -153,7 +153,8 @@ struct SettingsScreen: View {
     // MARK: - Privacy
 
     private var privacyGroup: some View {
-        let onDevice = allRoutesOnDevice
+        let reach = contentReach
+        let onDevice = reach.level == .onDevice
         return SettingsGroup(title: "Privacy") {
             HStack(spacing: 12) {
                 ZStack {
@@ -166,18 +167,15 @@ struct SettingsScreen: View {
                 .frame(width: 34, height: 34)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    // F74: this claim is only true while every configured route (a language-model provider, Jev,
-                    // the voice you read aloud with) is on-device — never shown unconditionally.
+                    // F74: this claim is only true while `ContentReach` — the same computation Capture's header
+                    // chip uses, so the two screens never disagree — says every route is on-device.
                     Text(onDevice ? "Everything stays on this iPhone" : "Some settings can leave this iPhone")
                         .chirpFont(15.5)
                         .foregroundStyle(Tokens.Color.ink)
-                    Text(
-                        onDevice
-                            ? "Audio, transcripts, notes — no account, no upload" : networkRoutesSummary
-                    )
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(onDevice ? "Audio, transcripts, notes — no account, no upload" : reach.summary)
+                        .chirpFont(12.5)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -193,31 +191,16 @@ struct SettingsScreen: View {
         }
     }
 
-    /// True only while nothing configured can leave the phone: no language-model provider beyond Apple's
-    /// on-device model, Jev off, and no network voice provider (F74). Mirrors each route's own `EngineLocality`
-    /// rather than guessing.
-    private var allRoutesOnDevice: Bool {
-        let languageModelsOnDevice = environment.languageModels.providers.allSatisfy { $0.locality == .onDevice }
-        let voiceOnDevice = environment.voiceSettings.settings.provider == nil
-        return languageModelsOnDevice && voiceOnDevice && !environment.jevSettingsModel.isEnabled
-    }
-
-    /// What can leave the phone, for the caption when `allRoutesOnDevice` is false.
-    private var networkRoutesSummary: String {
-        var routes: [String] = []
-        for provider in environment.languageModels.providers where provider.locality != .onDevice {
-            routes.append(provider.displayName)
-        }
-        if environment.jevSettingsModel.isEnabled { routes.append("Jev") }
-        switch environment.voiceSettings.settings.provider {
-        case .companion?: routes.append("Mac companion voices")
-        case .xai?: routes.append("Grok voices")
-        case nil: break
-        }
-        guard !routes.isEmpty else {
-            return "A model or voice you set up can send text off this iPhone."
-        }
-        return "Can leave this iPhone: \(routes.joined(separator: ", ")). See Models and Voices below for when."
+    /// Where the configured routes send content now (UX audit F13/F74) — the same `ContentReach` computation
+    /// Capture's header chip and "Where things run" sheet use.
+    private var contentReach: ContentReach {
+        ContentReach.current(
+            speechEngineName: environment.finalSpeechModel.name,
+            defaultModel: environment.languageModels.defaultChoice,
+            otherProviders: environment.languageModels.choices,
+            voice: environment.voiceSettings.settings.provider,
+            companionTrusted: environment.companionConfiguration.companionEndpoint()?.isTrusted ?? false,
+            jevEnabled: environment.jevSettingsModel.isEnabled)
     }
 
     // MARK: - Text
