@@ -14,8 +14,9 @@ command -v trufflehog >/dev/null || { echo "trufflehog is not installed: brew in
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+# companion/.venv is the Mac companion's gitignored virtualenv (third-party packages, never committed).
 printf '%s\n' '/\.git/' '/\.build[^/]*/' '/DerivedData/' '/\.swiftpm/' '\.xcodeproj/' '/SourcePackages/' \
-  '/node_modules/' >"$TMP/exclude.txt"
+  '/node_modules/' '/\.venv/' '/__pycache__/' >"$TMP/exclude.txt"
 
 echo "Scanning git history (all branches) ..."
 trufflehog git "file://$PWD" --no-verification --no-update --json 2>/dev/null >"$TMP/git.json"
