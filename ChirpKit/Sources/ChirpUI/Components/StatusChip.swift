@@ -33,7 +33,7 @@ public struct StatusChip: View {
             switch icon {
             case .system(let name):
                 Image(systemName: name)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .accessibilityHidden(true)  // Decorative; the label text says the same thing.
             case .dot(let color):
                 Circle()
@@ -43,13 +43,18 @@ public struct StatusChip: View {
             case .none:
                 EmptyView()
             }
+            // A text style, not a fixed point size (F2): follows Dynamic Type. Up to two lines rather than a
+            // silent mid-sentence truncation — a chip can carry an explanatory sentence ("STUB · rules, not
+            // Needle · Needle unavailable: …") that must stay legible.
             Text(text)
-                .font(.system(size: 11.5, weight: .semibold))
-                .lineLimit(1)
+                .font(.caption.weight(.semibold))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(ink)
         .padding(.horizontal, 10)
-        .frame(height: 26)
+        .padding(.vertical, 5)
+        .frame(minHeight: 26)
         .background(fill)
         .clipShape(Capsule())
         .overlay(Capsule().stroke(border, lineWidth: 1))

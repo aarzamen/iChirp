@@ -11,6 +11,10 @@ public struct SpeakerDot: View {
     /// `Tokens.Color.speaker(at:)`.
     public var speakerIndex: Int
 
+    /// The dot's diameter, scaled with Dynamic Type (F1): 7pt at the default size, relative to `.footnote` (the
+    /// label's text style below).
+    @ScaledMetric(relativeTo: .footnote) private var dotDiameter: CGFloat = 7
+
     public init(label: String, timestamp: String? = nil, speakerIndex: Int) {
         self.label = label
         self.timestamp = timestamp
@@ -22,14 +26,16 @@ public struct SpeakerDot: View {
         HStack(spacing: 7) {
             Circle()
                 .fill(palette.dot)
-                .frame(width: 7, height: 7)
+                .frame(width: dotDiameter, height: dotDiameter)
                 .accessibilityHidden(true)  // Decorative; the speaker's name/timestamp carry the info.
+            // Text styles instead of fixed point sizes (F1): "who said it" must follow Dynamic Type like the
+            // paragraph text beside it, not stay pinned at the default size.
             Text(label)
-                .font(.system(size: 12.5, weight: .bold))
+                .font(.footnote.weight(.bold))
                 .foregroundStyle(palette.ink)
             if let timestamp {
                 Text(timestamp)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(.caption2)
                     .monospacedDigit()
                     .foregroundStyle(Tokens.Color.secondary)
             }

@@ -13,6 +13,13 @@ public struct NotBuiltYetView: View {
     public var summary: String
     public var systemImage: String
 
+    // Scaled metrics instead of fixed point sizes (F3): each follows Dynamic Type from a canvas-matching default,
+    // the same idea as the App layer's `chirpTitleFont`/`chirpFont` (ChirpUI can't see those App-only helpers, so
+    // this view keeps its own private scaled metrics).
+    @ScaledMetric(relativeTo: .title3) private var titleSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption2) private var badgeSize: CGFloat = 11.5
+    @ScaledMetric(relativeTo: .subheadline) private var summarySize: CGFloat = 14
+
     public init(title: String, milestone: String, summary: String, systemImage: String = "hammer") {
         self.title = title
         self.milestone = milestone
@@ -34,12 +41,12 @@ public struct NotBuiltYetView: View {
 
             VStack(spacing: 8) {
                 Text(title)
-                    .font(Tokens.Font.rounded(20, .bold))
+                    .font(Tokens.Font.rounded(titleSize, .bold))
                     .foregroundStyle(Tokens.Color.ink)
                     .multilineTextAlignment(.center)
 
                 Text(milestone.uppercased())
-                    .font(.system(size: 11.5, weight: .bold))
+                    .font(.system(size: badgeSize, weight: .bold))
                     .tracking(0.6)
                     .foregroundStyle(Tokens.Color.accentInk)
                     .padding(.horizontal, 10)
@@ -49,7 +56,7 @@ public struct NotBuiltYetView: View {
             }
 
             Text(summary)
-                .font(.system(size: 14))
+                .font(.system(size: summarySize))
                 .foregroundStyle(Tokens.Color.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
