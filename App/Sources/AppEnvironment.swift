@@ -241,8 +241,9 @@ import Observation
             settings: jevSettings, factory: decisionFactory)
         self.jevSettingsModel = JevSettingsViewModel(store: jevSettings, factory: decisionFactory)
         // Plan 020. Routing reads the providers' trusted hosts and the companion's trust at every chunk.
-        // Plan 019's Settings → Mac companion store is the voices' companion configuration.
-        let companionConfiguration: any CompanionConfiguration = companionSettings
+        // Plan 019's Settings → Mac companion store is the voices' companion configuration (DEBUG: the voice tour's
+        // `-ChirpQACompanion*` launch arguments replace it for that run, writing nothing).
+        let companionConfiguration = CompanionDebugLaunch.configuration(store: companionSettings)
         let voiceSecrets = KeychainSecretStore()
         let voiceEngines = AppVoiceEngines(secrets: voiceSecrets, companion: companionConfiguration)
         let voiceSettingsStore = UserDefaultsVoiceSettingsStore()

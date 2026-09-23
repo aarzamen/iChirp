@@ -498,7 +498,11 @@ Screenshots to attach
 - [ ] Settings → Voices (companion Ready with voices; Grok with the key saved); the now-playing bar; the clinical
       voice question.
 
-Simulator tour (agents; synthetic stubs, no Mac companion needed):
+Simulator tour (agents; synthetic stubs, no Mac companion needed). The tour's DEBUG launch arguments
+(`-ChirpQACompanionHost 127.0.0.1 -ChirpQACompanionPort 8799 -ChirpQACompanionToken synthetic-qa-token`,
+`App/Sources/Voice/CompanionDebugLaunch.swift`) point the voices at the stub for that run only and write nothing, so
+Settings → Mac companion keeps the saved companion. Keep the simulator build signed (no `CODE_SIGNING_ALLOWED=NO`):
+the clinical steps read Keychain items, which an unsigned build cannot (`-34018`).
 
 ```bash
 cd /Users/ama/Documents/GitHub/iChirp
