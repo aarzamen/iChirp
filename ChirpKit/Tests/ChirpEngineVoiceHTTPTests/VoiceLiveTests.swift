@@ -13,7 +13,8 @@ import XCTest
 /// CHIRP_LIVE_VOICE_TESTS=1 CHIRP_COMPANION_TOKEN=<token> \
 ///   swift test --package-path ChirpKit --filter VoiceLiveTests
 /// # xAI too (the key only in this shell's environment, never in a file in the repo):
-/// CHIRP_LIVE_VOICE_TESTS=1 XAI_API_KEY=<key> swift test --package-path ChirpKit --filter VoiceLiveTests
+/// read -rs XAI_API_KEY && export XAI_API_KEY   # silent prompt: not echoed, not in shell history
+/// CHIRP_LIVE_VOICE_TESTS=1 swift test --package-path ChirpKit --filter VoiceLiveTests
 /// ```
 ///
 /// Optional: `CHIRP_COMPANION_HOST` (default `localhost`), `CHIRP_COMPANION_PORT` (8765), `CHIRP_COMPANION_VOICE`

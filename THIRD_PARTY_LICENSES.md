@@ -15,6 +15,19 @@ record the result here before shipping an IPA to anyone else.
 - Used for: the transcription pipeline, scheduler semantics, text processing, speaker merging, segmenting and
   export logic that ChirpKit ports. Every ported file carries a provenance header naming its upstream path.
 
+### Readback (the owner's own project)
+
+- Author: the repository owner. Not published; no separate license. The owner contributes the ported code to this
+  repository under its GPL-3.0.
+- Source: the owner's macOS read-aloud app, `~/readback` on the owner's Mac, at `696cef6`.
+- Used for (plan 020): `Sources/TTS/TTSProvider.swift` (`TTSHTTP`), `XAIProvider.swift`, `OpenAIProvider.swift`,
+  `Chunker.swift`, `SynthQueue.swift` and `Sources/Audio/PlaybackEngine.swift`, ported into `ChirpEngineVoiceHTTP`
+  (`VoiceHTTPTransport`, `XAIVoice`, `CompanionVoice`), `ChirpFeatures` (`SpeechChunker`, `VoicePlayer`) and
+  `ChirpAudio` (`SpeechPlaybackEngine`). Each ported file carries the header
+  `// Ported from Readback (owner's project): <path> @ 696cef6`. Readback's hard-coded cloned voice id was
+  deliberately not ported (the repository is public).
+- Network service, not a dependency: xAI's text-to-speech API (`api.x.ai`), used only with the owner's own key.
+
 ## Swift package dependencies (linked into the app)
 
 ### FluidAudio

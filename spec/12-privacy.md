@@ -44,6 +44,13 @@ Before any engine processes an item, the caller asks
   stored at that moment and the trust settings as they are then. Running the SOAP note template routes as clinical.
 - **Jev is cloud-only**, so it never sees clinical content unless the user overrides a single run.
 - Speech engines follow the same rule. Every speech engine planned through M8 is on-device.
+- **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first and every later chunk of a reading:
+  clinical text may go to the Mac companion only when the owner marked that Mac trusted (and its address is on the
+  home network: `CompanionEndpoint.locality` makes any other address `cloud`); Grok voices (xAI, cloud) and an
+  untrusted Mac need the per-reading confirmation "Read this clinical text aloud with <voice>?", whose Read aloud
+  button is the only caller of `VoicePlayer.confirmPendingSpeech()` (enforced by `AppTests/VoiceListenTests`). It
+  covers that reading's engine, locality and host only and is never remembered; declining sends nothing. The voice
+  engines refuse every redirect, and one reading stays pinned to the companion address routing approved.
 
 ## Network surfaces
 
@@ -59,6 +66,8 @@ Before any engine processes an item, the caller asks
 | Provider "Test connection" and model list (Settings → Models) | User taps Test or refreshes models | The API key in a header, a one-token "Hi" request, a model-list request; **no user content** | M4 |
 | Apple Foundation Models | User runs a template or Ask with the on-device model | Nothing leaves the iPhone | M4 |
 | Jev | User opts in | Short text for a decision; never clinical by default | M6 |
+| Grok voices (xAI text to speech) | User taps Listen, Test voice or turns on Speak answers with Grok voices chosen | The text being read, in chunks (≤ 2 500 characters), with the voice id, to `POST https://api.x.ai/v1/tts` (Bearer key); **never audio**; clinical text only after the per-reading confirmation. Check key: `GET /v1/api-key`, no text | Plan 020 (built) |
+| Mac companion voices | Same, with the Mac companion chosen | The text being read, in chunks, to the owner's Mac over the home network (`POST /v1/audio/speech`, pairing token); `GET /v1/companion` (no token, no text) for status, `GET /v1/voices` for the voice list. The companion stores nothing ([mac-companion-v1](contracts/mac-companion-v1.md)) | Plan 020 (built) |
 
 There is no telemetry and no crash reporting service. If one is ever proposed, it needs an ADR, an opt-in, and a
 contract that proves no content or identifiers leave the device.
@@ -72,6 +81,11 @@ contract that proves no content or identifiers leave the device.
 - Settings → Models never loads a stored key into the form: the key field says "Stored in the Keychain" and a blank
   field keeps it. The app-hosted `KeychainSecretStoreAppTests` checks the real iOS Keychain item is
   this-device-only and never synchronizable (it needs a signed host; unsigned `CODE_SIGNING_ALLOWED=NO` runs skip it).
+- **Voices (plan 020):** the xAI key is a Keychain item (account `voice.xai.api-key`, same service); Settings → Voices
+  never shows it back. Voice ids the owner types (a cloned xAI voice) are settings on the device (`UserDefaults`
+  `ichirp.voiceSettings`) and never in the repository. Synthesized audio lives only in `tmp/speech-<utterance id>/`,
+  deleted chunk by chunk as it plays and on stop, and swept at launch; nothing is stored in the database. Logs carry the
+  source kind, engine id, class, counts and `SpeechSynthesisError.kindName`, never text.
 - Provider error text is scrubbed of key artifacts; it can still echo prompt text, so it is shown to the user but
   never logged or stored (logs and the ledger carry `LanguageModelError.kindName`).
 - The Apple Developer team id may appear in `Config/Signing.local.xcconfig.example` while the repo is private.
