@@ -179,6 +179,8 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
   file, a dictation and a meeting name the routed engine whose model is missing, and Retry works after switching;
   review N4: `testAFileJobReleasesAModelItHeldPastARouteChangeWhenItEnds`,
   `testDictationsFinalPassReleasesAModelItHeldPastARouteChangeWhenItEnds`.
+  `EditByVoiceTests` (plan 022 review I2): Edit by voice's spoken instruction uses the final route's engine, resolved
+  once on press, never loads Parakeet while it is on no route, and names the routed engine whose model is missing.
   `SpeechEnginesViewModelTests`: deleting a routed engine is refused during a meeting and otherwise moves its routes
   to Parakeet with a notice; a route change unloads the engine that left both routes; review N2:
   `testDeletingAnEngineOnlyLiveTextUsesNamesTheFallbackNotTheUntouchedFinalEngine`; review N3:

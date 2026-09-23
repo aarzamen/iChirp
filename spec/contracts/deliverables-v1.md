@@ -106,6 +106,9 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
 - `PromptTemplateRendererTests` (ChirpTextTests), `BuiltInTemplatesTests` (ChirpFeaturesTests).
 - `DeliverableVersionStoreTests` (ChirpStoreTests): original kept as version 1, hand edits kept, restore appends,
   class only rises, the database refuses to change or delete a version, cascades remove them with the document.
+  `DeliverableVersionsMigrationTests` (review M8): `v8-text-items` on a v7 database keeps every existing row
+  (transcriptions, deliverables, ledger, prompts) byte for byte, adds the table and both triggers, and a document made
+  before the upgrade takes its first version (its old text as version 1, its class never lowered).
 - `EditByVoiceTests` (ChirpFeaturesTests): edits append versions, routing for clinical documents (override only by the
   token), the instruction never in the ledger, too-long documents refused before sending, failed edits change nothing.
 - `DeliverableServiceRoutingTests` (ChirpFeaturesTests): the full privacy matrix with a recording fake model.

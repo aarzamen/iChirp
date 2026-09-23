@@ -193,11 +193,13 @@ public actor FileTranscriptionPipeline {
     /// The user's file is copied, never moved. On failure nothing is left behind: the new media folder is removed
     /// and no row exists. A duration that cannot be read is not an error (`durationMs` stays nil until `process`).
     /// `audioTrackOrdinal` records the person's track choice for a multi-track file (nil: automatic); every run of
-    /// the row, Retry included, decodes that track.
+    /// the row, Retry included, decodes that track. `privacyClass` is the row's class from its first write (plan 022
+    /// review I1: Create's chosen class).
     public func importFile(
         from url: URL,
         sourceType: Transcription.SourceType = .file,
-        audioTrackOrdinal: Int? = nil
+        audioTrackOrdinal: Int? = nil,
+        privacyClass: PrivacyClass = .personal
     ) async throws -> UUID {
         let id = UUID()
         let directory = paths.mediaDirectory(for: id)
@@ -232,7 +234,8 @@ public actor FileTranscriptionPipeline {
                 audioTrackOrdinal: audioTrackOrdinal,
                 fileSizeBytes: size,
                 durationMs: durationMs,
-                status: .processing
+                status: .processing,
+                privacyClass: privacyClass
             )
             try await store.insert(row)
             // Reported only once the row exists, so a failed import never leaves a progress entry behind.

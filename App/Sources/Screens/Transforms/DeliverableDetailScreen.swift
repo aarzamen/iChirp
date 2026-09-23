@@ -190,25 +190,32 @@ struct DeliverableDetailScreen: View {
     }
 
     /// The document's title, provenance and text (as edited now) into `<tmp>/export-<transcript id>/`, which goes with
-    /// the transcript's other exports.
+    /// the transcript's other exports. Marked clinical by the class the privacy rules use for it (plan 022 review M5:
+    /// its own class raised by its transcript's effective class, as voices read it).
     private func shareDocument(_ format: DocumentExportFormat) {
         guard let deliverable = document.deliverable else { return }
-        let exportDocument = ExportDocument.text(
-            title: deliverable.title, body: document.draft,
-            metadata: [
-                ExportMetadataLine("From", sourceTitle(deliverable)),
-                ExportMetadataLine(
-                    "Made", Formatting.day(deliverable.createdAt) + " " + Formatting.timeOfDay(deliverable.createdAt)),
-                ExportMetadataLine(
-                    "Ran",
-                    ModelPlace.phrase(locality: deliverable.locality, name: deliverable.provider).capitalizedFirst),
-            ]
-                + (deliverable.privacyClass == .clinical
-                    ? [ExportMetadataLine("Privacy", "Clinical: a draft for review; contains patient information")]
-                    : [])
-        )
+        let title = deliverable.title
+        let body = document.draft
+        let facts = [
+            ExportMetadataLine("From", sourceTitle(deliverable)),
+            ExportMetadataLine(
+                "Made", Formatting.day(deliverable.createdAt) + " " + Formatting.timeOfDay(deliverable.createdAt)),
+            ExportMetadataLine(
+                "Ran", ModelPlace.phrase(locality: deliverable.locality, name: deliverable.provider).capitalizedFirst),
+        ]
         let directory = ExportTempFiles.directory(for: deliverable.transcriptionID)
+        let store = environment.store
+        let deliverableStore = environment.deliverableStore
         Task {
+            let effective = await VoiceSourcePrivacy.current(
+                for: .deliverable(id: deliverable.id), transcripts: store, deliverables: deliverableStore)
+            let clinical = deliverable.privacyClass.stricter(effective) == .clinical
+            let exportDocument = ExportDocument.text(
+                title: title, body: body,
+                metadata: facts
+                    + (clinical
+                        ? [ExportMetadataLine("Privacy", "Clinical: a draft for review; contains patient information")]
+                        : []))
             do {
                 let url = try await Task.detached(priority: .userInitiated) {
                     try DocumentExporter().write(exportDocument, as: format, to: directory)

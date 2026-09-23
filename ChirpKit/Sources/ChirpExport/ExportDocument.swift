@@ -51,9 +51,14 @@ extension ExportDocument {
     /// A transcript, document or text item: title, its facts, then its paragraphs. With word timings each paragraph
     /// carries its start time and, when the item has speakers, the speaker's name (repeated only when it changes);
     /// without timings the text's own paragraphs follow. Every word is kept: nothing is cut.
+    ///
+    /// `effectivePrivacyClass` is the class the privacy rules use for the item (plan 022 review M5: its own class
+    /// raised by its documents', `EffectivePrivacyClass`); the file says "Privacy: Clinical" when it or the row's own
+    /// class is clinical. Nil uses the row's own class.
     public static func transcript(
         _ transcription: Transcription,
         cleanupMode: CleanupMode,
+        effectivePrivacyClass: PrivacyClass? = nil,
         calendar: Calendar = .current,
         locale: Locale = .current
     ) -> ExportDocument {
@@ -73,7 +78,7 @@ extension ExportDocument {
         if let link = transcription.sourceURL {
             metadata.append(ExportMetadataLine("Source", link))
         }
-        if transcription.privacyClass == .clinical {
+        if transcription.privacyClass.stricter(effectivePrivacyClass) == .clinical {
             metadata.append(ExportMetadataLine("Privacy", "Clinical: contains patient information"))
         }
 

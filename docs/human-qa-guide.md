@@ -683,6 +683,11 @@ Apple Speech shows "permission-needed" there until Speech Recognition was allowe
 > Preconditions: the test iPhone runs a build at or after the Create merge on `ichirp/foundation` (Settings → About shows its commit); the speech model is
 > downloaded. Use only synthetic text and `say` audio. For Summary, Document and Edit by voice a model is set up in
 > Settings → Models; for voice messages a voice in Settings → Voices.
+>
+> Simulator tour (agents, `UITests/CreateTourUITests.swift`): every step that records (Speak, hold to speak) skips
+> unless `TEST_RUNNER_CHIRP_TOUR_MIC=1`, because the simulator records the Mac's real microphone and has picked up
+> real speech in the room; set it only while synthetic `say` speech plays. Speak and Edit by voice are checked here,
+> on the phone.
 
 Type or paste (Step 1)
 - [ ] Capture → Type or paste → type three lines → Save: the item opens as **Typed text** with the first line as its
@@ -709,6 +714,10 @@ Create (Step 3)
 - [ ] No model, no voice, no speech model: the sheet says which, Create stays disabled; nothing is created.
 - [ ] Close Create and reopen: the last choices are selected again (never the text or link).
 - [ ] Stop during a summary: "Stopped. What was already made stays in your Library." and no document is saved.
+- [ ] Clinical on + Link (a podcast episode) or File (a large synthetic video): tap Stop during "Looking up the link…"
+      or "Copying the file…": the note says the lookup or copy may still make an item; once it does, the item is in
+      the Library with the green **Clinical** badge (never Personal), Open shows it, and its transcription finishes
+      there.
 
 Edit by voice (Step 4)
 - [ ] Open a Summary → Edit by voice → hold the button and say "make it shorter" → let go: the instruction appears
@@ -720,13 +729,18 @@ Edit by voice (Step 4)
       nothing.
 - [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
       with a small model: "too long for this model to rewrite in one pass", nothing changed.
+- [ ] Settings → Speech engines: Transcripts on Apple Speech or a Whisper model, Parakeet deleted: Edit by voice still
+      hears the instruction (the Transcripts engine does it). Delete that engine's model instead: the sheet says
+      "<engine> isn’t downloaded on this iPhone. Download it in Settings → Speech engines, or switch Transcripts to
+      Parakeet", never "Download the Parakeet speech model".
 
 PDF and Word (Step 6)
 - [ ] A long meeting → Share → PDF: open it in Files or Books: every page has "title · Page k of N", speaker names
       and times, and the last words of the meeting are on the last page (nothing cut).
 - [ ] Share → Word on the same meeting and on a generated document: it opens in Word or Pages with the title, the
       headings, real bullet points and the paragraphs; nothing is plain text pretending to be Word.
-- [ ] A clinical item's PDF and Word files say "Privacy: Clinical" under the title.
+- [ ] A clinical item's PDF and Word files say "Privacy: Clinical" under the title; so do a Personal transcript's
+      once it has a SOAP note (and the Summary made from it).
 - [ ] Text, Markdown, SRT, VTT and JSON exports are unchanged.
 
 Voice messages (Step 5; Settings → Voices has a voice)
@@ -740,6 +754,10 @@ Voice messages (Step 5; Settings → Voices has a voice)
 - [ ] No voice set up: the sheet says what is missing (Settings → Voices) and sends nothing. Turn off Wi-Fi mid-way:
       a sentence and Retry, which continues from the part that failed.
 - [ ] Saving twice keeps both (`voice-1.m4a`, `voice-2.m4a` in the item's folder); deleting the item deletes them.
+      A generated document's sheet says its voice message is kept with the transcript it came from (deleting only
+      the document keeps it).
+- [ ] Create → Link (a YouTube video with captions) → Transcript: the Transcribe step says "Captions saved from
+      YouTube; nothing was transcribed".
 
 ## Writing a checklist (for agents)
 

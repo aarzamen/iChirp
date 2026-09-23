@@ -19,9 +19,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   download fills only the first `downloadShare` (0.15) of a link job's system progress, so it never goes backwards
   when transcription starts. Plan 019 adds `JobProgress.isIndeterminate` (`.indeterminate(stage)`,
   `determinateFraction`): a download whose size is unknown shows "Downloading…" and a spinner, never "0%".
-  - `importFile(from:sourceType:audioTrackOrdinal:)` copies the file (security-scoped, never moved) into
-    `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the person's
-    audio-track choice (nil: automatic). `process` decodes that track on every run, Retry included.
+  - `importFile(from:sourceType:audioTrackOrdinal:privacyClass:)` copies the file (security-scoped, never moved)
+    into `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the
+    person's audio-track choice (nil: automatic) and its class from the first write (default `personal`; Create
+    passes the chosen class). `process` decodes that track on every run, Retry included.
   - `audioTracks(in:)` lists a file's audio tracks (security-scoped, through the injected `trackProbe`; empty
     without one) so a multi-track file can ask before import; `canInspectAudioTracks` says whether a probe exists.
   - `process(id:)` runs: privacy routing check → model check → audio-preparation permit (at most two jobs) →
@@ -50,6 +51,7 @@ pipeline's `Task`s and publishes its progress to the UI.
   transcription) with its own background request, cancellable by `cancel(id)`.
 - `DocumentImportPipeline.swift` (M5): documents, an `ItemImporting` the job center runs. `importItem(from:)` copies
   the file into `media/<id>/source.<ext>` and inserts a `.processing` `.document` row with its `documentFormat`
+  (`importItem(from:privacyClass:)` gives the row Create's chosen class from its first write)
   (nothing left behind on failure; unsupported types throw); `process(id:)` extracts on device through
   `DocumentTextExtracting` with `.readingDocument` page progress, derives title and snippet, and saves with
   `savePreservingUserMetadata`; `retry(id:)` re-extracts from the kept source. No engine, no scheduler slot, no network.
@@ -73,10 +75,10 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `IncomingFileInbox.swift` also answers `kind(of:)` (M5): documents (and any other plain text) versus media, for
   routing a shared file.
 - `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
-  (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:)` inserts the `.processing`
-  row with `sourceURL` / `sourceTitle`, `download(id:from:)` fetches into `media/<id>/source.<ext>` with
+  (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:privacyClass:)` inserts the
+  `.processing` row with `sourceURL` / `sourceTitle` (and its class from the first write, default `personal`), `download(id:from:)` fetches into `media/<id>/source.<ext>` with
   `.downloading` progress and records the file (failure → `failed` with a message, cancel → `cancelled`, partial file
-  kept), and `retryDownload(id:)` resumes it. `importCaptions(videoID:link:)` (Step 3) stores a YouTube video's captions as a
+  kept), and `retryDownload(id:)` resumes it. `importCaptions(videoID:link:privacyClass:)` (Step 3) stores a YouTube video's captions as a
   `.completed` `.url` row (words timed across each caption, segments, `engine` `youtube.captions`, no audio); no row
   on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
   pipeline then runs unchanged. Downloads never hold a speech-scheduler slot. Plan 019: `LinkMediaSource.transport`
@@ -103,7 +105,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
   `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` into
-  `<tmp>/export-<id>/`, rename and favorite.
+  `<tmp>/export-<id>/`, rename and favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
+  item's `EffectivePrivacyClass` when the app passes `deliverables` (plan 022 review M5: a personal transcript with a
+  clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
@@ -187,7 +191,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
-  `.answered` or `.failed(sentence)`.
+  `.answered` or `.failed(sentence)`. `cancel()` is final (plan 022 review M1): a route still being checked ends at once
+  in `.failed(stoppedMessage)` ("Stopped. Nothing was sent.") and neither streams nor asks; a question already up
+  stays for its dialog (Cancel as always), and its Send then sends nothing and ends in `stoppedMessage`; a retry makes
+  a new view model (`AppTests/ClinicalConfirmationTests` pins the dialog side).
 - `LanguageModelsViewModel.swift` (M4 UI): Settings → Models and the model a run uses.
   - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` and
     (M7) `ChirpEngineLlamaCpp` (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`,
@@ -634,9 +641,15 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   report `pending/running/done/skipped/failed`; `phase` is `running`, `waitingForAnswer(stage)`, `finished`,
   `failed(stage, sentence)` or `cancelled`; `retry()` restarts at the failed stage and reuses an item already made.
   **The chain never confirms a clinical question:** the operation's `DeliverableRunViewModel` and the voice message
-  ask through their own dialogs, and `onAnswered` resumes the chain. A new item is raised to the chosen class
-  (`DeliverableService.setPrivacyClass`) before any later step. Logs carry the chain id, item ids, kinds and stage
-  names only.
+  ask through their own dialogs, and `onAnswered` resumes the chain. **Class (review I1):** link, file and text rows
+  are created with the chosen class (`startLink` / `startFile` / `saveText` take it), so no row is ever stored less
+  private, not even for a moment; a dictation's row is raised (`DeliverableService.setPrivacyClass`) the moment the
+  chain learns its id, before the Stop check, since raising only ever makes it more private. A Stop while a lookup or
+  copy runs lets it finish: the item it makes stays in the Library with its class, `itemID` names it and
+  `isMakingInput` says one may still come (the run view says so and offers Open). `reset()` also cancels a
+  finished or failed chain's model run and voice message (review M2), and the app resets a chain whenever it drops
+  it (Done, Create another), so a failed voice message's chunk audio does not wait in `tmp` for the next launch. Logs carry the chain id, item ids,
+  kinds and stage names only (`create_item_after_stop` for an item made after a Stop).
 - `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
   `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
 - `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,
@@ -650,7 +663,11 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.
   `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
   purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines
-  only; `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
+  only. Review I2: the app gives it the speech router, and it takes the **final route's engine once per instruction**
+  (`SpeechRouting.resolve(_, for: .final)` on press) for the asset check, routing check, `prepare` and `transcribe`,
+  so an engine on no route is never loaded; a missing model is `SpeechModelMissingError` (names that engine, "or
+  switch Transcripts to Parakeet"). Review M3: `sweepStaleRecordings()` deletes `tmp/instruction-*.wav` a killed
+  launch left (called at launch); `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
 - Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
   `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
   `CreateSupportTests`.

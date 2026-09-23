@@ -127,7 +127,8 @@ state. An engine can be chosen for a route only when its model is on disk.
   `media/<id>/dictation.wav` with purpose `.dictation` (0.5 s trailing pad for short clips).
 - **M7 (built): separate routes, chosen in Settings → Speech → Speech engines.**
   - `SpeechEngineRouter` (ChirpCore) holds every engine instance of the build. **Live** serves the dictation preview
-    and a meeting's live text. **Final** serves files, a dictation's final pass and a meeting's final pass. Upstream
+    and a meeting's live text. **Final** serves files, a dictation's final pass, a meeting's final pass and Edit by
+    voice's spoken instruction (plan 022 review I2: resolved once per instruction, like a dictation's final pass). Upstream
     routes a dictation's final pass to the live engine; iChirp keeps it on final because it is a kept transcript.
   - A job takes its route's engine when it is queued (`SpeechRouting.resolve`). A meeting holds the router's lease
     from start to its saved, failed or discarded state, which blocks route changes.

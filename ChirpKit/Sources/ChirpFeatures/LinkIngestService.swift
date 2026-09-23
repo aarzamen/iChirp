@@ -176,11 +176,12 @@ public actor LinkIngestService {
     // MARK: - Row and download
 
     /// Inserts the `.processing` row for `source` (link, title, source type) and returns its id. No network.
-    public func createRow(for source: LinkMediaSource) async throws -> UUID {
+    /// `privacyClass` is the row's class from its first write (plan 022 review I1: Create's chosen class).
+    public func createRow(for source: LinkMediaSource, privacyClass: PrivacyClass = .personal) async throws -> UUID {
         let id = UUID()
         var row = Transcription(
             id: id, sourceType: source.sourceType, fileName: Self.fileName(for: source),
-            durationMs: source.durationMs, status: .processing)
+            durationMs: source.durationMs, status: .processing, privacyClass: privacyClass)
         row.sourceURL = source.link.absoluteString
         row.sourceTitle = source.title
         try await store.insert(row)
@@ -391,8 +392,10 @@ public actor LinkIngestService {
 
     /// Fetches the video's captions (network, on the person's tap) and inserts a `.completed` `.url` row: the caption
     /// words with timings spread across each caption, segments, the video's title, no audio. Throws a readable error,
-    /// with no row created, when the video has no usable captions.
-    public func importCaptions(videoID: String, link: URL) async throws -> UUID {
+    /// with no row created, when the video has no usable captions. `privacyClass` is the row's class from its first
+    /// write (plan 022 review I1).
+    public func importCaptions(videoID: String, link: URL, privacyClass: PrivacyClass = .personal) async throws -> UUID
+    {
         let fetched = try await captions.fetchCaptions(videoID: videoID, preferredLanguages: preferredLanguages())
         let words = Self.words(from: fetched.cues)
         guard !words.isEmpty else { throw YouTubeCaptionError.emptyTranscript }
@@ -404,7 +407,7 @@ public actor LinkIngestService {
             fileName: fetched.title.map(Self.sanitizedFileStem).flatMap { $0.isEmpty ? nil : $0 }
                 ?? "YouTube video",
             durationMs: fetched.lengthSeconds.map { max($0 * 1000, lastEnd) } ?? lastEnd,
-            status: .completed)
+            status: .completed, privacyClass: privacyClass)
         row.sourceURL = link.absoluteString
         row.sourceTitle = fetched.title
         row.rawTranscript = text

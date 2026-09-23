@@ -27,12 +27,18 @@ import Observation
     @ObservationIgnored private let store: any TranscriptionStoring
     @ObservationIgnored private let paths: AppPaths
     @ObservationIgnored private let settings: any SettingsStoring
+    /// The generated documents, for the effective class a PDF or Word file is marked with (plan 022 review M5).
+    @ObservationIgnored private let deliverables: (any DeliverableStoring)?
 
-    public init(id: UUID, store: any TranscriptionStoring, paths: AppPaths, settings: any SettingsStoring) {
+    public init(
+        id: UUID, store: any TranscriptionStoring, paths: AppPaths, settings: any SettingsStoring,
+        deliverables: (any DeliverableStoring)? = nil
+    ) {
         self.id = id
         self.store = store
         self.paths = paths
         self.settings = settings
+        self.deliverables = deliverables
     }
 
     public func load() async {
@@ -81,7 +87,9 @@ import Observation
     /// same `<tmp>/export-<id>/` folder as the text exports. Rendered off the main actor.
     public func exportDocument(_ format: DocumentExportFormat) async throws -> URL {
         guard let transcription else { throw TranscriptError.notLoaded }
-        let document = ExportDocument.transcript(transcription, cleanupMode: settings.load().cleanupMode)
+        let document = ExportDocument.transcript(
+            transcription, cleanupMode: settings.load().cleanupMode,
+            effectivePrivacyClass: await effectivePrivacyClass(of: transcription))
         let directory = ExportTempFiles.directory(for: transcription.id)
         return try await Task.detached(priority: .userInitiated) {
             try DocumentExporter().write(document, as: format, to: directory)
@@ -105,6 +113,20 @@ import Observation
     }
 
     // MARK: - Helpers
+
+    /// The class the privacy rules use now (`EffectivePrivacyClass`: the row as stored, raised by its documents'); an
+    /// unreadable store counts as clinical, the safe side for a label. Without a document store, the row's own class.
+    private func effectivePrivacyClass(of transcription: Transcription) async -> PrivacyClass {
+        guard let deliverables else { return transcription.privacyClass }
+        do {
+            let current =
+                try await EffectivePrivacyClass.current(
+                    transcriptionID: transcription.id, transcripts: store, deliverables: deliverables)
+            return (current ?? transcription.privacyClass).stricter(transcription.privacyClass)
+        } catch {
+            return .clinical
+        }
+    }
 
     private func apply(_ row: Transcription?) {
         transcription = row

@@ -31,6 +31,16 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(h.recorder.progress(for: id).first?.stage, .importing)
     }
 
+    /// Plan 022 review I1: Create imports a file with the class the person chose, from the row's first write.
+    func testImportCanCreateTheRowClinicalFromTheStart() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.pipeline.importFile(from: h.makeSourceFile(named: "Visit.m4a"), privacyClass: .clinical)
+        let row = await h.store.row(id)
+        XCTAssertEqual(row?.privacyClass, .clinical)
+        let history = await h.store.classHistory(id)
+        XCTAssertEqual(history, [.clinical], "never stored Personal first")
+    }
+
     func testImportKeepsSourceTypeParameter() async throws {
         let h = try PipelineHarness(testCase: self)
         let id = try await h.pipeline.importFile(from: h.makeSourceFile(named: "clip.mov"), sourceType: .document)

@@ -56,6 +56,8 @@ enum FakeStoreError: Error {
 actor FakeStore: TranscriptionStoring {
     enum Call: Hashable, Sendable {
         case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, updatePrivacyClass, transitionStatus
+        /// `fetch(id:)` (plan 022 review M1: park a route check).
+        case fetch
     }
 
     private var rows: [UUID: Transcription] = [:]
@@ -64,6 +66,9 @@ actor FakeStore: TranscriptionStoring {
     private var fetchAllError: FakeError?
     /// Whole-row `update` calls. Code that can race a job must use the field-level methods instead.
     private(set) var wholeRowUpdates = 0
+    /// Every privacy class each row has had, in order, from its insert on (review I1 of plan 022: "never, not even for
+    /// a moment").
+    private var privacyClassHistory: [UUID: [PrivacyClass]] = [:]
 
     init(rows: [Transcription] = []) {
         for row in rows {
@@ -75,6 +80,7 @@ actor FakeStore: TranscriptionStoring {
         try Task.checkCancellation()
         guard rows[transcription.id] == nil else { throw FakeStoreError.duplicate(transcription.id) }
         rows[transcription.id] = transcription
+        recordClass(of: transcription)
         publish()
     }
 
@@ -88,6 +94,7 @@ actor FakeStore: TranscriptionStoring {
         merged.privacyClass = current.privacyClass
         merged.userNotes = current.userNotes
         rows[merged.id] = merged
+        recordClass(of: merged)
         publish()
         return merged
     }
@@ -98,6 +105,7 @@ actor FakeStore: TranscriptionStoring {
         wholeRowUpdates += 1
         guard rows[transcription.id] != nil else { throw FakeStoreError.notFound(transcription.id) }
         rows[transcription.id] = transcription
+        recordClass(of: transcription)
         publish()
     }
 
@@ -145,6 +153,7 @@ actor FakeStore: TranscriptionStoring {
     }
 
     func fetch(id: UUID) async throws -> Transcription? {
+        await parkIfHeld(.fetch)
         try Task.checkCancellation()
         return rows[id]
     }
@@ -203,6 +212,16 @@ actor FakeStore: TranscriptionStoring {
     /// Sets a row's privacy class directly (the app has no control for it until M4).
     func setPrivacyClass(_ privacyClass: PrivacyClass, for id: UUID) {
         rows[id]?.privacyClass = privacyClass
+        if let row = rows[id] { recordClass(of: row) }
+    }
+
+    /// Every class row `id` has had since its insert, in order (one entry per write).
+    func classHistory(_ id: UUID) -> [PrivacyClass] {
+        privacyClassHistory[id] ?? []
+    }
+
+    private func recordClass(of row: Transcription) {
+        privacyClassHistory[row.id, default: []].append(row.privacyClass)
     }
 
     private func parkIfHeld(_ call: Call) async {
@@ -216,6 +235,7 @@ actor FakeStore: TranscriptionStoring {
         guard var row = rows[id], change(&row) else { return nil }
         row.updatedAt = Date()
         rows[id] = row
+        recordClass(of: row)
         publish()
         return row
     }

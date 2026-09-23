@@ -16,6 +16,9 @@ import Observation
     private(set) var request: CreateRequest?
     /// The output's name while a spoken chain records ("Summary"), for the Dictating screen's chip.
     private(set) var speechOutputTitle: String?
+    /// The chain's output name ("Summary"), kept for as long as the chain: Record again shows it on the Dictating
+    /// screen's chip again (review M6; `speechOutputTitle` is cleared when that screen closes).
+    private(set) var outputTitle: String?
 
     @ObservationIgnored private var pendingSpeech: (request: CreateRequest, choice: LanguageModelChoice, title: String)?
     @ObservationIgnored private var returnsAfterDictation = false
@@ -30,32 +33,41 @@ import Observation
         isSheetPresented = false
     }
 
-    /// Done: closes the sheet and forgets a finished chain, so the next Create starts with the questions.
+    /// Done: closes the sheet and forgets a finished chain, so the next Create starts with the questions. The dropped
+    /// chain is reset first (review M2: a failed voice message's chunk audio is removed now, not at the next launch).
     func done() {
         if let flow, flow.isActive { return hide() }
+        flow?.reset()
         flow = nil
         request = nil
+        outputTitle = nil
         isSheetPresented = false
     }
 
-    /// Back to the questions from a finished, failed or stopped chain.
+    /// Back to the questions from a finished, failed or stopped chain (an active one is stopped; review M2: the
+    /// dropped chain is reset, so its voice message's work goes too).
     func startOver() {
-        if let flow, flow.isActive { flow.cancel() }
+        flow?.reset()
         flow = nil
         request = nil
+        outputTitle = nil
     }
 
     /// Starts a chain. Speak first lets the sheet close (`sheetDidDismiss` then starts the dictation).
     func start(
         _ request: CreateRequest, choice: LanguageModelChoice, outputTitle: String, environment: AppEnvironment
     ) {
-        if request.input == .speak {
-            pendingSpeech = (request, choice, outputTitle)
-            speechOutputTitle = outputTitle
-            isSheetPresented = false
-            return
-        }
+        if request.input == .speak { return queueSpeech(request, choice: choice, outputTitle: outputTitle) }
+        self.outputTitle = outputTitle
         run(request, choice: choice, environment: environment)
+    }
+
+    /// Speak: the sheet closes first; `sheetDidDismiss` starts the dictation with "Then: <outputTitle>" on its chip.
+    func queueSpeech(_ request: CreateRequest, choice: LanguageModelChoice, outputTitle: String) {
+        pendingSpeech = (request, choice, outputTitle)
+        speechOutputTitle = outputTitle
+        self.outputTitle = outputTitle
+        isSheetPresented = false
     }
 
     /// The sheet finished closing: a spoken chain starts now, so the Dictating screen can cover everything.
@@ -79,7 +91,7 @@ import Observation
     func retry(choice: LanguageModelChoice, environment: AppEnvironment) {
         guard let flow, let request, case .failed(let stage, _) = flow.phase else { return }
         if stage == .input, request.input == .speak {
-            start(request, choice: choice, outputTitle: speechOutputTitle ?? "", environment: environment)
+            queueSpeech(request, choice: choice, outputTitle: outputTitle ?? speechOutputTitle ?? "")
             return
         }
         Task { await flow.retry() }

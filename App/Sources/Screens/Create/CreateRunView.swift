@@ -249,7 +249,7 @@ struct CreateRunView: View {
             guard let id = flow.itemID else { return "Waiting to start" }
             return environment.jobCenter.progress[id].map(Formatting.progress) ?? "Waiting to start"
         case (.transcribe, .done):
-            return isDocumentInput ? "Read on this iPhone" : "Transcribed on this iPhone"
+            return Self.transcribedLine(flow.item, isDocument: isDocumentInput)
         case (.operation, .running):
             if flow.phase == .waitingForAnswer(.operation) {
                 return "Waiting for your answer. Nothing has been sent."
@@ -319,11 +319,61 @@ struct CreateRunView: View {
             }
         } else if flow.phase == .cancelled {
             CreateNote(
-                text: flow.itemID == nil
-                    ? "Stopped. Nothing was created."
-                    : "Stopped. What was already made stays in your Library.",
+                text: Self.stoppedNote(
+                    input: request.input.kind, itemMade: flow.itemID != nil, makingInput: flow.isMakingInput,
+                    jobFinished: flow.stages[.transcribe] == .done || flow.stages[.transcribe] == .skipped,
+                    clinical: request.privacyClass == .clinical),
                 systemImage: "stop.circle")
+            if let id = flow.itemID {
+                Button {
+                    open(.item(id))
+                } label: {
+                    CapsuleButtonLabel(title: "Open the item", kind: .tinted)
+                }
+                .buttonStyle(.plain)
+            }
         }
+    }
+
+    /// The transcribe stage's done line. YouTube captions (review M7) were downloaded from YouTube and nothing was
+    /// transcribed; the rule is Paste a link's (a `.url` row with no media, or the captions engine).
+    static func transcribedLine(_ item: Transcription?, isDocument: Bool) -> String {
+        if let item,
+            item.engine == LinkIngestService.captionsEngineID
+                || (item.sourceType == .url && item.mediaRelativePath == nil)
+        {
+            return "Captions saved from YouTube; nothing was transcribed"
+        }
+        return isDocument ? "Read on this iPhone" : "Transcribed on this iPhone"
+    }
+
+    /// What a stopped chain left (review I1): an item made before or during the Stop stays in the Library with the
+    /// class the person chose, and its job (download, transcription, reading) keeps going there; a lookup or copy
+    /// still running may still make one.
+    static func stoppedNote(
+        input: CreateInputKind, itemMade: Bool, makingInput: Bool, jobFinished: Bool, clinical: Bool
+    ) -> String {
+        let marked = clinical ? " (marked Clinical)" : ""
+        if itemMade {
+            guard input == .link || input == .file, !jobFinished else {
+                return "Stopped. What was already made stays in your Library\(marked)."
+            }
+            return "Stopped. The item was already made and stays in your Library\(marked). The Library shows its "
+                + "progress."
+        }
+        if makingInput {
+            switch input {
+            case .link:
+                return "Stopped. The link is still being looked up: if that finishes, the item it makes stays in your "
+                    + "Library\(marked)."
+            case .file:
+                return "Stopped. The file is still being copied: if that finishes, the item it makes stays in your "
+                    + "Library\(marked)."
+            case .speak, .text:
+                break
+            }
+        }
+        return "Stopped. Nothing was created."
     }
 
     private func itemCard(_ item: Transcription) -> some View {

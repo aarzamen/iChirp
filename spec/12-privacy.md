@@ -68,11 +68,15 @@ Before any engine processes an item, the caller asks
   iPhone until the person shares it.
 - **Edit by voice (plan 022)** routes through `DeliverableService` like a template run (the same per-run question for
   clinical text, the same single-use token); the spoken instruction is transcribed on this iPhone by the dictation
-  final pass (on-device engines only), its recording deleted after; the instruction is kept only in the document's
+  final pass on the final route's engine (on-device engines only), its recording deleted after (and a recording a
+  killed launch left in `tmp` is deleted at the next launch); the instruction is kept only in the document's
   version row, never logged or in the ledger.
 - **Create chains (plan 022)** add no new route: every step is an existing service and routes as that service does,
   on the item's **current** effective class. A new item gets the class the person chose ("Clinical (patient
-  information)") before any later step; the operation goes through `DeliverableService` (the same per-run question
+  information)") before any later step: link, file and text rows are created with it (never stored less private, not
+  even for a moment), and a dictation's row is raised the moment the chain learns its id, even after a Stop. A Stop
+  while a link is looked up or a file copied lets that finish; the item it makes stays in the Library with the chosen
+  class (review I1); the operation goes through `DeliverableService` (the same per-run question
   and single-use token), the voice message through the voice routing above (checked before every chunk). A chain
   waiting for a clinical answer sends nothing until the dialog's Send / confirm button is tapped; `CreateFlow` never
   answers for the person (it resumes on `onAnswered`). Jev is never part of a chain. Generated text is stored as a new

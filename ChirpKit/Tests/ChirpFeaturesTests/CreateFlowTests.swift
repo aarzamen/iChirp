@@ -238,6 +238,149 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertTrue(stored.isEmpty, "a cancelled run stores nothing")
     }
 
+    /// Review M1: a Stop while the operation's route is checked (before its task exists) stops it: nothing is sent,
+    /// no document is stored, and no question comes up over the stopped chain.
+    func testCancelWhileTheOperationIsRoutedStoresNothing() async throws {
+        for privacy in [PrivacyClass.personal, .clinical] {
+            let harness = try await CreateHarness()
+            let flow = harness.makeFlow()
+            let cloud = RecordingLanguageModel(locality: .cloud, host: "api.example.com")
+            // A text item makes no fetch before the route check, so the next fetch is the route's.
+            let hold = await harness.transcripts.holdNext([.fetch])
+            let running = Task { @MainActor in
+                await flow.start(
+                    CreateRequest(input: .text("Synthetic text"), output: .summary, privacyClass: privacy),
+                    makeModel: { cloud })
+            }
+            await hold.entered.wait()
+            XCTAssertEqual(flow.operationRun?.phase, .checking, "\(privacy)")
+            flow.cancel()
+            hold.release.fire()
+            await running.value
+            await settle()
+            XCTAssertEqual(flow.phase, .cancelled, "\(privacy)")
+            XCTAssertTrue(cloud.requests.isEmpty, "\(privacy)")
+            if case .needsConfirmation = flow.operationRun?.phase { XCTFail("a question over a stopped chain") }
+            let stored = try await harness.deliverables.fetchDeliverables(transcriptionID: try XCTUnwrap(flow.itemID))
+            XCTAssertTrue(stored.isEmpty, "\(privacy)")
+        }
+    }
+
+    /// Review M2: a chain that is dropped or reset cancels its voice message, so a failed one's chunk audio (possibly
+    /// clinical text) does not wait in `tmp` for the next launch.
+    func testResetCancelsAFailedVoiceMessage() async throws {
+        let harness = try await CreateHarness()
+        harness.voiceScript = .fail("Could not reach the voice provider.")
+        let flow = harness.makeFlow()
+        await flow.start(
+            CreateRequest(input: .text("Synthetic text"), output: .voiceMessage(summarizeFirst: false)),
+            makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        XCTAssertEqual(flow.phase, .failed(.output, "Could not reach the voice provider."))
+        let voice = try XCTUnwrap(harness.voices.first)
+        XCTAssertEqual(voice.cancels, 0)
+        flow.reset()
+        XCTAssertEqual(voice.cancels, 1, "the failed voice message's work is removed")
+        XCTAssertEqual(flow.phase, .idle)
+    }
+
+    // MARK: - Review I1: a Stop never leaves an item less private than the person chose
+
+    /// Link and File, stopped while each stage runs (the lookup or copy, the job, the model call, the voice message),
+    /// with Clinical on: the item the chain made exists once, the stopped chain knows it, and it was never Personal,
+    /// not even for a moment.
+    func testStopAtEveryStageNeverLeavesALessPrivateItem() async throws {
+        let inputs: [CreateInput] = [
+            .link("https://example.com/synthetic-episode.mp3"),
+            .file(URL(fileURLWithPath: "/tmp/synthetic-memo.m4a")),
+        ]
+        for input in inputs {
+            for stage in CreateFlow.Stage.allCases {
+                let label = "\(input.kind) stopped during \(stage)"
+                let harness = try await CreateHarness()
+                let hold = Hold()
+                harness.hold = (stage, hold)
+                let model = RecordingLanguageModel(locality: .onDevice)
+                if stage == .operation {
+                    model.onEachCall { _ in
+                        hold.entered.fire()
+                        await hold.release.wait()
+                    }
+                }
+                let flow = harness.makeFlow()
+                let running = Task { @MainActor in
+                    await flow.start(
+                        CreateRequest(
+                            input: input, output: .voiceMessage(summarizeFirst: true), privacyClass: .clinical),
+                        makeModel: { model })
+                }
+                await hold.entered.wait()
+                flow.cancel()
+                XCTAssertEqual(flow.phase, .cancelled, label)
+                hold.release.fire()
+                await running.value
+                await settle()
+
+                XCTAssertEqual(flow.phase, .cancelled, label)
+                let rows = try await harness.transcripts.fetchAll()
+                XCTAssertEqual(rows.count, 1, "what was already made stays, once: \(label)")
+                let row = try XCTUnwrap(rows.first, label)
+                XCTAssertEqual(flow.itemID, row.id, "the stopped chain knows the item it made: \(label)")
+                XCTAssertEqual(row.privacyClass, .clinical, label)
+                let history = await harness.transcripts.classHistory(row.id)
+                XCTAssertFalse(history.isEmpty, label)
+                XCTAssertEqual(Set(history), [.clinical], "never Personal, not even for a moment: \(label)")
+            }
+        }
+    }
+
+    /// A service that made the row with the default class (a dictation's row is made by the Dictating screen): a Stop
+    /// during the input still leaves it at the chosen class, because the raise comes before the Stop is looked at.
+    func testAStoppedInputStillRaisesARowMadeWithTheDefaultClass() async throws {
+        let harness = try await CreateHarness()
+        harness.ignoresRequestedClass = true
+        let hold = Hold()
+        harness.hold = (.input, hold)
+        let flow = harness.makeFlow()
+        let running = Task { @MainActor in
+            await flow.start(
+                CreateRequest(
+                    input: .link("https://example.com/synthetic.mp3"), output: .summary, privacyClass: .clinical),
+                makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        }
+        await hold.entered.wait()
+        flow.cancel()
+        hold.release.fire()
+        await running.value
+        await settle()
+        let id = try XCTUnwrap(flow.itemID)
+        let row = try await harness.transcripts.fetch(id: id)
+        XCTAssertEqual(row?.privacyClass, .clinical)
+        XCTAssertEqual(flow.phase, .cancelled)
+    }
+
+    /// A chain dropped (Create another, Done) while its dictation was still being saved: the dictation's row, made
+    /// with the default class by the Dictating screen, is still raised to the class the chain was started with.
+    func testAResetDuringTheInputStillRaisesTheItemItMade() async throws {
+        let harness = try await CreateHarness()
+        let hold = Hold()
+        harness.hold = (.input, hold)
+        let flow = harness.makeFlow()
+        let running = Task { @MainActor in
+            await flow.start(
+                CreateRequest(input: .speak, output: .summary, privacyClass: .clinical),
+                makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        }
+        await hold.entered.wait()
+        flow.reset()
+        hold.release.fire()
+        await running.value
+        await settle()
+        let rows = try await harness.transcripts.fetchAll()
+        XCTAssertEqual(rows.map(\.privacyClass), [.clinical])
+        XCTAssertNil(flow.itemID, "a reset chain reports nothing")
+        XCTAssertEqual(flow.phase, .idle)
+    }
+
     // MARK: - Privacy
 
     func testClinicalChainWaitsForTheQuestionAndOnlySendAnswers() async throws {
@@ -382,6 +525,11 @@ final class CreateHarness {
     private(set) var retried: [UUID] = []
     var voiceScript: FakeVoiceMessage.Script = .finish
     private(set) var voices: [FakeVoiceMessage] = []
+    /// Parks the chain inside `stage`'s service call (the lookup or copy, the job, the voice message; the model call is
+    /// held by the test's model) until `release`.
+    var hold: (stage: CreateFlow.Stage, hold: Hold)?
+    /// Link and file rows are made with the default class, whatever the chain asked for.
+    var ignoresRequestedClass = false
 
     init() async throws {
         let transcripts = self.transcripts
@@ -403,6 +551,7 @@ final class CreateHarness {
         CreateFlow(
             dependencies: CreateFlowDependencies(
                 recordSpeech: { [unowned self] in
+                    await parkIfHeld(.input)
                     if let outcome = speechOutcome { return outcome }
                     var row = Transcription(sourceType: .dictation, fileName: "Dictation.wav", status: .completed)
                     row.rawTranscript = Self.dictationText
@@ -412,14 +561,23 @@ final class CreateHarness {
                 saveText: { [unowned self] text, privacyClass in
                     try await TextItemService(store: transcripts).save(text, privacyClass: privacyClass)
                 },
-                startLink: { [unowned self] _ in
+                startLink: { [unowned self] _, privacyClass in
+                    await parkIfHeld(.input)
                     if let linkError { throw linkError }
-                    return try await insertRow(sourceType: .url, status: .processing)
+                    return try await insertRow(
+                        sourceType: .url, status: .processing,
+                        privacyClass: ignoresRequestedClass ? .personal : privacyClass)
                 },
-                startFile: { [unowned self] _ in
-                    try await insertRow(sourceType: .file, status: .processing)
+                startFile: { [unowned self] _, privacyClass in
+                    await parkIfHeld(.input)
+                    return try await insertRow(
+                        sourceType: .file, status: .processing,
+                        privacyClass: ignoresRequestedClass ? .personal : privacyClass)
                 },
-                waitForItem: { [unowned self] id in await finishJob(id) },
+                waitForItem: { [unowned self] id in
+                    await parkIfHeld(.transcribe)
+                    return await finishJob(id)
+                },
                 retryItem: { [unowned self] id in
                     retried.append(id)
                     _ = try? await transcripts.transitionStatus(
@@ -427,15 +585,26 @@ final class CreateHarness {
                 },
                 deliverables: service,
                 makeVoiceMessage: { [unowned self] in
-                    let voice = FakeVoiceMessage(script: voiceScript)
+                    let voice = FakeVoiceMessage(script: voiceScript, hold: hold?.stage == .output ? hold?.hold : nil)
                     voices.append(voice)
                     return voice
                 }))
     }
 
+    /// Parks here once when `hold` names `stage`.
+    private func parkIfHeld(_ stage: CreateFlow.Stage) async {
+        guard let held = hold, held.stage == stage else { return }
+        hold = nil
+        held.hold.entered.fire()
+        await held.hold.release.wait()
+    }
+
     @discardableResult
-    func insertRow(sourceType: Transcription.SourceType, status: Transcription.Status) async throws -> UUID {
-        let row = Transcription(sourceType: sourceType, fileName: "synthetic", status: status)
+    func insertRow(
+        sourceType: Transcription.SourceType, status: Transcription.Status, privacyClass: PrivacyClass = .personal
+    ) async throws -> UUID {
+        let row = Transcription(
+            sourceType: sourceType, fileName: "synthetic", status: status, privacyClass: privacyClass)
         try await transcripts.insert(row)
         return row.id
     }
@@ -471,14 +640,22 @@ final class FakeVoiceMessage: VoiceMessageProducing {
     var onAnswered: (@MainActor () -> Void)?
     private(set) var requests: [VoiceMessageRequest] = []
     private(set) var retries = 0
+    private(set) var cancels = 0
     private let script: Script
+    private let hold: Hold?
 
-    init(script: Script) {
+    init(script: Script, hold: Hold? = nil) {
         self.script = script
+        self.hold = hold
     }
 
     func start(_ request: VoiceMessageRequest) async {
         requests.append(request)
+        if let hold {
+            hold.entered.fire()
+            await hold.release.wait()
+            guard cancels == 0 else { return }
+        }
         switch script {
         case .finish: phase = .finished(Self.file(for: request))
         case .fail(let message): phase = .failed(message)
@@ -496,6 +673,7 @@ final class FakeVoiceMessage: VoiceMessageProducing {
     }
 
     func cancel() {
+        cancels += 1
         phase = .idle
     }
 

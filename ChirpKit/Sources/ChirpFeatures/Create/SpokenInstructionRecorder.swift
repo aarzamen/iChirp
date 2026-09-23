@@ -6,6 +6,8 @@ import Observation
 // Plan 022 Step 4: the spoken instruction of Edit by voice, through the dictation path's final pass (M2): the same
 // recorder, the same `.dictation` scheduler slot and purpose, the same engine and clean-up, no live preview. Unlike a
 // dictation it is not a Library item: no row, no clipboard, and the recording is deleted once it is transcribed.
+// Review I2: the engine is the M7 final route's, resolved once per instruction (`SpeechRouting.resolve`), exactly as a
+// dictation's final pass; a missing model names that engine (`SpeechModelMissingError`).
 
 /// Records one spoken instruction ("make it shorter") and returns the final pass's text. Hold to speak: `start()` on
 /// press, `stop()` on release. The text is only ever returned to the caller, never logged or stored here.
@@ -28,9 +30,14 @@ import Observation
 
     public static let levelHistoryCount = 24
     public static let noSpeechMessage = "Didn’t catch that. Hold the button and say what to change."
+    /// `tmp/instruction-<uuid>.wav`: the recording while it is spoken and transcribed (review M3: swept at launch).
+    public nonisolated static let recordingPrefix = "instruction-"
 
     @ObservationIgnored private let capture: any AudioCapturing
+    /// What the app gave: the speech router (its final route is used) or, in tests, one engine.
     @ObservationIgnored private let speech: any SpeechEngine
+    /// The final route's engine for the instruction being spoken, resolved on press and used through the final pass.
+    @ObservationIgnored private var engine: (any SpeechEngine)?
     @ObservationIgnored private let scheduler: SpeechJobScheduler
     @ObservationIgnored private let settings: any SettingsStoring
     @ObservationIgnored private let textRules: @Sendable () async -> DictationTextRules
@@ -92,7 +99,7 @@ import Observation
             return nil
         }
         do {
-            let text = try await finalPass(url)
+            let text = try await finalPass(url, engine: engine ?? SpeechRouting.resolve(speech, for: .final))
             phase = .idle
             logger.notice("instruction_transcribed chars=\(text.count, privacy: .public)")
             return text
@@ -122,12 +129,15 @@ import Observation
     // MARK: - Recording
 
     private func begin() async {
-        guard case .ready = await speech.assetStatus() else {
-            phase = .failed(FileTranscriptionPipeline.modelMissingMessage)
+        // M7 (review I2): the final route's engine, once for this instruction; nothing else is checked or loaded.
+        let engine = SpeechRouting.resolve(speech, for: .final)
+        self.engine = engine
+        guard case .ready = await engine.assetStatus() else {
+            phase = .failed(SpeechModelMissingError(engine: engine.descriptor, configured: speech).message)
             return
         }
         // The instruction may describe clinical content: only an engine clinical text may use.
-        guard PrivacyRoutingPolicy().allows(speech.descriptor, for: .clinical) else {
+        guard PrivacyRoutingPolicy().allows(engine.descriptor, for: .clinical) else {
             phase = .failed(
                 "The speech engine does not run on this iPhone, so Parakeet will not send your voice to it.")
             return
@@ -143,14 +153,14 @@ import Observation
             return
         }
         guard !Task.isCancelled else { return }
-        let url = temporaryRoot.appendingPathComponent("instruction-\(UUID().uuidString.lowercased()).wav")
+        let url = temporaryRoot.appendingPathComponent(
+            "\(Self.recordingPrefix)\(UUID().uuidString.lowercased()).wav")
         do {
             try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
             let updates = try await capture.start(recordingTo: url)
             recordingURL = url
             updatesTask = Task { await self.consume(updates) }
-            let speech = self.speech
-            Task.detached(priority: .utility) { try? await speech.prepare() }
+            Task.detached(priority: .utility) { try? await engine.prepare() }
             phase = .listening
         } catch {
             try? FileManager.default.removeItem(at: url)
@@ -173,16 +183,22 @@ import Observation
         }
     }
 
-    /// The dictation final pass: `.dictation` slot and purpose, then Clean with the person's custom words.
-    private func finalPass(_ url: URL) async throws -> String {
-        guard case .ready = await speech.assetStatus() else {
-            throw SpeechEngineError.modelNotDownloaded(speech.descriptor.id)
+    /// The dictation final pass on `engine` (the route resolved on press): `.dictation` slot and purpose, then Clean
+    /// with the person's custom words. A missing model is a `SpeechModelMissingError` naming that engine.
+    private func finalPass(_ url: URL, engine: any SpeechEngine) async throws -> String {
+        let configured = speech
+        guard case .ready = await engine.assetStatus() else {
+            throw SpeechModelMissingError(engine: engine.descriptor, configured: configured)
         }
-        let speech = self.speech
-        let result = try await scheduler.run(.dictation) {
-            try await speech.prepare()
-            return try await speech.transcribe(
-                fileAt: url, options: SpeechTranscriptionOptions(purpose: .dictation), progress: { _ in })
+        let result: SpeechResult
+        do {
+            result = try await scheduler.run(.dictation) {
+                try await engine.prepare()
+                return try await engine.transcribe(
+                    fileAt: url, options: SpeechTranscriptionOptions(purpose: .dictation), progress: { _ in })
+            }
+        } catch {
+            throw SpeechModelMissingError.mapping(error, engine: engine.descriptor, configured: configured)
         }
         let rules = await textRules()
         let cleaned = TextRefinement().refine(
@@ -196,6 +212,22 @@ import Observation
     private func removeRecording() {
         if let recordingURL { try? FileManager.default.removeItem(at: recordingURL) }
         recordingURL = nil
+        engine = nil
+    }
+
+    /// Review M3: deletes the `instruction-*.wav` recordings a killed launch left in `root` (the app was ended while
+    /// the button was held or during the final pass). Call once at launch. Returns how many went.
+    @discardableResult
+    public nonisolated static func sweepStaleRecordings(
+        in root: URL = FileManager.default.temporaryDirectory
+    ) -> Int {
+        let entries = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        var removed = 0
+        for entry in entries
+        where entry.lastPathComponent.hasPrefix(recordingPrefix) && entry.pathExtension.lowercased() == "wav" {
+            if (try? FileManager.default.removeItem(at: entry)) != nil { removed += 1 }
+        }
+        return removed
     }
 
     static func message(for error: any Error) -> String {
