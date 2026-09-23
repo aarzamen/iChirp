@@ -391,6 +391,44 @@ final class StructuredResultGateTests: XCTestCase {
         XCTAssertEqual(before.problems, [])
     }
 
+    // MARK: - Re-review I2-R: a dose belongs only to the drug it is next to
+
+    private func medicationJSON(_ drug: String, dose: String) -> String {
+        #"[{"name":"add_medication","arguments":{"drug":"\#(drug)","dose_tag":"\#(dose)","status":"taking"}}]"#
+    }
+
+    func testADoseBelongsOnlyToTheDrugItIsNextTo() throws {
+        let sentence = "Levothyroxine 50 mcg and lisinopril 10 mg."
+        let wrong = try validate(sentence, medicationJSON("lisinopril", dose: "dose_1"))
+        XCTAssertTrue(wrong.problems.contains { $0.contains("Levothyroxine") }, "\(wrong.problems)")
+        XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: wrong.problems), .needsReview)
+        XCTAssertFalse(try validate(sentence, medicationJSON("levothyroxine", dose: "dose_2")).problems.isEmpty)
+        XCTAssertEqual(try validate(sentence, medicationJSON("lisinopril", dose: "dose_2")).problems, [])
+        XCTAssertEqual(try validate(sentence, medicationJSON("levothyroxine", dose: "dose_1")).problems, [])
+    }
+
+    func testADoseBeforeADrugThatHasItsOwnDoseOrAcrossAListBreakNeedsReview() throws {
+        // "Valsartan" is not a drug the checks know, so only the words around the dose can tell.
+        let listed = try validate("Valsartan 160 mg and lisinopril 10 mg.", medicationJSON("lisinopril", dose: "dose_1"))
+        XCTAssertFalse(listed.problems.isEmpty, "a dose before “and lisinopril” is not lisinopril's")
+        let run = try validate("Valsartan 160 mg lisinopril 10 mg.", medicationJSON("lisinopril", dose: "dose_1"))
+        XCTAssertFalse(run.problems.isEmpty, "lisinopril has its own dose right after it")
+        let other = try validate(
+            "Gave 4 mg of ondansetron and 2 mg of morphine.", medicationJSON("ondansetron", dose: "dose_2"))
+        XCTAssertTrue(other.problems.contains { $0.contains("of morphine") }, "\(other.problems)")
+    }
+
+    func testADoseRightBeforeItsOwnDrugStillPasses() throws {
+        for (sentence, drug, dose) in [
+            ("Gave 4 mg of ondansetron.", "ondansetron", "dose_1"),
+            ("Gave 2 mg of morphine and 4 mg of ondansetron.", "ondansetron", "dose_2"),
+            ("Lisinopril 10 mg, then 4 mg of ondansetron.", "ondansetron", "dose_2"),
+            ("Gave 10 units of insulin.", "insulin", "dose_1"),
+        ] {
+            XCTAssertEqual(try validate(sentence, medicationJSON(drug, dose: dose)).problems, [], sentence)
+        }
+    }
+
     func testAVitalRightAfterADrugNameNeedsReview() {
         // As the old normalizer tagged it (review L3 I3): "25" after metoprolol as a second rate.
         let sentence = handTagged(

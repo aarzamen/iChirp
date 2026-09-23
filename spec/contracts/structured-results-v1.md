@@ -53,8 +53,10 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   5000 mg, 2000 mcg, 10 g, 50,000 units, 5000 mL, 10 tablets, 12 puffs, 20 drops or 200 mEq; a frequency at most 24 a
   day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review.
 - **Every call from a sentence** (review L3 I2–I5): a flagged tag (number or side) or a spoken correction anywhere in
-  the sentence forces review on every call from it; a dose or frequency must sit next to its own drug (no other drug
-  or same-kind value between, at most eight words apart); a vital right after a drug name, or two values for one vital
+  the sentence forces review on every call from it; a dose or frequency must sit next to its own drug: it belongs to
+  the drug right before it, or to the drug right after it when only "of" or a route lies between and that drug has no
+  value of its own ("levothyroxine 50 mcg and lisinopril 10 mg": 50 mcg is levothyroxine's; "2 mg of morphine" is
+  not ondansetron's), with no same-kind value between and at most eight words apart (re-review I2-R); a vital right after a drug name, or two values for one vital
   in a sentence, needs review; numbers in free text (plan items, problems, names) must be numbers the sentence said;
   an argument the tool does not define, or a non-text value for a text argument, is dropped and flagged.
 - **Review state:** `reviewed` is false when saved. Screens show every field as a draft until the person reviews
