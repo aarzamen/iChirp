@@ -287,6 +287,68 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         XCTAssertTrue(unloaded)
     }
 
+    // MARK: - Runtime errors (review I1)
+
+    /// A Metal failure leaves llama.cpp's context in a sticky error state: the run must drop it, so Retry loads a
+    /// fresh one instead of failing again until the idle timer fires.
+    func testADecodeFailureUnloadsSoRetryLoadsAFreshSession() async throws {
+        let (model, engine, loader) = try await make()
+        var failing = FakeReply.text(["Hello"])
+        failing.decodeAlwaysFails = true
+        loader.script(failing)
+        let failed = await LlamaTestSupport.collect(model.generate(request()))
+        XCTAssertEqual(
+            failed.error as? LanguageModelError, .providerError("the on-device model stopped (llama.cpp code -3)."))
+        XCTAssertFalse(failed.finished)
+        XCTAssertNil(engine.loadedModelID, "the broken context is released with the run")
+        XCTAssertEqual(loader.log.freed, 1)
+
+        loader.script(.text(["Hello", " again."]))
+        let retried = await LlamaTestSupport.collect(model.generate(request()))
+        XCTAssertNil(retried.error)
+        XCTAssertEqual(retried.text, "Hello again.")
+        XCTAssertEqual(loader.log.loads.count, 2, "Retry loaded a fresh session")
+    }
+
+    func testATokenizeFailureUnloadsSoRetryLoadsAFreshSession() async throws {
+        let (model, engine, loader) = try await make()
+        var failing = FakeReply.text(["Hello"])
+        failing.tokenizeFails = true
+        loader.script(failing)
+        let failed = await LlamaTestSupport.collect(model.generate(request()))
+        XCTAssertEqual(
+            failed.error as? LanguageModelError, .providerError("the on-device model could not read the text."))
+        XCTAssertNil(engine.loadedModelID)
+
+        loader.script(.text(["Fine."]))
+        let retried = await LlamaTestSupport.collect(model.generate(request()))
+        XCTAssertNil(retried.error)
+        XCTAssertEqual(loader.log.loads.count, 2)
+    }
+
+    /// llama.cpp reports a failed Metal command buffer one decode late, so the last token can be drawn from stale
+    /// logits. The run confirms the context is healthy after its last token; a failure there is not a document.
+    func testAGPUErrorThatSurfacesAfterTheLastTokenFailsTheRun() async throws {
+        let (model, engine, loader) = try await make()
+        var reply = FakeReply.text(["Plan: amoxicillin 500 mg."])
+        reply.decodeFailsFor = [FakeLlamaSession.endOfGeneration]
+        loader.script(reply)
+        let result = await LlamaTestSupport.collect(model.generate(request()))
+        XCTAssertEqual(
+            result.error as? LanguageModelError, .providerError("the on-device model stopped (llama.cpp code -3)."))
+        XCTAssertFalse(result.finished, "text drawn before the error surfaced is not stored as a document")
+        XCTAssertNil(engine.loadedModelID)
+    }
+
+    func testAHealthyRunEndsWithOneConfirmingDecodeAndKeepsTheModel() async throws {
+        let (model, engine, loader) = try await make()
+        loader.script(.text(["A", "B"]))
+        let result = await LlamaTestSupport.collect(model.generate(request()))
+        XCTAssertNil(result.error)
+        XCTAssertEqual(loader.log.decodedBatches.suffix(3), [1, 1, 1], "A, B, then the end-of-generation check")
+        XCTAssertEqual(engine.loadedModelID, "test-model")
+    }
+
     // MARK: - Unloading
 
     func testAMemoryWarningUnloadsAnIdleModel() async throws {

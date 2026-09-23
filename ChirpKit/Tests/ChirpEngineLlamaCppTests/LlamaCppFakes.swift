@@ -38,6 +38,12 @@ struct FakeReply: Sendable {
     var repeatsForever = false
     /// Called before each decode with the number of decodes so far (a delay, a failure, a side effect).
     var onDecode: (@Sendable (Int) throws -> Void)?
+    /// A decode of exactly these tokens fails with llama.cpp's code -3, as a Metal command-buffer failure does.
+    var decodeFailsFor: [Int32]?
+    /// Every decode fails with code -3 (a backend in its sticky error state).
+    var decodeAlwaysFails = false
+    /// Tokenizing fails.
+    var tokenizeFails = false
 
     static func text(_ pieces: [String]) -> FakeReply {
         FakeReply(pieces: pieces.map { Array($0.utf8) })
@@ -78,6 +84,7 @@ final class FakeLlamaSession: LlamaSession {
     deinit { log.update { $0.freed += 1 } }
 
     func tokenize(_ text: String, addSpecial: Bool, parseSpecial: Bool) throws -> [Int32] {
+        if reply.tokenizeFails { throw LlamaSessionError.tokenizeFailed }
         log.update { $0.tokenized.append((text, parseSpecial)) }
         return Array(repeating: 7, count: text.utf8.count)
     }
@@ -95,6 +102,7 @@ final class FakeLlamaSession: LlamaSession {
         precondition(tokens.count <= batchSize, "a decode larger than the batch")
         let calls = log.decodeCalls
         try reply.onDecode?(calls)
+        if reply.decodeAlwaysFails || reply.decodeFailsFor == tokens { throw LlamaSessionError.decodeFailed(-3) }
         log.update { $0.decodedBatches.append(tokens.count) }
     }
 

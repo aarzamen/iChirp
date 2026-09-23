@@ -166,6 +166,25 @@ public actor LlamaCppEngine {
         try precheck(spec, isDownloaded: true)
 
         let (session, loadSeconds) = try session(for: spec, at: modelURL)
+        do {
+            return try generate(
+                spec: spec, request: request, session: session, loadSeconds: loadSeconds, onText: onText)
+        } catch let error as LlamaSessionError {
+            // A failed decode (a Metal command-buffer error, GPU timeout or out of memory) leaves llama.cpp's backend
+            // in a sticky error state: every later decode fails until the context is recreated. Drop it now so Retry
+            // loads a fresh one (review I1).
+            unload(reason: "runtime_error")
+            throw error
+        }
+    }
+
+    private func generate(
+        spec: LlamaCppModelSpec,
+        request: GenerationRequest,
+        session: any LlamaSession,
+        loadSeconds: Double?,
+        onText: @Sendable (String) -> Void
+    ) throws -> GenerationUsage {
         let prompt = try tokens(for: request, format: spec.promptFormat, session: session)
         let window = session.contextTokens
         let room = window - prompt.count
@@ -190,12 +209,15 @@ public actor LlamaCppEngine {
         var decoder = UTF8StreamDecoder()
         var filter = LeadingThinkBlockFilter()
         var generated = 0
+        var cached = prompt.count
+        var lastToken: Int32
         var firstToken: ContinuousClock.Instant?
         var producedText = false
         var stopReason = "stop"
         while true {
             try checkStop()
             let token = session.sample()
+            lastToken = token
             if session.isEndOfGeneration(token) { break }
             generated += 1
             if firstToken == nil { firstToken = clock.now }
@@ -209,7 +231,11 @@ public actor LlamaCppEngine {
                 break
             }
             try decode([token], session: session)
+            cached += 1
         }
+        // llama.cpp reports a failed Metal command buffer at the *next* decode, so the last token may have been drawn
+        // from stale logits. One more decode of it confirms the context was healthy (review I1); it throws otherwise.
+        if cached < window { try decode([lastToken], session: session) }
         let tail = filter.push(decoder.finish()) + filter.finish()
         if !tail.isEmpty {
             producedText = true

@@ -34,7 +34,10 @@ and without the runtime the models say "not in this build".
   the Mac; CPU in the Simulator). llama.cpp's own log lines are dropped except errors, which are logged private.
 - `LlamaCppEngine.swift`: the one runtime actor of the process, on its own serial queue. One model loaded, one run at
   a time; loads on first use, unloads after 90 s idle, on a memory warning, in the background and before a delete;
-  foreground only; checks `os_proc_available_memory()` against the model's estimate before loading. The generation
+  foreground only; checks `os_proc_available_memory()` against the model's estimate before loading. A llama.cpp
+  runtime error (failed decode, i.e. a Metal command-buffer failure, or failed tokenize) unloads the model with the run,
+  so Retry loads a fresh context (review I1); each run ends with one confirming decode of its last token, because
+  llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
   generation, `maxOutputTokens` or a full window (`stopReason` "length"); run metrics for the tests.
 - `LlamaTextStream.swift`: `UTF8StreamDecoder` (a character split across tokens waits for its second half) and
