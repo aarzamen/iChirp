@@ -4,11 +4,14 @@ import ChirpUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Tab 1 (canvas `Home.dc.html`, plan 022 redesign): the header (with a chip that says where things run, true for the
-/// current settings), the **Create** card (the primary action: anything in, anything out), the shortcuts (Dictate, Type
-/// or paste, Paste a link, Import a file), Record Meeting, and the three most recent items.
+/// Tab 1 (canvas `Home.dc.html`, plan 022 redesign; plan 023 lane 2, UX audit F14 "Create + recipes"): the header
+/// (with a chip that says where things run, true for the current settings), the **Create** card (the one front door:
+/// anything in, anything out), up to four of the owner's **recipes** as one-tap tiles (the starters Dictate, Type or
+/// paste, Paste a link and Import a file until the owner saves their own from Create), Record Meeting, and the three
+/// most recent items.
 struct CaptureScreen: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dynamicTypeSize) private var typeSize
     let openTab: (AppTab) -> Void
 
     @State private var path: [UUID] = []
@@ -23,6 +26,16 @@ struct CaptureScreen: View {
     @State private var isShowingReach = false
     /// Bumped when the screen appears, so the chip re-reads settings that are not observed (the Mac companion's trust).
     @State private var reachRefresh = 0
+    /// Plan 023 lane 2: the Recipes sheet (Edit), a recipe to run once it has gone, or Create to open then.
+    @State private var isShowingRecipes = false
+    @State private var recipeAfterSheet: CreateRecipe?
+    @State private var createAfterSheet = false
+    /// A File recipe waiting for its file (the picker then takes one file, not several).
+    @State private var fileRecipe: CreateRecipe?
+    /// A recipe that cannot run now, and why (nothing was started).
+    @State private var recipeProblem: RecipeProblem?
+    /// A recipe was tapped while Create is still making something.
+    @State private var isRecipeBusy = false
 
     /// Audio and video (the transcription pipeline's inputs).
     static let importTypes: [UTType] = [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
@@ -42,23 +55,7 @@ struct CaptureScreen: View {
                         }
                     }
                     createCard
-                    SectionLabel("Shortcuts", size: 12.5)
-                        .padding(.top, 4)
-                    LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14
-                    ) {
-                        dictateTile
-                        tile(
-                            title: "Type or paste", subtitle: "Notes, any text",
-                            systemImage: "text.cursor", action: { isTyping = true })
-                        // One wording for links everywhere (UX audit F16); files of every kind come in through Import.
-                        tile(
-                            title: "Paste a link", subtitle: "Podcast, YouTube, web link", systemImage: "link",
-                            action: { isPastingLink = true })
-                        tile(
-                            title: "Import a file", subtitle: "Voice Memos, audio, PDF, Word",
-                            systemImage: "square.and.arrow.down", action: { isImporting = true })
-                    }
+                    recipesSection
                     recordMeetingRow
                     recentHeader
                         .padding(.top, 4)
@@ -83,9 +80,32 @@ struct CaptureScreen: View {
         }
         .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: $path)
         .fileImporter(
-            isPresented: $isImporting, allowedContentTypes: CreateFileTypes.all, allowsMultipleSelection: true,
-            onCompletion: handleImport
+            isPresented: $isImporting, allowedContentTypes: CreateFileTypes.all,
+            allowsMultipleSelection: fileRecipe == nil, onCompletion: handleImport
         )
+        .sheet(isPresented: $isShowingRecipes, onDismiss: afterRecipesSheet) {
+            RecipesSheet(
+                recipes: environment.create.recipes,
+                run: { recipeAfterSheet = $0 },
+                openCreate: { createAfterSheet = true })
+        }
+        .alert(
+            "Can’t run “\(recipeProblem?.name ?? "")”",
+            isPresented: Binding(get: { recipeProblem != nil }, set: { if !$0 { recipeProblem = nil } }),
+            presenting: recipeProblem
+        ) { _ in
+            Button("Settings") { openTab(.settings) }
+            Button("Recipes") { isShowingRecipes = true }
+            Button("OK", role: .cancel) {}
+        } message: { problem in
+            Text("\(problem.message) Nothing was started.")
+        }
+        .alert("Parakeet is still creating", isPresented: $isRecipeBusy) {
+            Button("Return to it") { environment.create.open() }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("Finish or stop what Create is making, then tap the recipe again. Nothing new was started.")
+        }
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
         .sheet(isPresented: $isShowingReach) {
             WhereThingsRunSheet(reach: reach) { openTab(.settings) }
@@ -111,6 +131,16 @@ struct CaptureScreen: View {
     /// Audio and video go to the transcription pipeline, documents (PDF, Word, text) to the reader, as when another app
     /// shares them.
     private func handleImport(_ result: Result<[URL], any Error>) {
+        if let recipe = fileRecipe {
+            fileRecipe = nil
+            switch result {
+            case .success(let urls):
+                if let url = urls.first { runFileRecipe(recipe, file: url) }
+            case .failure(let error):
+                pickerError = Formatting.message(for: error)
+            }
+            return
+        }
         switch result {
         case .success(let urls):
             let split = Self.splitImports(urls)
@@ -244,80 +274,158 @@ struct CaptureScreen: View {
         }
     }
 
-    // MARK: - Dictate
+    // MARK: - Recipes (plan 023 lane 2, UX audit F14)
 
-    /// Dictate as a shortcut (M2): the Action Button, Back Tap and this tile start the same dictation.
-    private var dictateTile: some View {
-        Button {
-            environment.dictation.start()
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
-                        .fill(Tokens.Color.accent)
-                    Image(systemName: "waveform")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
+    /// Up to four recipes as one-tap tiles, two across (one across from XX Large text), with Edit for the rest.
+    private var recipesSection: some View {
+        let recipes = environment.create.recipes
+        let columns = Array(
+            repeating: GridItem(.flexible(), spacing: 12), count: RecipeTile.columns(for: typeSize))
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionLabel("Recipes", size: 12.5)
+                Spacer()
+                Button {
+                    isShowingRecipes = true
+                } label: {
+                    Text(
+                        recipes.recipes.count > CreateRecipesViewModel.captureCount
+                            ? "All \(recipes.recipes.count)" : "Edit"
+                    )
+                    .chirpFont(13.5, .semibold)
+                    .foregroundStyle(AppColor.accentText)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                    .contentShape(Rectangle())
                 }
-                .frame(width: 34, height: 34)
-                .accessibilityHidden(true)
-                Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Dictate")
-                        .chirpFont(15, .semibold)
-                        .foregroundStyle(Tokens.Color.ink)
-                    // Copy correction (handoff): "press", not "hold" (no Action Button key-up for third-party apps).
-                    // Text-safe green (5.3:1; `success` is for fills and icons only, UX audit F12).
-                    Text(environment.dictation.polishAfter ? "Clean text on copy" : "Action Button or tap")
-                        .chirpFont(12)
-                        .foregroundStyle(
-                            environment.dictation.polishAfter ? Tokens.Color.privacyBadgeInk : Tokens.Color.secondary)
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    recipes.recipes.count > CreateRecipesViewModel.captureCount
+                        ? "All \(recipes.recipes.count) recipes" : "Edit recipes"
+                )
+                .accessibilityHint("Run, rename, reorder or delete recipes")
+            }
+            if recipes.onCapture.isEmpty {
+                noRecipes
+            } else {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(recipes.onCapture) { recipe in
+                        RecipeTile(
+                            recipe: recipe,
+                            subtitle: RecipeWords.subtitle(recipe, polishAfter: environment.dictation.polishAfter),
+                            isAccent: recipe.starter == .dictate,
+                            subtitleIsGreen: recipe.starter == .dictate && environment.dictation.polishAfter
+                        ) { run(recipe) }
+                    }
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
-            .background(CardBackground(radius: Tokens.Radius.tile))
-            .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(
-            "Starts dictating. Press the Action Button, or tap to go hands-free. The text is copied when you stop.")
     }
 
-    // MARK: - Tiles
-
-    private func tile(title: String, subtitle: String, systemImage: String, action: @escaping () -> Void)
-        -> some View
-    {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
-                        .fill(AppColor.tintFill)
-                    Image(systemName: systemImage)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.accentInk)
-                }
-                .frame(width: 34, height: 34)
-                .accessibilityHidden(true)
-                Spacer(minLength: 0)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .chirpFont(15, .semibold)
-                        .foregroundStyle(Tokens.Color.ink)
-                    Text(subtitle)
-                        .chirpFont(12)
-                        .foregroundStyle(Tokens.Color.secondary)
-                }
+    private var noRecipes: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No recipes. In Create, choose what you have and what you want, then tap Save as recipe.")
+                .chirpFont(13.5)
+                .foregroundStyle(Tokens.Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                environment.create.recipes.restoreStarters()
+            } label: {
+                CapsuleButtonLabel(title: "Add back the starters")
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
-            .background(CardBackground(radius: Tokens.Radius.tile))
-            .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CardBackground(radius: Tokens.Radius.s))
+    }
+
+    /// One tap: a starter opens its old shortcut; any other recipe is checked first (what it needs must still be there;
+    /// nothing starts otherwise), then runs through Create with its own choices. A recipe never answers a clinical
+    /// question: the chain asks as Create does.
+    private func run(_ recipe: CreateRecipe) {
+        if let starter = recipe.starter { return runStarter(starter) }
+        Task { @MainActor in
+            await environment.launch()
+            let models = environment.languageModels
+            if recipe.needsLanguageModel { await models.refresh() }
+            if recipe.needsVoice { await environment.voiceSettings.refresh() }
+            let model = model(for: recipe)
+            // Templates not read yet (a failed load) are not called missing; the chain would say so itself.
+            let templateIDs = Set(templates.map(\.id))
+            let problem = CreateRecipeCheck.problem(
+                recipe,
+                templateIDs: templateIDs.isEmpty ? Set([recipe.choices.templateID].compactMap { $0 }) : templateIDs,
+                modelIDs: Set(models.choices.map(\.id)),
+                modelProblem: environment.unavailableMessage(for: model),
+                voiceProblem: environment.voiceSettings.setupProblem,
+                speechModelReady: environment.isSpeechModelReady)
+            let create = environment.create
+            switch CreateRecipeLaunch.plan(recipe, problem: problem, chainIsActive: create.flow?.isActive == true) {
+            case .starter(let starter):
+                runStarter(starter)
+            case .blocked(let message):
+                recipeProblem = RecipeProblem(name: recipe.name, message: message)
+            case .busy:
+                isRecipeBusy = true
+            case .speak(let request):
+                create.startSpeech(
+                    request, choice: model, outputTitle: outputTitle(request.output), environment: environment)
+            case .openCreate:
+                create.open(recipe: recipe)
+            case .pickFile:
+                fileRecipe = recipe
+                isImporting = true
+            }
+        }
+    }
+
+    /// The old shortcuts, unchanged: the ordinary dictation, the Type or paste editor, the Paste a link sheet, and the
+    /// multi-file import.
+    private func runStarter(_ starter: CreateRecipe.Starter) {
+        switch starter {
+        case .dictate: environment.dictation.start()
+        case .typeOrPaste: isTyping = true
+        case .pasteLink: isPastingLink = true
+        case .importFile:
+            fileRecipe = nil
+            isImporting = true
+        }
+    }
+
+    /// A File recipe's picked file: the chain starts with the recipe's choices and Create shows its progress.
+    private func runFileRecipe(_ recipe: CreateRecipe, file: URL) {
+        guard let request = recipe.request(input: .file(file)) else { return }
+        guard environment.create.flow?.isActive != true else {
+            isRecipeBusy = true
+            return
+        }
+        environment.create.startAndShow(
+            request, choice: model(for: recipe), outputTitle: outputTitle(request.output), environment: environment)
+    }
+
+    private func afterRecipesSheet() {
+        if let recipe = recipeAfterSheet {
+            recipeAfterSheet = nil
+            run(recipe)
+        }
+        if createAfterSheet {
+            createAfterSheet = false
+            environment.create.open()
+        }
+    }
+
+    /// The recipe's model when it still exists, else the default (a missing one is caught before this is used).
+    private func model(for recipe: CreateRecipe) -> LanguageModelChoice {
+        let models = environment.languageModels
+        return recipe.modelID.flatMap(models.choice(id:)) ?? models.defaultChoice
+    }
+
+    private var templates: [PromptTemplate] {
+        environment.deliverableLibrary.documentTemplates + environment.deliverableLibrary.transformTemplates
+    }
+
+    private func outputTitle(_ output: CreateOutput) -> String {
+        CreateReadiness.outputTitle(for: output, templates: templates)
     }
 
     // MARK: - Record Meeting
@@ -361,8 +469,8 @@ struct CaptureScreen: View {
                     .background(Capsule().fill(Tokens.Color.accentInk))
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 84)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 72)
             .background(CardBackground(radius: Tokens.Radius.tile))
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
         }
@@ -416,6 +524,12 @@ struct CaptureScreen: View {
             }
         }
     }
+}
+
+/// A recipe that could not run, and the one sentence that says why.
+struct RecipeProblem: Equatable {
+    let name: String
+    let message: String
 }
 
 /// "Download the speech model to transcribe", with a button that opens Settings. M7: it names the engine the

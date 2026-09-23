@@ -850,6 +850,40 @@ Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
 - [ ] Transforms tab with more than 50 documents: "Show older documents" adds the rest; none is out of reach.
 - [ ] A document or text item: the star and Paste a link's clear (x) are easy to tap; the privacy chip has its own row.
 
+## Capture recipes checklist (wave 4 lane capture-recipes, plan 023 F14 "Create + recipes")
+
+> Preconditions: a build at or after the wave4/capture-recipes merge (Settings → About shows its commit). Synthetic
+> speech and text only. Screenshots from the simulator tour (`UITests/RecipesTourUITests.swift`) are in
+> `.superpowers/sdd/milestones/w4-capture-recipes-screens/`. The Speak steps need the phone (the simulator never
+> records).
+
+Nothing lost for a new user
+- [ ] A fresh install: Capture shows Create, then Recipes with Dictate, Type or paste, Paste a link and Import a file,
+      then Record Meeting and **Recent** with its first row visible without scrolling (with the speech model downloaded).
+- [ ] Each starter does what the old shortcut did: Dictate starts the dictation and copies on Stop; Type or paste opens
+      the editor; Paste a link opens its sheet (Mac companion, Import a document); Import a file takes several files.
+
+Save, run, change
+- [ ] Create → Link → Summary → Save as recipe: the name reads "Link → Summary"; change it, Save; the line says it is
+      first on Capture, and it is. Save the same choices again: the line says "Already a recipe".
+- [ ] Create → Speak → Document → SOAP note → Clinical on → Save as recipe → "Dictate → SOAP note". On Capture tap it:
+      the Dictating screen opens at once with **Then: SOAP note**; say a synthetic encounter, Stop & copy; Create comes
+      back and makes the SOAP note. The item in the Library is **Clinical**.
+- [ ] With a cloud model chosen for a clinical recipe: tapping it still asks "Send this clinical text to …?" every run;
+      Cancel sends nothing.
+- [ ] Tap the Link recipe: Create opens with Link and Summary chosen and "From your recipe …"; paste a link, Create.
+- [ ] A File recipe opens Files for one file, then Create shows the chain's progress.
+- [ ] Make something a recipe needs go away: delete the user template a Document recipe makes, remove the provider a
+      recipe runs on in Settings → Models, or leave Voices unset for a voice-message recipe. Tapping the recipe says
+      "Can't run …" with what is missing and "Nothing was started"; nothing appears in the Library.
+- [ ] Edit (or All N): rename one (a blank name keeps the old one), Move up / Move down, Reorder by dragging, Delete
+      (asks; the Library is unchanged). Delete all four starters: "Add back the starter recipes" returns them.
+
+Accessibility
+- [ ] At the largest text size the tiles go to one column and names wrap; every tile and the Edit button are easy to hit.
+- [ ] VoiceOver on a tile reads the whole recipe: "Dictate, then SOAP note. Speak, then make a SOAP note. Runs on …
+      Clinical: …".
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

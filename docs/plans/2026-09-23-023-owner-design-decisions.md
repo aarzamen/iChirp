@@ -29,6 +29,14 @@ mark.
    documents; Transforms tab keeps "start" + recent with "Show all"; tests for reachability of every document.
 2. **Capture recipes (F14):** a `CreateRecipe` value (input, output, template, clinical) saved from Create's choices;
    Capture shows Create + up to four recipes + Recent above the fold; editing and deleting recipes; tests.
+   **Status: implemented on `wave4/capture-recipes`** (no migration: recipes are UserDefaults settings,
+   `ichirp.create.recipes`). `CreateRecipe` = Create's `CreateChoices` + name + the model when the output needs one;
+   four starters keep the old shortcuts; Save as recipe in Create; the Recipes sheet renames, reorders, deletes and
+   restores the starters; a Speak recipe hands off to the Dictating screen ("Then: SOAP note"); a recipe whose
+   template, model, voice or speech model is missing says so and starts nothing; a clinical recipe's item is clinical
+   from the first write and every clinical question still appears. Tests: `CreateRecipeTests`,
+   `CaptureRecipesAppTests`; tour `UITests/RecipesTourUITests.swift`. Open: the Speak recipe on the owner's phone
+   (the simulator never records).
 3. **Formatted view, plain copy (F23):** Markdown rendering on the document screens; a plain-text flattener for Copy
    (tested against every template's output shape); PDF/Word unchanged.
 4. **Dark palette (F6):** tokens gain dark values; a contrast test over every text token × background in both schemes;

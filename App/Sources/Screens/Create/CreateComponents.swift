@@ -86,6 +86,17 @@ enum CreateReadiness {
         return nil
     }
 
+    /// What the run header and the Dictating screen's chip call a chain's output: "Summary", the template's name,
+    /// "Voice message of a summary". Create and Capture's recipes use the same words.
+    static func outputTitle(for output: CreateOutput, templates: [PromptTemplate]) -> String {
+        switch output {
+        case .transcript: "Transcript"
+        case .summary: "Summary"
+        case .document(let id): templates.first { $0.id == id }?.name ?? "Document"
+        case .voiceMessage(let summarizeFirst): summarizeFirst ? "Voice message of a summary" : "Voice message"
+        }
+    }
+
     /// "Summary", the template's name, "Voice message": what the Dictating screen's chip and the run header call the
     /// output.
     static func outputTitle(_ output: CreateChoices.OutputKind, templateName: String?) -> String {
