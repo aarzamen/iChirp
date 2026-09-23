@@ -20,6 +20,9 @@ struct iChirpApp: App {
                         if SmokeTestRunner.isRequested(in: ProcessInfo.processInfo.arguments) {
                             environment.smoke.start(environment: environment, reason: .launchArgument)
                         }
+                        // fix/asr-review: `-ChirpBenchmarkDevice …` (scripts/device_benchmark.sh).
+                        DeviceBenchmarkLaunch.startIfRequested(
+                            environment: environment, arguments: ProcessInfo.processInfo.arguments)
                         #endif
                     }
             case .failed(let message):

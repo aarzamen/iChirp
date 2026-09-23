@@ -36,7 +36,9 @@
     WhisperKit honors cancellation while waiting (permit and shared load); I2 a route whose model is missing names
     that engine (file, dictation, meeting, Capture banner) and Settings never deletes a routed engine during a meeting
     and moves its routes back to Parakeet otherwise; I3 a route change unloads the engine left on no route, and two
-    different engines on the routes must fit the 2.5 GB budget together.
+    different engines on the routes must fit the 2.5 GB budget together. Minors M1–M10 fixed too. The controller's
+    iPhone numbers now come from `scripts/device_benchmark.sh` (DEBUG `-ChirpBenchmarkDevice`, JSON
+    `ichirp.asr-device-benchmark/v1`); the smoke pins Parakeet.
   - Step 6 is built as a Settings screen (Settings → Speech engines → Benchmark engines) with a DEBUG launch argument,
     not a DEBUG-only screen. The research doc is `docs/research/2026-09-22-asr-engine-benchmarks.md` (Mac and
     Simulator numbers). The existing `device-benchmarks.md` stays the smoke log.

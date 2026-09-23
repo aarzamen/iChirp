@@ -56,16 +56,20 @@ enum AppSpeechEngines {
 
     /// "iPhone18,1 · iOS 26.2" (the model identifier; "Simulator" in the Simulator).
     @MainActor static func deviceDescription() -> String {
+        "\(machineIdentifier()) · iOS \(UIDevice.current.systemVersion)"
+    }
+
+    /// The model identifier, e.g. "iPhone18,1" ("Simulator (arm64)" in the Simulator).
+    static func machineIdentifier() -> String {
         var system = utsname()
         uname(&system)
         let machine = withUnsafeBytes(of: &system.machine) { raw in
             String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
         }
         #if targetEnvironment(simulator)
-        let model = "Simulator (\(machine))"
+        return "Simulator (\(machine))"
         #else
-        let model = machine
+        return machine
         #endif
-        return "\(model) · iOS \(UIDevice.current.systemVersion)"
     }
 }

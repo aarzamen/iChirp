@@ -667,7 +667,10 @@ Screenshots to attach
 
 Device-only numbers (controller): Apple Speech works only on the phone (the Simulator lists it as unavailable);
 record Whisper Large v3 Turbo's peak memory and every engine's WER, speed and load time into
-`docs/research/2026-09-22-asr-engine-benchmarks.md`.
+`docs/research/2026-09-22-asr-engine-benchmarks.md`. `scripts/device_benchmark.sh` does this headless (DEBUG build:
+downloads missing models, runs the synthetic set, prints the table and keeps the JSON in `.build/device-benchmarks/`).
+Apple Speech shows "permission-needed" there until Speech Recognition was allowed once through its Download button.
+`scripts/device_smoke.sh` always transcribes with Parakeet, whatever Transcripts is set to, and prints `engine:`.
 
 ## Writing a checklist (for agents)
 
