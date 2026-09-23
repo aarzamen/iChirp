@@ -15,10 +15,13 @@ command -v trufflehog >/dev/null || { echo "trufflehog is not installed: brew in
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 printf '%s\n' '/\.git/' '/\.build[^/]*/' '/DerivedData/' '/\.swiftpm/' '\.xcodeproj/' '/SourcePackages/' \
-  '/node_modules/' >"$TMP/exclude.txt"
+  '/node_modules/' '/\.venv/' '/vendor/needle-rs/target/' >"$TMP/exclude.txt"
 
+# In a lane worktree `.git` is a file, which trufflehog's git mode cannot open; scan the main repository instead (its
+# history holds every branch, including the worktree's).
+REPO_ROOT=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 echo "Scanning git history (all branches) ..."
-trufflehog git "file://$PWD" --no-verification --no-update --json 2>/dev/null >"$TMP/git.json"
+trufflehog git "file://$REPO_ROOT" --no-verification --no-update --json 2>/dev/null >"$TMP/git.json"
 echo "Scanning the working tree ..."
 trufflehog filesystem "$PWD" --no-verification --no-update --json --exclude-paths="$TMP/exclude.txt" \
   2>/dev/null >"$TMP/fs.json"
