@@ -20,6 +20,11 @@ struct iChirpApp: App {
                         if SmokeTestRunner.isRequested(in: ProcessInfo.processInfo.arguments) {
                             environment.smoke.start(environment: environment, reason: .launchArgument)
                         }
+                        let arguments = ProcessInfo.processInfo.arguments
+                        if let model = LLMSmokeRunner.requestedModel(in: arguments) {
+                            LLMSmokeRunner.shared.start(
+                                environment: environment, requested: model, runID: LLMSmokeRunner.runID(in: arguments))
+                        }
                         #endif
                     }
             case .failed(let message):

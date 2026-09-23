@@ -166,6 +166,25 @@ public actor LlamaCppEngine {
         try precheck(spec, isDownloaded: true)
 
         let (session, loadSeconds) = try session(for: spec, at: modelURL)
+        do {
+            return try generate(
+                spec: spec, request: request, session: session, loadSeconds: loadSeconds, onText: onText)
+        } catch let error as LlamaSessionError {
+            // A failed decode (a Metal command-buffer error, GPU timeout or out of memory) leaves llama.cpp's backend
+            // in a sticky error state: every later decode fails until the context is recreated. Drop it now so Retry
+            // loads a fresh one (review I1).
+            unload(reason: "runtime_error")
+            throw error
+        }
+    }
+
+    private func generate(
+        spec: LlamaCppModelSpec,
+        request: GenerationRequest,
+        session: any LlamaSession,
+        loadSeconds: Double?,
+        onText: @Sendable (String) -> Void
+    ) throws -> GenerationUsage {
         let prompt = try tokens(for: request, format: spec.promptFormat, session: session)
         let window = session.contextTokens
         let room = window - prompt.count
@@ -173,7 +192,9 @@ public actor LlamaCppEngine {
         guard room >= 16 else { throw LanguageModelError.contextTooLong }
         let maxOutput = request.maxOutputTokens ?? room
 
-        session.reset()
+        // Clinical requests draw the most likely token every time and nothing penalizes a repeated digit (review I2).
+        let sampling = spec.sampling(for: request.privacyClass)
+        session.reset(sampling: sampling)
         let clock = ContinuousClock()
         let started = clock.now
         var index = 0
@@ -188,12 +209,15 @@ public actor LlamaCppEngine {
         var decoder = UTF8StreamDecoder()
         var filter = LeadingThinkBlockFilter()
         var generated = 0
+        var cached = prompt.count
+        var lastToken: Int32
         var firstToken: ContinuousClock.Instant?
         var producedText = false
         var stopReason = "stop"
         while true {
             try checkStop()
             let token = session.sample()
+            lastToken = token
             if session.isEndOfGeneration(token) { break }
             generated += 1
             if firstToken == nil { firstToken = clock.now }
@@ -207,7 +231,11 @@ public actor LlamaCppEngine {
                 break
             }
             try decode([token], session: session)
+            cached += 1
         }
+        // llama.cpp reports a failed Metal command buffer at the *next* decode, so the last token may have been drawn
+        // from stale logits. One more decode of it confirms the context was healthy (review I1); it throws otherwise.
+        if cached < window { try decode([lastToken], session: session) }
         let tail = filter.push(decoder.finish()) + filter.finish()
         if !tail.isEmpty {
             producedText = true
@@ -222,12 +250,21 @@ public actor LlamaCppEngine {
                 Double(max(generated - 1, 0)) / max(Self.seconds($0, finished), 1e-9)
             } ?? 0)
         logger.info(
-            "run_finished model=\(spec.id, privacy: .public) prompt_tokens=\(prompt.count, privacy: .public) completion_tokens=\(generated, privacy: .public) stop=\(stopReason, privacy: .public)"
+            "run_finished model=\(spec.id, privacy: .public) prompt_tokens=\(prompt.count, privacy: .public) completion_tokens=\(generated, privacy: .public) stop=\(stopReason, privacy: .public) sampling=\(sampling == .faithful ? "faithful" : "general", privacy: .public)"
         )
         guard producedText else { throw LanguageModelError.streamingError("the on-device model returned no text") }
+        // A clinical draft cut off at the length limit is not a finished note (review minor 8): with greedy sampling
+        // this almost always means the model was repeating itself. Fail the run so nothing is saved as complete.
+        if stopReason == "length", request.privacyClass == .clinical {
+            throw LanguageModelError.providerError(Self.clinicalLengthLimitMessage)
+        }
         return GenerationUsage(
             promptTokens: prompt.count, completionTokens: generated, model: spec.id, stopReason: stopReason)
     }
+
+    static let clinicalLengthLimitMessage =
+        "the on-device model reached its length limit before it finished (it may have been repeating itself), so this "
+        + "clinical draft was not saved. Try the other small model or a shorter transcript."
 
     /// Frees `modelID` if it is loaded (before its file is deleted). A running request finishes first.
     public func release(modelID: String) {
@@ -254,8 +291,7 @@ public actor LlamaCppEngine {
         let clock = ContinuousClock()
         let started = clock.now
         let options = LlamaLoadOptions(
-            contextTokens: spec.contextTokens, batchSize: configuration.batchSize, usesGPU: configuration.usesGPU,
-            sampling: spec.sampling)
+            contextTokens: spec.contextTokens, batchSize: configuration.batchSize, usesGPU: configuration.usesGPU)
         let session = try loader.loadSession(modelAt: url, options: options)
         let seconds = Self.seconds(started, clock.now)
         loaded = Loaded(modelID: spec.id, session: session)

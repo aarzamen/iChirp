@@ -235,7 +235,8 @@ extension LanguageModelChoice {
     var staysPrivate: Bool { isTrustedForClinical }
 }
 
-/// A menu chip that picks the model for this run: "Runs on this iPhone ▾". Lists Apple's model and every provider.
+/// A menu chip that picks the model for this run: "Runs on this iPhone ▾". Lists Apple's model, the downloaded small
+/// models and every provider, then the small models that are not ready, disabled, with why.
 struct ModelChoiceMenu: View {
     @Environment(AppEnvironment.self) private var environment
     let prefix: String
@@ -254,6 +255,20 @@ struct ModelChoiceMenu: View {
                     .tag(option)
                 }
             }
+            // Small models that cannot be picked yet, with why (review I3d).
+            let notReady = environment.languageModels.unavailableLocalModels
+            if !notReady.isEmpty {
+                Section("Not ready on this iPhone") {
+                    ForEach(notReady) { item in
+                        Button {
+                        } label: {
+                            Text(item.option.name)
+                            Text(item.reason)
+                        }
+                        .disabled(true)
+                    }
+                }
+            }
         } label: {
             HStack(spacing: 4) {
                 LocalityChip(text: "\(prefix) \(choice.place)", staysPrivate: choice.staysPrivate)
@@ -270,7 +285,8 @@ struct ModelChoiceMenu: View {
     }
 }
 
-/// Apple's on-device model is picked but cannot run right now: the honest sentence, with where to fix it.
+/// An on-device model (Apple's or a small one) is picked but cannot run right now: the honest sentence, with where to
+/// fix it.
 struct ModelUnavailableNote: View {
     let message: String
 
@@ -291,12 +307,10 @@ struct ModelUnavailableNote: View {
 }
 
 extension AppEnvironment {
-    /// The sentence to show when `choice` cannot run now, or nil. Only Apple's model is checked without a run.
+    /// The sentence to show when `choice` cannot run now, or nil: Apple's model and the small models on this iPhone
+    /// (not downloaded, would not fit in memory; review I3d). Providers are checked when the run starts.
     func unavailableMessage(for choice: LanguageModelChoice) -> String? {
-        guard choice.source == .onDevice, case .unavailable(let reason) = languageModels.onDeviceAvailability else {
-            return nil
-        }
-        return reason.message
+        languageModels.unavailableReason(for: choice)
     }
 }
 

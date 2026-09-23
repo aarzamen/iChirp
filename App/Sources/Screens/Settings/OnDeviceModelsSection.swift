@@ -8,6 +8,14 @@ import SwiftUI
 /// above; clinical items may use it without a confirmation because nothing leaves the phone.
 struct OnDeviceModelsSection: View {
     @Environment(AppEnvironment.self) private var environment
+    /// The model whose Download was tapped, while its size / memory question is open (review I3c).
+    @State private var pendingDownload: PendingDownload?
+
+    private struct PendingDownload: Identifiable {
+        let option: LocalModelOption
+        let notice: LocalModelDownloadNotice
+        var id: String { option.id }
+    }
 
     var body: some View {
         @Bindable var models = environment.languageModels
@@ -27,11 +35,12 @@ struct OnDeviceModelsSection: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ModelAssetRow(
                             title: option.name,
-                            value: option.tier == .quality ? "Quality" : "Default",
+                            // "Standard", not "Default": the owner's default model is a different setting (review minor 9).
+                            value: option.tier == .quality ? "Quality" : "Standard",
                             status: models.localModelStatus[option.id] ?? .notDownloaded,
                             approximateDownloadBytes: option.downloadBytes,
                             runsOn: Self.runsOn,
-                            onDownload: { environment.downloadLocalLanguageModel(option) },
+                            onDownload: { requestDownload(option) },
                             onDelete: { Task { await models.deleteLocalModel(id: option.id) } }
                         )
                         LocalModelFacts(option: option)
@@ -41,6 +50,16 @@ struct OnDeviceModelsSection: View {
                     }
                 }
             }
+        }
+        .alert(
+            pendingDownload?.notice.title ?? "",
+            isPresented: Binding(get: { pendingDownload != nil }, set: { if !$0 { pendingDownload = nil } }),
+            presenting: pendingDownload
+        ) { pending in
+            Button(pending.notice.confirmTitle) { environment.downloadLocalLanguageModel(pending.option) }
+            Button("Cancel", role: .cancel) {}
+        } message: { pending in
+            Text(pending.notice.message)
         }
         .alert(
             "Couldn’t change the model",
@@ -55,6 +74,16 @@ struct OnDeviceModelsSection: View {
 }
 
 extension OnDeviceModelsSection {
+    /// Every current model is over 1 GB and unmeasured, so Download asks first with the size, the memory it needs
+    /// against what iOS lets Parakeet use now, and the measurement caution (review I3c).
+    fileprivate func requestDownload(_ option: LocalModelOption) {
+        if let notice = option.downloadNotice(availableMemoryBytes: MemoryProbe.availableBytes()) {
+            pendingDownload = PendingDownload(option: option, notice: notice)
+        } else {
+            environment.downloadLocalLanguageModel(option)
+        }
+    }
+
     /// The phone's GPU; the engine uses the CPU in the Simulator, whose Metal is no stand-in for the phone's GPU.
     fileprivate static var runsOn: String {
         #if targetEnvironment(simulator)
@@ -70,6 +99,19 @@ private struct LocalModelFacts: View {
     let option: LocalModelOption
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            badgeAndFacts
+            if let caution = option.measurementCaution {
+                // Until the model's iPhone numbers are recorded (review I3b); louder for the quality tier.
+                Text(caution)
+                    .chirpFont(12)
+                    .foregroundStyle(option.tier == .quality ? AppColor.error : Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var badgeAndFacts: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("On device")
                 .chirpFont(11.5, .bold)

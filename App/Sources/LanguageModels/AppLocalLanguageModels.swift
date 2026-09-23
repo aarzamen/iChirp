@@ -2,6 +2,7 @@ import ChirpCore
 import ChirpEngineLlamaCpp
 import ChirpFeatures
 import Foundation
+import Synchronization
 import UIKit
 
 /// The app's small language models on this iPhone (M7, ADR-015): the only app code that imports
@@ -24,6 +25,9 @@ final class AppLocalLanguageModels: Sendable {
         }
         self.assets = assets
         options = LlamaCppModels.isRuntimeInBuild ? LlamaCppModels.catalog.map(Self.option(for:)) : []
+        #if DEBUG
+        Self.debugShared.withLock { $0 = self }
+        #endif
     }
 
     /// Why the runtime is missing from this build, or nil.
@@ -42,10 +46,19 @@ final class AppLocalLanguageModels: Sendable {
         LlamaCppModels.isRuntimeInBuild ? assets[id] : nil
     }
 
+    /// Whether the model could run now (runtime, file, on screen, memory); never touches the network or loads it.
+    func availability(id: String) -> LanguageModelAvailability? {
+        guard let spec = LlamaCppModelCatalog.spec(id: id), let assets = assets[id] else { return nil }
+        return engine.availability(for: spec, isDownloaded: assets.isReady)
+    }
+
     /// Forwards the app's lifecycle to the runtime for the life of the process. Call once, at launch.
     @MainActor func observeLifecycle() {
         let center = NotificationCenter.default
         let engine = self.engine
+        // A launch straight into the background (a continued-processing relaunch, a background download event) must
+        // not report the models as available: seed the state, then follow the transitions (review minor 2).
+        engine.setForeground(UIApplication.shared.applicationState != .background)
         _ = center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) {
             _ in
             engine.didReceiveMemoryWarning()
@@ -62,6 +75,43 @@ final class AppLocalLanguageModels: Sendable {
         LocalModelOption(
             id: spec.id, name: spec.displayName, tier: spec.tier == .quality ? .quality : .standard,
             runtime: "llama.cpp", license: spec.license, source: "\(spec.baseModel) · \(spec.quantization)",
-            downloadBytes: spec.byteCount, memoryBytes: spec.estimatedMemoryBytes, contextTokens: spec.contextTokens)
+            downloadBytes: spec.byteCount, memoryBytes: spec.estimatedMemoryBytes, contextTokens: spec.contextTokens,
+            isMeasuredOnIPhone: spec.isMeasuredOnIPhone)
     }
 }
+
+#if DEBUG
+/// DEBUG-only hooks for the on-device measurement runner (`-ChirpLLMSmoke`, review I3). Metadata only, never content.
+extension AppLocalLanguageModels {
+    /// The process's instance (there is one, built by `AppEnvironment`).
+    static let debugShared = Mutex<AppLocalLanguageModels?>(nil)
+
+    /// Timing of the last run, as the engine measured it.
+    struct DebugRunMetrics: Sendable, Equatable {
+        var modelID: String
+        var loadSeconds: Double?
+        var promptTokens: Int
+        var completionTokens: Int
+        var firstTokenSeconds: Double?
+        var promptTokensPerSecond: Double
+        var generationTokensPerSecond: Double
+    }
+
+    /// Whether the engine runs on the GPU in this build (false in the Simulator).
+    var debugUsesGPU: Bool { LlamaCppLoader.defaultUsesGPU }
+
+    /// Frees the loaded model, so the next run measures a cold load.
+    func debugUnload() async {
+        await engine.unload(reason: "measurement")
+    }
+
+    func debugLastRunMetrics() async -> DebugRunMetrics? {
+        guard let metrics = await engine.lastRunMetrics else { return nil }
+        return DebugRunMetrics(
+            modelID: metrics.modelID, loadSeconds: metrics.loadSeconds, promptTokens: metrics.promptTokens,
+            completionTokens: metrics.completionTokens, firstTokenSeconds: metrics.firstTokenSeconds,
+            promptTokensPerSecond: metrics.promptTokensPerSecond,
+            generationTokensPerSecond: metrics.generationTokensPerSecond)
+    }
+}
+#endif

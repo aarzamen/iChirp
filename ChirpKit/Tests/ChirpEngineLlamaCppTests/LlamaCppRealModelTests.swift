@@ -15,7 +15,7 @@ import XCTest
 /// Downloads each model once (SHA-256 checked) into `~/Library/Caches/iChirpTests/ondevice-llm` (or
 /// `CHIRP_ONDEVICE_LLM_DIR`); `CHIRP_ONDEVICE_LLM_MODELS=id,id` picks models. Runs the built-in SOAP template on an
 /// invented clinical visit through the app's own `DeliverableService` and a real database (routing: on device, so no
-/// confirmation), then prints load time, first-token latency, tokens per second and the peak memory footprint, and
+/// confirmation), and a visit dense in repeated-digit numbers that must survive verbatim (review I2), then prints load time, first-token latency, tokens per second and the peak memory footprint, and
 /// writes them (and the note) next to the models, outside the repository. Everything here is synthetic.
 final class LlamaCppRealModelTests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
@@ -44,11 +44,48 @@ final class LlamaCppRealModelTests: XCTestCase {
 
     func testSyntheticSOAPNoteThroughDeliverableService() async throws {
         for spec in selectedSpecs {
-            try await runSOAP(with: spec)
+            let run = try await runSOAP(with: spec, visit: Self.syntheticVisit())
+            let lowered = run.note.text.lowercased()
+            for section in ["subjective", "objective", "assessment", "plan"] {
+                XCTAssertTrue(lowered.contains(section), "\(spec.id): the note has a \(section) section")
+            }
+            XCTAssertTrue(lowered.contains("amoxicillin"), "\(spec.id): the spoken medication is in the plan")
+            try write(run, spec: spec, name: "")
         }
     }
 
-    private func runSOAP(with spec: LlamaCppModelSpec) async throws {
+    /// Review I2: a visit dense in repeated-digit numbers; every dose and vital must reach the SOAP note verbatim and
+    /// the note must carry no number the visit never had. `CHIRP_ONDEVICE_LLM_REPEATS=n` runs each model n times.
+    func testNumbersSurviveVerbatimInTheSOAPNote() async throws {
+        let repeats = max(1, Int(environment["CHIRP_ONDEVICE_LLM_REPEATS"] ?? "") ?? 1)
+        for spec in selectedSpecs {
+            var failures = 0
+            for attempt in 1...repeats {
+                let run = try await runSOAP(with: spec, visit: SyntheticNumberVisit.transcription())
+                let report = NumberFidelity.check(
+                    note: run.note.text, required: SyntheticNumberVisit.requiredNumbers,
+                    source: SyntheticNumberVisit.text)
+                if !report.passed { failures += 1 }
+                XCTAssertTrue(
+                    report.passed,
+                    "\(spec.id) run \(attempt): missing \(report.missing), unexpected \(report.unexpected)")
+                print(
+                    "ONDEVICE_LLM_NUMBERS model=\(spec.id) run=\(attempt) passed=\(report.passed) "
+                        + "missing=\(report.missing) unexpected=\(report.unexpected)")
+                try write(run, spec: spec, name: "numbers-\(attempt)-", extra: ["number_report": report.dictionary])
+            }
+            print("ONDEVICE_LLM_NUMBERS_SUMMARY model=\(spec.id) runs=\(repeats) failed=\(failures)")
+        }
+    }
+
+    private struct SOAPRun {
+        var note: Deliverable
+        var metrics: LlamaCppEngine.RunMetrics?
+        var wallSeconds: Double
+        var peakBytes: UInt64
+    }
+
+    private func runSOAP(with spec: LlamaCppModelSpec, visit: Transcription) async throws -> SOAPRun {
         let engine = LlamaCppEngine(configuration: .init(idleTimeout: .seconds(600)))
         let assets = LlamaCppModels.makeAssets(for: spec, modelsDirectory: modelsDirectory, engine: engine)
         try await assets.downloadAssets { _ in }
@@ -67,14 +104,14 @@ final class LlamaCppRealModelTests: XCTestCase {
         let service = DeliverableService(
             transcripts: transcripts, deliverables: deliverables, routingPolicy: { PrivacyRoutingPolicy() })
         try await service.installBuiltInTemplates()
-        let visit = Self.syntheticVisit()
         try await transcripts.insert(visit)
 
         // Clinical content, on-device engine: allowed with no confirmation.
         let decision = try await service.route(
             transcriptionID: visit.id, templateID: BuiltInTemplates.soapNote.id, model: model)
         guard case .allowed(let route) = decision else {
-            return XCTFail("\(spec.id): expected allowed, got \(decision)")
+            XCTFail("\(spec.id): expected allowed, got \(decision)")
+            throw CancellationError()
         }
         XCTAssertEqual(route.locality, .onDevice)
         XCTAssertEqual(route.privacyClass, .clinical)
@@ -102,13 +139,13 @@ final class LlamaCppRealModelTests: XCTestCase {
         XCTAssertEqual(note.engineID, LlamaCppLanguageModel.engineID)
         XCTAssertEqual(note.model, spec.id)
         XCTAssertEqual(note.locality, .onDevice)
-        let lowered = note.text.lowercased()
-        for section in ["subjective", "objective", "assessment", "plan"] {
-            XCTAssertTrue(lowered.contains(section), "\(spec.id): the note has a \(section) section")
-        }
-        XCTAssertTrue(lowered.contains("amoxicillin"), "\(spec.id): the spoken medication is in the plan")
+        return SOAPRun(note: note, metrics: metrics, wallSeconds: wallSeconds, peakBytes: peakBytes)
+    }
 
-        let result: [String: Any] = [
+    /// Writes the timings (and the synthetic note) next to the models, outside the repository.
+    private func write(_ run: SOAPRun, spec: LlamaCppModelSpec, name: String, extra: [String: Any] = [:]) throws {
+        let metrics = run.metrics
+        var result: [String: Any] = [
             "model": spec.id,
             "runtime": "llama.cpp \(LlamaCppRuntimeInfo.pinnedTag)",
             "machine": Self.machine(),
@@ -118,15 +155,16 @@ final class LlamaCppRealModelTests: XCTestCase {
             "first_token_seconds": metrics?.firstTokenSeconds ?? -1,
             "prompt_tokens_per_second": metrics?.promptTokensPerSecond ?? -1,
             "generation_tokens_per_second": metrics?.generationTokensPerSecond ?? -1,
-            "wall_seconds": wallSeconds,
-            "peak_footprint_mb": Double(peakBytes) / 1_048_576,
+            "wall_seconds": run.wallSeconds,
+            "peak_footprint_mb": Double(run.peakBytes) / 1_048_576,
             "estimated_memory_mb": Double(spec.estimatedMemoryBytes) / 1_048_576,
             "context_tokens": spec.contextTokens,
         ]
+        result.merge(extra) { _, new in new }
         let json = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
-        try json.write(to: modelsDirectory.appendingPathComponent("results-\(spec.id).json"))
-        try note.text.write(
-            to: modelsDirectory.appendingPathComponent("soap-\(spec.id).md"), atomically: true, encoding: .utf8)
+        try json.write(to: modelsDirectory.appendingPathComponent("results-\(name)\(spec.id).json"))
+        try run.note.text.write(
+            to: modelsDirectory.appendingPathComponent("soap-\(name)\(spec.id).md"), atomically: true, encoding: .utf8)
         print("ONDEVICE_LLM_RESULT \(String(decoding: json, as: UTF8.self))")
     }
 
@@ -224,5 +262,11 @@ final class PeakFootprintSampler: @unchecked Sendable {
             running = false
             return max(peak, Self.footprint())
         }
+    }
+}
+
+extension NumberFidelityReport {
+    fileprivate var dictionary: [String: Any] {
+        ["passed": passed, "missing": missing, "unexpected": unexpected]
     }
 }

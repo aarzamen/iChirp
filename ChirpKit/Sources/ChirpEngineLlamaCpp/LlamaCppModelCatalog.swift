@@ -6,7 +6,8 @@ import Foundation
 
 /// One piece of a chat prompt before tokenization. Control pieces (the chat template's role markers) are tokenized
 /// with special tokens recognised; content pieces (instructions, transcript text) never are, so text that happens to
-/// contain `<|im_end|>` stays text and cannot open a new turn.
+/// contain `<|im_end|>` stays text and cannot open a new turn. (llama.cpp still matches *user-defined* tokens such as
+/// Qwen's `<think>` in content; only control tokens are kept out, and those are the ones that delimit turns.)
 public enum LlamaPromptPiece: Sendable, Equatable {
     case control(String)
     case content(String)
@@ -35,25 +36,58 @@ public enum LlamaPromptFormat: Sendable, Equatable {
     }
 }
 
-/// Sampler settings for one model (llama.cpp's sampler chain: penalties, top-k, top-p, min-p, temperature, draw).
+/// One stage of llama.cpp's sampler chain, in order. None of them looks at the tokens already written.
+public enum LlamaSamplerStage: Sendable, Equatable {
+    case topK(Int32)
+    case topP(Float)
+    case minP(Float)
+    case temperature(Float)
+    /// A random draw from what is left (a new seed per request).
+    case draw
+    /// Always the most likely token.
+    case greedy
+}
+
+/// Sampler settings for one model.
+///
+/// **Numbers are never penalized (review I2).** Qwen's tokenizers write every number one digit at a time, so a
+/// presence, frequency or repetition penalty over recent tokens punishes the second "0" of "500", the second "1" of
+/// "1 1/2" and a unit already written, and pushes the model to "50", "1½" or a dropped dose (measured on the Mac: the
+/// Qwen3.5 2B with presence penalty 1.0 lost a dose or rewrote "1 1/2" in 2 of 5 notes of the synthetic visit). llama.cpp's
+/// DRY sampler is no fix: it penalizes a token that continues a sequence already written, which is exactly a dose
+/// restated in Plan after Subjective. Excluding digit tokens is incomplete: units ("mg", "mcg", "units"), "/" and "."
+/// carry the number too. So there is no token-history penalty in any profile, and this type cannot express one.
+///
+/// What else can move a number, and the settings used:
+/// - **Temperature above 0** can draw a digit that is not the model's first choice. Clinical requests use `faithful`
+///   (greedy: always the most likely token, and the same note on every run).
+/// - **top-k, top-p and min-p** only remove unlikely tokens; they never promote one, so they cannot introduce a digit.
+/// - Never add XTC (it removes the most likely tokens), Mirostat or a logit bias to a profile used for documents.
+/// - Outside the sampler: the prompt is never truncated (`contextTooLong`), the key/value cache stays f16, and the
+///   weights are Q4_K_M (the quantization is the quality floor the real-model number test measures).
 public struct LlamaSampling: Sendable, Equatable {
+    /// 0 means greedy.
     public var temperature: Float
     public var topK: Int32
     public var topP: Float
     public var minP: Float
-    /// Penalizes any token already produced in the last `penaltyLastN` tokens (Qwen's "presence penalty").
-    public var presencePenalty: Float
-    public var penaltyLastN: Int32
 
-    public init(
-        temperature: Float, topK: Int32, topP: Float, minP: Float, presencePenalty: Float, penaltyLastN: Int32 = 64
-    ) {
+    public init(temperature: Float, topK: Int32, topP: Float, minP: Float) {
         self.temperature = temperature
         self.topK = topK
         self.topP = topP
         self.minP = minP
-        self.presencePenalty = presencePenalty
-        self.penaltyLastN = penaltyLastN
+    }
+
+    /// For clinical requests with every model: the most likely token every time, no randomness, no penalty.
+    public static let faithful = LlamaSampling(temperature: 0, topK: 1, topP: 1, minP: 0)
+
+    /// The chain `LlamaCppContext` builds, stage by stage.
+    public var stages: [LlamaSamplerStage] {
+        guard temperature > 0 else { return [.greedy] }
+        var stages: [LlamaSamplerStage] = [.topK(topK), .topP(topP)]
+        if minP > 0 { stages.append(.minP(minP)) }
+        return stages + [.temperature(temperature), .draw]
     }
 }
 
@@ -89,10 +123,19 @@ public struct LlamaCppModelSpec: Sendable, Equatable, Identifiable {
     /// llama.cpp's compute and output buffers on top of weights and cache (measured on the Mac; see the research note).
     public var computeOverheadBytes: Int64
     public var promptFormat: LlamaPromptFormat
+    /// For general and personal requests; clinical requests always use `LlamaSampling.faithful`.
     public var sampling: LlamaSampling
+    /// True only once the model's load time, speed and peak memory on an iPhone are recorded in the research note
+    /// (`scripts/device_llm_smoke.sh`, review I3). Until then Settings says "Not yet measured on iPhone".
+    public var isMeasuredOnIPhone = false
 
     public var remoteURL: URL {
         URL(string: "https://huggingface.co/\(repository)/resolve/\(revision)/\(fileName)")!
+    }
+
+    /// The sampler for one request: `faithful` for clinical content (review I2), the model's own settings otherwise.
+    public func sampling(for privacyClass: PrivacyClass) -> LlamaSampling {
+        privacyClass == .clinical ? .faithful : sampling
     }
 
     /// About how much memory the loaded model needs: weights, a full context's cache and llama.cpp's buffers.
@@ -121,9 +164,9 @@ public enum LlamaCppModelCatalog {
         kvCacheBytesPerToken: 6 * 2 * 256 * 2 * 2,
         computeOverheadBytes: 512 * 1_048_576,
         promptFormat: .chatML(emptyThinkBlock: true),
-        // Qwen's non-thinking settings (temperature 0.7, top-p 0.8, top-k 20) with a mild presence penalty: the 2B is
-        // prone to repeating itself, and a stronger penalty would push it off words a clinical note must repeat.
-        sampling: LlamaSampling(temperature: 0.7, topK: 20, topP: 0.8, minP: 0, presencePenalty: 1.0))
+        // Qwen's non-thinking settings (temperature 0.7, top-p 0.8, top-k 20) without Qwen's suggested presence penalty,
+        // which alters repeated digits (review I2; see `LlamaSampling`).
+        sampling: LlamaSampling(temperature: 0.7, topK: 20, topP: 0.8, minP: 0))
 
     /// Qwen3-4B-Instruct-2507 (Apache-2.0), Q4_K_M: the quality tier. 36 layers with 8 KV heads of 128, so an 8K
     /// window costs about 1.2 GB on top of 2.5 GB of weights.
@@ -143,8 +186,8 @@ public enum LlamaCppModelCatalog {
         kvCacheBytesPerToken: 36 * 8 * 128 * 2 * 2,
         computeOverheadBytes: 512 * 1_048_576,
         promptFormat: .chatML(emptyThinkBlock: false),
-        // Qwen's recommended instruct settings for the 2507 release.
-        sampling: LlamaSampling(temperature: 0.7, topK: 20, topP: 0.8, minP: 0, presencePenalty: 0))
+        // Qwen's recommended instruct settings for the 2507 release (no penalty).
+        sampling: LlamaSampling(temperature: 0.7, topK: 20, topP: 0.8, minP: 0))
 
     public static let all: [LlamaCppModelSpec] = [qwen35_2B, qwen3_4BInstruct2507]
 

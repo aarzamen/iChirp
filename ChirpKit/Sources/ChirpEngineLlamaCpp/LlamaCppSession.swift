@@ -1,20 +1,18 @@
 import ChirpCore
 import Foundation
 
-/// How a model is loaded and sampled.
+/// How a model is loaded. The sampler is chosen per request (`LlamaSession.reset(sampling:)`).
 public struct LlamaLoadOptions: Sendable, Equatable {
     public var contextTokens: Int
     /// Tokens per `decode` call while reading the prompt; cancellation is checked between batches.
     public var batchSize: Int
     /// Offloads every layer to the GPU (Metal) when true; CPU only when false (the Simulator).
     public var usesGPU: Bool
-    public var sampling: LlamaSampling
 
-    public init(contextTokens: Int, batchSize: Int = 512, usesGPU: Bool, sampling: LlamaSampling) {
+    public init(contextTokens: Int, batchSize: Int = 512, usesGPU: Bool) {
         self.contextTokens = contextTokens
         self.batchSize = batchSize
         self.usesGPU = usesGPU
-        self.sampling = sampling
     }
 }
 
@@ -28,9 +26,9 @@ public protocol LlamaSession: AnyObject {
     var batchSize: Int { get }
     /// `parseSpecial` recognises the chat template's special tokens; content is always tokenized without it.
     func tokenize(_ text: String, addSpecial: Bool, parseSpecial: Bool) throws -> [Int32]
-    /// Empties the key/value cache and any recurrent state, and restarts the sampler (new random seed, no penalty
-    /// history), so each request starts clean.
-    func reset()
+    /// Empties the key/value cache and any recurrent state and builds a fresh sampler chain from `sampling` (a new
+    /// random seed), so each request starts clean with the sampler its privacy class needs.
+    func reset(sampling: LlamaSampling)
     /// Runs the model over `tokens` (at most `batchSize`), after the tokens already in the cache.
     func decode(_ tokens: [Int32]) throws
     /// Draws the next token from the logits of the last `decode`.

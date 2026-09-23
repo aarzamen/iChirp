@@ -8,6 +8,8 @@
 > [research](../../docs/research/2026-09-22-on-device-llm.md)
 > Guardrail: the engine refuses a prompt that does not fit (`contextTooLong`) and never tokenizes transcript text with
 > special tokens; do not remove either as "cleanup". Weights must be Apache-2.0 or MIT, pinned by revision and SHA-256.
+> No sampler profile may penalize tokens already written (presence, frequency, repetition, DRY): it alters repeated
+> digits in doses and vitals. Clinical requests sample greedily (review I2).
 
 ## Context
 
@@ -51,7 +53,13 @@ increased-memory entitlement, no network but an explicit download, and buildable
   (weights + a full window's cache + buffers) and a model that would not fit is refused with a sentence.
 - **Never truncate, never let content become control.** A prompt plus requested output that does not fit the allocated
   window throws `contextTooLong` before any decoding (`DeliverableService` re-plans as map-reduce). ChatML role markers
-  are tokenized with special tokens; system text and transcript text never are.
+  are tokenized with special tokens; system text and transcript text never are, so they cannot produce a control
+  token (llama.cpp still matches user-defined tokens such as `<think>` in content; none of them delimits a turn).
+- **Numbers are never penalized** (fix lane, review I2). Clinical requests (`GenerationRequest.privacyClass`, which
+  is clinical for the SOAP template and for clinical items) sample greedily with every model; other requests use
+  Qwen's settings (temperature 0.7, top-p 0.8, top-k 20). No profile has a token-history penalty or DRY; the first
+  version's presence penalty on the 2B turned "1 1/2" into "1½" and dropped a dose in 2 of 5 Mac runs
+  ([research §3a](../../docs/research/2026-09-22-on-device-llm.md)).
 - **Routing is unchanged**: `DeliverableService` stays the one caller; an on-device engine is allowed for every class
   with no confirmation (`PrivacyRoutingPolicy`), and the effective class (`EffectivePrivacyClass`) is re-checked before
   every call as for every engine.

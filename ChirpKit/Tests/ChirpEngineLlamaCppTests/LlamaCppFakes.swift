@@ -12,6 +12,8 @@ final class FakeRuntimeLog: Sendable {
         var loads: [URL] = []
         var freed = 0
         var resets = 0
+        /// The sampler each request asked for, in order.
+        var samplings: [LlamaSampling] = []
         var tokenized: [(text: String, parseSpecial: Bool)] = []
         var decodedBatches: [Int] = []
         var samples = 0
@@ -21,6 +23,7 @@ final class FakeRuntimeLog: Sendable {
     var loads: [URL] { state.withLock { $0.loads } }
     var freed: Int { state.withLock { $0.freed } }
     var resets: Int { state.withLock { $0.resets } }
+    var samplings: [LlamaSampling] { state.withLock { $0.samplings } }
     var tokenized: [(text: String, parseSpecial: Bool)] { state.withLock { $0.tokenized } }
     var decodedBatches: [Int] { state.withLock { $0.decodedBatches } }
     var decodeCalls: Int { state.withLock { $0.decodedBatches.count } }
@@ -35,6 +38,12 @@ struct FakeReply: Sendable {
     var repeatsForever = false
     /// Called before each decode with the number of decodes so far (a delay, a failure, a side effect).
     var onDecode: (@Sendable (Int) throws -> Void)?
+    /// A decode of exactly these tokens fails with llama.cpp's code -3, as a Metal command-buffer failure does.
+    var decodeFailsFor: [Int32]?
+    /// Every decode fails with code -3 (a backend in its sticky error state).
+    var decodeAlwaysFails = false
+    /// Tokenizing fails.
+    var tokenizeFails = false
 
     static func text(_ pieces: [String]) -> FakeReply {
         FakeReply(pieces: pieces.map { Array($0.utf8) })
@@ -45,7 +54,7 @@ struct FakeReply: Sendable {
     }
 }
 
-/// The reply the fake model gives next; read at every `reset()` (the start of each request).
+/// The reply the fake model gives next; read at every `reset(sampling:)` (the start of each request).
 final class FakeReplyBox: Sendable {
     private let value = Mutex(FakeReply.text(["Hello", " there."]))
     var current: FakeReply { value.withLock { $0 } }
@@ -75,20 +84,25 @@ final class FakeLlamaSession: LlamaSession {
     deinit { log.update { $0.freed += 1 } }
 
     func tokenize(_ text: String, addSpecial: Bool, parseSpecial: Bool) throws -> [Int32] {
+        if reply.tokenizeFails { throw LlamaSessionError.tokenizeFailed }
         log.update { $0.tokenized.append((text, parseSpecial)) }
         return Array(repeating: 7, count: text.utf8.count)
     }
 
-    func reset() {
+    func reset(sampling: LlamaSampling) {
         next = 0
         reply = replies.current
-        log.update { $0.resets += 1 }
+        log.update {
+            $0.resets += 1
+            $0.samplings.append(sampling)
+        }
     }
 
     func decode(_ tokens: [Int32]) throws {
         precondition(tokens.count <= batchSize, "a decode larger than the batch")
         let calls = log.decodeCalls
         try reply.onDecode?(calls)
+        if reply.decodeAlwaysFails || reply.decodeFailsFor == tokens { throw LlamaSessionError.decodeFailed(-3) }
         log.update { $0.decodedBatches.append(tokens.count) }
     }
 

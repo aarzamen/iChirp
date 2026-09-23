@@ -37,4 +37,8 @@ struct AppLanguageModelFactory: LanguageModelFactory {
     func localModelAssets(id: String) -> (any ModelAssetManaging)? {
         local.modelAssets(id: id)
     }
+
+    func localModelAvailability(id: String) async -> LanguageModelAvailability? {
+        local.availability(id: id)
+    }
 }

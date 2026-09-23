@@ -59,6 +59,11 @@ final class FakeLocalModelFactory: LanguageModelFactory {
     let runtimeProblem: String?
     private let made = Mutex<[String]>([])
     var madeLocal: [String] { made.withLock { $0 } }
+    private let availabilities = Mutex<[String: LanguageModelAvailability]>([:])
+    /// What `localModelAvailability(id:)` answers (nil = unknown, as the protocol default).
+    func setAvailability(_ availability: LanguageModelAvailability?, for id: String) {
+        availabilities.withLock { $0[id] = availability }
+    }
 
     init(readyIDs: Set<String> = [], runtimeProblem: String? = nil) {
         assets = [
@@ -77,6 +82,10 @@ final class FakeLocalModelFactory: LanguageModelFactory {
     }
 
     func localModelAssets(id: String) -> (any ModelAssetManaging)? { assets[id] }
+
+    func localModelAvailability(id: String) async -> LanguageModelAvailability? {
+        availabilities.withLock { $0[id] }
+    }
 
     func makeOnDeviceModel() -> any LanguageModel { base.makeOnDeviceModel() }
 

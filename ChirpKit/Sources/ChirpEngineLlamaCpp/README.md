@@ -23,9 +23,11 @@ and without the runtime the models say "not in this build".
 ## What's here
 
 - `LlamaCppModelCatalog.swift`: `LlamaCppModelSpec` (Hugging Face repository and revision, file, SHA-256, size,
-  context window, memory estimate, prompt format, sampler) and the catalog: **Qwen3.5 2B** (default) and
+  context window, memory estimate, prompt format, sampler), `LlamaSampling` and its chain `LlamaSamplerStage`
+  (clinical requests greedy via `sampling(for:)`; no stage ever looks at earlier tokens, review I2) and the catalog: **Qwen3.5 2B** (default) and
   **Qwen3 4B Instruct 2507** (quality), both Apache-2.0, Q4_K_M. `LlamaPromptFormat` writes ChatML as control pieces
-  (special tokens recognised) and content pieces (never), so transcript text cannot open a new chat turn.
+  (special tokens recognised) and content pieces (never), so transcript text cannot produce a control token or open a
+  new chat turn (llama.cpp still matches user-defined tokens such as `<think>` in content; they delimit no turn).
 - `LlamaCppSession.swift`: the seam. `LlamaSession` (tokenize, reset, decode, sample, end-of-generation, piece) and
   `LlamaSessionLoading`; a fake implements them in the tests.
 - `LlamaCppContext.swift`: `LlamaCppRuntimeInfo` (the pin, whether the runtime is linked) and, when it is,
@@ -33,26 +35,36 @@ and without the runtime the models say "not in this build".
   the Mac; CPU in the Simulator). llama.cpp's own log lines are dropped except errors, which are logged private.
 - `LlamaCppEngine.swift`: the one runtime actor of the process, on its own serial queue. One model loaded, one run at
   a time; loads on first use, unloads after 90 s idle, on a memory warning, in the background and before a delete;
-  foreground only; checks `os_proc_available_memory()` against the model's estimate before loading. The generation
+  foreground only; checks `os_proc_available_memory()` against the model's estimate before loading. A llama.cpp
+  runtime error (failed decode, i.e. a Metal command-buffer failure, or failed tokenize) unloads the model with the run,
+  so Retry loads a fresh context (review I1); each run ends with one confirming decode of its last token, because
+  llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
-  generation, `maxOutputTokens` or a full window (`stopReason` "length"); run metrics for the tests.
+  generation, `maxOutputTokens` or a full window (`stopReason` "length"; for a **clinical** request that is an error,
+  not a document: with greedy sampling it almost always means a loop, review minor 8); run metrics for the tests.
 - `LlamaTextStream.swift`: `UTF8StreamDecoder` (a character split across tokens waits for its second half) and
   `LeadingThinkBlockFilter` (a `<think>…</think>` block before the answer is not part of the document).
 - `LlamaCppModelAssets.swift`: `ModelAssetManaging` for one GGUF file: explicit download with progress, free-space
   check, size and SHA-256 before the file is kept (hashing off the cooperative pool), excluded from backup, delete
-  (unloads first). `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
+  (unloads first). Progress is passed on in 0.5% steps, never backwards (`ProgressThrottle`), and cancelling the
+  caller cancels the URLSession download (review minors 3 and 5). `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
 
 ## What to know before editing
 
 - **One runtime, one actor.** A `LlamaSession` is never touched outside `LlamaCppEngine`. Its `run` is synchronous on
   the engine's queue, so requests never interleave; state other code reads (`loadedModelID`, foreground) sits in a
   `Mutex`.
+- **Never penalize numbers.** No presence, frequency, repetition or DRY penalty in any profile, and clinical requests
+  are greedy: Qwen writes numbers digit by digit, so a penalty alters doses and vitals (`LlamaCppSamplingTests`; the
+  opt-in `testNumbersSurviveVerbatimInTheSOAPNote`). `LlamaSampling`'s doc comment lists every setting's effect.
 - **Never truncate.** A prompt that does not fit throws `contextTooLong` so `DeliverableService` re-plans; the window
   reported by `contextWindowTokens()` is the one allocated (`spec.contextTokens`).
 - **Foreground only.** iOS refuses GPU work in the background; the run stops with a sentence and the model unloads.
 - The pin lives in two places, `scripts/build_llamacpp.sh` and `LlamaCppRuntimeInfo.pinnedCommit`; a test keeps them
   equal. Bumping it means re-running the opt-in real-model test and updating ADR-015.
 - New weights must be Apache-2.0 or MIT (a test checks the catalog), pinned to a revision, with SHA-256 and size.
+- `isMeasuredOnIPhone` stays false until `scripts/device_llm_smoke.sh` numbers for that model are in the research note
+  (a test pins it); Settings says "Not yet measured on iPhone" and Download asks first until then (review I3).
 
 ## How to verify
 
@@ -62,4 +74,7 @@ scripts/build_llamacpp.sh
 scripts/check.sh ChirpEngineLlamaCppTests
 # Real models on this Mac (downloads 1.3 GB and 2.5 GB once into ~/Library/Caches/iChirpTests/ondevice-llm):
 CHIRP_ONDEVICE_LLM_TESTS=1 swift test --package-path ChirpKit --filter LlamaCppRealModelTests
+# The number test alone, three times per model:
+CHIRP_ONDEVICE_LLM_TESTS=1 CHIRP_ONDEVICE_LLM_REPEATS=3 swift test --package-path ChirpKit \
+  --filter LlamaCppRealModelTests/testNumbersSurviveVerbatimInTheSOAPNote
 ```

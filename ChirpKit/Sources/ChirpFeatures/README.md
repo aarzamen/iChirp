@@ -169,8 +169,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` and
     (M7) `ChirpEngineLlamaCpp` (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`,
     `App/Sources/LanguageModels/AppLocalLanguageModels.swift`); tests use a fake. Its small-model requirements
-    (`localModelOptions`, `localModelRuntimeProblem`, `makeLocalModel(id:)`, `localModelAssets(id:)`) have empty
-    defaults.
+    (`localModelOptions`, `localModelRuntimeProblem`, `makeLocalModel(id:)`, `localModelAssets(id:)`,
+    `localModelAvailability(id:)`) have empty defaults.
   - `LanguageModelChoice` is Apple's on-device model, a downloaded small model on this iPhone (`.localModel(id)`, on
     device, trusted for clinical items) or one provider; `ModelPlace` words where it runs ("on this iPhone", "on Mac
     Studio", "in the cloud (Claude)").
@@ -181,8 +181,16 @@ pipeline's `Task`s and publishes its progress to the UI.
     one), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists the small models
     (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`, downloads (only on a
     Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one default at a time.
+    Review I3d: `refresh()` also reads each small model's `localModelAvailability` (no network, nothing loaded);
+    `unavailableReason(for:)` gives the sentence the Transform and Ask sheets show before Start (Apple's model and
+    small models: not downloaded, would not fit in memory), and `unavailableLocalModels` lists the ones the pickers
+    show disabled, with why.
 - `LocalLanguageModels.swift` (M7, ADR-015): `LocalModelOption` (catalog id, name, tier, runtime, license, source,
-  download size, memory while loaded, window), the `LanguageModelFactory` defaults and `LanguageModelChoice(localModel:)`.
+  download size, memory while loaded, window, `isMeasuredOnIPhone`), the `LanguageModelFactory` defaults and
+  `LanguageModelChoice(localModel:)`. Review I3: `LocalModelFit` (memory need against `os_proc_available_memory`),
+  `downloadNotice(availableMemoryBytes:)` (the question before any download over 1 GB, an unmeasured model, or one
+  that would not fit: size, memory, "Download Anyway"), `measurementCaution` ("Not yet measured on iPhone", louder for
+  the quality tier) and `UnavailableLocalModel`. Tests: `LocalModelFitTests`.
 - `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
   category and recent documents) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
@@ -355,6 +363,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
   - The reference-set toggle, and added files copied from the importer.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
+
+## Number fidelity (on-device language models, review I2, `Benchmark/NumberFidelity.swift`)
+
+- `NumberFidelity.check(note:required:source:)` → `NumberFidelityReport`: required numbers missing from a generated
+  note (verbatim, with the dose unit), and numbers in the note the source never had (how an altered digit shows up).
+- `SyntheticNumberVisit`: an invented, clinical pneumonia visit dense in repeated digits (500 mg, 1000 units, 118/76,
+  0.05 mg, 100.0 F, 1 1/2 tablets, …), all written in digits. Used by the opt-in real-model test in
+  `ChirpEngineLlamaCppTests` and the app's DEBUG `-ChirpLLMSmoke` runner, so the Mac and the phone check the same
+  thing. Tests: `NumberFidelityTests`.
 
 ## Wiring (app composition root)
 

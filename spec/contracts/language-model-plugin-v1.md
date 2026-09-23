@@ -64,7 +64,9 @@ is recorded as `GenerationUsage.model`, a catalog id such as `qwen3.5-2b-q4_k_m`
 - On-device engines that download weights (llama.cpp) report `unavailable` while the model is not downloaded, the
   runtime is not in the build, the app is in the background (GPU work is refused there) or the system reports too
   little free memory for the model; none of these checks touches the network. Content pieces (instructions,
-  transcript) are never tokenized with special tokens, so text cannot open a new chat turn.
+  transcript) are tokenized with special-token parsing off, so they can never produce a control token such as the
+  ChatML role markers and cannot open a new chat turn. llama.cpp still matches user-defined tokens (Qwen's `<think>`,
+  `</think>`) inside content; those cannot open or close a turn (review minor 11).
 - Engines do **not** enforce privacy. Callers route first (`PrivacyRoutingPolicy.allows(descriptor, for:,
   host: endpointHost, userOverride:)`).
 

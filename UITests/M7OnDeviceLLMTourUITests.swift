@@ -53,6 +53,11 @@ final class M7OnDeviceLLMTourUITests: XCTestCase {
             let download = app.buttons["Download \(model)"]
             scrollTo(download)
             download.tap()
+            // Over 1 GB and not yet measured on iPhone: Download asks first with size and memory (review I3c).
+            let question = app.alerts["Download \(model)?"]
+            XCTAssertTrue(question.waitForExistence(timeout: 5), "a large download asks first")
+            shot("small-model-download-question")
+            question.buttons["Download"].tap()
             shot("small-model-downloading")
         }
         XCTAssertTrue(delete.waitForExistence(timeout: 900), "the model never became ready")
