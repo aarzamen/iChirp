@@ -50,8 +50,8 @@ Errors are `LanguageModelError` (content-free `kindName` for logs). Provider set
 | Apple Foundation Models | on device | `ChirpEngineAppleFM` (iOS 26 framework) | ~3B model, **4K-token context** shared by instructions, input and output, read at run time; "Apple Intelligence off / not eligible / not ready" is an explicit state |
 | Anthropic, OpenAI-compatible (OpenAI, OpenRouter, Gemini's OpenAI endpoint) | cloud | `ChirpEngineHTTPLLM`, HTTPS only | Bring your own key, stored in the **Keychain** (never `UserDefaults`) |
 | Ollama (native `/api/chat`), LM Studio / llama.cpp (OpenAI-compatible) on the owner's Mac | local network | `ChirpEngineHTTPLLM`, HTTP on the LAN | Can be marked **trusted** for clinical content; Ollama gets `num_ctx` equal to the planned window |
-| MLX Swift small models | on device, **foreground only** (GPU) | Swift package | Needs Xcode builds (Metal shaders) |
-| llama.cpp GGUF (Qwen3.5-2B, LFM2.5-1.2B, Qwen3-4B-Instruct-2507) | on device | XCFramework, one actor | Widest model choice |
+| llama.cpp GGUF: **Qwen3.5 2B** (default), **Qwen3 4B Instruct 2507** (quality) | on device, **foreground only** (GPU; CPU in the Simulator) | `ChirpEngineLlamaCpp` (engine id `llamacpp.gguf`) over `vendor/llama.xcframework` built from pinned source by `scripts/build_llamacpp.sh` ([ADR-015](adr/015-on-device-llm-llama-cpp.md)) | **Built (M7).** Explicit download (1.28 / 2.50 GB, SHA-256), 32K / 8K window, one model in memory, unloaded when idle, on a memory warning or in the background; Apache-2.0 weights only (LFM2.5 excluded) |
+| MLX Swift small models | on device, foreground only (GPU) | Swift package | **Evaluated, not adopted** (ADR-015): SwiftPM-built binaries cannot load its Metal shaders |
 | Core AI, LiteRT-LM, ExecuTorch, Private Cloud Compute | later | iOS 27 / Xcode 27 or entitlements | Adopt behind `#available` so iOS 26 devices keep working |
 
 **AnyLanguageModel was evaluated and not adopted** ([ADR-011](adr/011-language-model-providers-direct-ports.md)):
