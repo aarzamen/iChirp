@@ -34,7 +34,7 @@ plus the phone side of YouTube audio and plan 014's remaining items.
 - **Milestone:** M5 completion + companion
 - **Effort:** M
 - **Risk:** MEDIUM (a network service on the home LAN; YouTube changes)
-- **Status:** IN PROGRESS (lane L1, branch `lane/companion`)
+- **Status:** BUILT on `lane/companion` (lane L1), 2026-09-22 — waits for the merge gate and owner device QA
 
 ## Drift check and refinements (L1, 2026-09-22, before coding)
 
@@ -167,11 +167,13 @@ YouTube) recorded in the plan.
 
 ## Done criteria
 
-- [ ] `scripts/companion.sh` starts the companion; `/v1/companion` reports speech and youtubeAudio.
-- [ ] A Qwen3-TTS voice speaks through `/v1/audio/speech` on the Mac (manual check recorded).
-- [ ] A captionless YouTube link becomes a transcript through the companion (simulator against the live companion).
-- [ ] Pytest and focused Swift tests green; lint clean; docs and licenses updated; plan 014 decision recorded.
-- [ ] Everything committed; nothing pushed.
+- [x] `scripts/companion.sh` starts the companion; `/v1/companion` reports speech and youtubeAudio.
+- [x] A Qwen3-TTS voice speaks through `/v1/audio/speech` on the Mac (manual check recorded above).
+- [x] A captionless YouTube link becomes a transcript through the companion (simulator against the live companion:
+      `UITests/CompanionTourUITests`, "Big Buck Bunny", CC BY, 635 s: 10.3 MB fetched by the companion in 2.3 s, the
+      row took the video's title and reached Transcribed on the `iChirp-l1` simulator).
+- [x] Pytest and focused Swift tests green; lint clean; docs and licenses updated; plan 014 decision recorded.
+- [x] Everything committed; nothing pushed.
 
 ## STOP conditions
 

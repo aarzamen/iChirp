@@ -2,7 +2,8 @@
 
 > Status: ACTIVE — how things get into Parakeet beyond M1's file picker. Built: the Share sheet (M1.5), and in M5
 > links (Apple Podcasts, feeds, direct media, YouTube captions) and documents (PDF with OCR, TXT, Markdown, RTF, HTML,
-> DOCX). Still proposals: the share extension (gated) and YouTube audio (owner decision, plan 014).
+> DOCX), and (plan 019) YouTube audio for videos without captions through the owner's Mac companion. Still a proposal:
+> the share extension (gated).
 > Source research: [`docs/research/2026-09-22-ios-platform-constraints.md`](../docs/research/2026-09-22-ios-platform-constraints.md)
 > sections 6 and 7.
 
@@ -15,7 +16,7 @@
 | Voice Memos | M1.5 | `file` | Through the Share sheet (no public Voice Memos API) |
 | Apple Podcasts episode link | M5 | `podcast` | iTunes lookup → episode audio URL → download → pipeline |
 | Direct media URL (`.mp3`, `.m4a`, `.mp4`, …) | M5 | `url` | Download to a file → pipeline |
-| YouTube link | M5 | `url` | Captions first; audio only behind a toggle (below) |
+| YouTube link | M5 | `url` | Captions first; without captions, audio from the Mac companion (below) → pipeline |
 | PDF | M5 | `document` | Text extraction (and OCR for image pages) → a document the templates can use |
 | TXT, Markdown, RTF, HTML, DOCX | M5 | `document` | Read as text → a document |
 
@@ -82,7 +83,17 @@ SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a messa
 then automatic, then any), and reads its timed text. `LinkIngestService.importCaptions` stores a `.completed` `.url`
 row with the caption words (times spread across each caption), segments, the video title, `engine`
 `youtube.captions` and no audio. No captions, a bot check, age restriction or a changed page each fail with a
-message and no row. **YouTube audio is not built**; the options and the terms note wait for the owner in plan 014.
+message and no row. Every YouTube request sends youtube-transcript-api's User-Agent: with Parakeet's own, YouTube
+redirects the watch page to an "unsupported browser" page (found by the opt-in `LiveIngestTests`, plan 019).
+
+**Built (plan 019): audio through the Mac companion** (owner's decision, 2026-09-22: option 4 below;
+[ADR-014](adr/014-mac-companion.md), [mac-companion-v1](contracts/mac-companion-v1.md)). When captions are missing,
+empty, or refused by YouTube (token, bot check, consent, changed page) and Settings → Mac companion is set up, the
+Paste a link sheet offers **Get the audio from your Mac**. The person confirms once per link that the link goes to
+their Mac; the row is created (`url`, "YouTube video"), `CompanionClient.youtubeAudio` sends only the link, the
+companion runs yt-dlp and streams the m4a back into `media/<id>/source.m4a` with the video's title and duration, and
+the unchanged file pipeline transcribes it on the phone. Retry asks the companion again. Without a companion the
+message says how to set one up. Unavailable, private and age-restricted videos are not offered.
 
 1. **Captions first.** Port the youtube-transcript-api method (watch page → `INNERTUBE_API_KEY` → `/youtubei/v1/player`
    as the `ANDROID` client → caption `baseUrl`). No transcription needed; fails when a video has no captions.
@@ -93,7 +104,8 @@ message and no row. **YouTube audio is not built**; the options and the terms no
 
 Not possible: embedding yt-dlp (needs a separate JavaScript runtime process; iOS has no subprocesses).
 YouTube's terms forbid downloading and automated access; personal sideloaded use lowers exposure but does not change
-the terms. The M5 plan records the owner's decision before building option 2.
+the terms. The owner chose option 4 (plan 014 records it); App Review is irrelevant because Parakeet is never
+submitted. Option 2 stays a possible later addition for use away from home.
 
 ## Documents (M5)
 

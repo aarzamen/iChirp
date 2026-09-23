@@ -26,7 +26,7 @@ Every spec starts with a `> Status:` line. **ACTIVE** means it governs code that
 | 08 | [Language and structure models](08-language-and-structure-models.md) | LLM/SLM providers, deliverable templates, Needle/Jev/Laya | ACTIVE for language models (M4 core and screens); PROPOSAL for structure models (M6) |
 | 09 | [Testing](09-testing.md) | Test layers, fixtures, gated tests, device smoke, agent test loop | ACTIVE |
 | 10 | [Agent working method](10-ai-coding-method.md) | Source-of-truth precedence, context zone, plans, review, definition of done | ACTIVE |
-| 11 | [Ingest](11-ingest.md) | Share sheet, Voice Memos, podcasts, links, YouTube, PDFs and text documents | ACTIVE (M1.5, M5; share extension and YouTube audio still proposals) |
+| 11 | [Ingest](11-ingest.md) | Share sheet, Voice Memos, podcasts, links, YouTube, PDFs and text documents | ACTIVE (M1.5, M5, plan 019 YouTube audio via the Mac companion; share extension still a proposal) |
 | 12 | [Privacy](12-privacy.md) | Privacy classes, router, network surfaces, PHI rules, keys | ACTIVE |
 
 ## Boundary contracts
@@ -113,7 +113,7 @@ Each later milestone has an executor-ready plan; the [plans board](../docs/plans
 | M2 | Dictation: audio session, live preview, final Parakeet pass, clean-up, copy, Action Button intent with a Live Activity | IN PROGRESS (built on `m2/dictation`; device checks pending) | [011](../docs/plans/2026-09-22-011-m2-dictation.md) |
 | M3 | Meeting recording: background audio, crash-safe recording plus `recording.lock` recovery, live chunks, final pass plus diarization, Notes tab | IN PROGRESS (built on `m3/meetings`: focused package tests, 25 app tests, simulator record/kill/recover verified; device checks pending) | [012](../docs/plans/2026-09-22-012-m3-meetings.md) |
 | M4 | Language models and deliverables: providers, Keychain keys, templates (summary, meeting notes, agenda, SOAP, action items, Transforms), Ask with citations, privacy router | In progress: core (Steps 1–5) merged; screens (Step 6) on `m4/language-models-ui`, simulator-verified; owner device QA pending | [013](../docs/plans/2026-09-22-013-m4-language-models-and-deliverables.md) |
-| M5 | Ingest breadth: podcasts, direct media links, YouTube strategy, PDF (text plus OCR), TXT/MD/RTF/DOCX import | IN PROGRESS (built on `m5/ingest`; YouTube audio awaits the owner; device checks pending) | [014](../docs/plans/2026-09-22-014-m5-ingest.md) |
+| M5 | Ingest breadth: podcasts, direct media links, YouTube strategy, PDF (text plus OCR), TXT/MD/RTF/DOCX import | IN PROGRESS (built; open items finished by plan 019 on `lane/companion`: YouTube audio via the Mac companion; device checks pending) | [014](../docs/plans/2026-09-22-014-m5-ingest.md) |
 | M6 | Structure models: Needle 3 (personal builds), Jev (opt-in, non-clinical), Laya research; confidence gating | NOT STARTED | [015](../docs/plans/2026-09-22-015-m6-structure-models.md) |
 | M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | NOT STARTED | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
 | M8 | Polish: PDF/DOCX export, keyboard extension, Transforms share extension, widgets, accessibility, iPad, localization | NOT STARTED | [017](../docs/plans/2026-09-22-017-m8-polish.md) |
