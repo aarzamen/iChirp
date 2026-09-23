@@ -319,9 +319,12 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   surface shows until argument accuracy reaches 0.9).
 
 - `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
-  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows)
+  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows,
+  and a capitalized dosing acronym after one, "p.o. TID.", never does; "No." ends a sentence unless a digit follows)
   equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
-  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
+  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize). A sentence split
+  from the one before only after an abbreviation in `continuingAbbreviations` ("500 mg. Three times daily.") is part
+  of the same order, so "scratch that" removes back through it and "undo" restores it whole (re-review I9-R); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
 - `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects

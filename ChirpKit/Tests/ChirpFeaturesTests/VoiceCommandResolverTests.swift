@@ -105,6 +105,42 @@ final class VoiceCommandResolverTests: XCTestCase {
             ["Take 5 mg.", "Then stop.", "Give 2 tabs. q.d. dosing."])
     }
 
+    // MARK: - Re-review I9-R: scratch that removes the whole order
+
+    func testTheContinuingAbbreviationListIsNamed() {
+        for abbreviation in [
+            "p.o", "b.i.d", "t.i.d", "q.i.d", "q.d", "q.h.s", "p.r.n", "i.v", "i.m", "s.c", "e.g", "i.e", "mg",
+        ] {
+            XCTAssertTrue(VoiceCommandResolver.continuingAbbreviations.contains(abbreviation), abbreviation)
+        }
+    }
+
+    func testScratchThatRemovesTheWholeOrderWhenACapitalFollowsAnAbbreviation() async {
+        let caps = await resolve("Start amoxicillin 500 mg p.o. TID. Scratch that.")
+        XCTAssertEqual(caps.text, "", "never “Start amoxicillin 500 mg p.o.”")
+        let unit = await resolve("Start amoxicillin 500 mg. Three times daily. Scratch that.")
+        XCTAssertEqual(unit.text, "", "the order split after “mg.” is still one order")
+        let kept = await resolve("Patient seen. Start amoxicillin 500 mg p.o. TID. Scratch that. Recheck in two weeks.")
+        XCTAssertEqual(kept.text, "Patient seen. Recheck in two weeks.")
+        for abbreviation in ["p.o.", "b.i.d.", "t.i.d.", "q.i.d.", "q.d.", "q.h.s.", "p.r.n.", "i.v.", "i.m.", "s.c."] {
+            let order = await resolve("Patient seen. Give drug 5 mg \(abbreviation) With food. Scratch that.")
+            XCTAssertEqual(order.text, "Patient seen.", abbreviation)
+        }
+        let undone = await resolve("Start amoxicillin 500 mg. Three times daily. Scratch that. Undo.")
+        XCTAssertEqual(undone.text, "Start amoxicillin 500 mg. Three times daily.", "undo restores the whole order")
+    }
+
+    func testTheAnswerNoIsKeptWhenTheNextOrderIsScratched() async {
+        let result = await resolve("Any drug allergies? No. Start amoxicillin 500 mg p.o. TID. Scratch that.")
+        XCTAssertEqual(result.text, "Any drug allergies? No.")
+        let spoken = await resolve("Any drug allergies? No. Start amoxicillin 500 mg three times daily. Scratch that.")
+        XCTAssertEqual(spoken.text, "Any drug allergies? No.")
+        XCTAssertEqual(VoiceCommandResolver.sentences(in: "No. Scratch that."), ["No.", "Scratch that."])
+        XCTAssertEqual(VoiceCommandResolver.sentences(in: "See item No. 5 below."), ["See item No. 5 below."])
+        let answer = await resolve("Any drug allergies? No. Scratch that.")
+        XCTAssertEqual(answer.text, "Any drug allergies?", "“No. Scratch that.” is a command again")
+    }
+
     // MARK: - Review L3 minors 6, 7, 8
 
     @MainActor
