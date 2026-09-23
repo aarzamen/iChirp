@@ -121,7 +121,7 @@ final class RecordingSpeaker: ReadBackSpeaking, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String] = []
     private var idStorage: [UUID] = []
-    var isAvailable: Bool { true }
+    @MainActor var isAvailable: Bool { true }
     var texts: [String] { lock.withLock { storage } }
     var transcriptionIDs: [UUID] { lock.withLock { idStorage } }
     func readBack(_ text: String, transcriptionID: UUID) async {
@@ -132,6 +132,7 @@ final class RecordingSpeaker: ReadBackSpeaking, @unchecked Sendable {
     }
 }
 
+@MainActor
 final class ReadBackRelayTests: XCTestCase {
     func testUnconnectedRelayIsSilent() async {
         let relay = ReadBackRelay()

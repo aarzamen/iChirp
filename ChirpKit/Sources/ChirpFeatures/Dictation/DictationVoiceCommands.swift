@@ -6,15 +6,16 @@ import Observation
 /// `ReadBackRelay`; the dictation's id travels along so the player routes every chunk on that transcript's current
 /// (effective) privacy class.
 public protocol ReadBackSpeaking: Sendable {
-    /// Whether a voice is set up at all (the chip says "no voice set up" otherwise).
-    var isAvailable: Bool { get }
+    /// Whether a voice is set up at all (the chip says "no voice set up" otherwise). Read on the main actor, where
+    /// voice settings live.
+    @MainActor var isAvailable: Bool { get }
     func readBack(_ text: String, transcriptionID: UUID) async
 }
 
 /// The no-op default: no voice output is wired.
 public struct SilentReadBack: ReadBackSpeaking {
     public init() {}
-    public var isAvailable: Bool { false }
+    @MainActor public var isAvailable: Bool { false }
     public func readBack(_ text: String, transcriptionID: UUID) async {}
 }
 
@@ -22,13 +23,14 @@ public struct SilentReadBack: ReadBackSpeaking {
 /// `connect` is called it behaves like `SilentReadBack`.
 public final class ReadBackRelay: ReadBackSpeaking, @unchecked Sendable {
     private let lock = NSLock()
-    private var availability: (@Sendable () -> Bool)?
+    private var availability: (@MainActor @Sendable () -> Bool)?
     private var speaker: (@Sendable (String, UUID) async -> Void)?
 
     public init() {}
 
     public func connect(
-        isAvailable: @escaping @Sendable () -> Bool, speak: @escaping @Sendable (String, UUID) async -> Void
+        isAvailable: @escaping @MainActor @Sendable () -> Bool,
+        speak: @escaping @Sendable (String, UUID) async -> Void
     ) {
         lock.withLock {
             availability = isAvailable
@@ -36,7 +38,7 @@ public final class ReadBackRelay: ReadBackSpeaking, @unchecked Sendable {
         }
     }
 
-    public var isAvailable: Bool {
+    @MainActor public var isAvailable: Bool {
         let check = lock.withLock { availability }
         return check?() ?? false
     }
