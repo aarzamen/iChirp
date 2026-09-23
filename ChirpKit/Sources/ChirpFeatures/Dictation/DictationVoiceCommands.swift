@@ -201,6 +201,13 @@ public struct VoiceCommandChip: Sendable, Equatable {
         return "Voice commands applied (\(byStub ? "STUB, rules" : NeedleExperimental.commandChip)): \(names)"
     }
 
+    /// Round 3: the Done screen's warning when a "scratch that" was heard but not applied, because where the sentence
+    /// to remove starts was not certain. The copied text is unchanged and still holds the words "scratch that".
+    public var unresolvedSummary: String? {
+        guard let result = lastResult, !result.unresolved.isEmpty else { return nil }
+        return VoiceCommandResult.unresolvedMessage
+    }
+
     /// The Dictating screen opened (or dismissed) the pending Transform.
     public func consumePendingTransform() { pendingTransform = nil }
 

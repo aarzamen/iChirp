@@ -357,16 +357,22 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows,
   and a capitalized dosing acronym after one, "p.o. TID.", never does; "No." ends a sentence unless a digit follows)
   equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
-  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize). A sentence split
-  from the one before only after an abbreviation in `continuingAbbreviations` ("500 mg. Three times daily.") is part
-  of the same order, so "scratch that" removes back through it and "undo" restores it whole (re-review I9-R); read back and send
+  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
+  **"Scratch that" (round 3)** removes the last dictated sentence only when where it starts is certain
+  (`Segment.startIsCertain`: the first sentence, after a line break, "?" or "!", or after a period that follows a plain
+  word, when the sentence does not open like the rest of an order: a number, unit, route or timing word such as "Three
+  times daily." or "With food."). After an abbreviation ("p.o.", "mg."), a number or a spelled unit ("500.",
+  "micrograms.") it is not applied: the text stays as dictated, "Scratch that." included, the match goes to
+  `VoiceCommandResult.unresolved`, and "undo" takes it back. It never drops an earlier separate order and never keeps
+  part of one (re-review 2 I-6).
 - `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects
   a `ReadBackRelay` to plan 020's `VoicePlayer` with source `.dictationReadBack(id:)`, so every chunk routes on that
   dictation's effective class; `SilentReadBack` is the unconnected default), `DictationVoiceCommanding` (the coordinator's hooks)
   and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, chip only, even for "stop"; the
   final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental";
+  `unresolvedSummary` is the Done screen's warning, "Couldn't tell what to scratch — check before copying.";
   dictation is routed as clinical, so command words only reach on-device engines). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
