@@ -52,13 +52,19 @@ final class AppLocalLanguageModels: Sendable {
         return engine.availability(for: spec, isDownloaded: assets.isReady)
     }
 
-    /// Forwards the app's lifecycle to the runtime for the life of the process. Call once, at launch.
+    /// Forwards the app's lifecycle to the runtime for the life of the process. Call once, at launch, before
+    /// anything else can read `UIApplication.shared.applicationState`.
     @MainActor func observeLifecycle() {
         let center = NotificationCenter.default
         let engine = self.engine
         // A launch straight into the background (a continued-processing relaunch, a background download event) must
-        // not report the models as available: seed the state, then follow the transitions (review minor 2).
-        engine.setForeground(UIApplication.shared.applicationState != .background)
+        // not report the models as available (review minor 2). `UIApplication.shared.applicationState` cannot tell
+        // that apart from a foreground launch this early: this runs during `AppEnvironment.init`, before UIKit has
+        // finished its own launch sequence, so the read is not `.background` even when the launch is (review N1).
+        // Seed background and wait for the transition every launch actually posts: `willEnterForegroundNotification`
+        // fires even on a fresh foreground launch, once UIKit's launch sequence reaches the active state, and the
+        // observer below is registered well before then.
+        engine.setForeground(false)
         _ = center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) {
             _ in
             engine.didReceiveMemoryWarning()
@@ -99,6 +105,10 @@ extension AppLocalLanguageModels {
 
     /// Whether the engine runs on the GPU in this build (false in the Simulator).
     var debugUsesGPU: Bool { LlamaCppLoader.defaultUsesGPU }
+
+    /// Whether `observeLifecycle` currently believes the app is on screen; the app-hosted test for review N1 reads
+    /// this instead of the runtime's private state.
+    var debugIsForeground: Bool { engine.isForeground }
 
     /// Frees the loaded model, so the next run measures a cold load.
     func debugUnload() async {

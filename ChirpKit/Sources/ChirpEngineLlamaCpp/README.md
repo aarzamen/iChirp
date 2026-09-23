@@ -63,6 +63,10 @@ and without the runtime the models say "not in this build".
 - **Never truncate.** A prompt that does not fit throws `contextTooLong` so `DeliverableService` re-plans; the window
   reported by `contextWindowTokens()` is the one allocated (`spec.contextTokens`).
 - **Foreground only.** iOS refuses GPU work in the background; the run stops with a sentence and the model unloads.
+  The engine itself starts `isForeground` true (`Signals()`'s default) since it has no opinion at construction time;
+  `AppLocalLanguageModels.observeLifecycle` is what tells it the real state and must seed `setForeground(false)`, not
+  read `UIApplication.shared.applicationState`, which cannot tell a background launch from a foreground one that
+  early (review N1, see that module's own notes).
 - The pin lives in two places, `scripts/build_llamacpp.sh` and `LlamaCppRuntimeInfo.pinnedCommit`; a test keeps them
   equal. Bumping it means re-running the opt-in real-model test and updating ADR-015.
 - New weights must be Apache-2.0 or MIT (a test checks the catalog), pinned to a revision, with SHA-256 and size.

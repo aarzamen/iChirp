@@ -105,6 +105,10 @@ public actor LlamaCppEngine {
     /// The model in memory now, if any.
     public nonisolated var loadedModelID: String? { signals.withLock { $0.loadedModelID } }
 
+    /// Whether the engine currently believes the app is on screen (`setForeground`); read by `AppLocalLanguageModels`
+    /// for diagnostics and by its tests (review N1).
+    public nonisolated var isForeground: Bool { signals.withLock { $0.isForeground } }
+
     /// Whether the app is on screen. Going to the background stops a running generation and unloads the model.
     public nonisolated func setForeground(_ isForeground: Bool) {
         signals.withLock { $0.isForeground = isForeground }
