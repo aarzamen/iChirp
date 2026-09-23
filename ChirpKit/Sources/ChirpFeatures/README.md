@@ -241,7 +241,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `MeetingLiveTranscriber.swift`: each chunk (RMS above 0.00025) is written to `chunks/` and transcribed with
   `SpeechEngine.transcribe(fileAt:)` inside `.meetingLiveChunk`; outcomes apply in order into
   `MeetingTranscriptAssembler.swift` (words offset by the chunk start, de-duplicated by absolute `endMs`).
-  Display-only; a backpressure drop marks the preview lagging. `finish()` cancels and awaits every chunk.
+  Display-only; a backpressure drop marks the preview lagging, published as soon as the drop applies (outcomes can
+  arrive out of order, so a later result may clear the flag in the same pass). `finish()` cancels and awaits every
+  chunk.
 - `MeetingFinalizer.swift`: normalize `meeting.caf` → one `.meetingFinalize` job (transcribe, then diarize; a
   diarization failure is not fatal) → `SpeakerMerger` → custom words only → title, snippet, segments →
   `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the

@@ -29,7 +29,8 @@ public actor MeetingLiveTranscriber {
     /// Chunks this quiet are silence: not transcribed (upstream guard).
     static let silenceRMS: Float = 0.00025
 
-    private enum Outcome: Sendable {
+    /// Internal, not private, so tests can deliver outcomes out of order through `complete(_:_:)`.
+    enum Outcome: Sendable {
         case result(SpeechResult, MeetingAudioChunk)
         case skipped(lagging: Bool)
     }
@@ -145,7 +146,10 @@ public actor MeetingLiveTranscriber {
     }
 
     /// Records a chunk's outcome and applies every outcome that is next in recording order.
-    private func complete(_ sequence: Int, _ outcome: Outcome) {
+    ///
+    /// Outcomes can arrive out of recording order: a chunk task reports only after it has released the recognizer
+    /// slot, so the next chunk can transcribe and report first. Internal so tests can reproduce that order.
+    func complete(_ sequence: Int, _ outcome: Outcome) {
         tasks[sequence] = nil
         if case .skipped(lagging: true) = outcome { droppedCount += 1 }
         outcomes[sequence] = outcome
@@ -159,15 +163,21 @@ public actor MeetingLiveTranscriber {
                 isLagging = false
                 changed = true
             case .skipped(let lagging):
-                if lagging {
+                // Publish a drop as soon as it applies: a later result in this same pass clears the flag, so an
+                // end-of-pass update alone would never show it.
+                if lagging, !isLagging {
                     isLagging = true
-                    changed = true
+                    publish()
+                    changed = false
                 }
             }
         }
-        if changed, !isClosed {
-            continuation.yield(MeetingLiveUpdate(paragraphs: assembler.paragraphs(), isLagging: isLagging))
-        }
+        if changed { publish() }
+    }
+
+    private func publish() {
+        guard !isClosed else { return }
+        continuation.yield(MeetingLiveUpdate(paragraphs: assembler.paragraphs(), isLagging: isLagging))
     }
 
     static func rms(_ samples: [Float]) -> Float {
