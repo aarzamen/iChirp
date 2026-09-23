@@ -26,6 +26,8 @@ let package = Package(
         .library(name: "ChirpFeatures", targets: ["ChirpFeatures"]),
         .library(name: "ChirpUI", targets: ["ChirpUI"]),
         .library(name: "ChirpEngineNeedle", targets: ["ChirpEngineNeedle"]),
+        // M7 (plan 016): Apple SpeechTranscriber.
+        .library(name: "ChirpEngineAppleSpeech", targets: ["ChirpEngineAppleSpeech"]),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio", exact: "0.16.1"),
@@ -74,6 +76,9 @@ let package = Package(
             exclude: ["README.md"]),
         // The opt-in real eval (NeedleEvalRealTests) runs ChirpFeatures' eval runner on the real model.
         .testTarget(name: "ChirpEngineNeedleTests", dependencies: ["ChirpEngineNeedle", "ChirpFeatures"]),
+        // M7 (plan 016): Apple SpeechTranscriber / SpeechAnalyzer (system framework, no package dependency).
+        .target(name: "ChirpEngineAppleSpeech", dependencies: ["ChirpCore"], exclude: ["README.md"]),
+        .testTarget(name: "ChirpEngineAppleSpeechTests", dependencies: ["ChirpEngineAppleSpeech"]),
     ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : []),
     swiftLanguageModes: [.v6]
 )

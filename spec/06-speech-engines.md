@@ -60,6 +60,22 @@ From the [Gemini port review](../docs/reviews/2026-09-22-gemini-ios-review.md), 
 - **Models directory:** FluidAudio's default cache (upstream maps it the same way). After download, the folder is
   marked `isExcludedFromBackup`.
 
+## M7 engines (plan 016)
+
+Every engine below is on-device. Each registers in `SpeechEngineRouter` and has a row in
+`SpeechEngineCapabilityRegistry`. Settings → Speech → Speech engines shows it with its size, capabilities and model
+state. An engine can be chosen for a route only when its model is on disk.
+
+- **Apple Speech** (`ChirpEngineAppleSpeech`, id `apple.speech-transcriber`): iOS 26 `SpeechTranscriber` through
+  `SpeechAnalyzer` over the normalized WAV.
+  - Word timings come from `audioTimeRange`; `language` is the locale used.
+  - The model is iOS's own. Download calls `AssetInventory.assetInstallationRequest`, which reserves the locale, and
+    Delete releases it.
+  - It needs the Speech Recognition permission (Info.plist `NSSpeechRecognitionUsageDescription`; no entitlement).
+  - It is not available in the Simulator: Settings says so, and the real test is gated (`CHIRP_APPLE_SPEECH_TESTS=1`,
+    Mac or iPhone).
+  - It runs in iOS's speech service, so the app's memory barely grows.
+
 ## Diarization (speaker labels)
 
 - FluidAudio `OfflineDiarizerManager` (pyannote segmentation, WeSpeaker embeddings, VBx clustering) with upstream's
@@ -107,7 +123,7 @@ P0 = first to build, P1 = next, P2 = later or gated.
 
 | Kind | P0 | P1 | P2 / gated |
 |---|---|---|---|
-| Speech | FluidAudio Parakeet TDT v3 (batch), Silero VAD, offline diarization; Apple SpeechTranscriber (no download, iOS 26, device only) | FluidAudio Parakeet EOU / Nemotron streaming for live; WhisperKit large-v3 turbo (626 MB, 99 languages) | FluidAudio Cohere (1.8 GB, iOS 18+); Core AI Parakeet/Whisper (iOS 27); Cactus STT (license-gated) |
+| Speech | FluidAudio Parakeet TDT v3 (batch), Silero VAD, offline diarization; Apple SpeechTranscriber (iOS-managed model, iOS 26, device only; **built M7**) | FluidAudio Parakeet EOU / Nemotron streaming for live; WhisperKit large-v3 turbo (626 MB, 99 languages) | FluidAudio Cohere (1.8 GB, iOS 18+); Core AI Parakeet/Whisper (iOS 27); Cactus STT (license-gated) |
 | Language | Apple Foundation Models (4K context, `@Generable`); AnyLanguageModel as the plug-in layer; HTTP cloud and LAN providers | MLX Swift (foreground only); llama.cpp GGUF (Qwen3.5-2B, LFM2.5-1.2B, Qwen3-4B-Instruct-2507) | LiteRT-LM (Gemma 4), ExecuTorch, Core AI (iOS 27); Apple Private Cloud Compute (entitlement-gated) |
 | Structure | none in M1 | Needle 3 (`libneedle.a`, personal builds) | Jev (cloud, opt-in, non-clinical); Laya (needs Core ML conversion); FluidAudio CUA-S1-FORMS |
 

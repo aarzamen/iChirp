@@ -28,6 +28,14 @@ record the result here before shipping an IPA to anyone else.
   deliberately not ported (the repository is public).
 - Network service, not a dependency: xAI's text-to-speech API (`api.x.ai`), used only with the owner's own key.
 
+## System frameworks with separate model terms
+
+### Apple Speech (`SpeechTranscriber`, `SpeechAnalyzer`, `AssetInventory`)
+
+- Part of iOS 26 (the Speech framework); nothing is linked from a package. `ChirpEngineAppleSpeech` (M7).
+- Model: Apple's on-device speech model, downloaded and managed by iOS under the iOS SDK / software license terms;
+  it is never redistributed in the app or the repository.
+
 ## Swift package dependencies (linked into the app)
 
 ### FluidAudio

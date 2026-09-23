@@ -34,6 +34,9 @@ targets:
       # build". No entitlement or capability.
       - package: ChirpKit
         products: [ChirpEngineNeedle]
+      # M7 (plan 016): speech engines beyond Parakeet.
+      - package: ChirpKit
+        products: [ChirpEngineAppleSpeech]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:
@@ -92,6 +95,9 @@ targets:
         # M2: the dictation Live Activity (Lock Screen and Dynamic Island), started by the app while recording.
         NSSupportsLiveActivities: true
         NSMicrophoneUsageDescription: Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.
+        NSSpeechRecognitionUsageDescription: >-
+          Apple Speech, one of Parakeet's speech engines, transcribes your recordings on this iPhone when you choose it
+          in Settings → Speech engines.
         # M4: Settings → Models can point at Ollama or LM Studio on the owner's Mac. The usage text is shown by iOS's
         # local-network prompt; NSAllowsLocalNetworking permits plain http only to local hosts (cloud stays https,
         # enforced by LanguageModelProviderConfiguration.validate()). No Bonjour discovery, so no NSBonjourServices.

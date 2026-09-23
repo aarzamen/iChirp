@@ -88,6 +88,8 @@
 	<string>Parakeet connects to your Mac on your home network: a model server (Ollama or LM Studio) you choose in Settings → Models, and the Parakeet companion you set up in Settings → Mac companion.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Apple Speech, one of Parakeet's speech engines, transcribes your recordings on this iPhone when you choose it in Settings → Speech engines.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
