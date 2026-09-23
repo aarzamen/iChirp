@@ -124,6 +124,10 @@ an engine that breaks them corrupts transcripts silently.
   such routes back to Parakeet before deleting.
 - `SpeechEngineAvailabilityReporting` (optional) lets an engine say it cannot run on this device. Settings lists it
   with the reason and never downloads it.
+- `SpeechEnginePermissionReporting` (optional, review M10) is for an engine that needs a system permission (Apple
+  Speech: Speech Recognition). It asks only from `downloadAssets`, reads as not downloaded until then, and never asks
+  from `prepare` or `transcribe` (it refuses with `modelNotDownloaded`). `needsPermissionPrompt()` tells a headless
+  caller (the DEBUG device benchmark) to skip it rather than wait on a prompt.
 
 **Target rule**
 - An engine target depends only on `ChirpCore` plus its SDK and exposes one registration entry point (M1:

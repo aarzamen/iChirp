@@ -137,7 +137,8 @@ import Observation
             modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true),
             store: UserDefaultsSpeechRouteStore())
         self.speechRouter = speechRouter
-        self.speechEngines = SpeechEnginesViewModel(router: speechRouter)
+        let speechEngines = SpeechEnginesViewModel(router: speechRouter)
+        self.speechEngines = speechEngines
         let scheduler = SpeechJobScheduler()
         self.benchmark = AppSpeechEngines.makeBenchmark(router: speechRouter, scheduler: scheduler, paths: paths)
         let continuedProcessing = SystemContinuedProcessingScheduler()
@@ -246,8 +247,11 @@ import Observation
         self.meetingSettings = MeetingSettingsViewModel(voiceActivity: voiceActivity, settings: settings)
         let meetingLiveActivity = MeetingLiveActivity()
         self.meetingLiveActivity = meetingLiveActivity
-        let liveActivity = DictationLiveActivity(
-            modelName: settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2")
+        // Review M4: the engine the final route uses when the activity starts (the Dictating screen shows the same).
+        let parakeetName = settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2"
+        let liveActivity = DictationLiveActivity(modelName: { [weak speechEngines] in
+            speechEngines?.row(for: .final)?.capabilities.displayName ?? parakeetName
+        })
         self.liveActivity = liveActivity
         self.library = LibraryViewModel(store: store, paths: paths)
         self.capture = CaptureViewModel(store: store)
@@ -394,6 +398,8 @@ import Observation
         await capture.start()
         await speechSettings.refresh()
         await speechEngines.refresh()
+        // Review M6: copies of the person's files a benchmark left behind (possibly clinical audio) go at launch.
+        benchmark.removeLeftoverImports()
         await launchLanguageModels()
         isLaunched = true
     }
@@ -624,9 +630,6 @@ import Observation
         }
     }
 
-    /// Runs a Settings Download tap under its own continued-processing request, so the download keeps going with the
-    /// phone locked and shows in the system's progress UI; Cancel there cancels it. When the system refuses the request
-    /// (the Simulator always does) it falls back to the M1 keep-alive (`DownloadKeepAlive`).
     /// M7: Settings → Speech engines' Download for one engine build.
     func downloadSpeechEngine(_ key: SpeechEngineVariantKey, title: String) {
         let engines = speechEngines
@@ -635,6 +638,9 @@ import Observation
         }
     }
 
+    /// Runs a Settings Download tap under its own continued-processing request, so the download keeps going with the
+    /// phone locked and shows in the system's progress UI; Cancel there cancels it. When the system refuses the request
+    /// (the Simulator always does) it falls back to the M1 keep-alive (`DownloadKeepAlive`).
     private func downloadModel(
         title: String,
         _ download: @escaping @MainActor (_ onProgress: @escaping @MainActor (Double) -> Void) async -> Bool

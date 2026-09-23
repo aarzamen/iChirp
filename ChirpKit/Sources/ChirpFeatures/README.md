@@ -369,7 +369,10 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   migration.
 - `ASRBenchmarkViewModel.swift`: the Benchmark screen.
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
-  - The reference-set toggle, and added files copied from the importer.
+  - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your
+    file n" and copied under a neutral name (a file name can hold a patient's name); the copies are deleted when a
+    run ends and at launch (`removeLeftoverImports`). `ASRBenchmarkStore` also replaces a file name an earlier build
+    saved (items with a UUID id) when it reads the file.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
 
 ## Wiring (app composition root)

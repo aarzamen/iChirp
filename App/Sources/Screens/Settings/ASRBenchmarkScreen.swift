@@ -38,8 +38,8 @@ struct ASRBenchmarkScreen: View {
 
                 SettingsGroup(
                     title: "Recordings",
-                    footer: "Your own files get speed and memory only (there is no known text to compare), and "
-                        + "their words are not kept."
+                    footer: "Your own files get speed and memory only (there is no known text to compare). Their "
+                        + "words and names are not kept, and their copies are deleted when the run ends."
                 ) {
                     SettingsRow(
                         title: "Reference set",
@@ -50,7 +50,7 @@ struct ASRBenchmarkScreen: View {
                             .tint(Tokens.Color.success)
                     }
                     ForEach(model.userItems) { item in
-                        SettingsRow(title: item.title, caption: "Your file") {
+                        SettingsRow(title: item.title, caption: "Copied for this run only") {
                             Button {
                                 model.removeUserItem(item.id)
                             } label: {

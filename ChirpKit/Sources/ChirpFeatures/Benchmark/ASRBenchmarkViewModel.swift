@@ -5,6 +5,10 @@ import Observation
 
 /// Settings → Speech engines → Benchmark (M7 Step 6): pick engines, run them over the synthetic reference set and any
 /// files the person adds, one at a time through the scheduler, and read or export the numbers.
+///
+/// A person's own files may be clinical (review M6): each is labelled "Your file 1", "Your file 2"… (its name is never
+/// shown, stored or exported), copied under a neutral name, and every copy is deleted when the run ends and at launch
+/// (`removeLeftoverImports`).
 @MainActor @Observable public final class ASRBenchmarkViewModel {
     public struct EngineChoice: Identifiable, Equatable, Sendable {
         public var key: SpeechEngineVariantKey
@@ -41,10 +45,13 @@ import Observation
     @ObservationIgnored private let appBuild: String
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var hasChosen = false
+    /// Numbers the neutral labels ("Your file 1"…); reset when the copies are deleted.
+    @ObservationIgnored private var addedFileCount = 0
 
     /// - Parameters:
     ///   - referenceFolder: the bundled synthetic set (its manifest plus audio); nil when the build has none.
-    ///   - importFolder: where added files are copied for the run (a copy is deleted by `removeUserItem`).
+    ///   - importFolder: where added files are copied for the run (neutral names; deleted by `removeUserItem`, when a
+    ///     run ends and by `removeLeftoverImports` at launch).
     public init(
         router: SpeechEngineRouter, runner: ASRBenchmarkRunner, store: ASRBenchmarkStore, referenceFolder: URL?,
         importFolder: URL, device: String, appBuild: String
@@ -92,7 +99,8 @@ import Observation
 
     // MARK: - Files
 
-    /// Copies files the person picked (security-scoped URLs from the file importer) into the import folder.
+    /// Copies files the person picked (security-scoped URLs from the file importer) into the import folder, under a
+    /// neutral name, and labels each "Your file n": a file name can hold a patient's name.
     public func addFiles(_ urls: [URL]) {
         lastError = nil
         do {
@@ -101,14 +109,31 @@ import Observation
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 let id = UUID().uuidString
-                let copy = importFolder.appendingPathComponent("\(id)-\(url.lastPathComponent)")
+                let ext = url.pathExtension
+                let copy = importFolder.appendingPathComponent(ext.isEmpty ? id : "\(id).\(ext)")
                 try FileManager.default.copyItem(at: url, to: copy)
+                addedFileCount += 1
                 userItems.append(
-                    ASRBenchmarkItem(id: id, title: url.lastPathComponent, audioURL: copy, referenceText: nil))
+                    ASRBenchmarkItem(
+                        id: id, title: "Your file \(addedFileCount)", audioURL: copy, referenceText: nil))
             }
         } catch {
-            lastError = "Parakeet could not add that file: \(error.localizedDescription)"
+            lastError = "Parakeet could not add that file. Details: \(error.localizedDescription)"
         }
+    }
+
+    /// Deletes copies an earlier launch left in the import folder (the list of added files is not kept). Call at
+    /// launch.
+    public func removeLeftoverImports() {
+        guard userItems.isEmpty, !isRunning else { return }
+        try? FileManager.default.removeItem(at: importFolder)
+    }
+
+    /// Forgets the added files and deletes their copies.
+    private func removeImports() {
+        userItems = []
+        addedFileCount = 0
+        try? FileManager.default.removeItem(at: importFolder)
     }
 
     public func removeUserItem(_ id: String) {
@@ -161,12 +186,14 @@ import Observation
         await runTask?.value
     }
 
+    /// The run ended (saved, failed or stopped): the copies of the person's files are deleted either way.
     private func finish(history: [ASRBenchmarkRun]?, error: String?) {
         if let history { self.history = history }
         lastError = error
         isRunning = false
         progress = nil
         runTask = nil
+        removeImports()
     }
 
     // MARK: - Export

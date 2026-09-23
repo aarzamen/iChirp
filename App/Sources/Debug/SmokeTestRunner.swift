@@ -1,4 +1,5 @@
 #if DEBUG
+import ChirpAudio
 import ChirpCore
 import ChirpFeatures
 import Foundation
@@ -10,6 +11,10 @@ import Observation
 /// Runs when the app is launched with `-ChirpSmoke transcribe-sample`, or from Settings → Diagnostics. It is the
 /// one place allowed to download models without a tap on Download (logged), so a fresh install can be verified
 /// from the command line.
+///
+/// M7 (review M7): the smoke always transcribes with **Parakeet**, whatever Settings → Speech engines has saved for
+/// Transcripts: it runs its own `FileTranscriptionPipeline` on Parakeet itself, never the router, and it never changes
+/// the saved routes. The result names the engine that wrote the text (`engine`), which the script checks.
 @MainActor @Observable final class SmokeTestRunner {
     enum Trigger: String {
         case launchArgument = "launch_argument"
@@ -37,6 +42,8 @@ import Observation
         var peakMemoryMB: Int
         /// `BuildIdentity.summary`; contains `ChirpBuildDateUTC`, which the script uses to reject stale files.
         var build: String
+        /// The engine id (and variant) stored on the transcript, e.g. "fluidaudio.parakeet-tdt v3"; nil until done.
+        var engine: String?
         /// Set when `status` is "failed".
         var error: String?
     }
@@ -131,9 +138,15 @@ import Observation
             throw SmokeError.sampleMissing
         }
         state = .running(step: "Transcribing sample")
+        // Parakeet pinned for this run (never the saved Transcripts route); same library, scheduler and settings.
+        let normalizer = AVAudioNormalizer()
+        let pipeline = FileTranscriptionPipeline(
+            paths: environment.paths, store: environment.store, normalizer: normalizer, trackProbe: normalizer,
+            speech: environment.speechEngine, diarizer: environment.diarizer, scheduler: environment.scheduler,
+            settings: environment.settings, onProgress: environment.jobCenter.progressHandler)
         let runStart = ContinuousClock.now
-        let id = try await environment.pipeline.importFile(from: sampleURL)
-        let row = await environment.pipeline.process(id: id)
+        let id = try await pipeline.importFile(from: sampleURL)
+        let row = await pipeline.process(id: id)
         // The pipeline reported progress into the job center; this run was not started there, so end it here.
         environment.jobCenter.finish(id)
         let elapsedMs = Self.milliseconds(since: runStart)
@@ -150,6 +163,7 @@ import Observation
             modelLoadMs: modelLoadMs,
             peakMemoryMB: 0,
             build: build,
+            engine: row.engine.map { [$0, row.engineVariant].compactMap { $0 }.joined(separator: " ") },
             error: row.status == .completed ? nil : (row.errorMessage ?? "Row ended as \(row.status.rawValue)")
         )
     }
@@ -183,7 +197,7 @@ import Observation
     static func placeholderResult(build: String) -> SmokeResult {
         SmokeResult(
             status: "running", text: "", wordCount: 0, speakerCount: 0, elapsedMs: 0, modelLoadMs: 0,
-            peakMemoryMB: 0, build: build, error: nil)
+            peakMemoryMB: 0, build: build, engine: nil, error: nil)
     }
 
     private static func milliseconds(since start: ContinuousClock.Instant) -> Int {

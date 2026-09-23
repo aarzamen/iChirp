@@ -206,6 +206,15 @@ public protocol SpeechEngineAvailabilityReporting: Sendable {
     func unavailableReason() async -> String?
 }
 
+/// Optional for engines that need a system permission before they run (Apple Speech: Speech Recognition). Additive to
+/// the plug-in contract. Such an engine asks only from `downloadAssets` (a person's tap), reads as not downloaded until
+/// then, and never asks from `prepare` or `transcribe`. Headless callers (the DEBUG device benchmark) check this first
+/// and skip the engine instead of waiting on a prompt nobody can tap.
+public protocol SpeechEnginePermissionReporting: Sendable {
+    /// True when `downloadAssets` would first show a system permission prompt.
+    func needsPermissionPrompt() async -> Bool
+}
+
 /// Optional for engines that hold a model in the app's memory: drops it (the next `prepare` loads it again from
 /// disk). The benchmark unloads between engines so each one's load time and peak memory are its own, and
 /// `SpeechEngineRouter.releaseUnroutedModels()` unloads an engine once a route change leaves it on no route (review

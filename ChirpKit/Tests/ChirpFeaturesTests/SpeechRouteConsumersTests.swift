@@ -192,6 +192,38 @@ final class SpeechRouteConsumersTests: XCTestCase {
                 + "text to Parakeet")
     }
 
+    // MARK: - Review M9: the lease is released on every failed path too
+
+    func testAMeetingThatFailsToStartReleasesTheLease() async throws {
+        let router = makeRouter(FakeSpeech(id: "fake.a"), FakeSpeech(id: "fake.b"))
+        let h = try MeetingHarness(engine: router)
+        defer { h.cleanUp() }
+        h.recorder.state.withLock { $0.startError = .startFailed("synthetic: no input") }
+        h.coordinator.start()
+        XCTAssertEqual(router.activeLeaseCount, 1, "taken at once, before the first await")
+        await waitUntil { if case .failed = h.coordinator.state { true } else { false } }
+        XCTAssertEqual(router.activeLeaseCount, 0)
+        XCTAssertNoThrow(try router.select(keyB, for: .final), "the routes are free again")
+    }
+
+    func testAMeetingWhoseFinalPassFailsReleasesTheLease() async throws {
+        let b = FakeSpeech(id: "fake.b")
+        await b.failTranscription(with: SpeechEngineError.underlying("synthetic failure"))
+        let router = makeRouter(FakeSpeech(id: "fake.a"), b, final: keyB)
+        let h = try MeetingHarness(engine: router)
+        defer { h.cleanUp() }
+        h.coordinator.start()
+        await waitUntil { h.coordinator.state == .recording }
+        h.recorder.send(.samples(toneSamples(seconds: 2)))
+        await waitUntil { h.coordinator.recordedSeconds >= 2 }
+        h.coordinator.stop()
+        await waitUntil { if case .failed = h.coordinator.state { true } else { false } }
+        guard case .failed(_, let id) = h.coordinator.state else { return XCTFail("expected failed") }
+        XCTAssertNotNil(id, "the row and audio are kept for Retry")
+        XCTAssertEqual(router.activeLeaseCount, 0)
+        XCTAssertNoThrow(try router.select(keyA, for: .final))
+    }
+
     func testADiscardedMeetingReleasesTheLease() async throws {
         let router = makeRouter(FakeSpeech(id: "fake.a"), FakeSpeech(id: "fake.b"))
         let h = try MeetingHarness(engine: router)

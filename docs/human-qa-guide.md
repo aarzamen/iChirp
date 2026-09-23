@@ -625,7 +625,9 @@ Speech engines and routes
       v3**. The Engines list shows Parakeet v3, Apple Speech, Whisper Base, Whisper Large v3 Turbo, and Whisper Large v3
       marked "needs about 3.6 GB … more than this build's 2.5 GB model budget", with no Download button.
 - [ ] Apple Speech → Download: iOS asks once for Speech Recognition; the row ends "Ready · managed by iOS". Delete asks
-      first and says iOS may remove the model later.
+      first and says iOS may remove the model later. Before that Download the row says "Not downloaded" even when
+      another app installed the language, and no Speech Recognition prompt ever appears while importing, dictating or
+      recording a meeting.
 - [ ] Whisper Base → Download: progress, then "On device · about 150 MB". Only downloaded engines appear in the Live
       text and Transcripts menus.
 - [ ] Transcripts → Whisper Base, then import a `say` file: the transcript is Whisper's; the Library row still works;
@@ -656,8 +658,9 @@ Benchmark
 - [ ] Run: the progress line names the engine and the recording; the phone stays usable; Stop ends it at once.
 - [ ] Latest results: one line per engine with WER, "× real time", load and peak memory; Export CSV and JSON opens the
       share sheet with two files.
-- [ ] Add files… → pick a Voice Memo: its rows show speed and memory but no WER, and the exported JSON has no text for
-      it.
+- [ ] Add files… → pick a Voice Memo: it is listed as "Your file 1" (never its name); its rows show speed and memory
+      but no WER, and the exported JSON has neither its text nor its name. After the run it is no longer listed (the
+      copy is deleted); add it again to rerun.
 
 Screenshots to attach
 - [ ] Speech engines (routes and engine list); the Benchmark screen with results.
