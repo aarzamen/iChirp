@@ -14,7 +14,19 @@ import XCTest
 /// ```
 ///
 /// Keep the simulator build signed (no `CODE_SIGNING_ALLOWED=NO`): the model and voice steps read Keychain items.
+///
+/// **Microphone opt-in.** The simulator records the Mac's real microphone, and it has captured real speech in the room
+/// before. Every step that records (Speak → Summary; Edit by voice's hold to speak) is skipped unless
+/// `TEST_RUNNER_CHIRP_TOUR_MIC=1` is set, and it is set only while synthetic `say` speech plays and nobody is talking
+/// near the Mac. Without it the tour never starts a microphone: the Speak test skips, and Edit by voice uses the typed
+/// path.
 final class CreateTourUITests: XCTestCase {
+    /// `CHIRP_TOUR_MIC=1` (passed as `TEST_RUNNER_CHIRP_TOUR_MIC=1`): the only way a tour step may record.
+    static var tourMicAllowed: Bool { ProcessInfo.processInfo.environment["CHIRP_TOUR_MIC"] == "1" }
+    static let tourMicSkipReason =
+        "This step records the microphone, and the simulator records the Mac's real microphone (it has picked up real "
+        + "speech in the room). Set TEST_RUNNER_CHIRP_TOUR_MIC=1 only while synthetic speech plays."
+
     private var app: XCUIApplication!
     private var step = 0
     private var folder: String { ProcessInfo.processInfo.environment["CHIRP_SCREENSHOT_DIR"] ?? "" }
@@ -220,9 +232,11 @@ final class CreateTourUITests: XCTestCase {
     }
 
     /// Speak → Summary: the sheet steps aside for the Dictating screen (with "Then: Summary"), then comes back with the
-    /// chain. Needs synthetic speech in the Mac's microphone (the agent plays `say` in a loop during this test); without
-    /// it the final pass honestly says it heard nothing, and that failure is what the screenshots show.
+    /// chain. Records the microphone, so it runs only with `TEST_RUNNER_CHIRP_TOUR_MIC=1` while synthetic speech plays
+    /// (the agent plays `say` in a loop during this test); without speech the final pass honestly says it heard
+    /// nothing, and that failure is what the screenshots show.
     func testSpeakToSummary() throws {
+        try XCTSkipUnless(Self.tourMicAllowed, Self.tourMicSkipReason)
         app.launch()
         ensureStubModel()
         openCreate()
@@ -280,8 +294,9 @@ final class CreateTourUITests: XCTestCase {
         let field = app.textFields["Instruction"]
         let heard = app.staticTexts["Heard on this iPhone. Edit it if a word is wrong."]
         // Hold to speak only when asked (CHIRP_TOUR_MIC=1 and synthetic speech playing): the simulator records the
-        // Mac's real microphone, which can pick up whatever is said in the room.
-        if ProcessInfo.processInfo.environment["CHIRP_TOUR_MIC"] == "1" {
+        // Mac's real microphone, which can pick up whatever is said in the room. Without the opt-in this test never
+        // records; it takes the typed path below.
+        if Self.tourMicAllowed {
             mic.press(forDuration: 7)
             _ = heard.waitForExistence(timeout: 30)
             shot("edit-spoken-instruction")

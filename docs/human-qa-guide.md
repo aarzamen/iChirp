@@ -683,6 +683,11 @@ Apple Speech shows "permission-needed" there until Speech Recognition was allowe
 > Preconditions: the test iPhone runs a build at or after the Create merge on `ichirp/foundation` (Settings → About shows its commit); the speech model is
 > downloaded. Use only synthetic text and `say` audio. For Summary, Document and Edit by voice a model is set up in
 > Settings → Models; for voice messages a voice in Settings → Voices.
+>
+> Simulator tour (agents, `UITests/CreateTourUITests.swift`): every step that records (Speak, hold to speak) skips
+> unless `TEST_RUNNER_CHIRP_TOUR_MIC=1`, because the simulator records the Mac's real microphone and has picked up
+> real speech in the room; set it only while synthetic `say` speech plays. Speak and Edit by voice are checked here,
+> on the phone.
 
 Type or paste (Step 1)
 - [ ] Capture → Type or paste → type three lines → Save: the item opens as **Typed text** with the first line as its
