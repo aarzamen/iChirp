@@ -19,6 +19,10 @@ import Observation
 /// - **Memory (I3).** After a route change, the engine that is on no route any more is unloaded
 ///   (`SpeechEngineRouter.releaseUnroutedModels`); a Transcripts choice too big to share memory with the live engine
 ///   moves live text to it as well, and `lastNotice` says so.
+/// - **Run-time memory (fix/speech-memory-fit).** With the router's `availableMemory` (the reading the engines check
+///   before a load), a row whose model would not fit what iOS lets the app use now carries `memoryShortfall` ("Needs
+///   more memory than this iPhone gives Parakeet (about 2.1 GB)") and is left out of the route pickers; the router
+///   refuses it too. It can still be downloaded and deleted.
 @MainActor @Observable public final class SpeechEnginesViewModel {
     /// What a row can do right now.
     public enum Availability: Equatable, Sendable {
@@ -33,9 +37,27 @@ import Observation
         public let capabilities: SpeechEngineCapabilities
         public let status: ModelAssetStatus
         public let availability: Availability
+        /// fix/speech-memory-fit: "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)" when this
+        /// engine's load (`memoryToLoadBytes`) needs more than iOS lets the app use now; it then cannot be chosen for a
+        /// route. Nil when it fits or the system does not say, while it downloads, for a row that cannot run here
+        /// anyway, and for an engine a route already uses (its own model may be what holds that memory; the engine
+        /// still checks before every load).
+        public let memoryShortfall: String?
+
+        public init(
+            capabilities: SpeechEngineCapabilities, status: ModelAssetStatus, availability: Availability,
+            memoryShortfall: String? = nil
+        ) {
+            self.capabilities = capabilities
+            self.status = status
+            self.availability = availability
+            self.memoryShortfall = memoryShortfall
+        }
 
         public var id: SpeechEngineVariantKey { capabilities.key }
         public var isReady: Bool { availability == .ready }
+        /// Ready and fits the memory available now: what the route pickers offer.
+        public var isChoosable: Bool { isReady && memoryShortfall == nil }
 
         /// The last download failure, when the model can still be downloaded again.
         public var failureMessage: String? {
@@ -83,13 +105,13 @@ import Observation
         rows = fresh
     }
 
-    /// Rows that can be chosen for `route`: ready (and able to preview, for live), plus the current choice so the
-    /// picker always shows it.
+    /// Rows that can be chosen for `route`: ready, fitting the memory available now (fix/speech-memory-fit) and able
+    /// to preview, for live; plus the current choice so the picker always shows it.
     public func choices(for route: SpeechRoute) -> [Row] {
         let current = router.registeredKey(for: selection[route])
         return rows.filter { row in
             if row.id == current { return true }
-            guard row.isReady else { return false }
+            guard row.isChoosable else { return false }
             return route == .final || row.capabilities.supportsLivePreview
         }
     }
@@ -118,8 +140,9 @@ import Observation
 
     // MARK: - Choosing
 
-    /// Chooses `key` for `route`; a refusal (a meeting is running, not ready, cannot preview, too much memory with the
-    /// other route's engine) lands in `lastError`. Then releases the model of the engine that left both routes.
+    /// Chooses `key` for `route`; a refusal (a meeting is running, not ready, cannot preview, needs more memory than iOS
+    /// lets the app use now, too much memory with the other route's engine) lands in `lastError`. Then releases the
+    /// model of the engine that left both routes.
     public func select(_ key: SpeechEngineVariantKey, for route: SpeechRoute) async {
         lastError = nil
         lastNotice = nil
@@ -138,10 +161,12 @@ import Observation
         if route == .final, changed.contains(.live) {
             lastNotice =
                 "Live text uses \(row.capabilities.displayName) too: a second engine beside it would need more "
-                + "memory than this iPhone’s model budget."
+                + "memory than this iPhone gives Parakeet."
         }
         guard !changed.isEmpty else { return }
         await router.releaseUnroutedModels()
+        // The memory marks depend on the routes (a routed engine is never marked) and on what was just released.
+        await refresh()
     }
 
     // MARK: - Models
@@ -292,7 +317,19 @@ import Observation
             return Row(capabilities: entry.capabilities, status: .notDownloaded, availability: .unavailable(reason))
         }
         let status = await engine.assetStatus()
-        return Row(capabilities: entry.capabilities, status: status, availability: Self.availability(for: status))
+        let availability = Self.availability(for: status)
+        return Row(
+            capabilities: entry.capabilities, status: status, availability: availability,
+            memoryShortfall: runtimeShortfall(for: entry.capabilities.key, availability: availability))
+    }
+
+    /// The Settings line for a row that does not fit the memory available now (fix/speech-memory-fit), from the
+    /// router's reader: nil while it downloads and for an engine a route already uses.
+    private func runtimeShortfall(for key: SpeechEngineVariantKey, availability: Availability) -> String? {
+        if case .downloading = availability { return nil }
+        guard routesUsing(key).isEmpty else { return nil }
+        return SpeechEngineCapabilityRegistry.memoryShortfall(for: key, reader: router.availableMemory)?
+            .settingsMessage
     }
 
     private static func availability(for status: ModelAssetStatus) -> Availability {
@@ -306,7 +343,10 @@ import Observation
     private func replace(_ key: SpeechEngineVariantKey, status: ModelAssetStatus) {
         guard let index = rows.firstIndex(where: { $0.id == key }) else { return }
         let old = rows[index]
-        rows[index] = Row(capabilities: old.capabilities, status: status, availability: Self.availability(for: status))
+        let availability = Self.availability(for: status)
+        rows[index] = Row(
+            capabilities: old.capabilities, status: status, availability: availability,
+            memoryShortfall: runtimeShortfall(for: old.id, availability: availability))
     }
 
     private func replace(_ row: Row) {

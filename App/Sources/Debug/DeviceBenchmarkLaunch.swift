@@ -11,6 +11,10 @@ import Foundation
 /// (`ASRDeviceBenchmarkReport`: WER, × real time, load time and peak memory per engine, the device model and the build
 /// SHA). It logs exactly one final line, `BENCH DONE <path>` or `BENCH FAIL <reason>`.
 ///
+/// fix/speech-memory-fit: each engine also gets `os_proc_available_memory()` right before its model load and the peak
+/// footprint during the load alone, and the file is rewritten (status `running`, `runningEngine`) before each engine,
+/// so a run iOS ends during a model load still says which engine and how much memory it had.
+///
 /// - Apple Speech is skipped with `permission-needed` while iOS has never asked for Speech Recognition: that prompt
 ///   cannot be tapped from the command line, and nothing here waits on UI.
 /// - The saved Live text and Transcripts routes are never read or changed; each engine is used directly.
@@ -22,7 +26,7 @@ import Foundation
     private static var task: Task<Void, Never>?
 
     /// `Documents/asr-device-benchmark.json`.
-    static var resultURL: URL {
+    nonisolated static var resultURL: URL {
         URL.documentsDirectory.appendingPathComponent(ASRDeviceBenchmarkReport.fileName, isDirectory: false)
     }
 
@@ -56,19 +60,23 @@ import Foundation
             Bundle.main.resourceURL.flatMap { try? ASRBenchmarkReferenceSet.load(from: $0) } ?? []
         let runner = ASRBenchmarkRunner(
             scheduler: environment.scheduler, normalizer: AVAudioNormalizer(),
-            memory: { MemoryProbe.physicalFootprintBytes() })
+            memory: { MemoryProbe.physicalFootprintBytes() }, availableMemory: { MemoryProbe.availableBytes() })
         let benchmark = ASRDeviceBenchmark(
             router: environment.speechRouter, runner: runner, items: items, device: device, deviceModel: model,
-            build: identity.summary, buildSHA: identity.commit)
+            build: identity.summary, buildSHA: identity.commit, availableMemory: { MemoryProbe.availableBytes() })
         write(benchmark.placeholder(for: request, startedAt: Date()))
         logger.notice(
             "bench_start engines=\(request.engines.map(\.rawValue).joined(separator: ","), privacy: .public) build=\(identity.summary, privacy: .public)"
         )
         let report = await DownloadKeepAlive.shared.withKeepAlive {
-            await benchmark.run(request) { line in
-                // Engine names and timings only.
-                Log.logger("device-benchmark").notice("\(line, privacy: .public)")
-            }
+            await benchmark.run(
+                request,
+                log: { line in
+                    // Engine names, timings and memory only.
+                    Log.logger("device-benchmark").notice("\(line, privacy: .public)")
+                },
+                // Synchronous, inside `run`: every checkpoint lands before the final write below.
+                checkpoint: { writeCheckpoint($0) })
         }
         if let run = report.run {
             try? await ASRBenchmarkStore.appDefault(paths: environment.paths).append(run)
@@ -89,6 +97,11 @@ import Foundation
         }
         logger.notice("\(line, privacy: .public)")
         print(line)
+    }
+
+    /// A `running` report written while the benchmark runs (off the main actor, atomically).
+    nonisolated private static func writeCheckpoint(_ report: ASRDeviceBenchmarkReport) {
+        try? report.encoded().write(to: resultURL, options: .atomic)
     }
 
     /// Atomic, so the script never reads half a file.

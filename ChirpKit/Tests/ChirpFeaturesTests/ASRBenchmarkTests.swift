@@ -136,6 +136,79 @@ final class ASRBenchmarkTests: XCTestCase {
         XCTAssertEqual(results.first?.peakMemoryBytes, samples.values.max())
     }
 
+    // MARK: - fix/speech-memory-fit: the device numbers for the first-load peak
+
+    /// An engine whose load raises the footprint (a Core ML compile) or refuses as not fitting.
+    fileprivate actor LoadingSpeech: SpeechEngine, SpeechEngineUnloading {
+        nonisolated let descriptor = EngineDescriptor(
+            id: "fake.loading", kind: .speech, provider: "Test", displayName: "Loading", locality: .onDevice,
+            license: "MIT")
+        private let footprint: LockedLog<UInt64>
+        private let refusal: SpeechEngineError?
+
+        init(footprint: LockedLog<UInt64>, refusal: SpeechEngineError? = nil) {
+            self.footprint = footprint
+            self.refusal = refusal
+        }
+
+        func unloadModels() async {}
+        func assetStatus() async -> ModelAssetStatus { .ready(bytesOnDisk: 1) }
+        func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {}
+        func deleteAssets() async throws {}
+        func prepare() async throws {
+            if let refusal { throw refusal }
+            footprint.append(900)  // the compile's peak
+            try await Task.sleep(for: .milliseconds(20))
+            footprint.append(300)  // the loaded model
+        }
+        func transcribe(
+            fileAt url: URL, options: SpeechTranscriptionOptions, progress: @escaping @Sendable (Double) -> Void
+        ) async throws -> SpeechResult {
+            try await Task.sleep(for: .milliseconds(5))
+            return SpeechResult(text: "hello", words: [], language: "en", engineID: descriptor.id, engineVariant: nil)
+        }
+    }
+
+    func testTheAvailableMemoryBeforeTheLoadAndTheLoadsOwnPeakAreRecorded() async throws {
+        let footprint = LockedLog<UInt64>()
+        footprint.append(100)
+        let engine = LoadingSpeech(footprint: footprint)
+        let runner = ASRBenchmarkRunner(
+            scheduler: SpeechJobScheduler(), normalizer: FakeNormalizer(),
+            memory: { footprint.values.last }, availableMemory: { 5_000_000_000 }, workDirectory: folder,
+            sampleInterval: .milliseconds(1))
+        let results = try await runner.run(
+            engines: [ASRBenchmarkEngine(key: .init(engineID: "fake.loading"), name: "Loading", engine: engine)],
+            items: [item("a", reference: "hello"), item("b", reference: "hello")])
+
+        XCTAssertEqual(results[0].availableMemoryBeforeLoadBytes, 5_000_000_000)
+        XCTAssertEqual(results[0].loadPeakMemoryBytes, 900, "the compile's peak, sampled during the load alone")
+        XCTAssertEqual(results[0].footprintBeforeLoadBytes, 100, "the rise the registry's peak stands for: 800")
+        XCTAssertNil(results[1].availableMemoryBeforeLoadBytes, "no load on the second pass")
+        XCTAssertNil(results[1].loadPeakMemoryBytes)
+        let run = ASRBenchmarkRun(startedAt: Date(), device: "d", appBuild: "b", results: results)
+        let summary = try XCTUnwrap(run.summaries.first)
+        XCTAssertEqual(summary.availableMemoryBeforeLoadBytes, 5_000_000_000)
+        XCTAssertEqual(summary.loadPeakMemoryBytes, 900)
+        XCTAssertEqual(summary.footprintBeforeLoadBytes, 100)
+    }
+
+    func testALoadTheEngineRefusesAsNotFittingIsReportedWithTheReadingBeforeIt() async throws {
+        let turbo = SpeechEngineVariantKey(
+            engineID: SpeechEngineCapabilityRegistry.whisperKitEngineID, variant: "large-v3-turbo")
+        let refusal = SpeechEngineError.insufficientMemory(turbo, needed: 3_500_000_000, available: 2_100_000_000)
+        let engine = LoadingSpeech(footprint: LockedLog(), refusal: refusal)
+        let runner = ASRBenchmarkRunner(
+            scheduler: SpeechJobScheduler(), normalizer: FakeNormalizer(), memory: { 100 },
+            availableMemory: { 2_100_000_000 }, workDirectory: folder, sampleInterval: .milliseconds(1))
+        let results = try await runner.run(
+            engines: [ASRBenchmarkEngine(key: .init(engineID: "fake.loading"), name: "Loading", engine: engine)],
+            items: [item("a", reference: "hello")])
+        XCTAssertEqual(results[0].error, refusal.errorDescription)
+        XCTAssertEqual(results[0].availableMemoryBeforeLoadBytes, 2_100_000_000)
+        XCTAssertNil(results[0].loadMs)
+    }
+
     func testSummariesUseCorpusWERAndTotalTime() {
         let wer = WordErrorRate(substitutions: 1, deletions: 0, insertions: 0, referenceWords: 4)
         let run = ASRBenchmarkRun(

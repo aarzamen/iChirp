@@ -30,6 +30,8 @@ struct ModelLease<Runtime: Sendable>: Sendable {
 /// - `unload()` refuses while an `acquire()` is in flight, not only while its lease is held (review N5): otherwise a
 ///   route change's unload could land in the narrow window between a shared load finishing and the acquiring
 ///   caller's resumption, and that caller would see `modelNotDownloaded` for a model that is on disk.
+/// - `Hooks.beforeLoad` runs right before a new load starts, never for a caller joining one (fix/speech-memory-fit:
+///   Parakeet's memory-fit check). When it throws, nothing is loaded and the error reaches the caller unchanged.
 actor ModelAssetLifecycle<Runtime: Sendable> {
     struct Hooks: Sendable {
         /// The engine's `EngineDescriptor.id`, carried by `.modelNotDownloaded` as the engine contract requires.
@@ -44,6 +46,10 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         /// Loads from local files only; must never download.
         var load: @Sendable () async throws -> Runtime
         var remove: @Sendable () throws -> Void
+        /// Runs right before a new load starts (never for a caller joining one); throwing refuses the load, which then
+        /// never starts. Parakeet checks that the model fits the memory iOS lets the app use now
+        /// (`SpeechEngineError.insufficientMemory`); the diarizer and voice activity models check nothing.
+        var beforeLoad: @Sendable () throws -> Void = {}
     }
 
     private struct Job<Value: Sendable> {
@@ -203,6 +209,8 @@ actor ModelAssetLifecycle<Runtime: Sendable> {
         if let loadJob {
             job = loadJob
         } else {
+            // Refused before anything is read or compiled; thrown as is (not mapped to `modelNotDownloaded`).
+            try hooks.beforeLoad()
             let id = UUID()
             let load = hooks.load
             let task = Task { () async throws -> Runtime in

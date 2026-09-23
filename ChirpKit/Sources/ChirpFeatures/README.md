@@ -117,11 +117,18 @@ pipeline's `Task`s and publishes its progress to the UI.
   - It lists one row per engine build from `SpeechEngineCapabilityRegistry`. Each row is either a registered instance
     with its model state, or a row this build or device cannot run, listed with the reason: not in this build, over
     the memory budget, or `SpeechEngineAvailabilityReporting`.
-  - `choices(for:)` returns only ready engines (for live, also able to preview) plus the current choice.
-  - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting and refuses a live
-    engine too big to share memory with the final one; a Transcripts choice too big for the live engine moves live
-    text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()` unloads the engine that left both
-    routes (review I3).
+  - `choices(for:)` returns only choosable engines (`Row.isChoosable`: ready, fitting the memory available now; for
+    live, also able to preview) plus the current choice.
+  - Run-time memory (fix/speech-memory-fit): with the router's `availableMemory` (the reading the engines check before
+    a load), a row whose `memoryToLoadBytes` exceeds what iOS lets the app use now carries `Row.memoryShortfall`
+    ("Needs more memory than this iPhone gives Parakeet (about 2.1 GB)", shown by the screen in place of its status
+    line) and is not offered for a route; it can still be downloaded and deleted. An engine a route already uses is
+    never marked (its own model may be what holds that memory; the engine still checks before every load).
+  - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting, refuses an engine
+    whose load does not fit the memory available now, and refuses a live engine too big to share memory with the
+    final one (the budget, or one loading beside the other above the memory available now); a Transcripts choice too
+    big for the live engine moves live text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()`
+    unloads the engine that left both routes (review I3), and the rows are read again.
   - `download` goes through the engine. `delete` (review I2, N3) refuses an engine a route uses while a meeting
     holds the lease; otherwise the delete is asked for first, and only once the engine agrees do its routes move
     back to Parakeet (Transcripts first), `lastNotice` names the fallback's own row (review N2, never
@@ -462,6 +469,11 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
       time with the app's other jobs.
     - `prepare` is timed once per engine, as load time after the unload.
     - Peak physical footprint is sampled every 100 ms by an injected reader (`MemoryProbe` in the app).
+    - fix/speech-memory-fit: right before each load, inside the job, it reads the injected `availableMemory`
+      (`os_proc_available_memory` in the app) into `availableMemoryBeforeLoadBytes` and the footprint into
+      `footprintBeforeLoadBytes`, and samples the footprint during the load alone into `loadPeakMemoryBytes` (a first
+      load includes the Core ML compile). The peak minus the footprint before is the rise that replaces a registry
+      row's first-load peak placeholder. An engine's memory-fit refusal is that pass's error.
     - Privacy routing runs first: the synthetic set is `.general`, and a person's own file is treated as `.clinical`.
       An engine without its model is reported, never downloaded.
     - A person's own file keeps no recognized text.
@@ -475,11 +487,16 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   - `ASRDeviceBenchmark.run` skips an engine not in the build, over the memory budget, unavailable here, or waiting
     on a system permission prompt (`SpeechEnginePermissionReporting`: `permission-needed`, never waits on UI);
     downloads a missing model (the one download without a tap, asked for by the launch argument); then runs
-    `ASRBenchmarkRunner` over the synthetic set. It never reads or changes the saved routes.
-  - `ASRDeviceBenchmarkReport` (`ichirp.asr-device-benchmark/v1`): status, device model, build and commit, one line
-    per engine (outcome, reason, WER, × real time, load, peak memory, download time) and the full run. The app writes
-    it to `Documents/asr-device-benchmark.json` (`App/Sources/Debug/DeviceBenchmarkLaunch.swift`) and
-    `scripts/device_benchmark.sh` reads it.
+    `ASRBenchmarkRunner` over the synthetic set, one engine per call. It never reads or changes the saved routes.
+    fix/speech-memory-fit: before each engine it hands `checkpoint` a `running` report naming `runningEngine`, with
+    that engine's `availableMemoryBeforeLoadBytes` already filled from a reading just before its run (runnable
+    engines not measured yet are `pending`), and again once its numbers are in; the app writes each one, so a file
+    left by iOS ending the app mid-load still says which engine and how much memory it had.
+  - `ASRDeviceBenchmarkReport` (`ichirp.asr-device-benchmark/v1`): status, device model, build and commit,
+    `runningEngine`, one line per engine (outcome, reason, WER, × real time, load, peak memory, the memory available
+    before the load, the load's own peak and the footprint before it, download time) and the full run. The app
+    writes it to `Documents/asr-device-benchmark.json` (`App/Sources/Debug/DeviceBenchmarkLaunch.swift`) and
+    `scripts/device_benchmark.sh` reads it (columns `avail MB`, `load pk MB` and `rise MB`).
 - `ASRBenchmarkViewModel.swift`: the Benchmark screen.
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
   - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your

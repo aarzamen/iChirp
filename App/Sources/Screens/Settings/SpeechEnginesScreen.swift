@@ -238,7 +238,7 @@ private struct SpeechEngineRow: View {
                 .foregroundStyle(Tokens.Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .center, spacing: 10) {
-                Text(statusText)
+                Text(row.memoryShortfall ?? statusText)
                     .chirpFont(12.5)
                     .monospacedDigit()
                     .foregroundStyle(statusColor)

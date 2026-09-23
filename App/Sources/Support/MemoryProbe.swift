@@ -1,3 +1,4 @@
+import ChirpCore
 import Darwin
 import Foundation
 import os
@@ -19,10 +20,10 @@ enum MemoryProbe {
     }
 
     /// How much more memory the app may use before iOS terminates it (`os_proc_available_memory`), or nil where the
-    /// system does not report it (the simulator reports 0).
+    /// system does not report it (the simulator reports 0). The same reading the speech engines check before a model
+    /// load (`ChirpCore.ProcessAvailableMemory`).
     static func availableBytes() -> UInt64? {
-        let available = os_proc_available_memory()
-        return available > 0 ? UInt64(available) : nil
+        ProcessAvailableMemory().availableMemoryBytes()
     }
 
     /// Whole megabytes (1 MB = 1,048,576 bytes, as Xcode's memory gauge shows).

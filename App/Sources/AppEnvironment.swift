@@ -133,11 +133,15 @@ import Observation
         let textRulesStore = GRDBTextRulesStore(database: database)
         let settings = UserDefaultsSettingsStore()
         let settingsValue = settings.load()
-        let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
+        // fix/speech-memory-fit: every speech model load first checks what iOS lets the app use now
+        // (`os_proc_available_memory`), so a model that does not fit is refused with a sentence instead of iOS
+        // terminating the app.
+        let availableMemory = ProcessAvailableMemory()
+        let engines = FluidAudioEngines.makeDefault(settings: settingsValue, availableMemory: availableMemory)
         let speechRouter = AppSpeechEngines.makeRouter(
             parakeet: engines.speech,
             modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true),
-            store: UserDefaultsSpeechRouteStore())
+            store: UserDefaultsSpeechRouteStore(), availableMemory: availableMemory)
         self.speechRouter = speechRouter
         let speechEngines = SpeechEnginesViewModel(router: speechRouter)
         self.speechEngines = speechEngines

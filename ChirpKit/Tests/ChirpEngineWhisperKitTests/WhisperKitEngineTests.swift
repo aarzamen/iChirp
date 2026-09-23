@@ -168,10 +168,15 @@ final class WhisperKitEngineTests: XCTestCase {
 
     private func makeEngine(
         _ pipeline: FakePipeline = FakePipeline(outputs: [nil: hello]), variant: WhisperKitVariant = .base,
-        failDownload: Bool = false, loadGate: Gate? = nil
+        failDownload: Bool = false, loadGate: Gate? = nil,
+        availableMemory: any AvailableMemoryReading = FixedAvailableMemory(nil)
     ) -> (WhisperKitEngine, FakeBackend) {
         let backend = FakeBackend(pipeline: pipeline, failDownload: failDownload, loadGate: loadGate)
-        return (WhisperKitEngine(variant: variant, modelsDirectory: directory, backend: backend), backend)
+        return (
+            WhisperKitEngine(
+                variant: variant, modelsDirectory: directory, backend: backend, availableMemory: availableMemory),
+            backend
+        )
     }
 
     private func downloaded(_ engine: WhisperKitEngine) async throws {
@@ -506,6 +511,77 @@ final class WhisperKitEngineTests: XCTestCase {
         }
     }
 
+    // MARK: - fix/speech-memory-fit: a model that does not fit is refused, never loaded
+
+    func testALoadThatDoesNotFitTheMemoryIOSAllowsIsRefusedNamesBothNumbersAndLoadsNothing() async throws {
+        let turbo = SpeechEngineVariantKey(engineID: "argmax.whisperkit", variant: "large-v3-turbo")
+        let needed = try XCTUnwrap(SpeechEngineCapabilityRegistry.memoryToLoadBytes(for: turbo))
+        XCTAssertGreaterThan(
+            needed, 1_500_000_000, "the first-load compile peak, not only the 1.5 GB runtime estimate, is checked")
+        let memory = SettableAvailableMemory(2_100_000_000)
+        let (engine, backend) = makeEngine(variant: .largeV3Turbo, availableMemory: memory)
+        try await downloaded(engine)
+
+        for attempt in ["prepare", "transcribe"] {
+            do {
+                if attempt == "prepare" {
+                    try await engine.prepare()
+                } else {
+                    _ = try await engine.transcribe(fileAt: directory, options: .init(), progress: { _ in })
+                }
+                XCTFail("\(attempt) must refuse a model that does not fit")
+            } catch {
+                XCTAssertEqual(
+                    error as? SpeechEngineError,
+                    .insufficientMemory(turbo, needed: needed, available: 2_100_000_000), attempt)
+                let message = error.localizedDescription
+                XCTAssertTrue(message.hasPrefix("Whisper Large v3 Turbo needs about 3.5 GB of memory"), message)
+                XCTAssertTrue(message.contains("Parakeet can use about 2.1 GB right now"), message)
+                XCTAssertTrue(message.hasSuffix("Close other apps or use Whisper Base."), message)
+            }
+        }
+        XCTAssertEqual(backend.loadCount, 0, "never load after refusing")
+        XCTAssertEqual(backend.pipeline.startedCount, 0)
+
+        // Retry once there is room: the same engine loads and transcribes.
+        memory.set(4_000_000_000)
+        let result = try await engine.transcribe(fileAt: directory, options: .init(), progress: { _ in })
+        XCTAssertEqual(result.engineVariant, "large-v3-turbo")
+        XCTAssertEqual(backend.loadCount, 1)
+    }
+
+    func testALoadThatFitsProceedsAndALoadedModelIsNotCheckedAgain() async throws {
+        let memory = SettableAvailableMemory(700_000_000)
+        let (engine, backend) = makeEngine(variant: .base, availableMemory: memory)
+        try await downloaded(engine)
+        try await engine.prepare()
+        XCTAssertEqual(backend.loadCount, 1, "0.6 GB needed, 0.7 GB available: it loads")
+
+        // Its memory is already in use and already counted: a lower reading now does not refuse the loaded model.
+        memory.set(10_000_000)
+        _ = try await engine.transcribe(fileAt: directory, options: .init(), progress: { _ in })
+        XCTAssertEqual(backend.loadCount, 1)
+
+        // After an unload the next load is checked again.
+        await engine.unloadModels()
+        do {
+            try await engine.prepare()
+            XCTFail("the next load must be checked")
+        } catch {
+            guard case .insufficientMemory = error as? SpeechEngineError else {
+                return XCTFail("expected insufficientMemory, got \(error)")
+            }
+        }
+        XCTAssertEqual(backend.loadCount, 1)
+    }
+
+    func testAnUnknownReadingDoesNotRefuse() async throws {
+        let (engine, backend) = makeEngine(variant: .largeV3Turbo, availableMemory: FixedAvailableMemory(nil))
+        try await downloaded(engine)
+        try await engine.prepare()
+        XCTAssertEqual(backend.loadCount, 1, "the Mac and the Simulator say nothing: no refusal")
+    }
+
     // MARK: - Review M1: real progress
 
     func testLiveProgressIsTheShareOfAudioCoveredAndStopsShortOfDone() {
@@ -529,6 +605,18 @@ final class WhisperKitEngineTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(2))
         }
     }
+}
+
+/// An available-memory reading a test changes between calls.
+final class SettableAvailableMemory: AvailableMemoryReading, @unchecked Sendable {
+    // @unchecked Sendable: `bytes` is only touched while `lock` is held.
+    private let lock = NSLock()
+    private var bytes: UInt64?
+
+    init(_ bytes: UInt64?) { self.bytes = bytes }
+
+    func set(_ value: UInt64?) { lock.withLock { bytes = value } }
+    func availableMemoryBytes() -> UInt64? { lock.withLock { bytes } }
 }
 
 /// How a background call ended, set once.

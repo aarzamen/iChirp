@@ -95,6 +95,15 @@ turn on every engine, Run, and Export CSV and JSON. Paste the summary here, with
 - the build stamp (Settings → About) and the iOS version;
 - **Whisper Large v3 Turbo's peak memory.** The registry estimates 1.5 GB against the 2.5 GB budget
   (`SpeechEngineCapabilityRegistry`). If it is higher, lower the estimate or mark the row;
+- **The first-load peak** (fix/speech-memory-fit). Turbo's first load was killed by iOS on the iPhone 17 Pro, so the
+  registry now carries a first-load compile peak, checked at run time against `os_proc_available_memory()`:
+  placeholders Whisper Base 0.6 GB and Turbo 3.5 GB. `scripts/device_benchmark.sh` prints `avail MB` (the memory
+  iOS let the app use right before each load), `load pk MB` (the app's peak during the load alone) and `rise MB`
+  (that peak minus the app's memory right before the load). Run it right after a fresh download (first load, with
+  the compile) and paste the numbers here, then replace `approximateFirstLoadPeakMemoryBytes` with `rise MB` plus a
+  margin. If `avail MB` is below Turbo's 3.5 GB
+  placeholder, the app refuses the load and the reason names both numbers: the Increased Memory Limit entitlement
+  (745ea14c) must be active on the App ID for the measurement;
 - the first-load time of each engine right after its download, which is the one-time Core ML compile, then the warm
   load from a second run;
 - Apple Speech's WER and speed. It only runs on the device; the Simulator lists it as unavailable.

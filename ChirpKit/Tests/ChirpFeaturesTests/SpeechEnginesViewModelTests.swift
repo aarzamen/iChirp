@@ -263,6 +263,71 @@ final class SpeechEnginesViewModelTests: XCTestCase {
         XCTAssertEqual(router.selection, SpeechRouteSelection(live: base, final: base))
     }
 
+    // MARK: - fix/speech-memory-fit: a variant that cannot fit the memory iOS allows now
+
+    private func makeTurboModel(
+        memory: any AvailableMemoryReading, turboStatus: ModelAssetStatus = .ready(bytesOnDisk: 1),
+        selection: SpeechRouteSelection = .default
+    ) -> (SpeechEnginesViewModel, SpeechEngineRouter) {
+        let router = SpeechEngineRouter(
+            engines: [
+                .init(key: parakeet, engine: FakeSpeech(id: SpeechEngineCapabilityRegistry.parakeetEngineID)),
+                .init(
+                    key: turbo,
+                    engine: FakeSpeech(status: turboStatus, id: SpeechEngineCapabilityRegistry.whisperKitEngineID)),
+            ], selection: selection, availableMemory: memory)
+        return (SpeechEnginesViewModel(router: router, physicalMemoryBytes: 12_000_000_000), router)
+    }
+
+    func testTheViewModelMarksAVariantThatCannotFitAndItCannotBeChosen() async throws {
+        let (model, router) = makeTurboModel(memory: FixedAvailableMemory(2_100_000_000))
+        await model.refresh()
+        let row = try XCTUnwrap(model.rows.first { $0.id == turbo })
+        XCTAssertEqual(row.memoryShortfall, "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)")
+        XCTAssertTrue(row.isReady, "its model is on disk: it can still be deleted")
+        XCTAssertFalse(row.isChoosable)
+        XCTAssertNil(model.rows.first { $0.id == parakeet }?.memoryShortfall, "Parakeet's 0.8 GB fits")
+        for route in SpeechRoute.allCases {
+            XCTAssertEqual(model.choices(for: route).map(\.id), [parakeet], "\(route) picker")
+        }
+
+        await model.select(turbo, for: .final)
+        XCTAssertEqual(
+            model.lastError,
+            SpeechRouteError.insufficientMemory(
+                name: "Whisper Large v3 Turbo", neededBytes: 3_500_000_000, availableBytes: 2_100_000_000
+            ).errorDescription)
+        XCTAssertEqual(router.selection, .default)
+    }
+
+    func testAVariantThatFitsOrAnUnknownReadingIsNotMarked() async throws {
+        for memory in [FixedAvailableMemory(6_000_000_000), FixedAvailableMemory(nil)] {
+            let (model, router) = makeTurboModel(memory: memory)
+            await model.refresh()
+            XCTAssertNil(model.rows.first { $0.id == turbo }?.memoryShortfall)
+            XCTAssertEqual(Set(model.choices(for: .final).map(\.id)), [parakeet, turbo])
+            await model.select(turbo, for: .final)
+            XCTAssertNil(model.lastError)
+            XCTAssertEqual(router.selection.final, turbo)
+        }
+    }
+
+    func testANotDownloadedVariantThatCannotFitSaysSoAndCanStillBeDownloaded() async throws {
+        let (model, _) = makeTurboModel(memory: FixedAvailableMemory(2_100_000_000), turboStatus: .notDownloaded)
+        await model.refresh()
+        let row = try XCTUnwrap(model.rows.first { $0.id == turbo })
+        XCTAssertEqual(row.availability, .downloadable)
+        XCTAssertEqual(row.memoryShortfall, "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)")
+    }
+
+    func testAnEngineARouteAlreadyUsesIsNotMarkedForTheMemoryItMayHold() async throws {
+        let (model, _) = makeTurboModel(
+            memory: FixedAvailableMemory(2_100_000_000), selection: SpeechRouteSelection(live: parakeet, final: turbo))
+        await model.refresh()
+        XCTAssertEqual(model.row(for: .final)?.id, turbo)
+        XCTAssertNil(model.row(for: .final)?.memoryShortfall, "its own model may be what holds that memory")
+    }
+
     func testAnUnavailableEngineIsNeverDownloaded() async {
         let (model, _, _) = makeModel()
         await model.refresh()

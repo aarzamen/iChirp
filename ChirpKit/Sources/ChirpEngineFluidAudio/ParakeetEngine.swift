@@ -2,7 +2,8 @@
 // Parakeet TDT download (~L1875), load (~L2330: one AsrManager per concurrent job over shared read-only models) and
 // file transcription (~L700–L760) as one ChirpCore engine; models load from local files only. M2 adds the dictation
 // trailing-silence pad (~L660–L830, `paddedDictationSamples`) and the tail-window preview's in-memory pass
-// (`transcribeParakeetPreview`, ~L1223).
+// (`transcribeParakeetPreview`, ~L1223). fix/speech-memory-fit: a load that would not fit the memory iOS lets the app use
+// now is refused before it starts (`SpeechEngineError.insufficientMemory`).
 
 import AVFoundation
 import ChirpCore
@@ -36,6 +37,10 @@ struct ParakeetRuntime: Sendable {
 /// Concurrency: each `transcribe` call checks out its own `AsrManager` from a small idle pool, because an
 /// `AsrManager` has exactly one progress stream and one progress session. Two jobs on one manager would share (and
 /// crash on) that stream. `deleteAssets` throws while a transcription runs.
+///
+/// Memory fit (fix/speech-memory-fit, as for every speech engine): right before a new load starts, the registry row's
+/// `memoryToLoadBytes` is compared with what `availableMemory` says iOS lets the app use now; a load that does not fit
+/// throws `SpeechEngineError.insufficientMemory` and loads nothing.
 public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
     public static let engineID = "fluidaudio.parakeet-tdt"
 
@@ -48,6 +53,8 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
     public nonisolated let variant: ParakeetVariant
     /// FluidAudio models root; the model lives in `<modelsRoot>/<repo folder>`.
     public nonisolated let modelsRoot: URL
+    /// This build's registry row (`fluidaudio.parakeet-tdt:<variant>`).
+    public nonisolated let key: SpeechEngineVariantKey
 
     let lifecycle: ModelAssetLifecycle<ParakeetRuntime>
     private let gate: ANEInferenceGate
@@ -57,21 +64,35 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
     /// - Parameters:
     ///   - modelsRoot: defaults to FluidAudio's own model cache. Tests pass a scratch directory.
     ///   - gate: serializes Neural Engine inference where the OS requires it; share one per process.
-    public init(variant: ParakeetVariant = .v3, modelsRoot: URL? = nil, gate: ANEInferenceGate = .shared) {
+    ///   - availableMemory: what iOS lets the app use now, read right before each load (the app passes
+    ///     `ProcessAvailableMemory`; nil readings, as on the Mac and in the Simulator, skip the check).
+    public init(
+        variant: ParakeetVariant = .v3, modelsRoot: URL? = nil, gate: ANEInferenceGate = .shared,
+        availableMemory: any AvailableMemoryReading = ProcessAvailableMemory()
+    ) {
         let root = (modelsRoot ?? FluidAudioModelLocations.defaultModelsRoot).standardizedFileURL
         self.init(
             variant: variant, modelsRoot: root, gate: gate, hooks: Self.liveHooks(variant: variant, modelsRoot: root),
-            network: .live)
+            network: .live, availableMemory: availableMemory)
     }
 
     /// Test seam: `hooks` replaces FluidAudio's download, load and file checks; `network` the path check and the
-    /// retry backoff.
+    /// retry backoff. The memory-fit check runs before the hooks' own `beforeLoad`.
     init(
         variant: ParakeetVariant, modelsRoot: URL, gate: ANEInferenceGate,
-        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks, network: DownloadNetworkPolicy
+        hooks: ModelAssetLifecycle<ParakeetRuntime>.Hooks, network: DownloadNetworkPolicy,
+        availableMemory: any AvailableMemoryReading = ProcessAvailableMemory()
     ) {
+        let key = SpeechEngineVariantKey(engineID: Self.engineID, variant: variant.rawValue)
+        var hooks = hooks
+        let before = hooks.beforeLoad
+        hooks.beforeLoad = {
+            try SpeechEngineCapabilityRegistry.checkMemoryFit(for: key, reader: availableMemory)
+            try before()
+        }
         self.variant = variant
         self.modelsRoot = modelsRoot
+        self.key = key
         self.gate = gate
         self.lifecycle = ModelAssetLifecycle(hooks: hooks, network: network)
     }

@@ -4,6 +4,7 @@
 // word mapping kept, with non-decreasing starts; progress never decreases; no optimized-variant flag in defaults.
 // Review fixes (fix/asr-review): a cancelled call leaves the permit queue and the shared load at once (I1); one load at
 // a time, and a delete waits for a load in flight and discards its model (M3); the tokenizer config is part of "ready".
+// fix/speech-memory-fit: a load that would not fit the memory iOS lets the app use now is refused before it starts.
 
 import ChirpCore
 import Foundation
@@ -22,6 +23,10 @@ import Foundation
 /// - **One load at a time.** Concurrent callers share it; `unloadModels()` is refused while it runs. `deleteAssets`
 ///   waits for a load in flight, releases what it loaded and only then removes the files.
 /// - `unloadModels()` frees the model (the benchmark between engines, a route change away from this engine).
+/// - **Memory fit** (fix/speech-memory-fit): right before a load starts (never while joining one), the registry row's
+///   `memoryToLoadBytes` (the first-load Core ML compile peak) is compared with what `availableMemory` says iOS lets
+///   the app use now. A load that does not fit throws `SpeechEngineError.insufficientMemory` and loads nothing,
+///   instead of iOS terminating the app mid-compile.
 public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     public static let engineID = SpeechEngineCapabilityRegistry.whisperKitEngineID
     static let completionMarker = ".chirp-download-complete"
@@ -32,6 +37,8 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     public nonisolated let variant: WhisperKitVariant
     public nonisolated let modelsDirectory: URL
     public nonisolated let descriptor: EngineDescriptor
+    /// This build's registry row (`argmax.whisperkit:<variant>`).
+    public nonisolated let key: SpeechEngineVariantKey
 
     private struct LoadJob {
         let id: UUID
@@ -42,6 +49,7 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     private struct StaleLoad: Error {}
 
     private let backend: any WhisperKitBackend
+    private let availableMemory: any AvailableMemoryReading
     /// One call at a time on the pipeline; a cancelled waiter gives up its place at once.
     private let permit = AsyncPermit(value: 1)
     private var pipeline: (any WhisperKitTranscribing)?
@@ -55,15 +63,27 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     /// A call holds the permit.
     private var busy = false
 
-    public init(variant: WhisperKitVariant, modelsDirectory: URL) {
-        self.init(variant: variant, modelsDirectory: modelsDirectory, backend: LiveWhisperKitBackend())
+    /// - Parameter availableMemory: what iOS lets the app use now, read right before each load (the app passes
+    ///   `ProcessAvailableMemory`; nil readings, as on the Mac and in the Simulator, skip the check).
+    public init(
+        variant: WhisperKitVariant, modelsDirectory: URL,
+        availableMemory: any AvailableMemoryReading = ProcessAvailableMemory()
+    ) {
+        self.init(
+            variant: variant, modelsDirectory: modelsDirectory, backend: LiveWhisperKitBackend(),
+            availableMemory: availableMemory)
     }
 
-    init(variant: WhisperKitVariant, modelsDirectory: URL, backend: any WhisperKitBackend) {
+    init(
+        variant: WhisperKitVariant, modelsDirectory: URL, backend: any WhisperKitBackend,
+        availableMemory: any AvailableMemoryReading = ProcessAvailableMemory()
+    ) {
         self.variant = variant
         self.modelsDirectory = modelsDirectory
         self.backend = backend
+        self.availableMemory = availableMemory
         self.descriptor = Self.descriptor(for: variant)
+        self.key = SpeechEngineVariantKey(engineID: Self.engineID, variant: variant.rawValue)
     }
 
     public static func descriptor(for variant: WhisperKitVariant) -> EngineDescriptor {
@@ -241,7 +261,8 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
 
     /// The loaded pipeline, loading it from local files once. Concurrent callers share one load; a caller cancelled
     /// while it waits stops waiting at once (`CancellationError`) and the load goes on for the others and the next
-    /// call. Never downloads.
+    /// call. Never downloads. A new load that would not fit the memory iOS lets the app use now is refused
+    /// (`insufficientMemory`) before it starts; a caller joining a load already running is not checked again.
     private func loadedPipeline() async throws -> any WhisperKitTranscribing {
         if let pipeline { return pipeline }
         guard deletion == nil, downloading == nil, filesPresent else {
@@ -251,6 +272,8 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
         if let loadJob {
             job = loadJob
         } else {
+            // Before anything is read into memory or compiled: iOS terminates an app that crosses its limit.
+            try SpeechEngineCapabilityRegistry.checkMemoryFit(for: key, reader: availableMemory)
             let id = UUID()
             let startGeneration = generation
             let task = Task {

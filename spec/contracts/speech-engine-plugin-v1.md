@@ -13,7 +13,8 @@ an engine that breaks them corrupts transcripts silently.
 
 - `ChirpKit/Sources/ChirpCore/Engines/` — `EngineDescriptor.swift`, `ModelAssets.swift`, `SpeechEngine.swift`,
   `LiveSpeechSession.swift` (M2), `TailWindowPreviewSession.swift` (M2, in ChirpCore since M7),
-  `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `LanguageModel.swift`, `StructureModel.swift`,
+  `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `SpeechEngineMemoryFit.swift` and
+  `System/AvailableMemory.swift` (fix/speech-memory-fit), `LanguageModel.swift`, `StructureModel.swift`,
   `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
 - Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
   `ChirpEngineAppleSpeech` (`AppleSpeechEngine`) and `ChirpEngineWhisperKit` (`WhisperKitEngine`, one per variant) in M7;
@@ -62,6 +63,22 @@ an engine that breaks them corrupts transcripts silently.
   - `options.purpose` (M2, additive, default `.file`) says what the text is for. An engine may tune for `.dictation`
     (Parakeet appends 0.5 s of trailing silence to a clip that still fits one model window, decoded in memory; the
     recorded file is never changed), but the result's shape and every rule above stay the same.
+- **Memory fit before a load** (fix/speech-memory-fit). Whisper Large v3 Turbo's first load (a Core ML compile) was
+  killed by iOS on an iPhone 17 Pro although its runtime estimate fit the budget. So right before an engine starts
+  loading or compiling a model (not when it joins a load already running, not while the model is loaded), it calls
+  `SpeechEngineCapabilityRegistry.checkMemoryFit(for: <its row key>, reader:)`:
+  - the row's `memoryToLoadBytes` (the larger of `approximateRuntimeMemoryBytes` and
+    `approximateFirstLoadPeakMemoryBytes`) is compared with `AvailableMemoryReading.availableMemoryBytes()`, what iOS
+    lets the app use now (`ProcessAvailableMemory`: `os_proc_available_memory()`);
+  - when it does not fit, the engine throws `SpeechEngineError.insufficientMemory(key, needed:, available:)` and
+    **loads nothing**; the description names the engine and both numbers ("Whisper Large v3 Turbo needs about 3.5 GB
+    of memory while it loads, and Parakeet can use about 2.1 GB right now. Close other apps or use Whisper Base."),
+    and the job shows it with Retry, which checks again;
+  - a nil reading (the Mac, the Simulator) never refuses;
+  - the reader is injected through the engine's registration entry point (the app passes one
+    `ProcessAvailableMemory`); ChirpCore reads it with `os` only, never UIKit.
+  Parakeet and every WhisperKit variant check; Apple Speech runs in iOS's speech service (no row estimate) and the
+  diarizer is not checked yet.
 - FluidAudio's Core ML engines run every inference inside `ANEInferenceGate`. The gate is internal to
   `ChirpEngineFluidAudio` and does not serialize on iOS 26. WhisperKit (M7) serializes calls on its own pipeline
   instead, with a cancellable FIFO permit. Apple Speech runs in iOS's speech service.
@@ -114,8 +131,18 @@ an engine that breaks them corrupts transcripts silently.
   registry's runtime estimates. A final choice that does not fit moves the live route to the same engine (its tail
   preview; `select` returns both routes), a live choice that does not fit throws `combinedMemoryOverBudget`, and a
   saved pair over the budget starts with live on the final engine. After a change, `releaseUnroutedModels()` unloads
-  every engine on neither route. With today's rows every pair fits (Parakeet 0.8 + Turbo 1.5 GB); the iPhone
-  benchmark must measure two engines loaded together before the estimates are trusted.
+  every engine on neither route. With today's rows every pair fits the budget (Parakeet 0.8 + Turbo 1.5 GB); the
+  iPhone benchmark must measure two engines loaded together before the estimates are trusted.
+  - **Run-time memory** (fix/speech-memory-fit). The router takes the same `AvailableMemoryReading` as the engines
+    and reads it once per `select`. An engine whose `memoryToLoadBytes` exceeds it cannot be chosen for either route
+    (`SpeechRouteError.insufficientMemory`), unless it already serves the other route (its own model may be what
+    holds that memory; it still checks before every load). Two different engines are also refused when one loading
+    while the other is resident (`combinedLoadMemoryBytes`) exceeds it (`combinedMemoryOverAvailable`), handled like
+    the budget: a final choice moves live text along. A saved pair over it starts with live on the final engine only
+    when that engine alone fits (otherwise moving live text would only lose the preview too). Settings → Speech
+    engines marks such an engine "Needs more memory than this iPhone gives Parakeet (about Y GB)"
+    (`SpeechEnginesViewModel.Row.memoryShortfall`) and does not offer it for a route; it can still be downloaded and
+    deleted. A nil reading skips every run-time rule.
   - **A job that held its engine past the change** (review N4). The unload above is refused while a job holds the
     engine (busy) or is about to (`ModelAssetLifecycle.pendingAcquires`, review N5), so it is a no-op for exactly
     the engine that is working. `SpeechRouting.releaseUnroutedModels(on:)` retries it once that job ends: the file
@@ -157,7 +184,8 @@ an engine that breaks them corrupts transcripts silently.
 ## Versioning and compatibility
 
 Adding a protocol requirement with a default implementation, a new optional field, or a new `EngineKind` /
-`EngineLocality` case (with every `switch` updated) is additive. Removing or retyping a requirement, changing the
+`EngineLocality` / `SpeechEngineError` case (with every `switch` updated; fix/speech-memory-fit added
+`insufficientMemory`) is additive. Removing or retyping a requirement, changing the
 input audio format, or changing id semantics is breaking: write `speech-engine-plugin-v2.md`, migrate every
 conformer and fake in the same change, and keep persisted `engine` ids readable.
 
@@ -190,6 +218,20 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
   `ModelAssetLifecycleTests.testAnAcquireInFlightKeepsItsModelAgainstAConcurrentUnload` (review N5, ChirpEngineFluidAudioTests).
   `AppleSpeechEngineTests.testNeedsPermissionPromptIsTrueWhenAlreadyDeniedSoAHeadlessCallerNeverDownloads` (review N7,
   ChirpEngineAppleSpeechTests).
+- fix/speech-memory-fit: `WhisperKitEngineTests.testALoadThatDoesNotFitTheMemoryIOSAllowsIsRefusedNamesBothNumbersAndLoadsNothing`,
+  `testALoadThatFitsProceedsAndALoadedModelIsNotCheckedAgain`, `testAnUnknownReadingDoesNotRefuse`;
+  `ParakeetMemoryFitTests` (ChirpEngineFluidAudioTests); `SpeechEngineRouterTests`
+  (`testTheRouterRefusesToRouteAnEngineThatCannotFitTheMemoryAvailableNow`,
+  `testAPairOverTheMemoryAvailableNowKeepsOneModelResident`,
+  `testAnEngineAlreadyOnTheOtherRouteIsNotRefusedForTheMemoryItHolds`,
+  `testASavedPairOverTheMemoryAvailableNowPreviewsWithTheFinalEngineOnlyWhenItFitsAlone`);
+  `SpeechEnginesViewModelTests` (`testTheViewModelMarksAVariantThatCannotFitAndItCannotBeChosen`,
+  `testAVariantThatFitsOrAnUnknownReadingIsNotMarked`,
+  `testANotDownloadedVariantThatCannotFitSaysSoAndCanStillBeDownloaded`,
+  `testAnEngineARouteAlreadyUsesIsNotMarkedForTheMemoryItMayHold`); `SpeechEngineCapabilityRegistryTests`
+  (`testALoadNeedsTheLargerOfTheRuntimeEstimateAndTheFirstLoadPeak`, `testTheShortfallIsNilWhenItFitsOrTheSystemDoesNotSay`,
+  `testAPairNeedsOneEngineLoadingWhileTheOtherIsResident`);
+  `FileTranscriptionPipelineTests.testAModelThatDoesNotFitFailsWithBothNumbersAndRetryRunsItAgain`.
 - `TailWindowPreviewSessionTests` (ChirpCoreTests since M7; single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
   interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
   `.dictation` purpose uses it, `.file` never does).

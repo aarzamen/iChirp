@@ -10,10 +10,14 @@ import UIKit
 /// M7: every speech engine in this build behind one `SpeechEngineRouter` (plan 016). Parakeet is first: it is the
 /// default for both routes and the fallback when a saved choice is not in this build.
 enum AppSpeechEngines {
-    /// - Parameter modelsDirectory: the app's `Models` folder next to the library (not backed up); WhisperKit keeps its
-    ///   downloads in `WhisperKit/` inside it.
+    /// - Parameters:
+    ///   - modelsDirectory: the app's `Models` folder next to the library (not backed up); WhisperKit keeps its
+    ///     downloads in `WhisperKit/` inside it.
+    ///   - availableMemory: what iOS lets the app use now (`ProcessAvailableMemory`), read before every model load
+    ///     (fix/speech-memory-fit).
     static func makeRouter(
-        parakeet: ParakeetEngine, modelsDirectory: URL, store: any SpeechRouteStoring
+        parakeet: ParakeetEngine, modelsDirectory: URL, store: any SpeechRouteStoring,
+        availableMemory: any AvailableMemoryReading
     ) -> SpeechEngineRouter {
         var engines: [SpeechEngineRouter.Registration] = [
             .init(
@@ -26,7 +30,7 @@ enum AppSpeechEngines {
         ]
         // Step 4: WhisperKit base and large-v3 turbo (explicit downloads; Whisper large-v3 stays a marked registry row).
         let whisperFolder = modelsDirectory.appendingPathComponent("WhisperKit", isDirectory: true)
-        for engine in WhisperKitEngines.makeDefault(modelsDirectory: whisperFolder) {
+        for engine in WhisperKitEngines.makeDefault(modelsDirectory: whisperFolder, availableMemory: availableMemory) {
             engines.append(
                 .init(
                     key: SpeechEngineVariantKey(engineID: WhisperKitEngine.engineID, variant: engine.variant.rawValue),
@@ -41,7 +45,8 @@ enum AppSpeechEngines {
         router: SpeechEngineRouter, scheduler: SpeechJobScheduler, paths: AppPaths
     ) -> ASRBenchmarkViewModel {
         let runner = ASRBenchmarkRunner(
-            scheduler: scheduler, normalizer: AVAudioNormalizer(), memory: { MemoryProbe.physicalFootprintBytes() })
+            scheduler: scheduler, normalizer: AVAudioNormalizer(), memory: { MemoryProbe.physicalFootprintBytes() },
+            availableMemory: { MemoryProbe.availableBytes() })
         let referenceFolder = Bundle.main.resourceURL.flatMap {
             FileManager.default.fileExists(
                 atPath: $0.appendingPathComponent(ASRBenchmarkReferenceSet.manifestName).path)
