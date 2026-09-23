@@ -307,6 +307,24 @@ final class CompanionSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(requests.last?.value(forHTTPHeaderField: "Authorization"), "Bearer \(token)")
     }
 
+    func testTestConnectionSaysWhyYouTubeAudioIsOff() async {
+        CompanionSettingsStubProtocol.reset([
+            "/v1/companion": .init(
+                status: 200,
+                body: #"{"name": "Parakeet companion", "version": "1.0.0", "api": "mac-companion-v1", "#
+                    + #""features": {"speech": false, "youtubeAudio": false}, "#
+                    + #""youtube": {"reason": "YouTube audio needs deno (brew install deno)."}}"#),
+            "/v1/voices": .init(status: 200, body: #"{"voices": []}"#),
+        ])
+        let model = makeModel()
+        model.host = "studio.local"
+        model.newToken = token
+        model.testConnection()
+        await model.waitForTest()
+        guard case .succeeded(_, let details) = model.testState else { return XCTFail("\(model.testState)") }
+        XCTAssertTrue(details.contains("YouTube audio needs deno (brew install deno)."), "\(details)")
+    }
+
     func testTestConnectionNamesAWrongToken() async {
         CompanionSettingsStubProtocol.reset([
             "/v1/companion": .init(

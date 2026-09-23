@@ -27,9 +27,12 @@ ffmpeg on the Mac), `unsupported_link`, `video_unavailable`, `youtube_failed`, `
 ```json
 {"name": "Parakeet companion", "version": "1.0.0", "api": "mac-companion-v1",
  "features": {"speech": true, "youtubeAudio": true},
- "speech": {"models": ["qwen3-tts-1.7b", "kokoro-82m"], "defaultModel": "qwen3-tts-1.7b"}}
+ "speech": {"models": ["qwen3-tts-1.7b", "kokoro-82m"], "defaultModel": "qwen3-tts-1.7b"},
+ "youtube": {"reason": null}}
 ```
-`features.*` is false when the dependency is missing (mlx-audio models not downloaded, yt-dlp not installed).
+`features.*` is false when the dependency is missing (mlx-audio models not downloaded, yt-dlp not installed, or no
+JavaScript runtime for yt-dlp: deno). `youtube.reason` (additive, may be absent from older companions) says why
+`youtubeAudio` is false, or is null.
 
 ### `GET /v1/voices`
 ```json

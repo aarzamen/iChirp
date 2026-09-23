@@ -84,3 +84,24 @@ def test_oversized_body_is_413_before_it_is_read(client, auth) -> None:
     )
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "payload_too_large"
+
+
+def test_health_reports_youtube_off_with_the_reason_when_deno_is_missing(auth) -> None:
+    from fastapi.testclient import TestClient
+
+    from parakeet_companion.app import create_app
+    from parakeet_companion.config import CompanionSettings
+    from parakeet_companion.youtube import YtDlpBackend
+
+    app = create_app(CompanionSettings(token=TOKEN), youtube=YtDlpBackend(find_executable=lambda name: None))
+    client = TestClient(app)
+    body = client.get("/v1/companion").json()
+    assert body["features"]["youtubeAudio"] is False
+    assert "deno" in body["youtube"]["reason"]
+    response = client.post("/v1/youtube/audio", headers=auth, json={"url": "https://youtu.be/abcdefghijk"})
+    assert response.status_code == 503
+    assert "deno" in response.json()["error"]["message"]
+
+
+def test_health_has_no_youtube_reason_when_ready(client) -> None:
+    assert client.get("/v1/companion").json()["youtube"] == {"reason": None}

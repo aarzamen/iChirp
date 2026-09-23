@@ -116,8 +116,9 @@ def create_app(
 
     @app.post(config.YOUTUBE_PATH)
     def youtube_audio(request: YouTubeRequest) -> Response:
-        if youtube is None or not youtube.is_available():
-            raise FeatureUnavailable("YouTube audio needs yt-dlp. Run `uv sync --project companion`.")
+        reason = youtube_unavailable_reason(youtube)
+        if youtube is None or reason is not None:
+            raise FeatureUnavailable(reason or "YouTube audio needs yt-dlp. Run `uv sync --project companion`.")
         video_url = canonical_video_url(request.url)
         workdir = tempfile.TemporaryDirectory(prefix=TEMP_PREFIX)
         try:
@@ -151,7 +152,9 @@ TEMP_PREFIX = "parakeet-companion-"
 
 def _stream_then_delete(path: Path, workdir: tempfile.TemporaryDirectory) -> Iterator[bytes]:
     """Streams the file in 256 KB pieces; the folder is deleted when the stream ends (and again, harmlessly, by the
-    response's background task, which also runs when the phone disconnects)."""
+    response's background task). When the phone disconnects mid-stream, the background task runs only on servers that
+    declare ASGI spec 2.3 (uvicorn 0.53 does); otherwise this generator's `finally` runs when it is closed or collected,
+    `TemporaryDirectory`'s own finalizer removes the folder, and the next start's sweep catches anything left."""
     try:
         with path.open("rb") as handle:
             while chunk := handle.read(256 * 1024):
@@ -197,19 +200,32 @@ class SpeechRequest(BaseModel):
     language: str | None = Field(default=None, max_length=16)
 
 
+def youtube_unavailable_reason(youtube: YouTubeBackend | None) -> str | None:
+    """Why YouTube audio cannot work now (not installed, or no JavaScript runtime for yt-dlp), or None when it can."""
+    if youtube is None:
+        return "YouTube audio needs yt-dlp. Run: uv sync --project companion"
+    reason = getattr(youtube, "unavailable_reason", None)
+    if reason is not None:
+        return reason()
+    return None if youtube.is_available() else "YouTube audio is not installed in this companion."
+
+
 def health(speech: SpeechBackend | None, youtube: YouTubeBackend | None) -> dict:
     """`GET /v1/companion`: what this companion can do right now. Loads no model and makes no network call."""
     available = [model.id for model in speech.models() if model.available] if speech is not None else []
     default = "qwen3-tts-1.7b" if "qwen3-tts-1.7b" in available else (available[0] if available else None)
+    youtube_reason = youtube_unavailable_reason(youtube)
     return {
         "name": config.NAME,
         "version": config.VERSION,
         "api": config.API,
         "features": {
             "speech": bool(available),
-            "youtubeAudio": youtube is not None and youtube.is_available(),
+            "youtubeAudio": youtube_reason is None,
         },
         "speech": {"models": available, "defaultModel": default},
+        # Additive (review round 1): why `youtubeAudio` is false, e.g. deno is missing; null when it is true.
+        "youtube": {"reason": youtube_reason},
     }
 
 

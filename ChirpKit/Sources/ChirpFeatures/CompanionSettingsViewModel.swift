@@ -171,7 +171,9 @@ import Observation
             health.features.speech
                 ? "Voices: " + (health.speech?.models.joined(separator: ", ") ?? "ready")
                 : "Voices: none ready on the Mac yet",
-            health.features.youtubeAudio ? "YouTube audio: ready" : "YouTube audio: not installed on the Mac",
+            health.features.youtubeAudio
+                ? "YouTube audio: ready"
+                : (health.youtube?.reason ?? "YouTube audio: not installed on the Mac"),
         ]
         guard hasToken else {
             if savedTokenWithheld {

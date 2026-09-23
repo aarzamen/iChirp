@@ -18,11 +18,17 @@ public struct CompanionHealth: Sendable, Equatable, Decodable {
         public var defaultModel: String?
     }
 
+    /// Why YouTube audio is off (for example deno is missing on the Mac); absent from older companions.
+    public struct YouTube: Sendable, Equatable, Decodable {
+        public var reason: String?
+    }
+
     public var name: String
     public var version: String
     public var api: String
     public var features: Features
     public var speech: Speech?
+    public var youtube: YouTube?
 
     public static let expectedAPI = "mac-companion-v1"
 }

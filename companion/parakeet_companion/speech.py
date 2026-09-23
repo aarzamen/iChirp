@@ -3,19 +3,25 @@ speakers) and Kokoro-82M.
 
 - Models load lazily on the first request that needs them; one model stays resident (switching unloads the other).
 - Synthesis is serialized with one lock (one Apple-silicon GPU, one model at a time).
-- A request never downloads a model: a missing one is a 503 naming `scripts/companion.sh --download <model>`.
+- A request never downloads a model: a missing one is a 503 naming `scripts/companion.sh --download <model>`. Kokoro's
+  voices are loaded from the model folder's `voices/*.safetensors` by path (mlx-audio would otherwise look them up
+  on Hugging Face), and serving sets `HF_HUB_OFFLINE=1`.
+- Generation runs with stdout and stderr silenced: mlx-audio's Kokoro pipeline and its phonemizer print and log
+  phoneme strings, which spell out the text.
 - Nothing is stored or logged but model ids, character counts and timings.
 """
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import importlib.util
+import io
 import json
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -135,6 +141,18 @@ def release_mlx_memory() -> None:
         pass
 
 
+@contextlib.contextmanager
+def _silenced_output() -> Iterator[None]:
+    """Swallows whatever third-party code prints to stdout or stderr while it runs (the companion's own log handler
+    keeps the stream it was given at start, so its lines are unaffected)."""
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        try:
+            yield
+        finally:
+            sink.truncate(0)
+
+
 @dataclass
 class MLXSpeech:
     """`SpeechBackend` on mlx-audio. The collaborators are injectable so tests run without models or MLX."""
@@ -241,8 +259,17 @@ class MLXSpeech:
         started = time.perf_counter()
         with self._lock:
             model = self._ensure_loaded(spec)
+            voice = speaker
+            if spec.family == "kokoro":
+                directory = self.locate(spec)
+                if directory is None:
+                    raise ModelUnavailable(
+                        f"{spec.id} is not downloaded. Run: scripts/companion.sh --download {spec.id}"
+                    )
+                voice = str(directory / "voices" / f"{speaker}.safetensors")
             try:
-                samples, sample_rate = self._generate(spec, model, speaker, job)
+                with _silenced_output():
+                    samples, sample_rate = self._generate(spec, model, voice, job)
             except Exception as error:  # noqa: BLE001 — type only; a message could quote the text
                 logger.error("speech_failed model=%s error_type=%s", spec.id, type(error).__name__)
                 raise SynthesisFailed(f"Speech synthesis failed on the Mac ({type(error).__name__}).") from None
@@ -293,7 +320,9 @@ class MLXSpeech:
                 verbose=False,
             )
         else:
-            results = model.generate(text=job.text, voice=speaker, speed=1.0, lang_code=speaker[0], verbose=False)
+            # `speaker` is the voice file's path here; its name's first letter is the language ("af_heart" → "a").
+            lang_code = Path(speaker).stem[0]
+            results = model.generate(text=job.text, voice=speaker, speed=1.0, lang_code=lang_code, verbose=False)
         arrays: list[np.ndarray] = []
         sample_rate = int(getattr(model, "sample_rate", 0) or 0)
         for result in results:

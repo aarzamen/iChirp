@@ -142,6 +142,40 @@ def test_synthesis_maps_language_and_style(dirs) -> None:
     assert loaded[1].calls[0]["lang_code"] == "auto"
 
 
+class ChattyKokoro(FakeModel):
+    """Like mlx-audio's Kokoro pipeline: prints and logs text-derived phonemes while it generates."""
+
+    def generate(self, **kwargs):
+        import logging
+        import sys
+
+        print("phonemes: " + kwargs["text"])
+        sys.stderr.write("phonemes: " + kwargs["text"] + "\n")
+        logging.warning("len(ps) == 999 > 510: " + kwargs["text"])
+        yield from super().generate(**kwargs)
+
+
+def test_kokoro_voices_come_from_the_local_folder_and_nothing_is_printed(dirs, capsys) -> None:
+    # Review L1 M9: a request never downloads (the voice is the local file, not a Hugging Face lookup) and the
+    # phonemizer's output, which quotes the text, never reaches the terminal.
+    loaded: list[FakeModel] = []
+
+    def load(directory: Path) -> FakeModel:
+        model = ChattyKokoro(directory)
+        loaded.append(model)
+        return model
+
+    speech = MLXSpeech(
+        locate=lambda spec: dirs.get(spec.id), has_module=lambda name: True, load=load, release=lambda: None
+    )
+    speech.synthesize(SpeechJob("kokoro-82m", "SYNTHETIC-SECRET-TEXT", "af_heart", response_format="wav"))
+    call = loaded[0].calls[0]
+    assert call["voice"] == str(dirs["kokoro-82m"] / "voices" / "af_heart.safetensors")
+    assert call["lang_code"] == "a"
+    captured = capsys.readouterr()
+    assert "SYNTHETIC-SECRET-TEXT" not in captured.out + captured.err
+
+
 def test_one_model_stays_resident(dirs) -> None:
     speech, (loaded, released) = backend(dirs)
     job = SpeechJob("qwen3-tts-1.7b", "One.", "Ryan", response_format="wav")
