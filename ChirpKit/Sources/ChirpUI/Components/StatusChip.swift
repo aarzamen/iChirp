@@ -95,7 +95,7 @@ extension StatusChip {
     public static func transcribing(percent: Int) -> StatusChip {
         StatusChip(
             "Transcribing · \(percent)%",
-            ink: Tokens.Color.accentInk,
+            ink: Tokens.Color.accentInkPressed,  // Text on `tint` (F8): about 7:1; `accentInk` is 4.39:1 there.
             fill: Tokens.Color.tint,
             border: Tokens.Color.tintBorder
         )

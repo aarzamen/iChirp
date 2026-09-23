@@ -48,7 +48,8 @@ public struct NotBuiltYetView: View {
                 Text(milestone.uppercased())
                     .font(.system(size: badgeSize, weight: .bold))
                     .tracking(0.6)
-                    .foregroundStyle(Tokens.Color.accentInk)
+                    // Text on `tint`: `accentInkPressed` (about 7:1), not `accentInk` (4.39:1 in light mode, F8).
+                    .foregroundStyle(Tokens.Color.accentInkPressed)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(Tokens.Color.tint)

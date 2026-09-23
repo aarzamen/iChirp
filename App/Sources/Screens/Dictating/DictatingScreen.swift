@@ -186,19 +186,22 @@ struct DictatingScreen: View {
         }
     }
 
-    /// Settled words at 94% white, the tentative tail at 42%, then the coral caret.
+    /// Settled words at 94% white, the tentative tail at 46% (`Tokens.Color.dictationTentative`), then the coral caret.
     private func liveText(dimmed: Bool) -> some View {
         let committed = dictation.committedText
         let tentative = dictation.tentativeText
         let isEmpty = committed.isEmpty && tentative.isEmpty
         var text = Text(committed).foregroundStyle(.white.opacity(dimmed ? 0.6 : 0.94))
         if !tentative.isEmpty {
-            text = text + Text(committed.isEmpty ? tentative : " " + tentative).foregroundStyle(.white.opacity(0.42))
+            text =
+                text
+                + Text(committed.isEmpty ? tentative : " " + tentative)
+                .foregroundStyle(Tokens.Color.dictationTentative)
         }
         return Group {
             if isEmpty {
                 Text(dictation.state == .recording ? "Listening…" : " ")
-                    .foregroundStyle(.white.opacity(0.42))
+                    .foregroundStyle(Tokens.Color.dictationTentative)
             } else {
                 text + Text(dimmed ? "" : " ▍").foregroundStyle(Tokens.Color.dictationAccent)
             }
@@ -253,7 +256,7 @@ struct DictatingScreen: View {
                         .chirpFont(15, .bold)
                         .padding(.horizontal, 18)
                         .frame(minHeight: 44)
-                        .background(Capsule().fill(Tokens.Color.accent))
+                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
                 .buttonStyle(.plain)
             }
@@ -367,7 +370,7 @@ struct DictatingScreen: View {
                 Text(primary.0)
                     .chirpFont(17, .bold)
                     .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Capsule().fill(Tokens.Color.accent))
+                    .background(Capsule().fill(Tokens.Color.accentFill))
             }
             .buttonStyle(.plain)
             if let secondary {

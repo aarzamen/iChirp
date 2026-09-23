@@ -54,7 +54,7 @@ struct NotBuiltYetSheet: View {
                     .chirpFont(16, .semibold)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(Capsule().fill(Tokens.Color.accentInk))
+                    .background(Capsule().fill(Tokens.Color.accentFill))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)

@@ -15,8 +15,9 @@ from the canvas.
 
 ## What's here
 
-- `Tokens.swift` — `Tokens.Color` (hex-derived `SwiftUI.Color`s, the four-pair speaker palette
-  via `Tokens.Color.speaker(at:)`, and adaptive light/dark surface colors), `Tokens.Radius`
+- `Tokens.swift` — `Tokens.Palette` (every color token's hex in four appearances: light, dark, and each with
+  Increase Contrast, as a `Tokens.ColorValue`), `Tokens.Color` (the same tokens as SwiftUI colors that follow the
+  appearance, the four-pair speaker palette via `Tokens.Color.speaker(at:)`), `Tokens.Radius`
   (`s`/`m`/`l`/`xl` plus the canvas's supporting radii), `Tokens.Font.rounded(_:_:)`.
 - `Components/ParakeetMark.swift` — `ParakeetMark` (a `Shape` built by parsing the logo's raw
   SVG path data from `Home.dc.html` at runtime) and `ParakeetMarkView` (the shape pre-filled
@@ -48,26 +49,28 @@ comment on which artboard it came from) rather than inlining it. Colors ultimate
 parser — that function has no SwiftUI/UIKit dependency by design, so it can be lifted into a
 standalone script and checked without building the package (see "How to verify" below).
 
-**The canvas is light-only; `ground`/`surface`/`border`/`ink`/`secondary` are adaptive
-anyway.** Those five read the canvas's light value in light mode and a chosen dark variant in
-dark mode (via `UIColor`'s dynamic-provider initializer on iOS; a plain light value on macOS,
-where there's no UIKit dynamic provider). Every other token (accent, tint, success, the speaker
-palette, the night/cover-night backgrounds, etc.) is intentionally identical in both modes —
-they're either already dark-appropriate (the night surfaces) or brand colors the canvas never
-varies. `successInk` (added by polish lane u1-design) is the one exception among the "brand
-colors" group: it's built with the same `adaptive(light:dark:)` two-value pattern as the five
-surfaces above even though its dark value is currently identical to `success`'s — that keeps the
-door open for the owner's dark palette (plan 023, ux-audit-2b9ad612 F6) to give it a real dark
-value later without any call site changing.
+**Every color has a light, a dark and an Increase Contrast value (plan 023, ux-audit-2b9ad612 F6).** The
+numbers live in `Tokens.Palette`; `Tokens.Color.color(_:)` turns a `ColorValue` into a `UIColor` dynamic provider that
+reads `userInterfaceStyle` and `accessibilityContrast` (macOS, with no UIKit, gets the plain light value). The owner
+approved the palette on 2026-09-23 with two changes: five canvas glyph colors below 3:1 in light mode moved to the
+nearest same-hue value that passes (`favorite`, `mutedText`, `success`, `accent`, the amber speaker dot; each token's
+comment gives the canvas value), and the Dictating screen's tentative words went from 42% to 46% white
+(`Palette.dictationTentativeOpacity`, `Color.dictationTentative`). Every other light value is the canvas. The dark
+palette: warm near-black surfaces (`ground` `#15120F`, `surface`
+`#1F1B18`), warm off-white `ink`, a slightly desaturated coral, deep tinted pills (`tint`, `privacyBadgeFill`,
+`partialAudioFill`) instead of light patches, and light inks for text on them. The night tokens (`night`,
+`coverNight`, the seed strokes, `dictationAccent`) are `ColorValue.fixed`: the same in every appearance, because the
+Dictating screen and the covers are dark by design (the Dictating screen also forces the dark scheme, so every token
+inside it resolves to its dark value in either system scheme).
 
-**Some tokens read Increase Contrast, in light mode only.** `border`, `secondary`, `accentInk`
-and `mutedText` swap to a higher-contrast light value while the system's Increase Contrast
-setting is on (`adaptive(...highContrastLight:)` and the private `contrastAwareLight(...)`
-helper in `Tokens.swift`, ux-audit-2b9ad612 F5). Dark mode never reads the contrast trait —
-that's deliberately left to the owner's dark palette pass rather than guessed at here.
+**Text, fills and glyphs are separate roles.** In dark mode accent *text* is a light coral that a white label cannot
+sit on, so filled buttons read `accentFill` (with `onAccent` white), not `accentInk`; error *text* is `errorInk` (light
+red in dark mode) while destructive *fills* are `stopRed`; `success` is a glyph green and `successInk` its text green;
+accent text on a `tint` fill is `accentInkPressed`. Adding a token means adding its `Palette` entry (with a dark value),
+its `Color` line, and its name to `Palette.named` — `ContrastTests` fails for a named token that no pair measures.
 
 **Not every color that *looks* like it should be text-safe is.** `success` and `mutedText` are
-icon/dot-fill colors only — 3.06:1 and 2.75:1 as text, both below WCAG's 4.5:1. Text needs
+icon/dot-fill colors only — 3.16:1 and 3.19:1 as text, both below WCAG's 4.5:1. Text needs
 `successInk` (new) or `secondary` instead; see each token's doc comment in `Tokens.swift`, and
 `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` for the numbers.
 
@@ -100,8 +103,10 @@ rather than eyeballing new numbers.
   (`scripts/run_sim.sh`) for a real-device screenshot — revert the temporary App change
   afterward, since screens are Task 12b's job, not this module's.
 - `swift test --package-path ChirpKit --filter ChirpUITests` —
-  `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` (polish lane u1-design) computes WCAG contrast
-  ratios for the text-safe tokens
-  (`successInk`, `secondary`, `accentInk`, the Increase Contrast values) straight from
-  `Tokens.Color.rgbComponents(fromHex:)`, the same pure function this section used to point at for a
-  throwaway spot-check script — now it's a real, always-run test instead.
+  `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` measures WCAG contrast for every foreground × background pair the
+  app draws (the table mirrors the call sites) in all four appearances, straight from `Tokens.Palette`: 4.5:1 for text,
+  3:1 for glyphs, with no exceptions (the last six were removed by the owner's choices of 2026-09-23). It also checks that
+  Increase Contrast never lowers contrast, that dark surfaces are warm near-black, that dark pills do not glare, that
+  the four speaker colors stay distinct (CIE76 ΔE ≥ 25) and that every token is measured or listed as decorative.
+- `AppTests/PaletteScreenRenderTests.swift` (app-hosted) renders the Dictating and Meeting covers over a light and a
+  dark window and checks that the Dictating screen draws the same pixels in both.

@@ -339,7 +339,7 @@ struct PasteLinkSheet: View {
                     .frame(maxWidth: .infinity, minHeight: 50)
                     .background(
                         RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous)
-                            .fill(model.canTranscribe ? Tokens.Color.accentInk : Tokens.Color.mutedText))
+                            .fill(model.canTranscribe ? Tokens.Color.accentFill : Tokens.Color.mutedText))
             }
             .buttonStyle(.plain)
             .disabled(!model.canTranscribe)
