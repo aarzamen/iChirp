@@ -184,9 +184,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
-  `.answered` or `.failed(sentence)`. `cancel()` is final (plan 022 review M1): a route still being checked neither
-  streams nor asks, a question still up can no longer send, and both end at once in `.failed(stoppedMessage)`
-  ("Stopped. Nothing was sent."); a retry makes a new view model.
+  `.answered` or `.failed(sentence)`. `cancel()` is final (plan 022 review M1): a route still being checked ends at once
+  in `.failed(stoppedMessage)` ("Stopped. Nothing was sent.") and neither streams nor asks; a question already up
+  stays for its dialog (Cancel as always), and its Send then sends nothing and ends in `stoppedMessage`; a retry makes
+  a new view model (`AppTests/ClinicalConfirmationTests` pins the dialog side).
 - `LanguageModelsViewModel.swift` (M4 UI): Settings → Models and the model a run uses.
   - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` and
     (M7) `ChirpEngineLlamaCpp` (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`,

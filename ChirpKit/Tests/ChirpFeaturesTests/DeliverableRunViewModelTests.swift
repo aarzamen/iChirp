@@ -78,7 +78,8 @@ final class DeliverableRunViewModelTests: XCTestCase {
         }
     }
 
-    /// A Stop while the clinical question is up: its Send can no longer send.
+    /// A Stop while the clinical question is up: the question stays for its dialog (Cancel works as always), and its
+    /// Send can no longer send.
     func testCancelWhileTheQuestionIsUpMakesSendANoOp() async throws {
         let harness = try await DeliverableHarness(privacy: .clinical)
         let model = Destination.cloud.makeModel()
@@ -88,9 +89,12 @@ final class DeliverableRunViewModelTests: XCTestCase {
         await viewModel.start()
         guard case .needsConfirmation = viewModel.phase else { return XCTFail("\(viewModel.phase)") }
         viewModel.cancel()
+        guard case .needsConfirmation = viewModel.phase else { return XCTFail("the dialog answers it") }
         await viewModel.confirmOverride()
         XCTAssertTrue(model.requests.isEmpty)
         XCTAssertEqual(viewModel.phase, .failed(DeliverableRunViewModel.stoppedMessage))
+        let runs = await harness.deliverables.runs
+        XCTAssertTrue(runs.isEmpty)
     }
 
     func testFailureIsASentence() async throws {

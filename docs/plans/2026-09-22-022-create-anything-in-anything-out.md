@@ -21,6 +21,9 @@
 - **Risk:** MEDIUM (UX coherence; privacy routing across chained steps)
 - **Status:** IMPLEMENTED on `lane/create` (wave 2, steps in the order 1, 2, 5, 3, 4, 6). Device checks open: the
   owner's iPhone run of the Create checklist in `docs/human-qa-guide.md` (Speak and Edit by voice on a real microphone).
+  The merge review's findings (I1 a Stop never leaves an item less private, I2 Edit by voice on the M7 final route,
+  I3 recording tour steps behind `CHIRP_TOUR_MIC=1`, minors M1–M8 except M4's voice-message list) are fixed on
+  `fix/create-review`.
 
 ## Why this matters
 

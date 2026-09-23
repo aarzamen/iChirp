@@ -37,8 +37,9 @@ import Observation
     @ObservationIgnored private let transcriptionID: UUID
     @ObservationIgnored private let request: Request
     @ObservationIgnored private var task: Task<Void, Never>?
-    /// Plan 022 review M1: `cancel()` stops the run for good, in every phase: a route still being checked neither
-    /// streams nor asks, and a question still up can no longer send. A retry makes a new view model.
+    /// Plan 022 review M1: `cancel()` stops the run for good: a route still being checked neither streams nor asks,
+    /// and a question still up can no longer send (its dialog stays until answered; Send then ends the run with
+    /// `stoppedMessage`, Cancel as before). A retry makes a new view model.
     @ObservationIgnored private var isCancelled = false
     /// Plan 022: called after the person answered the clinical question (the run then finished, failed, asked again
     /// or, after Cancel, went back to `.idle`), so a chain waiting on this run (`CreateFlow`) can go on. Only the
@@ -82,9 +83,15 @@ import Observation
         }
     }
 
-    /// The user tapped Send in the clinical confirmation: this run only. After `cancel()` it sends nothing.
+    /// The user tapped Send in the clinical confirmation: this run only. After `cancel()` it sends nothing and ends the
+    /// run with `stoppedMessage`.
     public func confirmOverride() async {
-        guard !isCancelled, case .needsConfirmation(let request) = phase else { return }
+        guard case .needsConfirmation(let request) = phase else { return }
+        guard !isCancelled else {
+            phase = .failed(Self.stoppedMessage)
+            onAnswered?()
+            return
+        }
         do {
             let token = try await service.confirmOverride(request)
             await run(override: token)
@@ -102,14 +109,12 @@ import Observation
     }
 
     /// Stops the run: a stream in progress ends and stores nothing ("Cancelled. Nothing was saved."); a route still
-    /// being checked or a question still up ends at once with `stoppedMessage`, and nothing is sent afterwards.
+    /// being checked ends at once with `stoppedMessage` and neither streams nor asks. A question already up stays for
+    /// its dialog to answer (Cancel as always; Send now sends nothing). Nothing is sent afterwards.
     public func cancel() {
         isCancelled = true
         task?.cancel()
-        switch phase {
-        case .checking, .needsConfirmation: phase = .failed(Self.stoppedMessage)
-        case .idle, .running, .completed, .answered, .failed: break
-        }
+        if phase == .checking { phase = .failed(Self.stoppedMessage) }
     }
 
     private func run(override: PrivacyOverride?) async {
