@@ -9,14 +9,21 @@ import ChirpCore
 import Foundation
 import Synchronization
 
-/// The owner's voices (ChoiceVoice's Qwen3-TTS, Kokoro) on the Mac companion, `POST /v1/audio/speech`. Home network:
-/// clinical text may reach it only when the owner trusts this Mac (`PrivacyRoutingPolicy`).
+/// The owner's voices (ChoiceVoice's Qwen3-TTS, Kokoro) on the Mac companion, `POST /v1/audio/speech`. Home network
+/// only: the companion speaks plain http, so an address that is not on the home network (`CompanionEndpoint.locality`)
+/// is refused before anything is sent, the health check included. Clinical text may reach it only when the owner
+/// trusts this Mac (`PrivacyRoutingPolicy`).
 public final class CompanionVoice: SpeechSynthesizing, Sendable {
     public static let engineID = "companion.speech"
     /// The companion refuses longer input with 413.
     public static let maxInputCharacters = 4_000
     /// How long a health answer is reused by `availability()`.
     public static let availabilityLifetime: TimeInterval = 30
+
+    /// Shown for a companion address that is not on the home network (review L2 I2).
+    public static let notHomeNetworkMessage =
+        "The Mac companion must be on your home network. Use your Mac’s name (like my-mac.local) or its home IP "
+        + "address in Settings → Mac companion."
 
     static let synthesisTimeout: TimeInterval = 120
     static let requestTimeout: TimeInterval = 10
@@ -85,6 +92,7 @@ public final class CompanionVoice: SpeechSynthesizing, Sendable {
         guard let endpoint = configuration.companionEndpoint(), let baseURL = endpoint.baseURL else {
             return .unavailable("Set up the Mac companion in Settings → Mac companion.")
         }
+        guard endpoint.locality == .localNetwork else { return .unavailable(Self.notHomeNetworkMessage) }
         do {
             guard let token = try configuration.companionPairingToken(), !token.isEmpty else {
                 return .unavailable("Pair this iPhone with the Mac companion in Settings → Mac companion.")
@@ -114,9 +122,10 @@ public final class CompanionVoice: SpeechSynthesizing, Sendable {
 
     /// The companion's health answer, from the 30-second cache when fresh.
     public func status() async throws -> Status {
-        guard let baseURL = configuration.companionEndpoint()?.baseURL else {
+        guard let endpoint = configuration.companionEndpoint(), let baseURL = endpoint.baseURL else {
             throw SpeechSynthesisError.notConfigured("set up the Mac companion in Settings → Mac companion.")
         }
+        guard endpoint.locality == .localNetwork else { throw Self.notHomeNetwork }
         return try await status(at: baseURL).get()
     }
 
@@ -190,10 +199,16 @@ public final class CompanionVoice: SpeechSynthesizing, Sendable {
 
     // MARK: - Private
 
+    private static var notHomeNetwork: SpeechSynthesisError {
+        .notConfigured(
+            "the Mac companion must be on your home network (a name like my-mac.local or a home IP address).")
+    }
+
     private func connection() throws -> (URL, SecretValue) {
-        guard let baseURL = configuration.companionEndpoint()?.baseURL else {
+        guard let endpoint = configuration.companionEndpoint(), let baseURL = endpoint.baseURL else {
             throw SpeechSynthesisError.notConfigured("set up the Mac companion in Settings → Mac companion.")
         }
+        guard endpoint.locality == .localNetwork else { throw Self.notHomeNetwork }
         let token: SecretValue?
         do {
             token = try configuration.companionPairingToken()

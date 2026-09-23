@@ -63,10 +63,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   **the concrete `CompanionConfiguration`** (ChirpCore) that plan 020's voices read, makes the `CompanionClient`
   (`makeClient()`), and adds a trusted home-network companion to a routing policy (`routingPolicy(adding:)`); M4's
   language-model routing is unchanged. `CompanionAddress.parse` reads "host", "host:port" or a pasted
-  `http://host:port/…`.
+  `http://host:port/…`, and refuses an address that is not on the home network (`notHomeNetwork`).
 - `CompanionSettingsViewModel.swift` (plan 019): the Mac companion form. The token field is write-only (empty keeps the
-  saved token); an internet address cannot be trusted; Test connection checks health without the token and the voices
-  list with it (`testState`).
+  saved token); an internet address can be neither saved nor tested; Test connection checks health without the token
+  and the voices list with it (`testState`), sending the saved token only to the saved address.
 - `IncomingFileInbox.swift` also answers `kind(of:)` (M5): documents (and any other plain text) versus media, for
   routing a shared file.
 - `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap

@@ -105,18 +105,27 @@ public final class CompanionSettingsStore: CompanionConfiguration, @unchecked Se
     }
 }
 
-/// Reads "host", "host:port" or a pasted "http://host:port/…" plus a port field into a `CompanionEndpoint`.
+/// Reads "host", "host:port" or a pasted "http://host:port/…" plus a port field into a `CompanionEndpoint`. Only a
+/// home-network address is accepted (`LocalNetworkHost.isLocal`): the companion speaks plain http, so an internet
+/// address would carry the pairing token and the text in the clear (review L2 I2), the way Settings → Models refuses
+/// plain http to a cloud address.
 public enum CompanionAddress {
     public enum ParseError: Error, Equatable, LocalizedError {
         case missingHost
         case invalidPort
         case notHTTP
+        /// Not a home-network name or address.
+        case notHomeNetwork
 
         public var errorDescription: String? {
             switch self {
             case .missingHost: "Enter your Mac’s name (like my-mac.local) or its IP address."
             case .invalidPort: "The port is a number from 1 to 65535 (the companion uses 8765)."
             case .notHTTP: "Enter only the Mac’s name or address, without https:// (the companion speaks plain http)."
+            case .notHomeNetwork:
+                "The Mac companion must be on your home network. Enter your Mac’s name (like my-mac.local) or its home "
+                    + "IP address (like 192.168.1.20): Parakeet never sends the pairing token or your text over the "
+                    + "internet in plain http."
             }
         }
     }
@@ -147,6 +156,7 @@ public enum CompanionAddress {
         guard (1...65_535).contains(resolvedPort) else { throw ParseError.invalidPort }
         let endpoint = CompanionEndpoint(host: host, port: resolvedPort, isTrustedForClinicalText: trusted)
         guard endpoint.baseURL != nil else { throw ParseError.missingHost }
+        guard endpoint.locality == .localNetwork else { throw ParseError.notHomeNetwork }
         return endpoint
     }
 }

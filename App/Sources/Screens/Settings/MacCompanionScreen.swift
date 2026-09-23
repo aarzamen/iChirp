@@ -159,7 +159,8 @@ struct MacCompanionScreen: View {
 
     private var trustFooter: String {
         if model.isInternetAddress {
-            return "This address is on the internet, so it can’t be trusted with clinical text."
+            return "This address is on the internet. The companion speaks plain http, so it must be on your home "
+                + "network: use your Mac’s name (like my-mac.local) or its home IP address."
         }
         return model.isTrusted
             ? "Clinical text may be spoken by this Mac’s voices without asking each time. Only for your own Mac on "

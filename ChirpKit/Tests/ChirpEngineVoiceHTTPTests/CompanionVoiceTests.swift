@@ -274,6 +274,32 @@ final class CompanionVoiceTests: XCTestCase {
         XCTAssertTrue(notCompanion.contains("Parakeet companion"), notCompanion)
     }
 
+    /// Review L2 I2: the companion speaks plain http, so it must be on the home network. An internet address gets
+    /// neither text nor the pairing token (not even the health check goes out).
+    func testAnAddressOffTheHomeNetworkIsRefusedAndNothingIsSent() async throws {
+        StubURLProtocol.reset { [wav] _ in .audio(wav, contentType: "audio/wav") }
+        for host in ["203.0.113.7", "voices.example.com", "100.64.1.2"] {
+            let voice = engine(configured(host: host, trusted: true))
+            guard case .unavailable(let sentence) = await voice.availability() else {
+                return XCTFail("\(host) must be unavailable")
+            }
+            XCTAssertEqual(sentence, CompanionVoice.notHomeNetworkMessage)
+            do {
+                _ = try await voice.synthesize(SynthesisRequest(text: "Hi.", voiceID: "Ryan", privacyClass: .general))
+                XCTFail("an internet companion must not receive text")
+            } catch let error as SpeechSynthesisError {
+                XCTAssertEqual(error.kindName, "not_configured")
+                XCTAssertTrue(error.errorDescription?.contains("home network") == true)
+            }
+            do {
+                _ = try await voice.voices()
+                XCTFail("an internet companion must not receive the token")
+            } catch {}
+            XCTAssertThrowsError(try voice.pinned())
+        }
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty, "nothing left the phone")
+    }
+
     func testStatusReportsModels() async throws {
         let healthy = self.healthy
         StubURLProtocol.reset { _ in .body(healthy) }

@@ -62,6 +62,11 @@ public enum CompanionError: Error, Equatable, LocalizedError {
     case notPaired
     /// The host and port cannot form an address.
     case invalidAddress
+    /// The address is not on the home network. The companion speaks plain http, so Parakeet never sends the token
+    /// or a link to an internet address.
+    case notHomeNetwork
+    /// iOS refused plain http to this name (App Transport Security allows it for `.local` names and IP addresses).
+    case insecureAddressBlocked(host: String)
     /// The Mac did not answer (not running, asleep, another network).
     case unreachable(host: String)
     case timedOut(host: String)
@@ -75,7 +80,12 @@ public enum CompanionError: Error, Equatable, LocalizedError {
     case server(status: Int, code: String?, message: String?)
     case invalidResponse
     case emptyAudio
+    /// A 2xx answer that is not audio (another web service on that address).
+    case notAudio
     case writeFailed(String)
+
+    /// The longest companion sentence shown (and stored on a failed row).
+    public static let messageLimit = 300
 
     public var errorDescription: String? {
         switch self {
@@ -85,9 +95,16 @@ public enum CompanionError: Error, Equatable, LocalizedError {
             "Enter the Mac companion’s pairing token in Settings → Mac companion."
         case .invalidAddress:
             "The Mac companion’s address is not valid. Check the host and port in Settings → Mac companion."
+        case .notHomeNetwork:
+            "The Mac companion must be on your home network: use your Mac’s name (like my-mac.local) or its home IP "
+                + "address (like 192.168.1.20) in Settings → Mac companion."
+        case .insecureAddressBlocked(let host):
+            "iOS blocked plain http to \(host). Use your Mac’s name ending in .local (like my-mac.local) or its IP "
+                + "address in Settings → Mac companion."
         case .unreachable(let host):
             "Parakeet couldn’t reach your Mac (\(host)). Check that the companion is running "
-                + "(scripts/companion.sh) and that this iPhone is on the same Wi-Fi."
+                + "(scripts/companion.sh), that this iPhone is on the same Wi-Fi, and that Parakeet may use the "
+                + "Local Network (iOS Settings → Privacy & Security → Local Network)."
         case .timedOut(let host):
             "Your Mac (\(host)) took too long to answer. Try again."
         case .unauthorized:
@@ -97,14 +114,22 @@ public enum CompanionError: Error, Equatable, LocalizedError {
         case .redirectRefused:
             "Your Mac tried to send Parakeet to another address, so Parakeet stopped."
         case .server(let status, _, let message):
-            message.flatMap { $0.isEmpty ? nil : $0 } ?? "Your Mac answered with an error (HTTP \(status))."
+            message.flatMap { $0.isEmpty ? nil : Self.capped($0) }
+                ?? "Your Mac answered with an error (HTTP \(status))."
         case .invalidResponse:
             "Your Mac sent an answer Parakeet could not read."
         case .emptyAudio:
             "Your Mac sent an empty audio file."
+        case .notAudio:
+            "That address answered with something that is not audio. Check the host and port in Settings → Mac "
+                + "companion."
         case .writeFailed(let reason):
             "Couldn’t save the audio on this iPhone: \(reason)"
         }
+    }
+
+    static func capped(_ message: String) -> String {
+        message.count <= messageLimit ? message : String(message.prefix(messageLimit - 1)) + "…"
     }
 }
 
@@ -118,7 +143,8 @@ public protocol CompanionAudioFetching: Sendable {
 }
 
 /// `mac-companion-v1` over plain http on the home network. Health goes without the token; everything else carries
-/// `Authorization: Bearer <pairing token>`. Ephemeral session: no cookies, no cache.
+/// `Authorization: Bearer <pairing token>`. Ephemeral session: no cookies, no cache. An address that is not on the
+/// home network (`CompanionEndpoint.locality`) is refused before any request: plain http must not cross the internet.
 public struct CompanionClient: CompanionAudioFetching {
     public static let healthPath = "/v1/companion"
     public static let voicesPath = "/v1/voices"
@@ -215,6 +241,10 @@ public struct CompanionClient: CompanionAudioFetching {
             try? FileManager.default.removeItem(at: partURL)
             throw CompanionError.emptyAudio
         }
+        guard Self.isAudio(outcome.response.mimeType) else {
+            try? FileManager.default.removeItem(at: partURL)
+            throw CompanionError.notAudio
+        }
         let fileExtension = MediaDownloader.fileExtension(
             for: URL(fileURLWithPath: "audio"), mimeType: outcome.response.mimeType ?? "audio/mp4")
         let destination = directory.appendingPathComponent("\(fileStem).\(fileExtension)", isDirectory: false)
@@ -242,6 +272,7 @@ public struct CompanionClient: CompanionAudioFetching {
         guard let base = endpoint.baseURL, let url = URL(string: path, relativeTo: base)?.absoluteURL else {
             throw CompanionError.invalidAddress
         }
+        guard endpoint.locality == .localNetwork else { throw CompanionError.notHomeNetwork }
         var request = URLRequest(url: url)
         request.timeoutInterval = Self.shortTimeout
         request.setValue(IngestHTTPClient.userAgent, forHTTPHeaderField: "User-Agent")
@@ -289,12 +320,23 @@ public struct CompanionClient: CompanionAudioFetching {
         }
     }
 
+    /// The companion's audio (`audio/mp4` per the contract); anything else is refused.
+    static func isAudio(_ mimeType: String?) -> Bool {
+        guard let type = mimeType?.lowercased() else { return false }
+        return type.hasPrefix("audio/") || type == "video/mp4"
+    }
+
     private func map(_ error: any Error) -> any Error {
+        Self.mapped(error, host: endpoint.normalizedHost)
+    }
+
+    static func mapped(_ error: any Error, host: String) -> any Error {
         if error is CancellationError || error is CompanionError { return error }
-        let host = endpoint.normalizedHost
         if let urlError = error as? URLError {
             switch urlError.code {
             case .cancelled: return CancellationError()
+            case .appTransportSecurityRequiresSecureConnection:
+                return CompanionError.insecureAddressBlocked(host: host)
             case .timedOut: return CompanionError.timedOut(host: host)
             case .cannotFindHost, .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet,
                 .dnsLookupFailed, .dataNotAllowed:

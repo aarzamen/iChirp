@@ -76,8 +76,9 @@ struct VoicesSettingsScreen: View {
         SettingsGroup(
             title: "Read aloud with",
             footer:
-                "Clinical text is read only by a Mac you trust. Grok voices ask you before each clinical reading, and "
-                + "nothing is remembered."
+                "Clinical text goes to your Mac without asking only when you trust it in Settings → Mac companion. "
+                + "Otherwise, and always with Grok voices, Parakeet asks before each clinical reading; nothing is "
+                + "remembered."
         ) {
             ForEach(VoiceProviderKind.allCases) { kind in
                 Button {
@@ -101,7 +102,10 @@ struct VoicesSettingsScreen: View {
 
     private func providerCaption(_ kind: VoiceProviderKind) -> String {
         switch kind {
-        case .companion: "Your voices on your Mac · home network"
+        case .companion:
+            "Your voices on your Mac · home network · "
+                + (environment.companionConfiguration.companionEndpoint()?.isTrusted == true
+                    ? "trusted for clinical" : "asks for clinical")
         case .xai: "xAI · internet · asks for clinical"
         }
     }

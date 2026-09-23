@@ -45,9 +45,12 @@
 - `Links/CompanionClient.swift` (plan 019): the phone side of [mac-companion-v1](../../../spec/contracts/mac-companion-v1.md).
   `health()` (no token), `voices()` (Bearer token; plan 020 may reuse it) and `youtubeAudio(url:into:fileStem:progress:)`
   (`CompanionAudioFetching`): only the link is sent; the m4a streams into the item's media folder with byte progress,
-  with the video's title (`X-Companion-Title`) and duration. Redirects are refused; errors (`CompanionError`) carry the
-  companion's own sentence or say how to fix the setup. The endpoint and token come from ChirpCore's
-  `CompanionEndpoint` (the app's `CompanionSettingsStore` supplies them).
+  with the video's title (`X-Companion-Title`) and duration; an answer that is not audio is refused (`notAudio`), and
+  the companion's error sentence is capped at 300 characters. An address that is not on the home network is refused
+  before any request (`notHomeNetwork`: the companion speaks plain http). Redirects are refused; errors
+  (`CompanionError`) carry the companion's own sentence or say how to fix the setup (iOS blocking plain http to a
+  name is `insecureAddressBlocked`; "unreachable" also names the Local Network permission). The endpoint and token
+  come from ChirpCore's `CompanionEndpoint` (the app's `CompanionSettingsStore` supplies them).
 - `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
   `itunes:duration`), plus the channel title.
 

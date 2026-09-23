@@ -138,6 +138,13 @@ final class CompanionSettingsStoreTests: XCTestCase {
             XCTAssertEqual($0 as? CompanionAddress.ParseError, .invalidPort)
         }
         XCTAssertThrowsError(try CompanionAddress.parse(host: "my mac", port: "", trusted: false))
+        // Review L2 I2: plain http never crosses the internet, so only home-network addresses are accepted.
+        for internet in ["companion.example.com", "203.0.113.7", "http://8.8.8.8:8765", "100.64.1.2"] {
+            XCTAssertThrowsError(try CompanionAddress.parse(host: internet, port: "", trusted: false), internet) {
+                XCTAssertEqual($0 as? CompanionAddress.ParseError, .notHomeNetwork)
+            }
+        }
+        XCTAssertTrue(CompanionAddress.ParseError.notHomeNetwork.errorDescription?.contains("home network") == true)
     }
 }
 
@@ -192,14 +199,72 @@ final class CompanionSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(try? secrets.secret(forAccount: CompanionSettingsStore.tokenAccount)?.reveal(), token)
     }
 
-    func testAnInternetAddressIsNeverSavedAsTrusted() {
+    func testAnInternetAddressIsRefusedWithASentence() {
         let model = makeModel()
         model.host = "companion.example.com"
         model.newToken = token
         model.isTrusted = true
         XCTAssertTrue(model.isInternetAddress)
+        XCTAssertFalse(model.save(), "the companion must be on the home network")
+        XCTAssertEqual(model.errorMessage, CompanionAddress.ParseError.notHomeNetwork.errorDescription)
+        XCTAssertFalse(model.isConfigured)
+        XCTAssertTrue(secrets.accounts.isEmpty, "no token stored for it")
+
+        CompanionSettingsStubProtocol.reset([:])
+        model.testConnection()
+        XCTAssertEqual(model.testState, .failed(CompanionAddress.ParseError.notHomeNetwork.errorDescription!))
+        XCTAssertTrue(CompanionSettingsStubProtocol.requests.isEmpty, "Test connection sends nothing either")
+    }
+
+    /// Review L1 M3: Test connection sends the saved token only to the saved address; a typed, unsaved address needs
+    /// the token typed too.
+    func testTestConnectionNeverSendsTheSavedTokenToAnUnsavedAddress() async {
+        CompanionSettingsStubProtocol.reset([
+            "/v1/companion": .init(
+                status: 200,
+                body: #"{"name": "Parakeet companion", "version": "1.0.0", "api": "mac-companion-v1", "#
+                    + #""features": {"speech": true, "youtubeAudio": false}}"#),
+            "/v1/voices": .init(status: 200, body: #"{"voices": []}"#),
+        ])
+        let model = makeModel()
+        model.host = "studio.local"
+        model.newToken = token
         XCTAssertTrue(model.save())
-        XCTAssertFalse(model.isTrusted)
+
+        for (host, port) in [("other-mac.local", "8765"), ("studio.local", "9000")] {
+            CompanionSettingsStubProtocol.reset([
+                "/v1/companion": .init(
+                    status: 200,
+                    body: #"{"name": "Parakeet companion", "version": "1.0.0", "api": "mac-companion-v1", "#
+                        + #""features": {"speech": true, "youtubeAudio": false}}"#),
+                "/v1/voices": .init(status: 200, body: #"{"voices": []}"#),
+            ])
+            model.host = host
+            model.port = port
+            model.testConnection()
+            await model.waitForTest()
+            let requests = CompanionSettingsStubProtocol.requests
+            XCTAssertTrue(
+                requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil },
+                "the saved token never goes to \(host):\(port)")
+            guard case .failed(let message) = model.testState else { return XCTFail("\(model.testState)") }
+            XCTAssertTrue(message.contains("Type the pairing token"), message)
+        }
+
+        // Back to the saved address: the saved token is used.
+        model.host = "studio.local"
+        model.port = "8765"
+        CompanionSettingsStubProtocol.reset([
+            "/v1/companion": .init(
+                status: 200,
+                body: #"{"name": "Parakeet companion", "version": "1.0.0", "api": "mac-companion-v1", "#
+                    + #""features": {"speech": true, "youtubeAudio": false}}"#),
+            "/v1/voices": .init(status: 200, body: #"{"voices": []}"#),
+        ])
+        model.testConnection()
+        await model.waitForTest()
+        XCTAssertEqual(
+            CompanionSettingsStubProtocol.requests.last?.value(forHTTPHeaderField: "Authorization"), "Bearer \(token)")
     }
 
     func testRemoveClearsTheForm() {
