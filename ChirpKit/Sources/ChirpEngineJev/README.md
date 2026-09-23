@@ -27,7 +27,9 @@ protocol and its validation are ports of MacParakeet's `Services/VoiceControl/Je
   wire types, upstream's `validate` rules unchanged, and the response checks (model echo, answer keys equal question
   keys).
 - `JevHTTPTransport.swift` (copy of `ChirpEngineHTTPLLM`'s transport): ephemeral, cache-free, cookie-free session;
-  every redirect refused; cancellation kept as `CancellationError`; the key-artifact scrubber.
+  every redirect refused; cancellation kept as `CancellationError`; the body (answer or error) is read as it arrives
+  and refused as `invalidResponse` past 1,000,000 bytes (or a larger declared length), so it never fills memory; the
+  key-artifact scrubber.
 - `Registration.swift`: `JevDecisionModels` (descriptor, `make`, the `URLSessionConfiguration` test seam,
   `problem(with:)` for the address) and `testConnection()`, which sends only the fixed synthetic pangram with the
   options `animal` / `vehicle`.

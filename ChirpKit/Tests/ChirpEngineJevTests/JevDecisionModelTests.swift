@@ -159,6 +159,17 @@ final class JevDecisionModelTests: XCTestCase {
         }
     }
 
+    /// Review L4 M5: an error body past the limit is refused as it arrives, never parsed whole.
+    func testAnOversizeErrorBodyIsRefusedNotParsed() async {
+        JevStubURLProtocol.reset { _ in
+            .body(
+                #"{"detail":""# + String(repeating: "x", count: 1_500_000) + #""}"#, status: 500,
+                contentType: "application/json")
+        }
+        let error = await expectError(engine(key: key), request())
+        XCTAssertEqual(error as? LanguageModelError, .invalidResponse)
+    }
+
     func testMalformedRequestFailsBeforeSending() async {
         JevStubURLProtocol.reset { _ in Self.answerBody() }
         let one = DecisionRequest(

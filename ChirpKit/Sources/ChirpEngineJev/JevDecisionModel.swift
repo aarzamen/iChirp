@@ -83,7 +83,6 @@ public actor JevDecisionModel: DecisionModel {
         guard response.statusCode == 200 else {
             throw Self.mapStatus(response.statusCode, data: data, apiKey: apiKey)
         }
-        guard data.count <= JevWire.responseByteLimit else { throw LanguageModelError.invalidResponse }
         let decoded: JevWire.Response
         do {
             decoded = try JSONDecoder().decode(JevWire.Response.self, from: data)
