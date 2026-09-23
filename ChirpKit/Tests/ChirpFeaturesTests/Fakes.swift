@@ -386,9 +386,12 @@ actor FakeSpeech: SpeechEngine {
     /// Whether the normalized file existed when `transcribe` was called.
     private(set) var inputExistedAtTranscribe: [Bool] = []
 
-    init(status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000), locality: EngineLocality = .onDevice) {
+    init(
+        status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000), locality: EngineLocality = .onDevice,
+        id: String = "fake.parakeet"
+    ) {
         self.descriptor = EngineDescriptor(
-            id: "fake.parakeet",
+            id: id,
             kind: .speech,
             provider: "Fake",
             displayName: "Fake Parakeet",
@@ -624,7 +627,8 @@ struct PipelineHarness {
         includeDiarizer: Bool = true,
         customWords: [CustomWord] = [],
         trackProbe: (any AudioTrackProbing)? = nil,
-        onProgress: (@Sendable (UUID, JobProgress) -> Void)? = nil
+        onProgress: (@Sendable (UUID, JobProgress) -> Void)? = nil,
+        engine: (any SpeechEngine)? = nil
     ) throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ChirpFeaturesTests-\(UUID().uuidString)", isDirectory: true)
@@ -648,7 +652,7 @@ struct PipelineHarness {
             store: store,
             normalizer: normalizer,
             trackProbe: trackProbe,
-            speech: speech,
+            speech: engine ?? speech,
             diarizer: includeDiarizer ? diarizer : nil,
             scheduler: scheduler,
             settings: self.settings,

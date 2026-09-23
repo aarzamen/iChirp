@@ -39,9 +39,8 @@ Then read `ParakeetEngine.swift`.
   fits one model window into memory and appends 0.5 s of silence (`paddedDictationSamples`, upstream issue #562);
   `transcribePreview` runs one in-memory preview window; `makeLiveSession` (`LiveSpeechSessionProviding`) returns a
   `TailWindowPreviewSession`, or nil without the model.
-- `TailWindowPreviewSession.swift`: the M2 live preview (port of upstream `DictationService`'s tail-window loop):
-  a 1 s ticker, the last 15 s, single-flight (a tick during a pass is skipped, never queued), each pass through
-  `SpeechJobScheduler.run(.dictation)`, cancelled and awaited on finish. Display-only.
+- The M2 live preview, `TailWindowPreviewSession`, moved to ChirpCore in M7 (plan 016) so any engine can use it;
+  Parakeet still builds its sessions with it.
 - `SharedTaskWait.swift`: `awaitSharedTask`, a cancellable wait on a shared task (the model load), so a cancelled
   job stops waiting at once while the load goes on for others.
 - `FluidAudioDiarizer.swift`: the `SpeakerDiarizing` actor. Holds upstream's `highAccuracyConfig`

@@ -36,6 +36,22 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `SpeechTranscriptionPurpose`), results and `SpeechEngineError`.
 - `Engines/LiveSpeechSession.swift`: `LiveSpeechSession` and `LiveSpeechSessionProviding` (M2): display-only live
   text, the seam for streaming engines (contract `spec/contracts/speech-engine-plugin-v1.md`).
+- `Engines/TailWindowPreviewSession.swift` (M2, moved here from ChirpEngineFluidAudio in M7): the tail-window live
+  preview for batch engines. It ticks every 1 s over the last 15 s, is single-flight, runs each pass through
+  `SpeechJobScheduler.run(.dictation)`, and cancels and drains on finish. Port of upstream `DictationService`.
+- `Engines/SpeechEngineCapabilities.swift` (M7, port of upstream `SpeechEngineCapabilityRegistry`): one
+  `SpeechEngineCapabilities` row per engine build, keyed by `SpeechEngineVariantKey` (stable engine id plus variant).
+  A row carries live and tail preview, word timings, language policy, custom vocabulary, model lifecycle (download
+  size, system-managed, runtime-memory estimate, memory floor) and where it runs. The memory budget is 2.5 GB, and
+  `memoryRequirementStatus` marks rows over it. The additive `SpeechEngineAvailabilityReporting` lets an engine say it
+  cannot run on this device.
+- `Engines/SpeechEngineRouter.swift` (M7, ports upstream's live/final routes and engine-session leases):
+  - `SpeechRoute`: `.live` is display-only text; `.final` is every kept transcript.
+  - `SpeechRouteSelection` decodes forgivingly.
+  - `SpeechEngineRouter` is a `SpeechEngine` for the final route and a `LiveSpeechSessionProviding` for the live
+    route. A live engine without its own live mode gets a tail preview over a temporary WAV.
+  - Leases block route changes during a meeting.
+  - `SpeechRouting.resolve(_:for:)` is how consumers take a route's engine once, when a job is queued.
 - `Engines/SpeechSynthesis.swift`: `SpeechSynthesizing` (text to speech: "Listen", spoken answers, read-back),
   `SynthesisRequest`, `SynthesisVoice`, `SynthesizedAudio`, `SpeechSynthesisError`. Engine kind `.speechSynthesis`.
 - `Engines/CompanionConfiguration.swift` (plan 020): `CompanionConfiguration` (the Mac companion's address and

@@ -107,6 +107,15 @@ pipeline's `Task`s and publishes its progress to the UI.
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
   `settingsValue`, which saves on every set — only the fields Settings edits, onto the freshest stored value, so the
   dictation screen's "Polish after" (M2) is never overwritten by an older copy.
+- `SpeechEnginesViewModel.swift` (M7, plan 016): Settings → Speech engines.
+  - It lists one row per engine build from `SpeechEngineCapabilityRegistry`. Each row is either a registered instance
+    with its model state, or a row this build or device cannot run, listed with the reason: not in this build, over
+    the memory budget, or `SpeechEngineAvailabilityReporting`.
+  - `choices(for:)` returns only ready engines (for live, also able to preview) plus the current choice.
+  - `select` goes through `SpeechEngineRouter.select`, which refuses during a meeting. `download` and `delete` go
+    through the engine.
+- `SpeechRouteStore.swift` (M7): `SpeechRouteStoring` and `UserDefaultsSpeechRouteStore`. The live and final routes
+  are saved as JSON under `ichirp.speechRoutes`. A missing or unreadable value means Parakeet on both.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
 - `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
@@ -304,6 +313,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 
 ## Wiring (app composition root)
 
+M7: `speech` below is the app's `SpeechEngineRouter` (`AppSpeechEngines.makeRouter`), not Parakeet itself. Parakeet,
+Apple Speech and WhisperKit are registered in it, and the routes are saved in `UserDefaultsSpeechRouteStore`.
+
 ```swift
 let jobs = TranscriptionJobCenter(continuedProcessing: SystemContinuedProcessingScheduler())  // nil in tests
 let pipeline = FileTranscriptionPipeline(
@@ -334,6 +346,16 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
 ```
 
 ## What to know before editing
+
+- **Speech routes (M7).**
+  - Every consumer takes its route's engine once, when the job is queued: `SpeechRouting.resolve(self.speech, for:)`.
+    It then uses that engine for the whole job: routing check, `prepare`, `transcribe` and the stored `engine` id. A
+    route change applies to the next job only.
+  - `.final`: `FileTranscriptionPipeline.run`, the dictation final pass and `MeetingFinalizer.run`.
+  - `.live`: the dictation preview (through the router's `makeLiveSession`) and `MeetingCoordinator`'s live text.
+  - A meeting holds the router's lease from `start()` until its state is finished (saved, failed or idle).
+  - `MeetingCoordinator` sends pause, resume and mute through one chain of tasks (`sendToRecorder`), so they reach
+    the recorder in order.
 
 - **Privacy routing runs before any engine gets audio** (ADR-002, `spec/12-privacy.md`). `run` asks
   `PrivacyRoutingPolicy` (injected, default: no trusted LAN hosts) whether the speech engine's locality may process

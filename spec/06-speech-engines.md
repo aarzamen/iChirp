@@ -82,8 +82,15 @@ From the [Gemini port review](../docs/reviews/2026-09-22-gemini-ios-review.md), 
   meeting preview; the final route produces the stored transcript. **M2 (built):** Parakeet's live route is
   `TailWindowPreviewSession` (every ~1 s, the last 15 s, one pass at a time, each through `.dictation`); a dictation
   finishes (cancels and drains) its live session before the final pass, which runs `.dictation` over
-  `media/<id>/dictation.wav` with purpose `.dictation` (0.5 s trailing pad for short clips). A final job snapshots its engine selection when
-  it is queued, and a meeting holds a lease that blocks engine switches until it finishes.
+  `media/<id>/dictation.wav` with purpose `.dictation` (0.5 s trailing pad for short clips).
+- **M7 (built): separate routes, chosen in Settings → Speech → Speech engines.**
+  - `SpeechEngineRouter` (ChirpCore) holds every engine instance of the build. **Live** serves the dictation preview
+    and a meeting's live text. **Final** serves files, a dictation's final pass and a meeting's final pass. Upstream
+    routes a dictation's final pass to the live engine; iChirp keeps it on final because it is a kept transcript.
+  - A job takes its route's engine when it is queued (`SpeechRouting.resolve`). A meeting holds the router's lease
+    from start to its saved, failed or discarded state, which blocks route changes.
+  - Only engines whose model is on disk can be chosen. Parakeet v3 stays the default for both routes.
+  - A live engine without its own live mode previews through the same tail window over a temporary WAV.
 
 ## Model management
 

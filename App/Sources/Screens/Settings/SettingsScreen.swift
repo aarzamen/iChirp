@@ -110,6 +110,7 @@ struct SettingsScreen: View {
         let running = environment.runningVariant
         let selected = speech.settingsValue.parakeetVariant
         return SettingsGroup(title: "Speech") {
+            SpeechEnginesSettingsLink()  // M7: live and final engines, Apple Speech, WhisperKit, benchmark
             ModelAssetRow(
                 title: "Speech model",
                 value: Self.variantName(running),

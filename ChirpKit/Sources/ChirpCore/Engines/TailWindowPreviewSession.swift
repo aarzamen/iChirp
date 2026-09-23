@@ -2,9 +2,10 @@
 // Changes: `beginDisplayPreviewIfAvailable`'s tail-window loop (1 s interval, last 15 s, one pass at a time) as a
 // `ChirpCore.LiveSpeechSession` actor driven by a ticker instead of the sample stream, each pass through the
 // scheduler's `.dictation` slot (upstream: `STTScheduler.transcribeDictationPreview`), cancelled and drained on
-// finish. No generation resets (iChirp has no pre-roll to discard) and no diagnostics files.
+// finish. No generation resets (iChirp has no pre-roll to discard) and no diagnostics files. M7 (plan 016) moved it
+// from ChirpEngineFluidAudio to ChirpCore, unchanged but public, so any engine (or `SpeechEngineRouter` for one
+// without a live mode) can preview through it.
 
-import ChirpCore
 import Foundation
 
 /// Live preview for a batch engine: about every second, transcribe the last ~15 s of audio and publish the text.
@@ -16,10 +17,10 @@ import Foundation
 /// - `finish()` / `cancel()` stop the ticker, cancel the pass in flight, **wait for it**, and end `updates`; after
 ///   that nothing of this session runs, so the final pass gets the engine at once.
 /// - Failed passes are logged and skipped: the preview is display-only.
-actor TailWindowPreviewSession: LiveSpeechSession {
-    typealias Transcribe = @Sendable (_ window: [Float]) async throws -> String
+public actor TailWindowPreviewSession: LiveSpeechSession {
+    public typealias Transcribe = @Sendable (_ window: [Float]) async throws -> String
 
-    nonisolated let updates: AsyncStream<String>
+    public nonisolated let updates: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
     private let scheduler: SpeechJobScheduler
     private let transcribe: Transcribe
@@ -34,14 +35,14 @@ actor TailWindowPreviewSession: LiveSpeechSession {
     private let logger = Log.logger("live-preview")
 
     /// Passes started and ticks skipped because one was running (tests read these).
-    private(set) var passCount = 0
-    private(set) var skippedTicks = 0
+    public private(set) var passCount = 0
+    public private(set) var skippedTicks = 0
     /// No pass is running.
-    var isIdle: Bool { inFlight == nil }
+    public var isIdle: Bool { inFlight == nil }
     /// `finish()` or `cancel()` has begun.
-    var isFinishing: Bool { isClosed }
+    public var isFinishing: Bool { isClosed }
 
-    init(
+    public init(
         scheduler: SpeechJobScheduler,
         windowSeconds: Double = 15,
         minimumSeconds: Double = 0.5,
@@ -55,7 +56,7 @@ actor TailWindowPreviewSession: LiveSpeechSession {
     }
 
     /// Starts ticking every `interval` (upstream default 1 s). Tests call `tick()` themselves instead.
-    func startTicking(every interval: Duration = .seconds(1)) {
+    public func startTicking(every interval: Duration = .seconds(1)) {
         guard ticker == nil, !isClosed else { return }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -66,7 +67,7 @@ actor TailWindowPreviewSession: LiveSpeechSession {
         }
     }
 
-    func append(_ samples: [Float]) {
+    public func append(_ samples: [Float]) {
         guard !isClosed, !samples.isEmpty else { return }
         tail.append(contentsOf: samples)
         appendedTotal += samples.count
@@ -77,7 +78,7 @@ actor TailWindowPreviewSession: LiveSpeechSession {
 
     /// One preview opportunity: starts a pass over the current window unless one is running (skipped), nothing new
     /// arrived, or the window is too short.
-    func tick() {
+    public func tick() {
         guard !isClosed else { return }
         guard inFlight == nil else {
             skippedTicks += 1
@@ -110,11 +111,11 @@ actor TailWindowPreviewSession: LiveSpeechSession {
         continuation.yield(text)
     }
 
-    func finish() async {
+    public func finish() async {
         await close()
     }
 
-    func cancel() async {
+    public func cancel() async {
         await close()
     }
 

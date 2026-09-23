@@ -137,8 +137,10 @@ public actor MeetingFinalizer {
             progress?(value)
         }
         let settingsValue = settings.load()
+        // M7: the final route's engine as this pass is queued.
+        let speech = SpeechRouting.resolve(self.speech, for: .final)
         try Task.checkCancellation()
-        try checkSpeechRouting(privacyClass: row.privacyClass, id: id)
+        try checkSpeechRouting(speech.descriptor, privacyClass: row.privacyClass, id: id)
         guard case .ready = await speech.assetStatus() else {
             throw SpeechEngineError.modelNotDownloaded(speech.descriptor.id)
         }
@@ -161,7 +163,6 @@ public actor MeetingFinalizer {
 
         onProgress(id, JobProgress(stage: .waitingForEngine, fraction: 0.15))
         let candidateDiarizer = settingsValue.speakerLabelsEnabled ? await readyDiarizer(for: row) : nil
-        let speech = self.speech
         let store = self.store
         let routing = self.privacyRouting
         let output = try await scheduler.run(.meetingFinalize) {
@@ -196,18 +197,21 @@ public actor MeetingFinalizer {
         try Task.checkCancellation()
         var transcription = row
         let words = await customWords()
-        apply(output, customWords: words, audioDurationMs: normalized.durationMs, to: &transcription)
+        apply(
+            output, customWords: words, audioDurationMs: normalized.durationMs, engineID: speech.descriptor.id,
+            to: &transcription)
         return transcription
     }
 
     /// Engine fields, speakers, custom words, title, snippet and segments (port of the meeting branch of upstream
     /// `completeTranscription`: no Clean pipeline).
     private func apply(
-        _ output: EngineOutput, customWords: [CustomWord], audioDurationMs: Int, to transcription: inout Transcription
+        _ output: EngineOutput, customWords: [CustomWord], audioDurationMs: Int, engineID: String,
+        to transcription: inout Transcription
     ) {
         let result = output.result
         transcription.language = result.language ?? transcription.language
-        transcription.engine = speech.descriptor.id
+        transcription.engine = engineID
         transcription.engineVariant = result.engineVariant
         let speechEndMs = result.words.map(\.endMs).max() ?? 0
         let durationMs = max(transcription.durationMs ?? 0, audioDurationMs, speechEndMs)
@@ -299,13 +303,12 @@ public actor MeetingFinalizer {
 
     // MARK: - Helpers
 
-    private func checkSpeechRouting(privacyClass: PrivacyClass, id: UUID) throws {
-        guard privacyRouting.allows(speech.descriptor, for: privacyClass) else {
+    private func checkSpeechRouting(_ speech: EngineDescriptor, privacyClass: PrivacyClass, id: UUID) throws {
+        guard privacyRouting.allows(speech, for: privacyClass) else {
             logger.error(
-                "meeting_refused_by_privacy_routing id=\(id, privacy: .public) engine=\(self.speech.descriptor.id, privacy: .public)"
+                "meeting_refused_by_privacy_routing id=\(id, privacy: .public) engine=\(speech.id, privacy: .public)"
             )
-            throw FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(
-                engineName: speech.descriptor.displayName)
+            throw FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(engineName: speech.displayName)
         }
     }
 

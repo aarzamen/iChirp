@@ -1,9 +1,8 @@
-import ChirpCore
 import XCTest
 
-@testable import ChirpEngineFluidAudio
+@testable import ChirpCore
 
-/// M2 Step 3: the Parakeet tail-window preview with a fake transcriber. Ticks are driven by the test, never by time.
+/// M2 Step 3 (moved to ChirpCore by M7): the tail-window preview with a fake transcriber. Ticks are driven by the test, never by time.
 final class TailWindowPreviewSessionTests: XCTestCase {
     /// A transcriber that records each window and can hold a pass until the test releases it.
     private final class FakeTranscriber: @unchecked Sendable {
