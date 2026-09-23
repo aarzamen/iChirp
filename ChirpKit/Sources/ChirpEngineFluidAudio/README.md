@@ -11,9 +11,9 @@ The code is ported from MacParakeet's `STTRuntime` and `DiarizationService` (ups
 
 ## Entry point
 
-`Registration.swift`: `FluidAudioEngines.makeDefault(settings:)` builds the `ParakeetEngine` for the user's
-`ParakeetVariant` plus the `FluidAudioDiarizer`. Both use FluidAudio's default model cache and the shared
-`ANEInferenceGate`. Read `ModelAssetLifecycle.swift` next. It holds the lifecycle both engines share
+`Registration.swift`: `FluidAudioEngines.makeDefault(settings:availableMemory:)` builds the `ParakeetEngine` for the
+user's `ParakeetVariant` plus the `FluidAudioDiarizer`. Both use FluidAudio's default model cache and the shared
+`ANEInferenceGate`; the app passes `ProcessAvailableMemory` for Parakeet's memory-fit check. Read `ModelAssetLifecycle.swift` next. It holds the lifecycle both engines share
 (`downloadAssets` → `prepare` → `transcribe` / `diarize` → `deleteAssets`) and the rules for what may overlap.
 Then read `ParakeetEngine.swift`.
 
@@ -30,7 +30,9 @@ Then read `ParakeetEngine.swift`.
   the narrow window between a shared load finishing and the acquiring caller's own resumption (a handful of
   scheduler hops through `awaitSharedTask`'s relay task in `SharedTaskWait.swift`), and that caller would see
   `modelNotDownloaded` for a model that is on disk. `afterPrepareForTesting` is a test-only seam that lands a test
-  deterministically in that window instead of racing real scheduling.
+  deterministically in that window instead of racing real scheduling. `Hooks.beforeLoad` (fix/speech-memory-fit)
+  runs right before a new load starts, never for a caller joining one; when it throws, no load starts and the
+  error reaches the caller unchanged. Parakeet uses it for its memory fit; the diarizer and VAD leave it empty.
 - `DownloadNetworkPolicy.swift`: the retry backoff, the injectable sleep and the pre-flight path check
   (`NWPathMonitor`'s first update, 2 s timeout; no answer lets the download try). Tests inject a policy that never
   waits and never reads the real network. FluidAudio owns its `URLSession`, so `waitsForConnectivity` and a
@@ -43,7 +45,10 @@ Then read `ParakeetEngine.swift`.
   BCP-47 `languageHint` onto FluidAudio's v3 script filter. M2: a `.dictation`-purpose call decodes a clip that still
   fits one model window into memory and appends 0.5 s of silence (`paddedDictationSamples`, upstream issue #562);
   `transcribePreview` runs one in-memory preview window; `makeLiveSession` (`LiveSpeechSessionProviding`) returns a
-  `TailWindowPreviewSession`, or nil without the model.
+  `TailWindowPreviewSession`, or nil without the model. Memory fit (fix/speech-memory-fit): before a new load,
+  `SpeechEngineCapabilityRegistry.checkMemoryFit` compares its registry row's `memoryToLoadBytes` (0.8 GB) with the
+  injected `AvailableMemoryReading` and throws `SpeechEngineError.insufficientMemory` instead of loading
+  (`ParakeetMemoryFitTests`).
 - The M2 live preview, `TailWindowPreviewSession`, moved to ChirpCore in M7 (plan 016) so any engine can use it;
   Parakeet still builds its sessions with it.
 - `SharedTaskWait.swift`: `awaitSharedTask`, a cancellable wait on a shared task (the model load), so a cancelled
@@ -131,7 +136,7 @@ scripts/check.sh ChirpEngineFluidAudioTests
 This runs the package build, the unit tests and the strict lint. The unit tests never download and never wait
 on a real network: they cover the gate, the descriptors, word timing, the not-downloaded and partial-cache paths,
 the lifecycle race rules, download retries, the offline check and failure details, the per-job manager pool,
-diarizer renumbering, PLDA repair and decoding, and progress mapping.
+diarizer renumbering, PLDA repair and decoding, progress mapping, and Parakeet's memory-fit refusal.
 
 The real-model tests are skipped unless you opt in. They download Parakeet v3 (~0.5 GB) and the diarizer into
 `~/Library/Caches/ichirp-test-models`. Then they transcribe and diarize

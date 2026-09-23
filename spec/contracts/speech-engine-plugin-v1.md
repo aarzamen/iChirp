@@ -13,7 +13,8 @@ an engine that breaks them corrupts transcripts silently.
 
 - `ChirpKit/Sources/ChirpCore/Engines/` — `EngineDescriptor.swift`, `ModelAssets.swift`, `SpeechEngine.swift`,
   `LiveSpeechSession.swift` (M2), `TailWindowPreviewSession.swift` (M2, in ChirpCore since M7),
-  `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `LanguageModel.swift`, `StructureModel.swift`,
+  `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `SpeechEngineMemoryFit.swift` and
+  `System/AvailableMemory.swift` (fix/speech-memory-fit), `LanguageModel.swift`, `StructureModel.swift`,
   `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
 - Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
   `ChirpEngineAppleSpeech` (`AppleSpeechEngine`) and `ChirpEngineWhisperKit` (`WhisperKitEngine`, one per variant) in M7;
@@ -62,6 +63,22 @@ an engine that breaks them corrupts transcripts silently.
   - `options.purpose` (M2, additive, default `.file`) says what the text is for. An engine may tune for `.dictation`
     (Parakeet appends 0.5 s of trailing silence to a clip that still fits one model window, decoded in memory; the
     recorded file is never changed), but the result's shape and every rule above stay the same.
+- **Memory fit before a load** (fix/speech-memory-fit). Whisper Large v3 Turbo's first load (a Core ML compile) was
+  killed by iOS on an iPhone 17 Pro although its runtime estimate fit the budget. So right before an engine starts
+  loading or compiling a model (not when it joins a load already running, not while the model is loaded), it calls
+  `SpeechEngineCapabilityRegistry.checkMemoryFit(for: <its row key>, reader:)`:
+  - the row's `memoryToLoadBytes` (the larger of `approximateRuntimeMemoryBytes` and
+    `approximateFirstLoadPeakMemoryBytes`) is compared with `AvailableMemoryReading.availableMemoryBytes()`, what iOS
+    lets the app use now (`ProcessAvailableMemory`: `os_proc_available_memory()`);
+  - when it does not fit, the engine throws `SpeechEngineError.insufficientMemory(key, needed:, available:)` and
+    **loads nothing**; the description names the engine and both numbers ("Whisper Large v3 Turbo needs about 3.5 GB
+    of memory while it loads, and Parakeet can use about 2.1 GB right now. Close other apps or use Whisper Base."),
+    and the job shows it with Retry, which checks again;
+  - a nil reading (the Mac, the Simulator) never refuses;
+  - the reader is injected through the engine's registration entry point (the app passes one
+    `ProcessAvailableMemory`); ChirpCore reads it with `os` only, never UIKit.
+  Parakeet and every WhisperKit variant check; Apple Speech runs in iOS's speech service (no row estimate) and the
+  diarizer is not checked yet.
 - FluidAudio's Core ML engines run every inference inside `ANEInferenceGate`. The gate is internal to
   `ChirpEngineFluidAudio` and does not serialize on iOS 26. WhisperKit (M7) serializes calls on its own pipeline
   instead, with a cancellable FIFO permit. Apple Speech runs in iOS's speech service.
@@ -157,7 +174,8 @@ an engine that breaks them corrupts transcripts silently.
 ## Versioning and compatibility
 
 Adding a protocol requirement with a default implementation, a new optional field, or a new `EngineKind` /
-`EngineLocality` case (with every `switch` updated) is additive. Removing or retyping a requirement, changing the
+`EngineLocality` / `SpeechEngineError` case (with every `switch` updated; fix/speech-memory-fit added
+`insufficientMemory`) is additive. Removing or retyping a requirement, changing the
 input audio format, or changing id semantics is breaking: write `speech-engine-plugin-v2.md`, migrate every
 conformer and fake in the same change, and keep persisted `engine` ids readable.
 
@@ -190,6 +208,12 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
   `ModelAssetLifecycleTests.testAnAcquireInFlightKeepsItsModelAgainstAConcurrentUnload` (review N5, ChirpEngineFluidAudioTests).
   `AppleSpeechEngineTests.testNeedsPermissionPromptIsTrueWhenAlreadyDeniedSoAHeadlessCallerNeverDownloads` (review N7,
   ChirpEngineAppleSpeechTests).
+- fix/speech-memory-fit: `WhisperKitEngineTests.testALoadThatDoesNotFitTheMemoryIOSAllowsIsRefusedNamesBothNumbersAndLoadsNothing`,
+  `testALoadThatFitsProceedsAndALoadedModelIsNotCheckedAgain`, `testAnUnknownReadingDoesNotRefuse`;
+  `ParakeetMemoryFitTests` (ChirpEngineFluidAudioTests); `SpeechEngineCapabilityRegistryTests`
+  (`testALoadNeedsTheLargerOfTheRuntimeEstimateAndTheFirstLoadPeak`, `testTheShortfallIsNilWhenItFitsOrTheSystemDoesNotSay`,
+  `testAPairNeedsOneEngineLoadingWhileTheOtherIsResident`);
+  `FileTranscriptionPipelineTests.testAModelThatDoesNotFitFailsWithBothNumbersAndRetryRunsItAgain`.
 - `TailWindowPreviewSessionTests` (ChirpCoreTests since M7; single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
   interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
   `.dictation` purpose uses it, `.file` never does).

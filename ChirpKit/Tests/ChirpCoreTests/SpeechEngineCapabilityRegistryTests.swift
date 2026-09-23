@@ -72,6 +72,63 @@ final class SpeechEngineCapabilityRegistryTests: XCTestCase {
         XCTAssertEqual(status.insufficientMemoryMessage, "Big needs 16.0 GB of memory or more — this iPhone has less.")
     }
 
+    // MARK: - fix/speech-memory-fit
+
+    func testALoadNeedsTheLargerOfTheRuntimeEstimateAndTheFirstLoadPeak() throws {
+        typealias Registry = SpeechEngineCapabilityRegistry
+        let turbo = SpeechEngineVariantKey(engineID: Registry.whisperKitEngineID, variant: "large-v3-turbo")
+        let turboRow = try XCTUnwrap(Registry.capabilitiesIfPresent(for: turbo)).modelLifecycle
+        let peak = try XCTUnwrap(turboRow.approximateFirstLoadPeakMemoryBytes, "Turbo has a first-load peak")
+        XCTAssertGreaterThan(peak, try XCTUnwrap(turboRow.approximateRuntimeMemoryBytes))
+        XCTAssertEqual(Registry.memoryToLoadBytes(for: turbo), peak)
+        XCTAssertLessThanOrEqual(
+            try XCTUnwrap(turboRow.approximateRuntimeMemoryBytes), Registry.memoryBudgetBytes,
+            "the peak is checked at run time, not against the static budget: Turbo stays choosable")
+        XCTAssertEqual(Registry.memoryToLoadBytes(for: Registry.defaultKey), 800_000_000, "Parakeet: runtime")
+        XCTAssertNil(
+            Registry.memoryToLoadBytes(for: .init(engineID: Registry.appleSpeechEngineID)),
+            "Apple Speech runs in iOS's speech service")
+        XCTAssertNil(Registry.memoryToLoadBytes(for: .init(engineID: "test.unknown")))
+    }
+
+    func testTheShortfallIsNilWhenItFitsOrTheSystemDoesNotSay() throws {
+        typealias Registry = SpeechEngineCapabilityRegistry
+        let turbo = SpeechEngineVariantKey(engineID: Registry.whisperKitEngineID, variant: "large-v3-turbo")
+        let needed = try XCTUnwrap(Registry.memoryToLoadBytes(for: turbo))
+        XCTAssertNil(Registry.memoryShortfall(for: turbo, reader: FixedAvailableMemory(nil)))
+        XCTAssertNil(Registry.memoryShortfall(for: turbo, reader: FixedAvailableMemory(UInt64(needed))))
+        let shortfall = try XCTUnwrap(
+            Registry.memoryShortfall(for: turbo, reader: FixedAvailableMemory(2_100_000_000)))
+        XCTAssertEqual(shortfall.neededBytes, needed)
+        XCTAssertEqual(shortfall.settingsMessage, "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)")
+        XCTAssertEqual(
+            shortfall.refusalMessage,
+            "Whisper Large v3 Turbo needs about 3.5 GB of memory while it loads, and Parakeet can use about 2.1 GB "
+                + "right now. Close other apps or use Whisper Base.")
+        XCTAssertThrowsError(try Registry.checkMemoryFit(for: turbo, reader: FixedAvailableMemory(2_100_000_000))) {
+            XCTAssertEqual(
+                $0 as? SpeechEngineError, .insufficientMemory(turbo, needed: needed, available: 2_100_000_000))
+            XCTAssertEqual($0.localizedDescription, shortfall.refusalMessage)
+        }
+        XCTAssertNoThrow(try Registry.checkMemoryFit(for: turbo, reader: FixedAvailableMemory(nil)))
+        // Too little even for Whisper Base: nothing lighter to suggest.
+        let tight = try XCTUnwrap(Registry.memoryShortfall(for: turbo, reader: FixedAvailableMemory(100_000_000)))
+        XCTAssertTrue(tight.refusalMessage.hasSuffix("Close other apps and try again."), tight.refusalMessage)
+    }
+
+    func testAPairNeedsOneEngineLoadingWhileTheOtherIsResident() {
+        typealias Registry = SpeechEngineCapabilityRegistry
+        let parakeet = Registry.defaultKey
+        let turbo = SpeechEngineVariantKey(engineID: Registry.whisperKitEngineID, variant: "large-v3-turbo")
+        let base = SpeechEngineVariantKey(engineID: Registry.whisperKitEngineID, variant: "base")
+        XCTAssertEqual(Registry.combinedLoadMemoryBytes(for: [parakeet, turbo]), 800_000_000 + 3_500_000_000)
+        XCTAssertEqual(Registry.combinedLoadMemoryBytes(for: [turbo, turbo]), 3_500_000_000, "one build counts once")
+        XCTAssertEqual(Registry.combinedLoadMemoryBytes(for: [parakeet, base]), 800_000_000 + 600_000_000)
+        XCTAssertEqual(
+            Registry.combinedLoadMemoryBytes(for: [.init(engineID: Registry.appleSpeechEngineID), parakeet]),
+            800_000_000)
+    }
+
     func testVariantKeysMatchWhenEitherSideIsOpen() {
         let open = SpeechEngineVariantKey(engineID: "a")
         XCTAssertTrue(open.matches(.init(engineID: "a", variant: "x")))

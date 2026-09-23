@@ -91,7 +91,8 @@ state. An engine can be chosen for a route only when its model is on disk.
     serialize on iOS 26. The scheduler still runs background jobs one at a time.
   - Whisper large-v3 (3.1 GB) is a registry row only, marked over the 2.5 GB budget.
 - **Memory.** Runtime-memory figures in the registry are estimates until the benchmark measures them on the iPhone
-  (plan 016). Rows above the budget are marked and cannot be chosen.
+  (plan 016). Rows above the budget are marked and cannot be chosen. Every load is also checked at run time against
+  the memory iOS lets the app use now (see "Run-time memory fit" above).
 - **Benchmark** (Settings → Speech engines → Benchmark engines; `ChirpFeatures/Benchmark`).
   - It runs the chosen engines one at a time, each through the scheduler's background slot. The inputs are the
     synthetic reference set (5 `say` recordings with known text, `scripts/make_benchmark_audio.sh`) and any files the
@@ -154,10 +155,24 @@ P0 = first to build, P1 = next, P2 = later or gated.
 | Language | Apple Foundation Models (4K context, `@Generable`); AnyLanguageModel as the plug-in layer; HTTP cloud and LAN providers | MLX Swift (foreground only); llama.cpp GGUF (Qwen3.5-2B, LFM2.5-1.2B, Qwen3-4B-Instruct-2507) | LiteRT-LM (Gemma 4), ExecuTorch, Core AI (iOS 27); Apple Private Cloud Compute (entitlement-gated) |
 | Structure | none in M1 | Needle 3 (`libneedle.a`, personal builds) | Jev (cloud, opt-in, non-clinical); Laya (needs Core ML conversion); FluidAudio CUA-S1-FORMS |
 
-**Memory budget.** The owner's paid team can add the Increased Memory Limit entitlement if measurement shows a need
-(an account change: ask first). Builds without it, including SideStore IPAs, should keep total model weights around
-2–3 GB or less (a 3.65 GB model failed to load on an iPhone 17 Pro without the entitlement). Check headroom at run
-time with `os_proc_available_memory()`.
+**Memory budget.** The owner approved the Increased Memory Limit entitlement on 2026-09-23 (commit `745ea14c` on
+`ichirp/foundation`; it reaches the App ID with one automatic-signing build in Xcode, and Apple grants the raised limit
+only on some devices). Builds without it, including SideStore IPAs, should keep total model weights around 2–3 GB or
+less (a 3.65 GB model failed to load on an iPhone 17 Pro without the entitlement).
+
+**Run-time memory fit** (fix/speech-memory-fit). Whisper Large v3 Turbo's first load was killed by iOS on the owner's
+iPhone 17 Pro although its 1.5 GB runtime estimate fit the 2.5 GB budget: the first load also compiles the Core ML
+model on the device, and that peaks higher. So the static budget alone is not enough:
+- Each registry row may carry `approximateFirstLoadPeakMemoryBytes`, the first-load compile peak. Placeholders until
+  the device benchmark measures them: Whisper Base 0.6 GB, Whisper Large v3 Turbo 3.5 GB (to be replaced by the
+  device measurement). Parakeet's 0.8 GB runtime estimate already covers its measured 275–592 MB peak.
+- Before any speech engine loads or compiles a model, it compares `memoryToLoadBytes` (the larger of the runtime
+  estimate and the peak) with `os_proc_available_memory()` through the injected `ChirpCore.AvailableMemoryReading`.
+  A model that does not fit is refused with `SpeechEngineError.insufficientMemory`, which names both numbers; the job
+  fails with that sentence and a Retry, and nothing is loaded. Every load is checked, not only the first, because
+  iOS can drop its compiled cache and a first load cannot be told apart beforehand.
+- The peak is not added to the static 2.5 GB budget (a steady-state rule), so Turbo stays choosable where the device
+  has room; the run-time check decides.
 
 ## FluidAudio pin and bump discipline
 

@@ -77,6 +77,10 @@ public enum SpeechEngineError: Error, Equatable, LocalizedError {
     case emptyTranscript
     case cancelled
     case underlying(String)
+    /// fix/speech-memory-fit: a model load refused before it started, because it needs about `needed` bytes and iOS
+    /// lets the app use only `available` right now (it would otherwise terminate the app). Content-free: the engine
+    /// build and two numbers. Nothing was loaded; Retry checks again.
+    case insufficientMemory(SpeechEngineVariantKey, needed: Int64, available: UInt64)
 
     public var errorDescription: String? {
         switch self {
@@ -89,6 +93,8 @@ public enum SpeechEngineError: Error, Equatable, LocalizedError {
             return "Transcription was cancelled."
         case .underlying(let message):
             return message
+        case .insufficientMemory(let key, let needed, let available):
+            return SpeechEngineMemoryShortfall(key: key, neededBytes: needed, availableBytes: available).refusalMessage
         }
     }
 }

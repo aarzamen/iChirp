@@ -1,7 +1,8 @@
 # ChirpCore
 
 The contract layer of ChirpKit. Every other module (store, audio, engines, text, export, features, UI) codes
-against the types and protocols here, and ChirpCore depends on nothing but Foundation and OSLog.
+against the types and protocols here, and ChirpCore depends on nothing but Foundation and OSLog (plus `os` on iOS,
+for `os_proc_available_memory`).
 
 ## Entry point
 
@@ -33,7 +34,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   about an engine.
 - `Engines/ModelAssets.swift`: `ModelAssetStatus` and `ModelAssetManaging` (download, status, delete).
 - `Engines/SpeechEngine.swift`: `SpeechEngine`, `SpeakerDiarizing`, their options (including the M2
-  `SpeechTranscriptionPurpose`), results and `SpeechEngineError`.
+  `SpeechTranscriptionPurpose`), results and `SpeechEngineError` (fix/speech-memory-fit adds
+  `insufficientMemory`, whose description names the engine and both numbers).
 - `Engines/LiveSpeechSession.swift`: `LiveSpeechSession` and `LiveSpeechSessionProviding` (M2): display-only live
   text, the seam for streaming engines (contract `spec/contracts/speech-engine-plugin-v1.md`).
 - `Engines/TailWindowPreviewSession.swift` (M2, moved here from ChirpEngineFluidAudio in M7): the tail-window live
@@ -44,7 +46,18 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   A row carries live and tail preview, word timings, language policy, custom vocabulary, model lifecycle (download
   size, system-managed, runtime-memory estimate, memory floor) and where it runs. The memory budget is 2.5 GB, and
   `memoryRequirementStatus` marks rows over it. The additive `SpeechEngineAvailabilityReporting` lets an engine say it
-  cannot run on this device.
+  cannot run on this device. fix/speech-memory-fit: `SpeechEngineModelLifecycle.approximateFirstLoadPeakMemoryBytes`
+  (the first-load Core ML compile peak; Turbo's and Base's are placeholders "to be replaced by the device
+  measurement") and `memoryToLoadBytes` (the larger of that peak and the runtime estimate). The peak is checked
+  only at run time, never against the static budget.
+- `Engines/SpeechEngineMemoryFit.swift` (fix/speech-memory-fit): the run-time memory fit. `checkMemoryFit(for:reader:)`
+  is what every speech engine calls right before it starts a load (never when joining one): a row whose
+  `memoryToLoadBytes` exceeds what the `AvailableMemoryReading` says iOS lets the app use now throws
+  `SpeechEngineError.insufficientMemory(key, needed:, available:)`, and the engine loads nothing. A nil reading (the
+  Mac, the Simulator) never refuses. `memoryShortfall(for:reader:)` and `SpeechEngineMemoryShortfall` give the
+  Settings line ("Needs more memory than this iPhone gives Parakeet (about 2.1 GB)") and the job's sentence
+  ("… needs about 3.5 GB of memory while it loads, and Parakeet can use about 2.1 GB right now. Close other apps or
+  use Whisper Base."); `combinedLoadMemoryBytes(for:)` is one engine loading while the other is resident.
 - `Engines/SpeechEngineRouter.swift` (M7, ports upstream's live/final routes and engine-session leases):
   - `SpeechRoute`: `.live` is display-only text; `.final` is every kept transcript.
   - `SpeechRouteSelection` decodes forgivingly.
@@ -122,6 +135,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `System/BuildIdentity.swift`: reads the build stamp (version, build, commit, branch, dirty, date) from
   Info.plist.
 - `System/Log.swift`: `Log.logger(_:)` under the `com.aarzamen.ichirp` subsystem.
+- `System/AvailableMemory.swift` (fix/speech-memory-fit): `AvailableMemoryReading` (bytes iOS lets the app use now,
+  nil when unknown), `ProcessAvailableMemory` (`os_proc_available_memory()` on iOS; nil on the Mac and where the
+  Simulator reports 0) and `FixedAvailableMemory` for tests. The app passes one `ProcessAvailableMemory` to the
+  speech engines and the router; tests pass fakes.
 
 ## What to know before editing
 

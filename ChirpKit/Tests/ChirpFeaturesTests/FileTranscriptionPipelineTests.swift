@@ -206,6 +206,34 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertTrue(fileExists(h.sourceURL(for: id)))
     }
 
+    /// fix/speech-memory-fit: an engine that refuses a load that would not fit (instead of iOS terminating the app)
+    /// fails the job with a sentence naming both numbers, keeps the source, and Retry runs it again.
+    func testAModelThatDoesNotFitFailsWithBothNumbersAndRetryRunsItAgain() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let turbo = SpeechEngineVariantKey(
+            engineID: SpeechEngineCapabilityRegistry.whisperKitEngineID, variant: "large-v3-turbo")
+        await h.speech.failPrepare(
+            with: SpeechEngineError.insufficientMemory(turbo, needed: 3_500_000_000, available: 2_100_000_000))
+        let id = try await h.importSample()
+
+        let fetchedRow = await h.pipeline.process(id: id)
+        let row = try XCTUnwrap(fetchedRow)
+
+        XCTAssertEqual(row.status, .failed)
+        XCTAssertEqual(
+            row.errorMessage,
+            "Whisper Large v3 Turbo needs about 3.5 GB of memory while it loads, and Parakeet can use about 2.1 GB "
+                + "right now. Close other apps or use Whisper Base.")
+        let transcribeCalls = await h.speech.transcribeCalls
+        XCTAssertEqual(transcribeCalls, 0)
+        XCTAssertTrue(fileExists(h.sourceURL(for: id)))
+
+        await h.speech.failPrepare(with: nil)
+        let retried = await h.pipeline.retry(id: id)
+        XCTAssertEqual(retried?.status, .completed)
+        XCTAssertEqual(retried?.rawTranscript, FakeSpeech.helloText)
+    }
+
     func testMissingSourceFileFailsWithReadableMessage() async throws {
         let h = try PipelineHarness(testCase: self)
         let id = try await h.importSample()

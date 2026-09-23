@@ -8,9 +8,10 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
 
 ## Entry point
 
-`Registration.swift`: `WhisperKitEngines.makeDefault(modelsDirectory:)` returns one `WhisperKitEngine` per
-`WhisperKitVariant`. The app passes `<Application Support>/Models/WhisperKit` and registers each engine in
-`SpeechEngineRouter` (`App/Sources/SpeechEngines/AppSpeechEngines.swift`).
+`Registration.swift`: `WhisperKitEngines.makeDefault(modelsDirectory:availableMemory:)` returns one
+`WhisperKitEngine` per `WhisperKitVariant`. The app passes `<Application Support>/Models/WhisperKit` and
+`ProcessAvailableMemory`, and registers each engine in `SpeechEngineRouter`
+(`App/Sources/SpeechEngines/AppSpeechEngines.swift`).
 
 ## What's here
 
@@ -22,6 +23,11 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
     and never downloads. A caller cancelled while it waits for the load (a first-time Core ML compile can take
     minutes) stops waiting at once; the load goes on for the others (`SharedTaskWait.swift`, as Parakeet's).
     `unloadModels()` is refused while a load runs, so two pipelines are never loaded at once.
+  - **Memory fit** (fix/speech-memory-fit): right before a load starts (not when a caller joins one, not while the
+    model is loaded), `SpeechEngineCapabilityRegistry.checkMemoryFit` compares the row's `memoryToLoadBytes` (the
+    first-load Core ML compile peak) with the injected `AvailableMemoryReading`. A load that does not fit throws
+    `SpeechEngineError.insufficientMemory` and nothing is loaded: Turbo's first load was killed by iOS on an iPhone
+    17 Pro when only its 1.5 GB runtime estimate was checked.
   - **Calls:** one call at a time on the loaded pipeline (`AsyncPermit`, FIFO). A call cancelled while it waits in
     line leaves at once with `CancellationError`, so a dictation's Stop or Cancel never waits behind a file job.
     Cancellation of the running call stops decoding through WhisperKit's callback.
@@ -57,9 +63,11 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
   the person asking.
 - **`WhisperKit` is not `Sendable`.** `LoadedWhisperKit` wraps it as `@unchecked Sendable`, and the engine's permit
   is what makes that true. Never call it from two tasks at once.
-- **Memory.** The registry estimates the runtime memory: base about 0.3 GB, large-v3 turbo about 1.5 GB. The
-  benchmark measures the real peak on the iPhone (controller's device check) before these numbers are trusted.
-  `concurrentWindows` is 2, not WhisperKit's default of 16, for the same reason.
+- **Memory.** The registry estimates the runtime memory (base about 0.3 GB, large-v3 turbo about 1.5 GB) and the
+  first-load compile peak (placeholders: base 0.6 GB, turbo 3.5 GB, to be replaced by the device measurement). The
+  DEBUG device benchmark records the memory available before each load and the peak during the load
+  (`scripts/device_benchmark.sh`); replace the placeholders with those numbers. `concurrentWindows` is 2, not
+  WhisperKit's default of 16, for the same reason.
 - **No Neural Engine gate.** `ANEInferenceGate` belongs to `ChirpEngineFluidAudio` and does not serialize on iOS 26.
   The scheduler runs background jobs one at a time.
 - **Bumping the package.** Follow the FluidAudio discipline in spec/06: read the release notes, change `exact:`, run
@@ -79,7 +87,10 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
     cancelled waiter leaves the shared load while it continues; a dictation's live-preview pass queued behind a file
     job ends at once when the dictation stops (through `SpeechEngineRouter` and `TailWindowPreviewSession`);
   - review M3: an unload during a load starts no second load; a delete during a load waits for it and releases its
-    model; review M1: progress is the share of audio covered, below 1 until the end.
+    model; review M1: progress is the share of audio covered, below 1 until the end;
+  - fix/speech-memory-fit: `testALoadThatDoesNotFitTheMemoryIOSAllowsIsRefusedNamesBothNumbersAndLoadsNothing`
+    (and Retry loads once there is room), `testALoadThatFitsProceedsAndALoadedModelIsNotCheckedAgain`,
+    `testAnUnknownReadingDoesNotRefuse`.
 - `WhisperKitEngineIntegrationTests`: opt-in with `CHIRP_WHISPER_TESTS=1`. It runs the real model on a `say`
   recording on the Mac, and checks that progress is real (a value between 0 and 1 before the final 1). `CHIRP_WHISPER_VARIANT=large-v3-turbo` picks the big one, and `CHIRP_WHISPER_MODELS_DIR`
   sets the models folder (default `~/Library/Caches/iChirpTests/WhisperKit`).

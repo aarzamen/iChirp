@@ -3,7 +3,8 @@
 // enum (ChirpCore cannot import engine targets); telemetry identity dropped; the memory floor is joined by a
 // runtime-memory estimate checked against the iPhone memory budget (spec/06), and rows name where they run and
 // whether iOS manages the download. Rows: Parakeet v3/v2, Apple SpeechTranscriber, WhisperKit base / large-v3 turbo,
-// and WhisperKit large-v3 (listed, over the budget).
+// and WhisperKit large-v3 (listed, over the budget). fix/speech-memory-fit: a first-load (Core ML compile) peak per row,
+// checked at run time against the memory iOS lets the app use (`SpeechEngineMemoryFit.swift`).
 
 import Foundation
 
@@ -83,8 +84,16 @@ public struct SpeechEngineModelLifecycle: Equatable, Sendable {
     /// Physical memory the device needs at least (upstream's floor); nil = no floor.
     public let minimumMemoryBytes: UInt64?
     /// About how much the app's memory grows while the model is loaded and running; nil when the model runs in a
-    /// system process. Measured on the device before an engine is exposed (plan 016); until then an estimate.
+    /// system process. Measured on the device before an engine is exposed (plan 016); until then an estimate. The
+    /// static model budget (`memoryBudgetBytes`) and the live-plus-final pair rule add these up.
     public let approximateRuntimeMemoryBytes: Int64?
+    /// About how high the app's memory rises while the model loads for the first time on this device, when Core ML
+    /// compiles (specializes) it for the Neural Engine; nil = no separate peak, the runtime estimate stands.
+    /// fix/speech-memory-fit: Whisper Large v3 Turbo's first load was killed by iOS on an iPhone 17 Pro although its
+    /// 1.5 GB runtime estimate fit the budget. Every load is checked against this peak at run time
+    /// (`memoryToLoadBytes`), because iOS can drop its compiled cache (an update, low storage) and a first load cannot
+    /// be told apart beforehand. It is not added to the static budget, which is about steady state.
+    public let approximateFirstLoadPeakMemoryBytes: Int64?
 
     public init(
         modelName: String,
@@ -92,7 +101,8 @@ public struct SpeechEngineModelLifecycle: Equatable, Sendable {
         isSystemManaged: Bool = false,
         isUserDeletable: Bool = true,
         minimumMemoryBytes: UInt64? = nil,
-        approximateRuntimeMemoryBytes: Int64?
+        approximateRuntimeMemoryBytes: Int64?,
+        approximateFirstLoadPeakMemoryBytes: Int64? = nil
     ) {
         self.modelName = modelName
         self.approximateDownloadBytes = approximateDownloadBytes
@@ -100,6 +110,18 @@ public struct SpeechEngineModelLifecycle: Equatable, Sendable {
         self.isUserDeletable = isUserDeletable
         self.minimumMemoryBytes = minimumMemoryBytes
         self.approximateRuntimeMemoryBytes = approximateRuntimeMemoryBytes
+        self.approximateFirstLoadPeakMemoryBytes = approximateFirstLoadPeakMemoryBytes
+    }
+
+    /// What a load must find available (`AvailableMemoryReading`): the larger of the runtime estimate and the
+    /// first-load peak; nil when the row has neither (the model runs in a system process, as Apple Speech's does).
+    public var memoryToLoadBytes: Int64? {
+        switch (approximateRuntimeMemoryBytes, approximateFirstLoadPeakMemoryBytes) {
+        case (nil, nil): nil
+        case (let runtime?, nil): runtime
+        case (nil, let peak?): peak
+        case (let runtime?, let peak?): max(runtime, peak)
+        }
     }
 }
 
@@ -336,7 +358,7 @@ public enum SpeechEngineCapabilityRegistry {
 
     private static func whisperRows() -> [SpeechEngineCapabilities] {
         func row(
-            _ variant: String, _ name: String, download: Int64, runtime: Int64
+            _ variant: String, _ name: String, download: Int64, runtime: Int64, firstLoadPeak: Int64? = nil
         ) -> SpeechEngineCapabilities {
             SpeechEngineCapabilities(
                 key: SpeechEngineVariantKey(engineID: whisperKitEngineID, variant: variant),
@@ -348,13 +370,19 @@ public enum SpeechEngineCapabilityRegistry {
                 supportedLanguages: .automatic(),
                 supportsCustomVocabulary: false,
                 modelLifecycle: SpeechEngineModelLifecycle(
-                    modelName: name, approximateDownloadBytes: download, approximateRuntimeMemoryBytes: runtime),
+                    modelName: name, approximateDownloadBytes: download, approximateRuntimeMemoryBytes: runtime,
+                    approximateFirstLoadPeakMemoryBytes: firstLoadPeak),
                 runsOn: "Neural Engine + GPU"
             )
         }
         return [
-            row("base", "Whisper Base", download: 151_000_000, runtime: 300_000_000),
-            row("large-v3-turbo", "Whisper Large v3 Turbo", download: 650_000_000, runtime: 1_500_000_000),
+            // First-load peaks: conservative placeholders, to be replaced by the device measurement (the DEBUG device
+            // benchmark's `loadPeakMemoryBytes`, scripts/device_benchmark.sh). Turbo's first load was killed by iOS on
+            // an iPhone 17 Pro with the 1.5 GB runtime estimate alone.
+            row("base", "Whisper Base", download: 151_000_000, runtime: 300_000_000, firstLoadPeak: 600_000_000),
+            row(
+                "large-v3-turbo", "Whisper Large v3 Turbo", download: 650_000_000, runtime: 1_500_000_000,
+                firstLoadPeak: 3_500_000_000),
             // Listed so the budget rule is visible; no engine instance is built for it.
             row("large-v3", "Whisper Large v3", download: 3_090_000_000, runtime: 3_600_000_000),
         ]
