@@ -3,6 +3,8 @@ public enum EngineKind: String, Codable, Sendable {
     case speech, language, structure, diarization
     /// M3: speech/silence detection (Silero VAD) that cuts a meeting's live-preview chunks at pauses.
     case voiceActivity
+    /// Text to speech ("Listen", read-back): spec/contracts/speech-synthesis-plugin-v1.md.
+    case speechSynthesis
 }
 
 /// Where an engine runs. Privacy routing (`PrivacyRoutingPolicy`) decides per transcript which are allowed.

@@ -27,3 +27,6 @@ journal/
 *.p12
 *.mobileprovision
 logs/
+
+# macOS Finder metadata
+.DS_Store

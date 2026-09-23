@@ -1,0 +1,43 @@
+# ADR-012: Needle 3 on Device, Built from needle-rs Source (No License Gate)
+
+> Status: Accepted
+> Date: 2026-09-22
+> Related: [ADR-010](010-plugin-license-gate.md), [ADR-004](004-engine-plugin-architecture.md),
+> [ADR-002](002-local-first-and-privacy-classes.md), [plan 018](../../docs/plans/2026-09-22-018-design-companion-voice-needle-jev.md),
+> [plan 015](../../docs/plans/2026-09-22-015-m6-structure-models.md)
+
+## Context
+
+ADR-010 put Needle behind a personal-builds-only gate because the runtime we knew of was Cactus Compute's binary-only
+`libneedle.a`, and GPL-3.0 requires corresponding source for what is distributed. Since then **needle-rs**
+(github.com/Geekgineer/needle-rs, **MIT**, v0.3.1) provides a full source runtime for Needle 1, 2 and 3 with a C FFI
+crate (`needle-c`), constrained decoding and the confidence probe. Needle 3's weights (`Cactus-Compute/needle3`) are
+**Apache-2.0**. Rust 1.87+ is installed on the owner's Mac; the iOS targets are one `rustup target add` away.
+
+## Decision
+
+- Needle 3 runs on the iPhone through `ChirpEngineNeedle`, a Swift wrapper over needle-rs's `needle-c`, compiled from
+  a **pinned needle-rs commit** by `scripts/build_needle.sh` into a gitignored `vendor/NeedleC.xcframework`
+  (`aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`).
+- Because the runtime is MIT source and the weights are Apache-2.0 (both GPL-3.0 compatible when distributed with
+  attribution and source), **the ADR-010 gate does not apply to Needle built this way**. The gate still applies to
+  Cactus Compute's engine and to `libneedle.a`.
+- `ChirpKit/Package.swift` includes `ChirpEngineNeedle` only when the XCFramework exists; without it the app shows
+  "Needle is not in this build". CI runs the build script, so CI covers the Needle target.
+- The `.cact` model is downloaded on demand from Hugging Face (not bundled), SHA-256 recorded with every result.
+- `THIRD_PARTY_LICENSES.md` lists needle-rs (MIT) and Needle 3 (Apache-2.0).
+
+## Alternatives considered
+
+- **`libneedle.a` behind the ADR-010 gate.** Works only in personal builds and needs a binary blob; rejected now that
+  a source runtime exists.
+- **Needle on the Mac over the network.** Defeats the on-device, clinical-safe point of Needle; rejected.
+- **FunctionGemma or a 7B extractor.** Kept as the fallback if Needle's fine-tuned accuracy stays below ~90% field
+  exact-match on the synthetic eval set (the research's change-my-mind threshold).
+
+## Consequences
+
+- A Rust toolchain is needed to build Needle (developer Mac and CI); the app still builds without it.
+- needle-rs is young (weeks old): pin the commit, keep the wrapper thin, and re-run the eval set on every bump.
+- Needle's base model is weak on indirect phrasing; every use keeps the deterministic numeric normalizer,
+  confidence gating and a review step (plan 015).

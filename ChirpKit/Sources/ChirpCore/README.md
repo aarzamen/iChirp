@@ -36,6 +36,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `SpeechTranscriptionPurpose`), results and `SpeechEngineError`.
 - `Engines/LiveSpeechSession.swift`: `LiveSpeechSession` and `LiveSpeechSessionProviding` (M2): display-only live
   text, the seam for streaming engines (contract `spec/contracts/speech-engine-plugin-v1.md`).
+- `Engines/SpeechSynthesis.swift`: `SpeechSynthesizing` (text to speech: "Listen", spoken answers, read-back),
+  `SynthesisRequest`, `SynthesisVoice`, `SynthesizedAudio`, `SpeechSynthesisError`. Engine kind `.speechSynthesis`.
+  Contract: `spec/contracts/speech-synthesis-plugin-v1.md`; conformers arrive in plan 020.
 - `Engines/LanguageModel.swift`: the M4 text-generation contract (`LanguageModel` with `endpointHost`,
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
