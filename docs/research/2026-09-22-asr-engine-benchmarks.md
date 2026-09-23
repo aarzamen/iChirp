@@ -77,6 +77,24 @@ speed**. Apple Speech is listed as unavailable here, as expected.
 | Parakeet v3 | 1.1 % (the same "planned rest") | 0.21 (~5×) | 2.6 s | 98 MB |
 | Whisper Base | 0 % | 0.13 (~8×) | 1.5 s | 72 MB |
 
+## 2026-09-23 — iPhone 17 Pro (iPhone18,1, iOS 26.2), build `745ea14c` (Increased Memory Limit entitlement)
+
+Headless `scripts/device_benchmark.sh parakeet,whisper-base,apple-speech`, synthetic reference set (5 recordings).
+JSON kept locally in `.build/device-benchmarks/asr-device-benchmark-20260923T075411Z.json`.
+
+| Engine | WER | × real time | Load (after unload) | Peak memory | Note |
+|---|---|---|---|---|---|
+| Parakeet v3 | 1.1% | 12.1 | 26.1 s | 2,336 MB | cold load includes the Core ML compile |
+| Whisper Base | 0.0% | 5.7 | 2.9 s | 751 MB | |
+| Apple Speech | — | — | — | 356 MB | failed inside iOS `localspeechrecognition`: BNNS "failed to preallocate file" in `/var/mobile/tmp/SpeechModelCache` — the phone had ~0.8 GB free; re-run with free storage |
+
+Not measured yet (blocked by phone storage, not by the app): **Whisper Large v3 Turbo** (its first load was killed by
+iOS before the entitlement; with the entitlement and `fix/speech-memory-fit` it is refused with a message when it
+cannot fit) and both on-device language models (Qwen3.5 2B refused its download: "needs 1.5 GB and 0.8 GB is free").
+iPhone 15 Pro (iOS 26.5.2): no run — 0 bytes free. Its `device_smoke.sh` Parakeet peak was 2,348–2,558 MB on every
+launch versus 275–282 MB on the 17 Pro's warm launches; likely the compiled-model cache cannot persist on a full disk,
+so every launch pays the cold compile. Re-check after freeing space.
+
 ## iPhone run (controller: to do)
 
 Headless (fix/asr-review): `scripts/device_benchmark.sh` builds and installs the Debug app on the phone that
