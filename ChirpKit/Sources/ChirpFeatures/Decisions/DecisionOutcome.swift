@@ -70,11 +70,13 @@ public struct DecisionReport: Sendable, Equatable {
     public var privacyClass: PrivacyClass
     public var items: [DecisionItem]
 
-    /// Recording kind: "clinical encounter" at `suggest` or better offers "Mark as clinical?" (never automatic, never a
-    /// downgrade: the item is not clinical yet, or Jev would not have run).
+    /// Recording kind: "clinical encounter" as Jev's top choice offers "Mark as clinical?" at any confidence (review L4
+    /// M8: raising a class is always safe under ADR-002, so the confidence gate, which exists to stop wrong actions, is
+    /// not needed here; the verdict stays visible). Never automatic, never a downgrade: the item is not clinical yet,
+    /// or Jev would not have run.
     public var suggestsMarkingClinical: Bool {
         guard recipe == .recordingKind, let item = items.first else { return false }
-        return item.choice == "clinical_encounter" && item.verdict.isAtLeastSuggest
+        return item.choice == "clinical_encounter"
     }
 
     /// Template suggestion: the built-in's canonical key to pre-select in the Transform sheet, at `suggest` or better.

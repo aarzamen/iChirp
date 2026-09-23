@@ -40,7 +40,9 @@ struct TranscriptScreen: View {
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
         _model = State(initialValue: environment.makeTranscriptViewModel(id: id))
-        _player = State(initialValue: AudioPlayerModel(session: environment.audioSession))
+        let voice = environment.voicePlayer
+        _player = State(
+            initialValue: AudioPlayerModel(session: environment.audioSession, willPlay: { voice.pause() }))
         _ask = State(initialValue: AskSessionViewModel(service: environment.deliverables, transcriptionID: id))
     }
 

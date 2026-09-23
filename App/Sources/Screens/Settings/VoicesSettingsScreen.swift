@@ -59,7 +59,9 @@ struct VoicesSettingsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .task { await model.refresh() }
-        .voiceConfirmation(for: environment.voicePlayer)
+        // The Test voice reading belongs to this screen: its now-playing bar (Stop, Retry) shows here, and it stops
+        // when the screen goes away, so no stale "Couldn't read aloud" follows the owner elsewhere (review L2 M5).
+        .voiceReading(environment.voicePlayer, owns: { $0 == .voiceTest })
         .alert(
             "Couldn’t change the key",
             isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.dismissError() } })
@@ -76,8 +78,9 @@ struct VoicesSettingsScreen: View {
         SettingsGroup(
             title: "Read aloud with",
             footer:
-                "Clinical text is read only by a Mac you trust. Grok voices ask you before each clinical reading, and "
-                + "nothing is remembered."
+                "Clinical text goes to your Mac without asking only when you trust it in Settings → Mac companion. "
+                + "Otherwise, and always with Grok voices, Parakeet asks before each clinical reading; nothing is "
+                + "remembered."
         ) {
             ForEach(VoiceProviderKind.allCases) { kind in
                 Button {
@@ -101,7 +104,10 @@ struct VoicesSettingsScreen: View {
 
     private func providerCaption(_ kind: VoiceProviderKind) -> String {
         switch kind {
-        case .companion: "Your voices on your Mac · home network"
+        case .companion:
+            "Your voices on your Mac · home network · "
+                + (environment.companionConfiguration.companionEndpoint()?.isTrusted == true
+                    ? "trusted for clinical" : "asks for clinical")
         case .xai: "xAI · internet · asks for clinical"
         }
     }

@@ -90,9 +90,12 @@ redirects the watch page to an "unsupported browser" page (found by the opt-in `
 [ADR-014](adr/014-mac-companion.md), [mac-companion-v1](contracts/mac-companion-v1.md)). When captions are missing,
 empty, or refused by YouTube (token, bot check, consent, changed page) and Settings → Mac companion is set up, the
 Paste a link sheet offers **Get the audio from your Mac**. The person confirms once per link that the link goes to
-their Mac; the row is created (`url`, "YouTube video"), `CompanionClient.youtubeAudio` sends only the link, the
-companion runs yt-dlp and streams the m4a back into `media/<id>/source.m4a` with the video's title and duration, and
-the unchanged file pipeline transcribes it on the phone. Retry asks the companion again. Without a companion the
+their Mac; the row is created (`url`, "YouTube video", the pasted link kept on the phone),
+`CompanionClient.youtubeAudio` sends only `https://www.youtube.com/watch?v=<id>` rebuilt from the validated id (never
+share parameters such as `si=` or `list=`), the companion runs yt-dlp and streams the m4a back into
+`media/<id>/source.m4a` with the video's title and duration, and the unchanged file pipeline transcribes it on the
+phone. Retry asks the companion again, without a new question only while it is the Mac the link was confirmed for in
+this launch; otherwise Retry asks "Send this link to your Mac?" first. Without a companion the
 message says how to set one up. Unavailable, private and age-restricted videos are not offered.
 
 1. **Captions first.** Port the youtube-transcript-api method (watch page → `INNERTUBE_API_KEY` → `/youtubei/v1/player`

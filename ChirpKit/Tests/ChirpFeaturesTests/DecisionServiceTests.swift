@@ -23,12 +23,13 @@ final class DecisionServiceTests: XCTestCase {
         rows: [Transcription],
         enabled: Bool = true,
         key: SecretValue? = SecretValue("ts-synthetic-key-0000"),
+        keychainFails: Bool = false,
         policy: PrivacyRoutingPolicy = PrivacyRoutingPolicy()
     ) -> Harness {
         let store = FakeStore(rows: rows)
         let ledger = FakeDeliverableStore()
         let factory = RecordingDecisionFactory()
-        let settings = InMemoryJevSettings(enabled: enabled, key: key)
+        let settings = InMemoryJevSettings(enabled: enabled, key: key, keychainFails: keychainFails)
         let service = DecisionService(
             transcripts: store, ledger: ledger, routingPolicy: { policy }, settings: settings, factory: factory)
         return Harness(store: store, ledger: ledger, factory: factory, settings: settings, service: service)
@@ -108,6 +109,120 @@ final class DecisionServiceTests: XCTestCase {
         let outcome = try await h.service.run(recipe: .templateSuggestion, transcriptionID: item.id)
         XCTAssertEqual(outcome, .blockedClinical)
         XCTAssertEqual(h.engine.callCount, 0)
+    }
+
+    /// Review L4 M1: a personal transcript that already has a clinical deliverable (a SOAP note) is clinical.
+    func testAPersonalTranscriptWithAClinicalDeliverableIsRefused() async throws {
+        let item = row(.personal)
+        let h = harness(rows: [item])
+        try await h.ledger.insertDeliverable(clinicalDeliverable(for: item.id))
+        for recipe in DecisionRecipe.allCases {
+            let outcome = try await h.service.run(recipe: recipe, transcriptionID: item.id)
+            XCTAssertEqual(outcome, .blockedClinical)
+        }
+        XCTAssertEqual(h.engine.callCount, 0)
+        let runs = await h.ledger.runs
+        XCTAssertEqual(runs.map(\.privacyClass), [.clinical, .clinical, .clinical])
+        XCTAssertEqual(runs.map(\.errorType), ["clinical_blocked", "clinical_blocked", "clinical_blocked"])
+    }
+
+    /// Review L4 M2: the last check before sending sees a class raised after the run started.
+    func testAClassRaisedAfterTheFirstReadIsRefusedBeforeSending() async throws {
+        let item = row(.personal)
+        let h = harness(rows: [item])
+        let store = h.store
+        h.engine.beforeAvailability { await store.setPrivacyClass(.clinical, for: item.id) }
+        let outcome = try await h.service.run(recipe: .recordingKind, transcriptionID: item.id)
+        XCTAssertEqual(outcome, .blockedClinical)
+        XCTAssertEqual(h.engine.callCount, 0, "nothing was sent")
+        let runs = await h.ledger.runs
+        XCTAssertEqual(runs.map(\.status), [.refused])
+        XCTAssertEqual(runs.first?.errorType, "clinical_blocked")
+        XCTAssertEqual(runs.first?.callCount, 0)
+    }
+
+    func testAClinicalDeliverableAddedAfterTheFirstReadIsRefusedBeforeSending() async throws {
+        let item = row(.personal)
+        let h = harness(rows: [item])
+        let ledger = h.ledger
+        let deliverable = clinicalDeliverable(for: item.id)
+        h.engine.beforeAvailability { try? await ledger.insertDeliverable(deliverable) }
+        let outcome = try await h.service.run(recipe: .templateSuggestion, transcriptionID: item.id)
+        XCTAssertEqual(outcome, .blockedClinical)
+        XCTAssertEqual(h.engine.callCount, 0)
+    }
+
+    /// Review L4 M2: a transcript deleted while the run prepared is never sent.
+    func testATranscriptDeletedAfterTheFirstReadIsNeverSent() async throws {
+        let item = row(.personal)
+        let h = harness(rows: [item])
+        let store = h.store
+        h.engine.beforeAvailability { try? await store.delete(id: item.id) }
+        do {
+            _ = try await h.service.run(recipe: .recordingKind, transcriptionID: item.id)
+            XCTFail("expected transcriptNotFound")
+        } catch {
+            XCTAssertEqual(error as? DecisionError, .transcriptNotFound)
+        }
+        XCTAssertEqual(h.engine.callCount, 0)
+        let runs = await h.ledger.runs
+        XCTAssertEqual(runs.map(\.status), [.failed])
+        XCTAssertEqual(runs.first?.callCount, 0, "nothing was sent")
+        XCTAssertEqual(runs.first?.inputCharacters, 0)
+    }
+
+    /// Review L4 M4: routing comes first; a clinical item never reads the key, and a Keychain error gets a ledger row.
+    func testAClinicalItemNeverReadsTheKey() async throws {
+        let clinical = row(.clinical)
+        let h = harness(rows: [clinical], keychainFails: true)
+        let outcome = try await h.service.run(recipe: .recordingKind, transcriptionID: clinical.id)
+        XCTAssertEqual(outcome, .blockedClinical, "the clinical answer, not a Keychain error")
+        XCTAssertEqual(h.settings.keyReads, 0)
+    }
+
+    func testAKeychainErrorWritesOneFailedRowAndSendsNothing() async {
+        let item = row(.personal)
+        let h = harness(rows: [item], keychainFails: true)
+        do {
+            _ = try await h.service.run(recipe: .recordingKind, transcriptionID: item.id)
+            XCTFail("expected the Keychain error")
+        } catch {
+            XCTAssertTrue(error is InMemoryJevSettings.KeychainFailure, "\(error)")
+        }
+        XCTAssertEqual(h.engine.callCount, 0)
+        let runs = await h.ledger.runs
+        XCTAssertEqual(runs.map(\.status), [.failed])
+        XCTAssertEqual(runs.first?.callCount, 0, "nothing was sent")
+        XCTAssertEqual(runs.first?.inputCharacters, 0)
+    }
+
+    /// Review L4 M6: the result sheet says an excerpt may have left the phone only for an error after sending.
+    @MainActor
+    func testTheRunModelKnowsWhetherAFailureCameAfterSending() async {
+        let item = row(.personal)
+        let h = harness(rows: [item])
+        h.engine.script { $0.error = LanguageModelError.rateLimited }
+        let sent = DecisionRunViewModel(recipe: .recordingKind, transcriptionID: item.id, service: h.service)
+        await sent.start()
+        guard case .failed = sent.phase else { return XCTFail("\(sent.phase)") }
+        XCTAssertTrue(sent.failedAfterSending)
+
+        let noKey = harness(rows: [item], key: nil)
+        let unsent = DecisionRunViewModel(recipe: .recordingKind, transcriptionID: item.id, service: noKey.service)
+        await unsent.start()
+        guard case .failed = unsent.phase else { return XCTFail("\(unsent.phase)") }
+        XCTAssertFalse(unsent.failedAfterSending, "a missing key: nothing left the phone")
+        XCTAssertFalse(DecisionRunViewModel.failureCameAfterSending(LanguageModelError.contextTooLong))
+        XCTAssertFalse(
+            DecisionRunViewModel.failureCameAfterSending(LanguageModelError.unavailable(.notConfigured("x"))))
+        XCTAssertTrue(DecisionRunViewModel.failureCameAfterSending(LanguageModelError.providerError("500")))
+    }
+
+    private func clinicalDeliverable(for transcriptionID: UUID) -> Deliverable {
+        Deliverable(
+            transcriptionID: transcriptionID, promptID: nil, promptVersionID: nil, title: "SOAP note",
+            engineID: "apple.foundation", provider: "Apple", model: nil, locality: .onDevice,
+            text: "Synthetic SOAP note.", privacyClass: .clinical)
     }
 
     func testOnlyDecisionServiceCallsDecide() throws {
@@ -305,7 +420,10 @@ final class DecisionServiceTests: XCTestCase {
         h.engine.script { $0.confidence = 0.5 }
         guard case .decided(let unsure) = try await h.service.run(recipe: .recordingKind, transcriptionID: item.id)
         else { return XCTFail("expected a decision") }
-        XCTAssertFalse(unsure.suggestsMarkingClinical, "an unsure answer suggests nothing")
+        // Review L4 M8: raising a class is always safe, so even an unsure "clinical encounter" offers the raise (the
+        // verdict stays visible; the person decides).
+        XCTAssertEqual(unsure.items.first?.verdict, .unsure)
+        XCTAssertTrue(unsure.suggestsMarkingClinical)
 
         h.engine.script { $0.choices = ["template": "soap-note"]; $0.confidence = 0.9 }
         guard case .decided(let template) = try await h.service.run(recipe: .templateSuggestion, transcriptionID: item.id)

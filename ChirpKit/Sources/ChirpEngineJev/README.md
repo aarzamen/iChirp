@@ -20,14 +20,16 @@ protocol and its validation are ports of MacParakeet's `Services/VoiceControl/Je
   locality `.cloud` (always, even against the DEBUG stub), license "Proprietary (TypeSafe API terms)". `endpointHost`
   is the base URL's lowercased host (default `api.typesafe.ai`). `availability()` is offline: a missing key or a bad
   address is `notConfigured` and `decide` then sends nothing. Status mapping: 401/403 → `authenticationFailed`
-  (scrubbed), 429 → `rateLimited`, 413 → `contextTooLong`, 3xx → `redirectRefused`, 529 and everything else →
+  (scrubbed), 429 → `rateLimited`, 3xx → `redirectRefused`, 413 (the request was sent), 529 and everything else →
   `providerError`; an undecodable, oversize or invalid answer → `invalidResponse`; an encoded request over 120,000
-  bytes → `contextTooLong` before any request is made.
+  bytes → `contextTooLong` before any request is made (`contextTooLong` always means nothing was sent).
 - `JevWire.swift` (port): the `Question`, `Request`, `Response` (with the optional `usage` token counts) and `Answer`
   wire types, upstream's `validate` rules unchanged, and the response checks (model echo, answer keys equal question
   keys).
 - `JevHTTPTransport.swift` (copy of `ChirpEngineHTTPLLM`'s transport): ephemeral, cache-free, cookie-free session;
-  every redirect refused; cancellation kept as `CancellationError`; the key-artifact scrubber.
+  every redirect refused; cancellation kept as `CancellationError`; the body (answer or error) is read as it arrives
+  and refused as `invalidResponse` past 1,000,000 bytes (or a larger declared length), so it never fills memory; the
+  key-artifact scrubber.
 - `Registration.swift`: `JevDecisionModels` (descriptor, `make`, the `URLSessionConfiguration` test seam,
   `problem(with:)` for the address) and `testConnection()`, which sends only the fixed synthetic pangram with the
   options `animal` / `vehicle`.

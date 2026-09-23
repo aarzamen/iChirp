@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from .backends import SpeechBackend, YouTubeBackend
 from .config import CompanionSettings
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="parakeet-companion",
         description="Serves your local voices and YouTube audio to Parakeet on your iPhone (mac-companion-v1).",
@@ -37,9 +38,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--download", metavar="MODEL", help="download a speech model into the Hugging Face cache, then exit")
     parser.add_argument("--list-models", action="store_true", help="list the speech models and whether each is ready")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--show-token",
+        action="store_true",
+        help="print the pairing token again (by default it is printed only when it is first created)",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     _configure_logging()
+    if not args.download:
+        # Serving never downloads: a request finds a model (and Kokoro's voices) in the cache or gets a 503.
+        enter_offline_mode()
     speech, youtube = build_backends()
 
     if args.download:
@@ -59,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = CompanionSettings(token=token)
     app = create_app(settings, speech=speech, youtube=youtube)
     host_name = args.advertise_host or _local_host_name()
-    _print_banner(args.host, args.port, host_name, token, token_file, created, speech, youtube)
+    _print_banner(args.host, args.port, host_name, token, token_file, created, speech, youtube, args.show_token)
 
     import uvicorn
 
@@ -94,6 +107,21 @@ def build_backends() -> tuple[SpeechBackend | None, YouTubeBackend | None]:
     return speech, youtube
 
 
+def enter_offline_mode() -> None:
+    """Hugging Face Hub calls fail instead of downloading (read when `huggingface_hub` is first imported, so this runs
+    before any backend touches it). Models are downloaded only by `--download`."""
+    os.environ["HF_HUB_OFFLINE"] = "1"
+
+
+def silence_third_party_output() -> None:
+    """Third-party loggers (mlx-audio's Kokoro pipeline logs over-long phoneme strings, which spell out the text) go
+    nowhere: the root logger gets a handler that drops everything, so Python's last-resort stderr printer never runs.
+    The companion's own logger has its own handler and prints only sizes and timings."""
+    root = logging.getLogger()
+    if not any(isinstance(handler, logging.NullHandler) for handler in root.handlers):
+        root.addHandler(logging.NullHandler())
+
+
 def _configure_logging() -> None:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
@@ -101,6 +129,7 @@ def _configure_logging() -> None:
     logger.handlers[:] = [handler]
     logger.setLevel(logging.INFO)
     logger.propagate = False
+    silence_third_party_output()
 
 
 def _local_host_name() -> str:
@@ -147,16 +176,29 @@ def _print_banner(
     created: bool,
     speech: SpeechBackend | None,
     youtube: YouTubeBackend | None,
+    show_token: bool = False,
 ) -> None:
+    # The token is printed when it is new (or on request), so a redirected log does not collect it at every start.
+    token_line = (
+        f"    Pairing token: {token}" + ("   (new)" if created else "")
+        if created or show_token
+        else "    Pairing token: unchanged (run with --show-token to print it again)"
+    )
     lines = [
         f"{config.NAME} {config.VERSION} ({config.API})",
         f"  Listening on {bind_host}:{port}",
+    ]
+    if bind_host in ("0.0.0.0", "::"):
+        lines.append(
+            "  (every network this Mac joins, plain http: at a café or hospital, stop it or use --host <home IP>)"
+        )
+    lines += [
         "",
         "  On your iPhone: Settings → Mac companion",
         f"    URL:           http://{host_name}:{port}",
         f"    Host:          {host_name}",
         f"    Port:          {port}",
-        f"    Pairing token: {token}" + ("   (new)" if created else ""),
+        token_line,
         f"    (kept in {token_file}, readable only by you)",
         "",
     ]
@@ -165,7 +207,11 @@ def _print_banner(
     else:
         for model in speech.models():
             lines.append(f"  Speech {model.id}: " + ("ready" if model.available else f"not ready — {model.reason}"))
-    lines.append("  YouTube audio: " + ("ready" if youtube is not None and youtube.is_available() else "not installed"))
+    if youtube is not None and youtube.is_available():
+        lines.append("  YouTube audio: ready")
+    else:
+        reason = getattr(youtube, "unavailable_reason", lambda: None)() if youtube is not None else None
+        lines.append("  YouTube audio: " + (reason or "not installed (run: uv sync --project companion)"))
     lines.append("")
     lines.append("  Nothing you send is stored; the log shows only sizes and timings. Stop with Control-C.")
     print("\n".join(lines), flush=True)

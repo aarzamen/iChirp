@@ -171,8 +171,10 @@ import Observation
             companionLink = link
             phase = .companionOffer(reason)
         } else {
+            // Without a companion, keep the captions error's own advice (try again later, share the file instead).
+            let full = captionsError.errorDescription ?? reason
             phase = .failed(
-                "\(reason) To transcribe its audio instead, set up the Mac companion in Settings → Mac companion.")
+                "\(full) To transcribe its audio instead, set up the Mac companion in Settings → Mac companion.")
         }
     }
 

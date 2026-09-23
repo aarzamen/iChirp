@@ -27,9 +27,12 @@ ffmpeg on the Mac), `unsupported_link`, `video_unavailable`, `youtube_failed`, `
 ```json
 {"name": "Parakeet companion", "version": "1.0.0", "api": "mac-companion-v1",
  "features": {"speech": true, "youtubeAudio": true},
- "speech": {"models": ["qwen3-tts-1.7b", "kokoro-82m"], "defaultModel": "qwen3-tts-1.7b"}}
+ "speech": {"models": ["qwen3-tts-1.7b", "kokoro-82m"], "defaultModel": "qwen3-tts-1.7b"},
+ "youtube": {"reason": null}}
 ```
-`features.*` is false when the dependency is missing (mlx-audio models not downloaded, yt-dlp not installed).
+`features.*` is false when the dependency is missing (mlx-audio models not downloaded, yt-dlp not installed, or no
+JavaScript runtime for yt-dlp: deno). `youtube.reason` (additive, may be absent from older companions) says why
+`youtubeAudio` is false, or is null.
 
 ### `GET /v1/voices`
 ```json
@@ -47,7 +50,9 @@ the model of that id, else `defaultModel`. Errors: `400` unknown voice or model,
 
 ### `POST /v1/youtube/audio`
 Request: `{"url": "https://www.youtube.com/watch?v=…"}` (youtube.com, youtu.be and m.youtube.com only; anything else
-→ `400`). Response: `audio/mp4` (m4a) bytes, with headers `X-Companion-Title` (URL-encoded video title) and
+→ `400`). The phone always sends exactly `https://www.youtube.com/watch?v=<id>`, rebuilt from the id it validated,
+whatever form was pasted (YouTube Music, `youtube-nocookie.com`, share parameters): nothing else of the pasted link
+leaves the phone. Response: `audio/mp4` (m4a) bytes, with headers `X-Companion-Title` (URL-encoded video title) and
 `X-Companion-Duration-Ms`. Errors: `422` video unavailable / age-gated / live, `502` yt-dlp failed (its first error
 line, no URL echoed), `504` over the 15-minute download limit. The server reduces the link to
 `https://www.youtube.com/watch?v=<id>` first, so playlists and extra parameters never reach yt-dlp. Phone client:

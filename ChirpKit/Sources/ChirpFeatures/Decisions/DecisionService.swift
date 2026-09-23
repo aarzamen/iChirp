@@ -8,10 +8,13 @@ import Foundation
 
 /// **The only path from a transcript to a `DecisionModel`.** Every run:
 /// 1. reads the transcript as stored now; an empty one fails;
-/// 2. routes it: a **clinical item is refused outright** (no override for decision engines in v1), and anything the
-///    routing policy refuses is refused the same way; both write a `refused` ledger row and send nothing;
-/// 3. windows it (`DecisionInputWindow`): at most 3,000 characters plus content-free facts, nothing else;
-/// 4. builds the recipe's questions, re-reads the class just before sending, makes one call, applies the gate;
+/// 2. routes it with its `EffectivePrivacyClass` (a clinical deliverable makes a personal transcript clinical): a
+///    **clinical item is refused outright** (no override for decision engines in v1), and anything the routing policy
+///    refuses is refused the same way; both write a `refused` ledger row, read no key and send nothing;
+/// 3. windows it (`DecisionInputWindow`): at most 3,000 characters plus content-free facts, nothing else; only then
+///    reads the key;
+/// 4. builds the recipe's questions, re-reads the effective class just before sending (a transcript deleted meanwhile
+///    is not sent), makes one call, applies the gate;
 /// 5. writes exactly one metadata-only `LanguageModelRun` (`feature = .decision`) whatever the outcome.
 public actor DecisionService {
     private let transcripts: any TranscriptionStoring
@@ -52,24 +55,26 @@ public actor DecisionService {
         }
         let runID = UUID()
         let started = now()
-        let apiKey = try settings.apiKey()
-        let engine = factory.makeJev(settings: current, apiKey: apiKey)
+        // Routing needs only the engine's descriptor and host: an engine without the key answers both, so the key is
+        // read only once routing has passed (a clinical item never touches it).
+        let router = factory.makeJev(settings: current, apiKey: nil)
         var ledgerRow = LedgerContext(
-            runID: runID, started: started, transcriptionID: transcriptionID, descriptor: engine.descriptor,
+            runID: runID, started: started, transcriptionID: transcriptionID, descriptor: router.descriptor,
             model: current.model, privacyClass: transcription.privacyClass)
 
-        // 2. Route before anything is built or sent.
-        if let refusal = refusal(for: transcription.privacyClass, engine: engine) {
-            privacyLogger.notice(
-                "decision_refused run=\(runID, privacy: .public) transcription=\(transcriptionID, privacy: .public) engine=\(engine.descriptor.id, privacy: .public) class=\(transcription.privacyClass.rawValue, privacy: .public) reason=\(refusal == .blockedClinical ? "clinical" : "routing", privacy: .public)"
-            )
-            await write(
-                ledgerRow, .refused, error: refusal == .blockedClinical ? "clinical_blocked" : "routing_refused")
-            return refusal
-        }
-
+        // 2. Route before anything is built, read or sent, with the effective class (clinical deliverables count).
         var inputCharacters = 0
+        var reachedEngine = false
         do {
+            ledgerRow.privacyClass = try await EffectivePrivacyClass.of(transcription, in: ledger)
+            if let refusal = refusal(for: ledgerRow.privacyClass, engine: router) {
+                privacyLogger.notice(
+                    "decision_refused run=\(runID, privacy: .public) transcription=\(transcriptionID, privacy: .public) engine=\(router.descriptor.id, privacy: .public) class=\(ledgerRow.privacyClass.rawValue, privacy: .public) reason=\(Self.ledgerLabel(refusal), privacy: .public)"
+                )
+                await write(ledgerRow, .refused, error: Self.ledgerLabel(refusal))
+                return refusal
+            }
+
             // 3. Window.
             let paragraphs = DecisionInputWindow.paragraphs(of: transcription)
             let facts = DecisionInputWindow.facts(for: transcription, paragraphCount: paragraphs.count)
@@ -86,32 +91,36 @@ public actor DecisionService {
                 throw DecisionError.emptyTranscript
             }
             inputCharacters = text.count
-            guard apiKey != nil else { throw DecisionError.missingKey }
+            guard let apiKey = try settings.apiKey() else { throw DecisionError.missingKey }
+            let engine = factory.makeJev(settings: current, apiKey: apiKey)
             if case .unavailable(let reason) = await engine.availability() {
                 throw LanguageModelError.unavailable(reason)
             }
 
-            // 4. Questions, a last check of the class as stored now, one call.
+            // 4. Questions, a last check of the effective class as stored now, one call.
             let request = DecisionRequest(
                 state: DecisionState(text: text, facts: facts),
                 questions: recipe.questions(paragraphIndexes: paragraphIndexes),
-                privacyClass: transcription.privacyClass)
+                privacyClass: ledgerRow.privacyClass)
             try request.validate()
-            if let latest = try await transcripts.fetch(id: transcriptionID),
-                latest.privacyClass != ledgerRow.privacyClass
-            {
-                ledgerRow.privacyClass = latest.privacyClass.stricter(ledgerRow.privacyClass)
-                if let refusal = refusal(for: ledgerRow.privacyClass, engine: engine) {
-                    privacyLogger.notice(
-                        "decision_refused_before_send run=\(runID, privacy: .public) class=\(ledgerRow.privacyClass.rawValue, privacy: .public)"
-                    )
-                    await write(ledgerRow, .refused, error: "clinical_blocked", input: 0)
-                    return refusal
-                }
+            guard
+                let latest = try await EffectivePrivacyClass.current(
+                    transcriptionID: transcriptionID, transcripts: transcripts, deliverables: ledger)
+            else {
+                throw DecisionError.transcriptNotFound
+            }
+            ledgerRow.privacyClass = latest.stricter(ledgerRow.privacyClass)
+            if let refusal = refusal(for: ledgerRow.privacyClass, engine: engine) {
+                privacyLogger.notice(
+                    "decision_refused_before_send run=\(runID, privacy: .public) class=\(ledgerRow.privacyClass.rawValue, privacy: .public) reason=\(Self.ledgerLabel(refusal), privacy: .public)"
+                )
+                await write(ledgerRow, .refused, error: Self.ledgerLabel(refusal), input: 0)
+                return refusal
             }
             logger.info(
                 "decision_started run=\(runID, privacy: .public) recipe=\(recipe.rawValue, privacy: .public) transcription=\(transcriptionID, privacy: .public) class=\(ledgerRow.privacyClass.rawValue, privacy: .public) chars=\(inputCharacters, privacy: .public) questions=\(request.questions.count, privacy: .public)"
             )
+            reachedEngine = true
             let result = try await engine.decide(request)
 
             let report = Self.report(
@@ -127,7 +136,7 @@ public actor DecisionService {
             let status: LanguageModelRun.Status =
                 (error is CancellationError || Task.isCancelled) ? .cancelled : .failed
             let errorName = Self.kindName(of: error)
-            let sent = !(error is DecisionError || error is DecisionRequestError || Self.isLocalUnavailable(error))
+            let sent = reachedEngine && !Self.isRefusedBeforeSending(error)
             await write(
                 ledgerRow, status, error: status == .cancelled ? nil : errorName, input: sent ? inputCharacters : 0,
                 calls: sent ? 1 : 0)
@@ -228,12 +237,17 @@ public actor DecisionService {
         return error.logTypeName
     }
 
-    /// Decided before any request: `unavailable` (offline `availability()`) and `contextTooLong` (the engine's size
-    /// check). Nothing was sent.
-    private static func isLocalUnavailable(_ error: Error) -> Bool {
-        switch error as? LanguageModelError {
-        case .unavailable?, .contextTooLong?: true
-        default: false
-        }
+    /// Thrown by `decide` before its request left the phone: the engine's own size check (`contextTooLong`; an HTTP
+    /// 413 is a `providerError`, because that request was sent) and request validation. Everything else `decide`
+    /// throws counts as sent in the ledger, including a cancellation, so the egress record never under-reports.
+    private static func isRefusedBeforeSending(_ error: Error) -> Bool {
+        if error is DecisionRequestError { return true }
+        if case .contextTooLong? = error as? LanguageModelError { return true }
+        return false
+    }
+
+    /// The ledger's `errorType` for a refusal.
+    static func ledgerLabel(_ refusal: DecisionOutcome) -> String {
+        refusal == .blockedClinical ? "clinical_blocked" : "routing_refused"
     }
 }

@@ -60,7 +60,8 @@ struct AskView: View {
                             ExchangeView(
                                 exchange: exchange, seek: seek, retry: { ask(exchange.question) },
                                 listenState: ListenButtonState.of(
-                                    .askAnswer(id: exchange.id), player: environment.voicePlayer),
+                                    .askAnswer(id: exchange.id, transcriptionID: transcription.id),
+                                    player: environment.voicePlayer),
                                 listen: { listen(to: exchange) }
                             )
                             .id(exchange.id)
@@ -103,7 +104,7 @@ struct AskView: View {
     private func listen(to exchange: AskSessionViewModel.Exchange) {
         guard case .answered(let answer) = exchange.run.phase else { return }
         environment.voicePlayer.toggleListening(
-            to: .askAnswer(id: exchange.id),
+            to: .askAnswer(id: exchange.id, transcriptionID: transcription.id),
             privacyClass: transcription.privacyClass.stricter(answer.route.privacyClass)
         ) { answer.text }
     }

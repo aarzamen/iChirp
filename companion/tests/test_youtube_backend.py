@@ -34,7 +34,7 @@ def test_single_video_links_become_canonical(url) -> None:
 
 def test_sanitized_error_drops_prefix_link_and_id() -> None:
     line = "ERROR: [youtube] abcdefghijk: Requested format is not available. See https://github.com/yt-dlp/x"
-    assert sanitized_error(line, CANONICAL) == "Requested format is not available. See"
+    assert sanitized_error(line, CANONICAL) == "Requested format is not available."
     assert sanitized_error("", CANONICAL) == "yt-dlp could not download this video."
 
 
@@ -147,3 +147,14 @@ def test_no_file_is_502(fake_ydl, tmp_path) -> None:
 def test_unsupported_link_error_type() -> None:
     with pytest.raises(UnsupportedLink):
         canonical_video_url("https://example.com")
+
+
+def test_without_a_javascript_runtime_youtube_is_off_with_the_reason() -> None:
+    # Review L1 M5: yt-dlp needs deno for YouTube; without it every fetch would fail, so health says so up front.
+    missing = YtDlpBackend(find_executable=lambda name: None)
+    assert missing.is_available() is False
+    reason = missing.unavailable_reason()
+    assert reason is not None and "deno" in reason and "brew install deno" in reason
+    ready = YtDlpBackend(find_executable=lambda name: f"/opt/homebrew/bin/{name}")
+    assert ready.is_available() is True
+    assert ready.unavailable_reason() is None

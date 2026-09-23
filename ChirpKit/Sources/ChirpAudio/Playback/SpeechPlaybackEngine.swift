@@ -68,15 +68,24 @@ public final class SpeechPlaybackEngine: SpeechAudioPlaying {
     /// The current utterance's temporary folder, if any.
     public var currentTemporaryDirectory: URL? { utteranceDirectory }
 
+    /// Whether the output engine runs (tests: it must not while a paused reading waits).
+    var isEngineRunning: Bool { engine.isRunning }
+
     // MARK: - SpeechAudioPlaying
 
     public func beginUtterance() throws {
         stop()
-        try session.activate(for: .playback)
-        holdsSession = true
+        // The folder first: a failure here must not leave the playback session held (review L2 M6).
         let directory = temporaryRoot.appendingPathComponent(
             Self.temporaryPrefix + UUID().uuidString.lowercased(), isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            try session.activate(for: .playback)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+        holdsSession = true
         utteranceDirectory = directory
         isUtteranceActive = true
         isPaused = false
@@ -93,7 +102,8 @@ public final class SpeechPlaybackEngine: SpeechAudioPlaying {
         let isUtteranceStart = utteranceFormat == nil
         if isUtteranceStart {
             utteranceFormat = file.processingFormat
-            try startEngine(format: file.processingFormat)
+            // While paused (recording pre-empted the reading), connect but do not start: Resume starts the engine.
+            try startEngine(format: file.processingFormat, running: !isPaused)
         }
         let chunk = ScheduledChunk(
             index: index, url: url, file: file, pauseAfterMs: pauseAfterMs, isFinal: isFinal)
@@ -145,13 +155,13 @@ public final class SpeechPlaybackEngine: SpeechAudioPlaying {
 
     // MARK: - Engine
 
-    private func startEngine(format: AVAudioFormat) throws {
+    private func startEngine(format: AVAudioFormat, running: Bool = true) throws {
         if !nodesAttached {
             engine.attach(player)
             nodesAttached = true
         }
         engine.connect(player, to: engine.mainMixerNode, format: format)
-        if !engine.isRunning { try engine.start() }
+        if running, !engine.isRunning { try engine.start() }
     }
 
     private func schedule(_ chunk: ScheduledChunk) {

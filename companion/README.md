@@ -27,8 +27,11 @@ It prints something like:
     URL:           http://your-mac.local:8765
     Host:          your-mac.local
     Port:          8765
-    Pairing token: <43 characters>
+    Pairing token: <43 characters>   (new)
 ```
+
+The token is printed only when it is first created; later starts say "unchanged" (add `--show-token` to print it
+again), so a log you redirect to a file does not collect it at every start.
 
 Other commands: `scripts/companion.sh --list-models` (which voices are ready), `--port 8766` (another port),
 `--host 127.0.0.1` (this Mac only, e.g. for the iPhone Simulator), `--token-file <path>` (another token, e.g. a
@@ -37,12 +40,14 @@ throwaway one for testing),
 also run `uv sync --project companion --extra kokoro` for its phonemizer).
 
 Needs: `uv` (`brew install uv`), `ffmpeg` for MP3 answers (`brew install ffmpeg`; WAV works without it), and a
-JavaScript runtime for yt-dlp's YouTube support (`brew install deno`).
+JavaScript runtime for yt-dlp's YouTube support (`brew install deno`). Without deno the health check reports
+`youtubeAudio: false` with that reason (`youtube.reason`), and YouTube requests answer 503 with it.
 
 ## Pair the iPhone
 
 1. On the iPhone: **Settings → Mac companion**. Enter the host (`your-mac.local`, or the Mac's IP address), the port
-   and the pairing token exactly as printed. The token goes into the iPhone's Keychain.
+   and the pairing token exactly as printed. The token goes into the iPhone's Keychain. The phone accepts only a
+   home-network address (a `.local` name or a private IP): the companion speaks plain http.
 2. Tap **Test connection**: it shows the companion's version and what it can do.
 3. **Trusted for clinical text** (off by default): turn it on only if this Mac is yours and stays on your home
    network. Only then may clinical text be spoken by this Mac's voices without asking each time.
@@ -58,8 +63,12 @@ with a new token, stop the companion, delete that file, start it, and enter the 
 - **Logs** one line per request: method, the endpoint (unknown paths show as `other`), status, bytes in and out,
   milliseconds. Model loads log the model id and time; speech logs the character count and audio length. Never the
   text, the voice input, a link, a title or the token. The log goes to the terminal only, not to a file.
-- **Network**: it listens on the address you start it with (default `0.0.0.0`, your home network). It calls out only
-  to YouTube (yt-dlp, when the phone asks for a video's audio) and to Hugging Face (only when you run `--download`).
+- **Network**: it listens on the address you start it with (default `0.0.0.0`: every network this Mac joins, which
+  the banner says; on a café or hospital network stop it, or start it with `--host <home IP>`). It calls out only to
+  YouTube (yt-dlp, when the phone asks for a video's audio) and to Hugging Face (only when you run `--download`;
+  serving sets `HF_HUB_OFFLINE=1`, and Kokoro's voices load from the model folder by path).
+- **Terminal output of the voice libraries** is silenced while speech is generated (mlx-audio's Kokoro pipeline and
+  its phonemizer print phoneme strings, which spell out the text), and third-party log lines go nowhere.
   A speech request never downloads a model: if one is missing, the phone gets a message naming the command.
 
 ## Endpoints

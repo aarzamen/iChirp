@@ -282,7 +282,7 @@ target `ChirpEngineJevTests`.
   comment saying Step 7 sets them from the calibration table. The outcome carries the label, the confidence, the
   full probabilities and the gate verdict; the UI never hides the verdict.
 - Consequences of a decision are suggestions, never actions: `recordingKind == clinical_encounter` at `suggest` or
-  better offers "Mark as clinical?" (the existing `setPrivacyClass` path; never automatic, never a downgrade, ADR-002);
+  better (review round 1, L4 M8: at any confidence, since a raise is always safe) offers "Mark as clinical?" (the existing `setPrivacyClass` path; never automatic, never a downgrade, ADR-002);
   `templateSuggestion` pre-selects a template in the Transform sheet; `paragraphTags` shows chips in the Transcript
   view for this session only (not persisted).
 - `JevSettingsStore` (UserDefaults): `isEnabled: Bool`, `model: String` (default `jev-1.13.0`), `baseURL` (default
@@ -445,6 +445,14 @@ All must hold:
 - [ ] Contract, ADR-013, spec/08, spec/12, `THIRD_PARTY_LICENSES.md`, module READMEs, QA guide and both boards updated
 - [ ] No simulated progress or placeholder that pretends to work
 - [ ] `scripts/scan_secrets.sh` clean; `git status` shows only in-scope files changed; everything committed; nothing pushed
+
+## Review round 1 (`fix/review-round-1`, 2026-09-22)
+
+Fixed from the independent review (`.superpowers/sdd/milestones/l4-jev-review.md`): one effective privacy class (a
+transcript with a clinical deliverable is clinical for Jev, Transform, Ask and Listen; M1); the pre-send re-check is
+tested and a deleted transcript is never sent (M2); the ledger's sent flag and labels are exact, and an HTTP 413 is a
+`providerError` (M3); routing comes before the key read (M4); bodies are capped as they arrive (M5); the sheet's sent
+note (M6); stale badge and typed key (M7); Mark as clinical at any confidence (M8); spec/12 headers (M9).
 
 ## STOP conditions
 

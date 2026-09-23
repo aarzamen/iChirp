@@ -401,8 +401,8 @@ Each recipe on a Personal item (import `synthetic-meeting.m4a` and open it)
       opens Transform with "Suggested by Jev" at the top (nothing runs until you tap it).
 - [ ] **Jev → Tag paragraphs**: "N paragraphs tagged", each with its label and bars; **Show tags** puts small chips
       ("Action item", "Decision"…) on those paragraphs. Leave the transcript and come back: the chips are gone.
-- [ ] Classify the M4 `synthetic-visit.m4a` while it is **Personal**: if Jev says "Clinical encounter" (Likely or
-      better), **Mark as clinical…** asks first, then the privacy chip turns Clinical.
+- [ ] Classify the M4 `synthetic-visit.m4a` while it is **Personal**: if Jev's top choice is "Clinical encounter"
+      (any confidence, the verdict shown), **Mark as clinical…** asks first, then the privacy chip turns Clinical.
 
 Clinical items
 - [ ] On a **Clinical** item, Jev's menu shows "Jev is a cloud service; clinical items stay on this iPhone." and
@@ -498,7 +498,11 @@ Screenshots to attach
 - [ ] Settings → Voices (companion Ready with voices; Grok with the key saved); the now-playing bar; the clinical
       voice question.
 
-Simulator tour (agents; synthetic stubs, no Mac companion needed):
+Simulator tour (agents; synthetic stubs, no Mac companion needed). The tour's DEBUG launch arguments
+(`-ChirpQACompanionHost 127.0.0.1 -ChirpQACompanionPort 8799 -ChirpQACompanionToken synthetic-qa-token`,
+`App/Sources/Voice/CompanionDebugLaunch.swift`) point the voices at the stub for that run only and write nothing, so
+Settings → Mac companion keeps the saved companion. Keep the simulator build signed (no `CODE_SIGNING_ALLOWED=NO`):
+the clinical steps read Keychain items, which an unsigned build cannot (`-34018`).
 
 ```bash
 cd /Users/ama/Documents/GitHub/iChirp

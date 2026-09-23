@@ -40,18 +40,28 @@ Before any engine processes an item, the caller asks
   address (`.local`, `.home.arpa`, `.internal`, `.lan`, private or link-local IP); anything else is `cloud`, and a
   cloud host can never be trusted. Cloud providers must use HTTPS. The HTTP engine refuses every redirect, so a
   trusted LAN host cannot forward a clinical request elsewhere, and keeps no URL cache.
-- **Routing is re-checked before every model call** of a run (long transcripts make several), against the class
-  stored at that moment and the trust settings as they are then. Running the SOAP note template routes as clinical.
+- **One effective class per transcript.** Every router uses `EffectivePrivacyClass`: the stricter of the
+  transcript's own class and the class of every deliverable made from it. A personal transcript that already has a
+  clinical deliverable (a SOAP note) is routed as clinical by Transform, Ask, Jev and Listen. Lowering the
+  transcript's class does not lower it while that deliverable exists (deliverables are never lowered).
+- **Routing is re-checked before every model call** of a run (long transcripts make several), against the effective
+  class stored at that moment and the trust settings as they are then. Running the SOAP note template routes as
+  clinical.
 - **Jev is cloud-only** and, in M6a, **never receives a clinical item, not even with a per-run override**
-  (`DecisionService` refuses it and writes a `refused` ledger row; [ADR-013](adr/013-jev-decision-model.md)).
+  (`DecisionService` refuses it before reading the key and writes a `refused` ledger row, and checks the effective
+  class again just before sending; [ADR-013](adr/013-jev-decision-model.md)).
 - Speech engines follow the same rule. Every speech engine planned through M8 is on-device.
-- **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first and every later chunk of a reading:
-  clinical text may go to the Mac companion only when the owner marked that Mac trusted (and its address is on the
-  home network: `CompanionEndpoint.locality` makes any other address `cloud`); Grok voices (xAI, cloud) and an
-  untrusted Mac need the per-reading confirmation "Read this clinical text aloud with <voice>?", whose Read aloud
-  button is the only caller of `VoicePlayer.confirmPendingSpeech()` (enforced by `AppTests/VoiceListenTests`). It
-  covers that reading's engine, locality and host only and is never remembered; declining sends nothing. The voice
-  engines refuse every redirect, and one reading stays pinned to the companion address routing approved.
+- **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first chunk, every later chunk and every
+  retry of a reading, with the item's effective class **as stored at that moment** (marking a transcript clinical
+  while it is read, or making a clinical deliverable from it, counts at the next chunk; a reading's class only
+  rises): clinical text may go to the Mac companion only when the owner marked that Mac trusted in Settings → Mac
+  companion (hosts trusted for language models in Settings → Models do not count for voices); Grok voices (xAI,
+  cloud) and an untrusted Mac need the per-reading confirmation "Read this clinical text aloud with <voice>?", whose
+  Read aloud button is the only caller of `VoicePlayer.confirmPendingSpeech(requestID:)` (enforced by
+  `AppTests/VoiceListenTests`) and confirms only the question it showed. When the class rises or the Mac loses its
+  trust mid-reading, the audio stops before the next chunk is sent and the question is asked again. A confirmation
+  covers that reading's engine, locality, host and class only and is never remembered; declining sends nothing. The
+  voice engines refuse every redirect, and one reading stays pinned to the companion address routing approved.
 
 ## Network surfaces
 
@@ -60,16 +70,16 @@ Before any engine processes an item, the caller asks
 | Model downloads (Parakeet, diarizer) from Hugging Face | User taps Download in Settings (or the DEBUG smoke runner) | HTTP requests for model files; no user content | M1 |
 | Podcast lookup and media downloads | User pastes a link and taps Transcribe, or taps Retry | Apple Podcasts: the show id to `itunes.apple.com/lookup` (and, for an older episode, a GET of the show's RSS feed); feeds: a GET of the feed; other web links: a HEAD (or one-byte GET) to learn the content type; then a GET of the audio/video file (with `Range` on a resume). A fixed `Parakeet/1.0` user agent; no cookies kept; **no user content** | M5 (built) |
 | YouTube captions | User pastes a YouTube link and taps Transcribe | The video id: a GET of the watch page, a POST to YouTube's player API (`{"context": {"client": ANDROID}, "videoId": …}`), a GET of the caption track. A consent cookie only on that one retried request; nothing stored; **no user content** | M5 (built) |
-| YouTube audio (through the Mac companion) | A video has no usable captions, a companion is set up, the user taps "Get the audio from your Mac" and confirms (once per link), or taps Retry | **Only the link**, to the companion on the owner's Mac (`POST /v1/youtube/audio`, Bearer pairing token, plain http on the home network, redirects refused); the Mac's yt-dlp fetches the audio from YouTube and streams it back; the Mac stores nothing and logs no link or title | Plan 019 (built) |
-| Mac companion "Test connection" (Settings → Mac companion) | User taps Test connection | `GET /v1/companion` without the token, then `GET /v1/voices` with it; **no user content** | Plan 019 (built) |
+| YouTube audio (through the Mac companion) | A video has no usable captions, a companion is set up, the user taps "Get the audio from your Mac" and confirms (once per link), or taps Retry (which asks again when the companion is not the Mac the link was confirmed for in this launch) | **Only the video's canonical link** `https://www.youtube.com/watch?v=<id>`, rebuilt from the validated id (share parameters such as `si=` and `list=` never leave the phone), to the companion on the owner's Mac (`POST /v1/youtube/audio`, Bearer pairing token, plain http on the home network, redirects refused); the Mac's yt-dlp fetches the audio from YouTube and streams it back; the Mac stores nothing and logs no link or title | Plan 019 (built) |
+| Mac companion "Test connection" (Settings → Mac companion) | User taps Test connection | `GET /v1/companion` without the token, then `GET /v1/voices` with it (the saved token only to the saved address; a typed, unsaved address needs the token typed); home-network addresses only; **no user content** | Plan 019 (built) |
 | Documents (PDF, text, RTF, HTML, DOCX) | User imports or shares a document | **Nothing leaves the iPhone**: PDFKit, Vision OCR and the text readers run on device; HTML images and styles are never fetched | M5 (built) |
 | Cloud language models (Anthropic, OpenAI-compatible, Gemini) | User runs a template or Ask with a cloud provider | Transcript or document **text**, the template and any notes the user typed; **never audio** | M4 |
 | Home-network providers (Ollama, LM Studio) | Same, with a LAN provider | Same, over the local network | M4 |
 | Provider "Test connection" and model list (Settings → Models) | User taps Test or refreshes models | The API key in a header, a one-token "Hi" request, a model-list request; **no user content** | M4 |
 | Apple Foundation Models | User runs a template or Ask with the on-device model | Nothing leaves the iPhone | M4 |
-| Jev (TypeSafe AI, `api.typesafe.ai/v1/systemone`) | Jev is turned on in Settings → Models and the user picks Classify recording, Suggest a template or Tag paragraphs on a general or personal transcript | The API key in a header; **an excerpt of the transcript text of at most 3,000 characters** (cut back to a sentence end; for tags, the first paragraphs with their `p01`… ids under the same limit); the facts `duration_seconds`, `speaker_count`, `paragraph_count` and `source` (audio / document / link); the recipe's question texts and options. **Never audio, titles, notes, or any clinical item** (override or not). Test connection sends only a fixed pangram. Key: Keychain account `structure.provider.jev.api-key` | M6a (built) |
+| Jev (TypeSafe AI, `api.typesafe.ai/v1/systemone`) | Jev is turned on in Settings → Models and the user picks Classify recording, Suggest a template or Tag paragraphs on a general or personal transcript | The API key in a header; **an excerpt of the transcript text of at most 3,000 characters** (cut back to a sentence end; for tags, the first paragraphs with their `p01`… ids under the same limit); the facts `duration_seconds`, `speaker_count`, `paragraph_count` and `source` (audio / document / link); the recipe's question texts and options; plus the request metadata URLSession adds to every request (`User-Agent` with the app's executable name and build number and the CFNetwork and Darwin versions, `Accept-Language` with the device's language list, `Accept-Encoding`), which is no content. **Never audio, titles, notes, or any clinical item** (override or not; a transcript with a clinical deliverable counts as clinical). Test connection sends only a fixed pangram. Key: Keychain account `structure.provider.jev.api-key` | M6a (built) |
 | Grok voices (xAI text to speech) | User taps Listen, Test voice or turns on Speak answers with Grok voices chosen | The text being read, in chunks (≤ 2 500 characters), with the voice id, to `POST https://api.x.ai/v1/tts` (Bearer key); **never audio**; clinical text only after the per-reading confirmation. Check key: `GET /v1/api-key`, no text | Plan 020 (built) |
-| Mac companion voices | Same, with the Mac companion chosen | The text being read, in chunks, to the owner's Mac over the home network (`POST /v1/audio/speech`, pairing token); `GET /v1/companion` (no token, no text) for status, `GET /v1/voices` for the voice list. The companion stores nothing ([mac-companion-v1](contracts/mac-companion-v1.md)) | Plan 020 (built) |
+| Mac companion voices | Same, with the Mac companion chosen | The text being read, in chunks, to the owner's Mac over the home network (`POST /v1/audio/speech`, pairing token; plain http, so an address that is not on the home network is refused before anything is sent, the health check included); `GET /v1/companion` (no token, no text) for status, `GET /v1/voices` for the voice list. The companion stores nothing ([mac-companion-v1](contracts/mac-companion-v1.md)) | Plan 020 (built) |
 | Needle 3 model download from Hugging Face | User taps Download in Settings → Structure models | A GET of the pinned `needle3.cact` (35 MB, SHA-256 checked); no user content | M6 (built) |
 | Needle 3 and the STUB (structure models) | Extract fields, dictation voice commands, Eval | **Nothing leaves the iPhone**: both run on device; clinical items may only reach an `.onDevice` structure engine, and "Use in SOAP note" runs the SOAP template on the Apple on-device model | M6 (built) |
 
@@ -85,6 +95,10 @@ contract that proves no content or identifiers leave the device.
 - The Mac companion's pairing token (plan 019) is a Keychain item too (the same service, account
   `companion.pairing-token`), sent only as `Authorization: Bearer` to the configured companion; its host, port and
   "trusted" flag sit in `UserDefaults` (`ichirp.companion`, tested to hold no token). The form never shows it again.
+  The companion speaks plain http, so it must have a home-network address (`LocalNetworkHost.isLocal`): Settings
+  refuses any other address, and `CompanionClient` and `CompanionVoice` refuse one saved earlier before any request,
+  so neither the token nor text crosses the internet in the clear. The trust is judged by the address form (a
+  `.local` name or a private IP), not by which Wi-Fi the Mac is on.
   "Trusted for clinical text" counts only for a home-network address (`CompanionEndpoint.isTrusted`) and feeds the
   routing policy for text sent to the companion (plan 020's voices); M4's language-model routing is unchanged.
 - Settings → Models never loads a stored key into the form: the key field says "Stored in the Keychain" and a blank

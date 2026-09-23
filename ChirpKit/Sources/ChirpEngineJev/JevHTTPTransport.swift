@@ -1,8 +1,9 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Services/LLM/LLMHTTPTransport.swift @ bbae9e0e
 // Changes: a copy of iChirp's `ChirpEngineHTTPLLM/LLMHTTPTransport.swift` (itself this port), because an engine target
 // depends only on ChirpCore (ADR-004): the same ephemeral, cache-free, cookie-free session and a task delegate that
-// refuses every redirect, with the non-streaming `data(for:)` only. Follow-up: lift one shared transport into
-// ChirpCore instead of two copies. Also here: the key-artifact scrubber from `LLMHTTPErrorMapper.swift`, unchanged.
+// refuses every redirect, with one `data(for:)` that reads the body as it arrives and stops past a byte limit (review L4
+// M5: a huge answer or error body never fills memory). Follow-up: lift one shared transport into ChirpCore instead of
+// two copies. Also here: the key-artifact scrubber from `LLMHTTPErrorMapper.swift`, unchanged.
 
 import ChirpCore
 import Foundation
@@ -30,14 +31,36 @@ struct JevHTTPTransport: Sendable {
         return configuration
     }
 
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let result: (Data, URLResponse)
+    /// The whole body, or `invalidResponse` as soon as it (or its declared length) passes `limit` bytes; the rest is
+    /// never read.
+    func data(for request: URLRequest, limit: Int = JevWire.responseByteLimit) async throws -> (Data, HTTPURLResponse) {
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
         do {
-            result = try await session.data(for: request, delegate: JevRedirectRefuser.shared)
+            (bytes, response) = try await session.bytes(for: request, delegate: JevRedirectRefuser.shared)
         } catch {
             throw Self.map(error)
         }
-        return (result.0, try Self.httpResponse(result.1))
+        let http = try Self.httpResponse(response)
+        if http.expectedContentLength > Int64(limit) {
+            bytes.task.cancel()
+            throw LanguageModelError.invalidResponse
+        }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count > limit {
+                    bytes.task.cancel()
+                    throw LanguageModelError.invalidResponse
+                }
+            }
+        } catch let error as LanguageModelError {
+            throw error
+        } catch {
+            throw Self.map(error)
+        }
+        return (data, http)
     }
 
     /// A refused redirect completes the task with the 3xx response itself; surface it as `redirectRefused`.

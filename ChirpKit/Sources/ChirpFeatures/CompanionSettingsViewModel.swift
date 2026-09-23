@@ -7,7 +7,8 @@ import Observation
 ///
 /// The token field is write-only: a saved token is never read back into it; leaving the field empty keeps the saved
 /// one. Test connection uses what is on screen (saved or not): the health check without the token, then the voices
-/// list with it, which proves the pairing.
+/// list with it, which proves the pairing. The saved token goes only to the saved address; a typed, unsaved address
+/// needs the token typed too (review L1 M3). Only home-network addresses are accepted (`CompanionAddress.parse`).
 @MainActor @Observable public final class CompanionSettingsViewModel {
     public enum TestState: Equatable, Sendable {
         case idle
@@ -78,10 +79,14 @@ import Observation
         try? CompanionAddress.parse(host: host, port: port, trusted: isTrusted)
     }
 
-    /// The host is on the internet, so it can never be trusted with clinical text (the toggle is off and disabled).
+    /// The host is on the internet: it cannot be saved or tested (the trust toggle is off and disabled).
     public var isInternetAddress: Bool {
-        guard let endpoint = formEndpoint else { return false }
-        return endpoint.locality != .localNetwork
+        do {
+            _ = try CompanionAddress.parse(host: host, port: port, trusted: false)
+            return false
+        } catch {
+            return (error as? CompanionAddress.ParseError) == .notHomeNetwork
+        }
     }
 
     /// Saves the form. Returns false (with `errorMessage`) when the form is not valid or the Keychain refused.
@@ -130,11 +135,19 @@ import Observation
             return
         }
         let typed = newToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        let token = typed.isEmpty ? ((try? store.companionPairingToken()) ?? nil) : SecretValue(typed)
+        // The saved token goes only to the saved address: never to a host or port typed but not saved.
+        let saved = store.companionEndpoint()
+        let isSavedAddress = saved?.normalizedHost == endpoint.normalizedHost && saved?.port == endpoint.port
+        let token: SecretValue? =
+            if !typed.isEmpty { SecretValue(typed) } else if isSavedAddress {
+                (try? store.companionPairingToken()) ?? nil
+            } else { nil }
+        let withheld = typed.isEmpty && !isSavedAddress && hasSavedToken
         let client = makeClient(endpoint, token)
         testState = .testing
         testTask = Task { [weak self] in
-            let state = await Self.test(client, hasToken: token.map { !$0.isEmpty } ?? false)
+            let state = await Self.test(
+                client, hasToken: token.map { !$0.isEmpty } ?? false, savedTokenWithheld: withheld)
             guard !Task.isCancelled else { return }
             self?.testState = state
         }
@@ -145,7 +158,9 @@ import Observation
         await testTask?.value
     }
 
-    nonisolated static func test(_ client: CompanionClient, hasToken: Bool) async -> TestState {
+    nonisolated static func test(
+        _ client: CompanionClient, hasToken: Bool, savedTokenWithheld: Bool = false
+    ) async -> TestState {
         let health: CompanionHealth
         do {
             health = try await client.health()
@@ -156,9 +171,16 @@ import Observation
             health.features.speech
                 ? "Voices: " + (health.speech?.models.joined(separator: ", ") ?? "ready")
                 : "Voices: none ready on the Mac yet",
-            health.features.youtubeAudio ? "YouTube audio: ready" : "YouTube audio: not installed on the Mac",
+            health.features.youtubeAudio
+                ? "YouTube audio: ready"
+                : (health.youtube?.reason ?? "YouTube audio: not installed on the Mac"),
         ]
         guard hasToken else {
+            if savedTokenWithheld {
+                return .failed(
+                    "Reached \(health.name) \(health.version) at a new address. Type the pairing token above: Parakeet "
+                        + "sends the saved token only to the saved address.")
+            }
             return .failed("Reached \(health.name) \(health.version), but there is no pairing token. Enter it above.")
         }
         do {

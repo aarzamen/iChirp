@@ -17,6 +17,14 @@ public enum YouTubeURLValidator {
     private static let allowedVideoIDCharacters = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 
+    /// `https://www.youtube.com/watch?v=<id>` for a YouTube video link, rebuilt from its validated id: nothing else of
+    /// the pasted link (share or playlist parameters such as `si=`, `list=`, `t=`) survives. nil when it is not one.
+    /// The only form sent to the Mac companion (review L1 I1), which accepts exactly this.
+    public static func canonicalWatchURL(_ string: String) -> URL? {
+        guard let id = extractVideoID(string) else { return nil }
+        return URL(string: "https://www.youtube.com/watch?v=\(id)")
+    }
+
     /// Whether `string` is a YouTube video link.
     public static func isYouTubeURL(_ string: String) -> Bool {
         extractVideoID(string) != nil

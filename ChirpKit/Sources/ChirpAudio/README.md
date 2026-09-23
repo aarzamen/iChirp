@@ -187,7 +187,10 @@ stall). Resume automatically only on `.shouldResume`. Tests never sleep:
   pre-empts it with `.interruptionBegan`, which pauses the reading (and it
   never resumes by itself, like the transcript `PlayerBar`); unplugged
   headphones pause it too; `stop()` releases the session only if playback
-  still holds it. Chunk files live in `tmp/speech-<utterance id>/` with the
+  still holds it. The utterance's folder is made before the session is taken
+  (a folder failure never holds `.playback`), and a chunk that arrives while
+  the reading is paused is queued without starting the output engine
+  (Resume starts it). Chunk files live in `tmp/speech-<utterance id>/` with the
   provider's extension (`mp3`, `wav`, `m4a`) and are deleted as they finish
   or on stop; stale `speech-*` folders are swept when the engine is made at
   launch. **Dictation and meeting code is not changed by this.**

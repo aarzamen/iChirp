@@ -178,6 +178,61 @@ final class CompanionClientTests: XCTestCase {
         XCTAssertTrue(IngestStubURLProtocol.requests.isEmpty)
     }
 
+    // MARK: - Transport (reviews L2 I2, L1 M7, M8)
+
+    /// The companion speaks plain http: an address off the home network gets neither the token nor the link.
+    func testAnAddressOffTheHomeNetworkFailsBeforeAnyRequest() async {
+        IngestStubURLProtocol.reset { _ in .text(Self.healthJSON) }
+        for host in ["203.0.113.7", "mac.example.com"] {
+            let remote = CompanionClient(endpoint: CompanionEndpoint(host: host), token: token) {
+                IngestStubURLProtocol.configuration()
+            }
+            await assertThrows(CompanionError.notHomeNetwork) { _ = try await remote.health() }
+            await assertThrows(CompanionError.notHomeNetwork) { _ = try await remote.voices() }
+            await assertThrows(CompanionError.notHomeNetwork) {
+                _ = try await remote.youtubeAudio(url: self.link, into: self.directory, fileStem: "source") { _ in }
+            }
+        }
+        XCTAssertTrue(IngestStubURLProtocol.requests.isEmpty, "nothing left the phone")
+        XCTAssertTrue(CompanionError.notHomeNetwork.errorDescription?.contains("home network") == true)
+    }
+
+    func testAnAnswerThatIsNotAudioIsNotSaved() async {
+        IngestStubURLProtocol.reset { _ in .text("<html>router login</html>", contentType: "text/html") }
+        await assertThrows(CompanionError.notAudio) {
+            _ = try await self.client().youtubeAudio(url: self.link, into: self.directory, fileStem: "source") { _ in }
+        }
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        XCTAssertEqual(leftovers, [], "the page is not kept as source audio")
+    }
+
+    func testTheCompanionsErrorSentenceIsCapped() async {
+        let long = String(repeating: "Synthetic words. ", count: 400)
+        IngestStubURLProtocol.reset { _ in
+            .text(
+                #"{"error": {"code": "youtube_failed", "message": "\#(long)"}}"#, status: 502,
+                contentType: "application/json")
+        }
+        do {
+            _ = try await client().youtubeAudio(url: link, into: directory, fileStem: "source") { _ in }
+            XCTFail("expected an error")
+        } catch let error as CompanionError {
+            XCTAssertLessThanOrEqual(error.errorDescription?.count ?? 0, 301)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+    }
+
+    func testPlainHTTPBlockedByIOSSaysWhichAddressFormsWork() {
+        let error = CompanionClient.mapped(URLError(.appTransportSecurityRequiresSecureConnection), host: "studio.lan")
+        XCTAssertEqual(error as? CompanionError, .insecureAddressBlocked(host: "studio.lan"))
+        XCTAssertTrue(
+            CompanionError.insecureAddressBlocked(host: "studio.lan").errorDescription?.contains(".local") == true)
+        XCTAssertTrue(
+            CompanionError.unreachable(host: "studio.local").errorDescription?.contains("Local Network") == true,
+            "a denied Local Network permission looks the same, so the sentence names it")
+    }
+
     // MARK: - Helpers
 
     private func assertThrows(

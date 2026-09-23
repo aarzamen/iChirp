@@ -20,6 +20,8 @@ final class RecordingDecisionModel: DecisionModel {
     let endpointHost: String?
     private let hasKey: Bool
     private let state = Mutex<(requests: [DecisionRequest], script: Script)>(([], Script()))
+    /// Runs inside `availability()`, i.e. after the service's first read and before its last check before sending.
+    private let availabilityHook = Mutex<(@Sendable () async -> Void)?>(nil)
 
     init(host: String = "api.typesafe.ai", hasKey: Bool = true) {
         endpointHost = host
@@ -30,8 +32,13 @@ final class RecordingDecisionModel: DecisionModel {
     var callCount: Int { requests.count }
     func script(_ change: (inout Script) -> Void) { state.withLock { change(&$0.script) } }
 
+    func beforeAvailability(_ body: @escaping @Sendable () async -> Void) {
+        availabilityHook.withLock { $0 = body }
+    }
+
     func availability() async -> LanguageModelAvailability {
-        hasKey ? .available : .unavailable(.notConfigured("add a Jev API key in Settings → Models"))
+        if let hook = availabilityHook.withLock({ $0 }) { await hook() }
+        return hasKey ? .available : .unavailable(.notConfigured("add a Jev API key in Settings → Models"))
     }
 
     func decide(_ request: DecisionRequest) async throws -> DecisionResult {
@@ -81,11 +88,16 @@ final class RecordingDecisionFactory: DecisionModelFactory {
 
 /// In-memory `JevSettingsStoring`.
 final class InMemoryJevSettings: JevSettingsStoring {
-    private let state: Mutex<(settings: JevSettings, key: SecretValue?)>
+    struct KeychainFailure: Error {}
 
-    init(enabled: Bool = true, key: SecretValue? = SecretValue("ts-synthetic-key-0000")) {
-        state = Mutex((JevSettings(isEnabled: enabled), key))
+    private let state: Mutex<(settings: JevSettings, key: SecretValue?, reads: Int, failing: Bool)>
+
+    init(enabled: Bool = true, key: SecretValue? = SecretValue("ts-synthetic-key-0000"), keychainFails: Bool = false) {
+        state = Mutex((JevSettings(isEnabled: enabled), key, 0, keychainFails))
     }
+
+    /// How many times the key was read from the "Keychain".
+    var keyReads: Int { state.withLock { $0.reads } }
 
     func load() -> JevSettings { state.withLock { $0.settings } }
 
@@ -100,5 +112,11 @@ final class InMemoryJevSettings: JevSettingsStoring {
         }
     }
 
-    func apiKey() throws -> SecretValue? { state.withLock { $0.key } }
+    func apiKey() throws -> SecretValue? {
+        try state.withLock {
+            $0.reads += 1
+            if $0.failing { throw KeychainFailure() }
+            return $0.key
+        }
+    }
 }

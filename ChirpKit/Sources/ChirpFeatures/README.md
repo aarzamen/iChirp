@@ -57,16 +57,17 @@ pipeline's `Task`s and publishes its progress to the UI.
   (`phase == .failed`) with no row created. `reset()` clears it for another link. Plan 019: when captions are missing
   (or YouTube refuses them) and a Mac companion is set up, `phase == .companionOffer(reason)`; the person confirms
   once per link (`needsCompanionConfirmation`, `confirmCompanion()`) and `getAudioFromMac()` starts a `.companion`
-  job. Without a companion the failure says how to set one up.
+  job. Without a companion the failure keeps the captions error's own advice (try again later, share the file) and
+  adds how to set one up.
 - `CompanionSettingsStore.swift` (plan 019): Settings → Mac companion. Host, port and the trusted flag in
   `UserDefaults` (`ichirp.companion`); the pairing token only in `SecretStoring` (`companion.pairing-token`). It is
   **the concrete `CompanionConfiguration`** (ChirpCore) that plan 020's voices read, makes the `CompanionClient`
   (`makeClient()`), and adds a trusted home-network companion to a routing policy (`routingPolicy(adding:)`); M4's
   language-model routing is unchanged. `CompanionAddress.parse` reads "host", "host:port" or a pasted
-  `http://host:port/…`.
+  `http://host:port/…`, and refuses an address that is not on the home network (`notHomeNetwork`).
 - `CompanionSettingsViewModel.swift` (plan 019): the Mac companion form. The token field is write-only (empty keeps the
-  saved token); an internet address cannot be trusted; Test connection checks health without the token and the voices
-  list with it (`testState`).
+  saved token); an internet address can be neither saved nor tested; Test connection checks health without the token
+  and the voices list with it (`testState`), sending the saved token only to the saved address.
 - `IncomingFileInbox.swift` also answers `kind(of:)` (M5): documents (and any other plain text) versus media, for
   routing a shared file.
 - `LinkIngestService.swift` (M5): links. `resolve(_:)` turns a `LinkKind` into a `ResolvedLink` on the person's tap
@@ -78,8 +79,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
   pipeline then runs unchanged. Downloads never hold a speech-scheduler slot. Plan 019: `LinkMediaSource.transport`
   (`.direct` / `.companion`), `download(id:source:)` dispatches on it, and `downloadFromCompanion(id:link:)` sends only
-  the YouTube link to the Mac companion (`CompanionAudioFetching`, injected as a closure read at each use) and records
-  the returned `source.m4a` with the video's title and duration; Retry of a YouTube row asks the companion again.
+  the canonical `https://www.youtube.com/watch?v=<id>` (rebuilt from the validated id; share parameters never leave
+  the phone) to the Mac companion (`CompanionAudioFetching`, injected as a closure read at each use) and records the
+  returned `source.m4a` with the video's title and duration. Retry of a YouTube row asks the companion again only
+  while it is the companion the link was confirmed for in this launch (`companionRetryConfirmationHost(id:)` tells
+  the app to ask first; `confirmCompanionRetry(id:)` records the answer; otherwise the row fails
+  `companionNotConfirmed` and nothing is sent).
 - `BackgroundContinuation.swift` (M1.5): the bridge between a user action's work and the system's continued-processing
   task. `ContinuedProcessingScheduling` (submit / withdraw) and `ContinuedProcessingTask` (progress, expiration,
   title, completion) are the two protocols the app implements over `BackgroundTasks`
@@ -133,7 +138,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   `PrivacyOverride` bound to that transcript, engine, host, locality and class (10-minute lifetime);
   `generate(templateID:transcriptionID:userNotes:model:override:)` and `ask(question:…)` stream
   `DeliverableRunEvent`s; `setPrivacyClass(_:transcriptionID:)` sets a transcript's class and raises (never lowers)
-  its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`.
+  its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`. Routes (first check and every
+  later call) use the transcript's `EffectivePrivacyClass`.
+- `EffectivePrivacyClass.swift`: **the one rule for how private a transcript's content is** when it may leave the
+  phone: the stricter of the transcript's class and every deliverable made from it (a personal transcript with a
+  clinical SOAP note is clinical; review L4 M1). `DeliverableService`, `DecisionService` and `VoicePlayer`'s class
+  provider read it as stored at each check.
 - `MapReduceGenerator.swift`: `DeliverablePromptAssembler` (tagged source blocks, `{{transcript}}` /
   `{{userNotes}}` placement, Ask citation rules), `GenerationBudget` (from the engine's context window: a quarter
   reserved for output, 3 characters per token, 10% margin) and `MapReduceGenerator` (one call when it fits;
@@ -207,11 +217,20 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   dictation "read back" (`speak(text:privacyClass:source:)`), ported from Readback's `SynthQueue`. States `idle`,
   `preparing`, `needsConfirmation`, `speaking(chunk, of)`, `paused`, `failed` (with `retry()` from the failed
   chunk). One synthesis at a time, exactly one chunk ahead of the one playing; transient errors retried twice.
-  **Routing:** `availability()` first (sends no text), then `PrivacyRoutingPolicy` before the first and every later
-  chunk; clinical text to a cloud voice or an untrusted Mac waits in `.needsConfirmation` (`VoiceConfirmationRequest`,
-  "Read this clinical text aloud with Grok voices?") until `confirmPendingSpeech()` (the dialog's Read aloud button
-  only) or `declinePendingSpeech()`; the confirmation covers that utterance's engine, locality and host only.
-  `VoiceSource` names what is read (logs carry its kind, engine id, class and counts, never text).
+  **Routing:** `availability()` first (sends no text), then `PrivacyRoutingPolicy` before the first chunk, every
+  later chunk and every retry, with the class **as stored at that moment**: the injected `currentPrivacyClass`
+  provider (the app passes `VoiceSourcePrivacy.current(for:…)`, the `EffectivePrivacyClass` rule) raises, never
+  lowers, the class the reading started with. Clinical text to a cloud voice or an untrusted Mac waits in
+  `.needsConfirmation` (`VoiceConfirmationRequest`, "Read this clinical text aloud with Grok voices?") until
+  `confirmPendingSpeech(requestID:)` (the dialog's Read aloud button only, for the question it showed) or
+  `declinePendingSpeech()`; when the class rises (or the Mac loses its trust) mid-reading, the audio stops before the
+  next chunk is sent and the question is asked, and Read aloud resumes at the chunk that was playing. The confirmation
+  covers that utterance's engine, locality, host and class only. `canRetry` is false for a failure with nothing to
+  retry. `VoiceSource` names what is read (an Ask answer carries its transcript's id; logs carry its kind, engine id,
+  class and counts, never text). `VoiceSourcePrivacy` maps a source to its stored class (`.clinical` when the store
+  cannot be read). `VoicePlayer.routingPolicy(companion:)` is the voices' policy: only the companion's own trust
+  counts, never a host trusted in Settings → Models. `companionTokenRejected` is the one sentence for a companion
+  401, in the player and in Settings → Voices.
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link
@@ -412,11 +431,13 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
 - `DecisionService.swift`: **the only path from a transcript to a `DecisionModel`** (contract
   `spec/contracts/decision-model-plugin-v1.md`; `DecisionServiceTests.testOnlyDecisionServiceCallsDecide` scans
   ChirpFeatures and `App/Sources` for other `.decide(` calls). `run(recipe:transcriptionID:)`: Jev off →
-  `DecisionError.disabled` (no row); load the transcript; **a clinical item returns `.blockedClinical` with a
-  `refused` ledger row and nothing sent** (no override for decision engines in v1), and a routing-policy refusal
-  returns `.blockedByRouting` the same way; window; no key → `missingKey`; one `decide` after re-reading the class as
-  stored now; the gate; one metadata-only `llm_runs` row (`feature = decision`, `engineId = http.jev`, excerpt length,
-  the provider's token counts, `callCount` 1, or 0 when nothing was sent) whatever the outcome.
+  `DecisionError.disabled` (no row); load the transcript; route with its `EffectivePrivacyClass`: **a clinical item
+  returns `.blockedClinical` with a `refused` ledger row, no key read and nothing sent** (no override for decision
+  engines in v1), and a routing-policy refusal returns `.blockedByRouting` the same way (`routing_refused`); window;
+  read the key (a Keychain error or no key → a `failed` row); one `decide` after re-reading the effective class as
+  stored now (a deleted transcript → `transcriptNotFound`, nothing sent); the gate; one metadata-only `llm_runs` row
+  (`feature = decision`, `engineId = http.jev`, excerpt length, the provider's token counts, `callCount` 1 once
+  `decide` was called except for its pre-send size check, else 0) whatever the outcome.
 - `DecisionInputWindow.swift`: `excerpt` (the first 3,000 characters cut back to a sentence end, or to a space when
   the only sentence end is in the first third), `paragraphs(of:)` (the Transcript screen's paragraphs),
   `paragraphExcerpt` (`p01: …` lines for at most 12 paragraphs, fewer when they are long) and content-free `facts`
@@ -434,8 +455,11 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `DecisionModelFactory` (the app's `AppDecisionModelFactory` is the only importer of `ChirpEngineJev`).
 - `JevSettingsViewModel.swift`: Settings → Models → Decision models (`setEnabled`, `saveKey`, `testConnection`,
   `isMenuVisible`). `keyText` always starts empty and a blank field keeps the stored key; the key itself never enters
-  the view model. `DecisionRunViewModel.swift`: one decision for the result sheet (`running` → `decided` / `blocked` /
-  `failed` with Retry; `cancel()` when the sheet closes). App tests: `AppTests/DecisionModelAppTests`.
+  the view model; `refresh()` also clears the last check, and `discardTypedKey()` (the sheet closed without saving)
+  forgets a typed key. `DecisionRunViewModel.swift`: one decision for the result sheet (`running` → `decided` /
+  `blocked` / `failed` with Retry; `cancel()` when the sheet closes); `failedAfterSending` tells the sheet whether an
+  excerpt may have left the phone before the error. `DecisionReport.suggestsMarkingClinical` offers the raise whenever
+  "clinical encounter" is Jev's top choice, at any confidence. App tests: `AppTests/DecisionModelAppTests`.
 
 ## How to verify
 

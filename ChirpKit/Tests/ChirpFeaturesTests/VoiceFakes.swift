@@ -21,7 +21,10 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         var failures: [String: [SpeechSynthesisError]] = [:]
         var gates: [CheckedContinuation<Void, Error>] = []
         var voices: [SynthesisVoice] = []
+        var voicesError: SpeechSynthesisError?
         var availabilityChecks = 0
+        /// Runs at the start of every `synthesize` call with its 1-based number (before any scripted failure).
+        var onCall: (@Sendable (Int) -> Void)?
     }
 
     private let state: Mutex<State>
@@ -61,6 +64,11 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         state.withLock { $0.failures[text] = errors }
     }
 
+    /// Runs `body` at the start of every `synthesize` call with its 1-based number.
+    func onEachCall(_ body: @escaping @Sendable (Int) -> Void) {
+        state.withLock { $0.onCall = body }
+    }
+
     /// Lets the oldest waiting call finish.
     func releaseNext() {
         let gate = state.withLock { $0.gates.isEmpty ? nil : $0.gates.removeFirst() }
@@ -74,18 +82,28 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         }
     }
 
-    func voices() async throws -> [SynthesisVoice] { state.withLock { $0.voices } }
+    func voices() async throws -> [SynthesisVoice] {
+        let (voices, error) = state.withLock { ($0.voices, $0.voicesError) }
+        if let error { throw error }
+        return voices
+    }
+
+    func failVoices(with error: SpeechSynthesisError?) {
+        state.withLock { $0.voicesError = error }
+    }
 
     func synthesize(_ request: SynthesisRequest) async throws -> SynthesizedAudio {
-        let (mode, failure) = state.withLock { state -> (Mode, SpeechSynthesisError?) in
+        let (mode, failure, hook, number) = state.withLock {
+            state -> (Mode, SpeechSynthesisError?, (@Sendable (Int) -> Void)?, Int) in
             state.requests.append(request)
             var failure: SpeechSynthesisError?
             if var queue = state.failures[request.text], !queue.isEmpty {
                 failure = queue.removeFirst()
                 state.failures[request.text] = queue
             }
-            return (state.mode, failure)
+            return (state.mode, failure, state.onCall, state.requests.count)
         }
+        hook?(number)
         if let failure { throw failure }
         if mode == .gated {
             try await withTaskCancellationHandler {
@@ -182,6 +200,20 @@ final class RoutingBox: Sendable {
     }
 
     var policy: PrivacyRoutingPolicy {
+        get { value.withLock { $0 } }
+        set { value.withLock { $0 = newValue } }
+    }
+}
+
+/// The item's privacy class as stored "now", which the test can change while a reading runs.
+final class ClassBox: Sendable {
+    private let value: Mutex<PrivacyClass?>
+
+    init(_ privacyClass: PrivacyClass? = nil) {
+        value = Mutex(privacyClass)
+    }
+
+    var current: PrivacyClass? {
         get { value.withLock { $0 } }
         set { value.withLock { $0 = newValue } }
     }

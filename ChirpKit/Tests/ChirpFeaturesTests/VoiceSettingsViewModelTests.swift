@@ -19,7 +19,7 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         let output = FakeSpeechPlayer()
         let player = VoicePlayer(
             player: output, selection: { try store.load().selection(engines: engines) },
-            routingPolicy: { PrivacyRoutingPolicy() }, retryDelays: [])
+            routingPolicy: { PrivacyRoutingPolicy() }, currentPrivacyClass: { _ in nil }, retryDelays: [])
         let model = VoiceSettingsViewModel(
             store: store, secrets: secrets, engines: engines, player: player, stockXAIVoices: stock)
         return (model, store, engines, output)
@@ -55,6 +55,16 @@ final class VoiceSettingsViewModelTests: XCTestCase {
         model.chooseCompanionVoice(heart.id)
         XCTAssertEqual(model.summary, "Mac companion · Heart")
         XCTAssertTrue(engines.companion.requests.isEmpty, "Settings sends no text")
+    }
+
+    /// Review L2 M4: a companion that refuses the pairing token points at Settings → Mac companion, not at the xAI key.
+    func testACompanionTokenRejectionPointsAtMacCompanionSettings() async {
+        let engines = FakeVoiceEngines()
+        engines.companion.failVoices(with: .unauthorized)
+        let (model, _, _, _) = make(VoiceSettings(provider: .companion), engines: engines)
+        await model.refresh()
+        XCTAssertEqual(model.companionState, .unavailable(VoicePlayer.companionTokenRejected))
+        XCTAssertTrue(VoicePlayer.companionTokenRejected.contains("Settings → Mac companion"))
     }
 
     func testCompanionNotSetUpOrUnreachableIsShownAsIs() async {

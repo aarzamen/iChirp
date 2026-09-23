@@ -25,14 +25,15 @@ enum VoiceStatus {
 
 /// What the voice confirmation's two buttons do (plan 020, the M4 pattern).
 ///
-/// **`userTappedReadAloud()` is the only app code that calls `confirmPendingSpeech()`, and the dialog's Read aloud
-/// button below is its only caller.** `AppTests/VoiceConfirmationTests` scans `App/Sources` for both rules.
+/// **`userTappedReadAloud(_:)` is the only app code that calls `confirmPendingSpeech(requestID:)`, and the dialog's
+/// Read aloud button below is its only caller.** `AppTests/VoiceListenTests` scans `App/Sources` for both rules.
 @MainActor struct VoiceConfirmationActions {
     let player: VoicePlayer
 
-    /// The user tapped Read aloud: this reading only.
-    func userTappedReadAloud() {
-        player.confirmPendingSpeech()
+    /// The user tapped Read aloud on the dialog that showed `request`: this reading only. When another question has
+    /// replaced it meanwhile (a newer spoken answer), nothing is confirmed and the newer question shows.
+    func userTappedReadAloud(_ request: VoiceConfirmationRequest) {
+        player.confirmPendingSpeech(requestID: request.id)
     }
 
     /// The user tapped Cancel: nothing is sent.
@@ -62,7 +63,7 @@ struct VoiceConfirmationModifier: ViewModifier {
             }
             Button("Read aloud") {
                 answeredRequestID = request.id
-                VoiceConfirmationActions(player: player).userTappedReadAloud()
+                VoiceConfirmationActions(player: player).userTappedReadAloud(request)
             }
         } message: { request in
             Text(request.message)
@@ -231,7 +232,7 @@ struct VoiceNowPlayingBar: View {
     }
 
     @ViewBuilder private var controls: some View {
-        if isFailed {
+        if isFailed, player.canRetry {
             Button {
                 Task { await player.retry() }
             } label: {
@@ -242,7 +243,7 @@ struct VoiceNowPlayingBar: View {
             iconButton("play.fill", label: "Resume reading") { player.resume() }
         } else if case .speaking = player.state {
             iconButton("pause.fill", label: "Pause reading") { player.pause() }
-        } else {
+        } else if !isFailed {
             ProgressView().controlSize(.small)
         }
         iconButton("xmark", label: isFailed ? "Close" : "Stop reading") { player.stop() }

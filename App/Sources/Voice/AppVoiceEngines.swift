@@ -3,8 +3,9 @@ import ChirpEngineVoiceHTTP
 import ChirpFeatures
 import Foundation
 
-/// The app's engine registration for voices (plan 020): the only app code that imports `ChirpEngineVoiceHTTP`.
-/// Screens never call an engine; they go through `VoicePlayer` (which routes) and `VoiceSettingsViewModel`.
+/// The app's engine registration for voices (plan 020). Besides the composition root (`AppEnvironment`, which passes
+/// `XAIVoice.stockVoices` to Settings), the only app code that imports `ChirpEngineVoiceHTTP`. Screens never call an
+/// engine; they go through `VoicePlayer` (which routes) and `VoiceSettingsViewModel`.
 @MainActor
 final class AppVoiceEngines: VoiceEngineProviding {
     private let secrets: any SecretStoring

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -63,6 +66,8 @@ def sanitized_error(line: str, video_url: str) -> str:
         text = text.replace(video_id, "")
     text = re.sub(r"^\s*:\s*", "", text)
     text = re.sub(r"\s{2,}", " ", text).strip(" :")
+    # "… See https://…" loses its link above; drop the dangling "See" (or "see") too.
+    text = re.sub(r"\s*\b[Ss]ee\s*\.?$", "", text).strip(" :")
     return text[:200] or "yt-dlp could not download this video."
 
 
@@ -106,13 +111,30 @@ class _QuietLogger:
         self.errors.append(str(message))
 
 
+NO_JS_RUNTIME = (
+    "YouTube audio needs deno, the JavaScript runtime yt-dlp uses for YouTube. Install it on the Mac "
+    "(brew install deno), then restart the companion."
+)
+
+
+@dataclass
 class YtDlpBackend:
-    """`YouTubeBackend` on yt-dlp: `bestaudio[ext=m4a]`, no playlists, a wall-clock deadline."""
+    """`YouTubeBackend` on yt-dlp: `bestaudio[ext=m4a]`, no playlists, a wall-clock deadline. YouTube also needs
+    deno on the PATH (yt-dlp solves YouTube's JavaScript challenges with it); without it every fetch fails, so the
+    backend reports itself unavailable with that reason (health `youtubeAudio: false`)."""
 
     audio_format = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
+    find_executable: Callable[[str], str | None] = field(default=shutil.which)
+
+    def unavailable_reason(self) -> str | None:
+        if importlib.util.find_spec("yt_dlp") is None:
+            return "YouTube audio needs yt-dlp. Run: uv sync --project companion"
+        if self.find_executable("deno") is None:
+            return NO_JS_RUNTIME
+        return None
 
     def is_available(self) -> bool:
-        return importlib.util.find_spec("yt_dlp") is not None
+        return self.unavailable_reason() is None
 
     def options(self, workdir: Path, deadline: float, quiet: _QuietLogger) -> dict[str, Any]:
         def enforce_deadline(_status: dict) -> None:

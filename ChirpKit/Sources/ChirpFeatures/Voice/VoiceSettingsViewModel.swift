@@ -81,7 +81,7 @@ import Observation
         }
     }
 
-    /// Why Listen cannot read yet (nil when it can try): shown under Listen buttons and in Settings.
+    /// Why Listen cannot read yet (nil when it can try): shown in Settings → Voices' Test voice row.
     public var setupProblem: String? {
         switch settings.provider {
         case nil:
@@ -116,7 +116,8 @@ import Observation
                 }
             } catch {
                 companionVoices = []
-                companionState = .unavailable(Self.message(for: error))
+                companionState = .unavailable(
+                    VoicePlayer.readableMessage(for: error, engineID: VoiceProviderKind.companion.engineID))
             }
         case .unavailable(let sentence):
             companionVoices = []

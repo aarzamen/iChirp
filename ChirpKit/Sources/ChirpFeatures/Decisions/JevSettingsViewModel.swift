@@ -54,7 +54,8 @@ import Observation
         return removesStoredKey ? .remove : .keep
     }
 
-    /// Re-reads the saved state (after a save elsewhere, or when the screen appears). Clears the typed key.
+    /// Re-reads the saved state (after a save elsewhere, or when the screen appears). Clears the typed key and the
+    /// last check, which described a key that is no longer on screen.
     public func refresh() {
         let settings = store.load()
         isEnabled = settings.isEnabled
@@ -63,6 +64,14 @@ import Observation
         hasStoredKey = store.hasStoredKey()
         keyText = ""
         removesStoredKey = false
+        check = .idle
+    }
+
+    /// The key sheet closed without saving (Cancel or a swipe): the typed key leaves memory and the badge resets.
+    public func discardTypedKey() {
+        keyText = ""
+        removesStoredKey = false
+        check = .idle
     }
 
     /// Turns Jev on or off, saved at once; the stored key is untouched.

@@ -25,8 +25,9 @@ ported from the owner's macOS read-aloud app **Readback** (`~/readback`, `Source
   address and pairing token from ChirpCore's `CompanionConfiguration`; voice ids `model:Name` are split into
   `model` and `voice`; `style` → `instructions`; WAV requested, the Content-Type decides the format; 400 unknown
   voice → `unsupportedVoice`, 413 and 503 → `server` with the companion's sentence. `availability()` caches
-  `GET /v1/companion` (no token) for 30 s. Locality follows the host (`CompanionEndpoint.locality`). `pinned()`
-  binds one utterance to the address and token as they are now.
+  `GET /v1/companion` (no token) for 30 s. Locality follows the host (`CompanionEndpoint.locality`); an address that
+  is not on the home network is refused before anything is sent (`notHomeNetworkMessage`, review L2 I2: the
+  companion speaks plain http). `pinned()` binds one utterance to the address and token as they are now.
 - `VoiceEngines.swift`: the registration entry point.
 
 ## What to know before editing

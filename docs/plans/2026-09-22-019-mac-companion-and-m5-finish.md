@@ -175,6 +175,19 @@ YouTube) recorded in the plan.
 - [x] Pytest and focused Swift tests green; lint clean; docs and licenses updated; plan 014 decision recorded.
 - [x] Everything committed; nothing pushed.
 
+## Review round 1 (`fix/review-round-1`, 2026-09-22)
+
+Fixed from the independent review (`.superpowers/sdd/milestones/l1-companion-review.md`): the phone sends only
+`https://www.youtube.com/watch?v=<id>` rebuilt from the validated id, for the first download and Retry (I1); a Retry
+to a companion the link was not confirmed for in this launch asks first (M2); Test connection sends the saved token
+only to the saved address (M3); without a companion the captions error keeps its own advice (M4); health reports
+`youtubeAudio: false` with the reason when deno is missing, and the phone shows it (M5); the phone refuses a
+companion address off the home network, a non-audio answer, and caps error sentences (L2 I2, M7, M8); the token is
+printed only when new or with `--show-token` (M1); serving is Hugging Face offline, Kokoro voices load by local path,
+generation output is silenced (M9); the banner warns about every network (M10). Left: M6 (extraction deadline and
+cancel need a subprocess runner), the optional "skip the offer when youtubeAudio is false" (M5), and the ATS
+behavior of `.lan` names on a device (M7, worded but unverified). Details: `.superpowers/sdd/milestones/fix-r1-report.md`.
+
 ## STOP conditions
 
 - Anything would store or log text, links or titles on the Mac.

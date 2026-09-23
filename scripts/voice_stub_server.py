@@ -6,6 +6,8 @@
 # Usage: python3 scripts/voice_stub_server.py [--port 8799] [--delay 0.4]   (Ctrl-C to stop)
 # The app (DEBUG builds) finds it with the launch arguments
 #   -ChirpQACompanionHost 127.0.0.1 -ChirpQACompanionPort 8799 -ChirpQACompanionToken synthetic-qa-token
+# (App/Sources/Voice/CompanionDebugLaunch.swift): they replace Settings → Mac companion for the voices for that run
+# only and write nothing; Release builds ignore them. UITests/VoiceScreenTourUITests passes them.
 import argparse, io, json, math, struct, sys, time, wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 

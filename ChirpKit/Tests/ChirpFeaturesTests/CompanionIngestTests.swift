@@ -16,17 +16,23 @@ final class FakeCompanionAudio: CompanionAudioFetching {
         case waitForCancel
     }
 
-    private let state: Mutex<(behavior: Behavior, links: [URL])>
+    private let state: Mutex<(behavior: Behavior, links: [URL], endpoint: CompanionEndpoint)>
     let started = Signal()
 
-    init(_ behavior: Behavior) {
-        state = Mutex((behavior, []))
+    init(_ behavior: Behavior, endpoint: CompanionEndpoint = CompanionEndpoint(host: "studio.local")) {
+        state = Mutex((behavior, [], endpoint))
     }
 
     var links: [URL] { state.withLock { $0.links } }
+    var endpoint: CompanionEndpoint { state.withLock { $0.endpoint } }
 
     func setBehavior(_ behavior: Behavior) {
         state.withLock { $0.behavior = behavior }
+    }
+
+    /// The owner pointed Settings → Mac companion at another Mac.
+    func setEndpoint(_ endpoint: CompanionEndpoint) {
+        state.withLock { $0.endpoint = endpoint }
     }
 
     func youtubeAudio(
@@ -164,6 +170,83 @@ final class CompanionIngestTests: XCTestCase {
         let stored = await store.row(id)
         XCTAssertEqual(stored?.mediaRelativePath, "media/\(id.uuidString)/source.m4a")
         XCTAssertEqual(stored?.fileName, "YouTube video.m4a")
+    }
+
+    /// Review L1 I1: the phone sends only `https://www.youtube.com/watch?v=<id>`, rebuilt from the validated id, for
+    /// the first download and for Retry; share parameters never leave the phone. The row keeps the pasted link.
+    func testOnlyTheCanonicalWatchLinkGoesToTheMacForAYouTubeMusicLink() async throws {
+        let pasted = URL(string: "https://music.youtube.com/watch?v=BBBBBBBBBBB&si=SyntheticShare1&list=RDSYNTH&t=42")!
+        let canonical = URL(string: "https://www.youtube.com/watch?v=BBBBBBBBBBB")!
+        let companion = FakeCompanionAudio(.fail(CompanionError.server(status: 502, code: nil, message: "Offline.")))
+        let service = makeService(companion: companion)
+        let source = LinkMediaSource.companionYouTube(pasted)
+        XCTAssertEqual(source.downloadURL, canonical)
+        let id = try await service.createRow(for: source)
+        let createdRow = await store.row(id)
+        XCTAssertEqual(createdRow?.sourceURL, pasted.absoluteString, "the row keeps the link as pasted, on the phone")
+
+        _ = await service.download(id: id, source: source)
+        companion.setBehavior(.succeed(title: nil, durationMs: nil, payload: Data([1, 2])))
+        let retried = await service.retryDownload(id: id)
+        XCTAssertEqual(retried, .ready)
+        XCTAssertEqual(companion.links, [canonical, canonical])
+        for sent in companion.links {
+            XCTAssertFalse(sent.absoluteString.contains("si="))
+            XCTAssertFalse(sent.absoluteString.contains("list="))
+        }
+    }
+
+    func testOtherYouTubeLinkFormsAreRebuiltToo() {
+        for raw in [
+            "https://youtu.be/CCCCCCCCCCC?si=SyntheticShare2", "https://www.youtube-nocookie.com/embed/CCCCCCCCCCC",
+            "https://www.youtube.com/shorts/CCCCCCCCCCC/extra", "https://m.youtube.com/WATCH?v=CCCCCCCCCCC&v=DDDDDDDDDDD",
+        ] {
+            XCTAssertEqual(
+                LinkMediaSource.companionYouTube(URL(string: raw)!).downloadURL.absoluteString,
+                "https://www.youtube.com/watch?v=CCCCCCCCCCC", raw)
+        }
+    }
+
+    /// Review L1 M2: a Retry goes to the companion without a new question only while it is the Mac the link was
+    /// confirmed for; after the owner points Settings at another Mac, Retry asks first and the service refuses until
+    /// then.
+    func testRetryToAnotherMacNeedsANewConfirmation() async throws {
+        let companion = FakeCompanionAudio(.fail(CompanionError.server(status: 502, code: nil, message: "Offline.")))
+        let service = makeService(companion: companion)
+        let source = LinkMediaSource.companionYouTube(link)
+        let id = try await service.createRow(for: source)
+        _ = await service.download(id: id, source: source)
+        let sameMac = await service.companionRetryConfirmationHost(id: id)
+        XCTAssertNil(sameMac, "the same Mac: no new question")
+
+        companion.setEndpoint(CompanionEndpoint(host: "other-mac.local"))
+        let asked = await service.companionRetryConfirmationHost(id: id)
+        XCTAssertEqual(asked, "other-mac.local")
+        companion.setBehavior(.succeed(title: nil, durationMs: nil, payload: Data([1])))
+        let refused = await service.retryDownload(id: id)
+        guard case .ended(let row) = refused else { return XCTFail("the service is the gate") }
+        XCTAssertEqual(row?.status, .failed)
+        XCTAssertEqual(companion.links.count, 1, "the link did not go to the new Mac")
+
+        await service.confirmCompanionRetry(id: id)
+        let afterConfirm = await service.companionRetryConfirmationHost(id: id)
+        XCTAssertNil(afterConfirm)
+        let retried = await service.retryDownload(id: id)
+        XCTAssertEqual(retried, .ready)
+        XCTAssertEqual(companion.links.count, 2)
+    }
+
+    func testRetryOfALinkNotConfirmedInThisLaunchAsksFirst() async throws {
+        // A row from an earlier launch: the confirmation lived in memory, so Retry asks again.
+        let companion = FakeCompanionAudio(.succeed(title: nil, durationMs: nil, payload: Data([1])))
+        let service = makeService(companion: companion)
+        let id = try await service.createRow(for: .companionYouTube(link))
+        _ = try await store.transitionStatus(id: id, from: [.processing], to: .failed, errorMessage: "Offline.")
+        let host = await service.companionRetryConfirmationHost(id: id)
+        XCTAssertEqual(host, "studio.local")
+        await service.confirmCompanionRetry(id: id)
+        let retried = await service.retryDownload(id: id)
+        XCTAssertEqual(retried, .ready)
     }
 
     func testWithoutACompanionTheDownloadEndsWithTheSetupSentence() async throws {
@@ -308,13 +391,26 @@ final class LinkImportCompanionOfferTests: XCTestCase {
         XCTAssertEqual(model.phase, .companionOffer("YouTube wouldn’t give Parakeet this video’s captions."))
     }
 
+    /// Review L1 M4: without a companion, M5's own guidance stays (try again later, share the file), then the hint.
+    func testWithoutACompanionTheCaptionErrorKeepsItsOwnAdvice() async {
+        for error in [YouTubeCaptionError.blocked, .consentRequired, .pageChanged, .tokenRequired] {
+            let model = makeModel(captionsError: error, companion: nil)
+            model.text = youtube
+            model.transcribe()
+            await model.waitUntilSettled()
+            guard case .failed(let message) = model.phase else { return XCTFail("expected a failure") }
+            XCTAssertTrue(message.hasPrefix(error.errorDescription ?? "-"), message)
+            XCTAssertTrue(message.contains("Settings → Mac companion"), message)
+        }
+    }
+
     func testNoCaptionsWithoutACompanionSaysHowToSetItUp() async throws {
         let model = makeModel(captionsError: .noCaptions, companion: nil)
         model.text = youtube
         model.transcribe()
         await model.waitUntilSettled()
         guard case .failed(let message) = model.phase else { return XCTFail("expected a failure") }
-        XCTAssertTrue(message.hasPrefix("This video has no captions."))
+        XCTAssertTrue(message.hasPrefix(YouTubeCaptionError.noCaptions.errorDescription ?? "-"), message)
         XCTAssertTrue(message.contains("Settings → Mac companion"))
         XCTAssertNil(model.companionLink)
         let rows = try await store.fetchAll()
