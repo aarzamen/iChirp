@@ -18,7 +18,8 @@ crate (`needle-c`), constrained decoding and the confidence probe. Needle 3's we
 
 - Needle 3 runs on the iPhone through `ChirpEngineNeedle`, a Swift wrapper over needle-rs's `needle-c`, compiled from
   a **pinned needle-rs commit** by `scripts/build_needle.sh` into a gitignored `vendor/NeedleC.xcframework`
-  (`aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`).
+  (`aarch64-apple-ios`; `aarch64-apple-ios-sim` + `x86_64-apple-ios` lipo'd into one simulator slice, because a
+  generic simulator build links both architectures; `aarch64-apple-darwin`).
 - Because the runtime is MIT source and the weights are Apache-2.0 (both GPL-3.0 compatible when distributed with
   attribution and source), **the ADR-010 gate does not apply to Needle built this way**. The gate still applies to
   Cactus Compute's engine and to `libneedle.a`.

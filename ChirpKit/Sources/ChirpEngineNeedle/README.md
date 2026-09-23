@@ -8,8 +8,9 @@ Plan: [015](../../../docs/plans/2026-09-22-015-m6-structure-models.md).
 ## How the runtime gets in
 
 `scripts/build_needle.sh` clones needle-rs at the pinned commit into `vendor/needle-rs`, builds `needle-c` as a
-static library for `aarch64-apple-ios`, `aarch64-apple-ios-sim` and `aarch64-apple-darwin`, and packages
-`vendor/NeedleC.xcframework` (header + module map). All of `vendor/` is gitignored. `ChirpKit/Package.swift` adds the
+static library for `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios` and `aarch64-apple-darwin`,
+lipos the two simulator builds into one `ios-arm64_x86_64-simulator` slice (CI's `generic/platform=iOS Simulator`
+build links x86_64 too), and packages `vendor/NeedleC.xcframework` (header + module map). All of `vendor/` is gitignored. `ChirpKit/Package.swift` adds the
 `NeedleC` binary target only when that folder exists; this target always builds, and without the runtime every call
 throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scripts/build_needle.sh").
 

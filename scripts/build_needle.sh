@@ -12,7 +12,9 @@ cd "$(dirname "$0")/.."
 # The pin. Bump it only together with a re-run of the Eval view (Settings → Structure models → Eval) and ADR-012.
 NEEDLE_RS_REPO="https://github.com/Geekgineer/needle-rs"
 NEEDLE_RS_COMMIT="4de50494fd60f417b24c37e4d972f95d128f8a0f" # v0.3.1 + docs/CI commits, 2026-09
-TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin)
+# The simulator slice is fat (arm64 + x86_64): `xcodebuild -destination 'generic/platform=iOS Simulator'` (CI) builds
+# both architectures and fails to link an arm64-only slice ("Undefined symbols for architecture x86_64").
+TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin)
 
 VENDOR="vendor"
 SRC="${NEEDLE_RS_DIR:-$VENDOR/needle-rs}"
@@ -62,8 +64,14 @@ echo '_needle_*' >"$VENDOR/NeedleC-exports.txt"
 platform_of() {
   case "$1" in
     aarch64-apple-ios) echo "ios $IPHONEOS_DEPLOYMENT_TARGET" ;;
-    aarch64-apple-ios-sim) echo "ios-simulator $IPHONEOS_DEPLOYMENT_TARGET" ;;
+    aarch64-apple-ios-sim | x86_64-apple-ios) echo "ios-simulator $IPHONEOS_DEPLOYMENT_TARGET" ;;
     aarch64-apple-darwin) echo "macos $MACOSX_DEPLOYMENT_TARGET" ;;
+  esac
+}
+arch_of() {
+  case "$1" in
+    x86_64-*) echo "x86_64" ;;
+    *) echo "arm64" ;;
   esac
 }
 
@@ -76,7 +84,7 @@ for target in "${TARGETS[@]}"; do
   mkdir -p "$work/objects"
   (cd "$work/objects" && ar x "$archive")
   read -r platform minimum <<<"$(platform_of "$target")"
-  xcrun ld -r -arch arm64 -platform_version "$platform" "$minimum" "$minimum" \
+  xcrun ld -r -arch "$(arch_of "$target")" -platform_version "$platform" "$minimum" "$minimum" \
     -exported_symbols_list "$VENDOR/NeedleC-exports.txt" "$work"/objects/*.o -o "$work/needle_c.o"
   if nm -g "$work/needle_c.o" | grep -v " U " | grep -qv " _needle_"; then
     echo "error: the pre-linked needle-c for $target exports more than the needle_* C API" >&2
@@ -96,9 +104,13 @@ module NeedleC {
     export *
 }
 MODULEMAP
+# One simulator library with both architectures (an XCFramework takes one library per platform).
+mkdir -p "$PRELINK/ios-simulator"
+xcrun lipo -create "$PRELINK/aarch64-apple-ios-sim/libneedle_c.a" "$PRELINK/x86_64-apple-ios/libneedle_c.a" \
+  -output "$PRELINK/ios-simulator/libneedle_c.a"
 args=()
-for target in "${TARGETS[@]}"; do
-  args+=(-library "$PRELINK/$target/libneedle_c.a" -headers "$HEADERS")
+for slice in aarch64-apple-ios ios-simulator aarch64-apple-darwin; do
+  args+=(-library "$PRELINK/$slice/libneedle_c.a" -headers "$HEADERS")
 done
 xcodebuild -create-xcframework "${args[@]}" -output "$OUT" >/dev/null
 echo "$NEEDLE_RS_COMMIT" >"$VENDOR/NeedleC.commit"
@@ -109,6 +121,6 @@ if ! grep -q "Name: NeedleC" <<<"$description"; then
   echo "error: ChirpKit/Package.swift does not see $OUT" >&2
   exit 1
 fi
-echo "Built $OUT (needle-rs ${NEEDLE_RS_COMMIT:0:8}; slices: ${TARGETS[*]})."
+echo "Built $OUT (needle-rs ${NEEDLE_RS_COMMIT:0:8}; slices: iOS arm64, iOS Simulator arm64 + x86_64, macOS arm64)."
 echo "Next: scripts/gen.sh, then build the app. If Settings still says \"Needle is not in this build\", open a new"
 echo "terminal (SwiftPM re-reads Package.swift in a new environment) or use Xcode's File > Packages > Reset Package Caches."
