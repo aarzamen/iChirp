@@ -462,6 +462,16 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   excerpt may have left the phone before the error. `DecisionReport.suggestsMarkingClinical` offers the raise whenever
   "clinical encounter" is Jev's top choice, at any confidence. App tests: `AppTests/DecisionModelAppTests`.
 
+## Create: anything in, anything out (plan 022, `Create/`)
+
+Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
+
+- `Create/TextItemService.swift` (Step 1): typed or pasted text as a Library item. `save(_:privacyClass:)` trims the
+  surrounding blank space, refuses empty text (`TextItemError.empty`, nothing stored) and text over
+  `maxCharacters`, and inserts a `.completed` `.text` row (`rawTranscript` = the text, `derivedTitle` = the first
+  line via `title(from:)`, no media, no engine). Contract: `spec/contracts/document-items-v1.md` (Text item). The row
+  routes like any other through `EffectivePrivacyClass`; tests: `TextItemServiceTests`, `TextItemStoreTests`.
+
 ## How to verify
 
 ```bash

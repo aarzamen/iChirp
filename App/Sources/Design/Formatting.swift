@@ -78,6 +78,7 @@ enum Formatting {
         case .url: "Video"
         case .podcast: "Podcast"
         case .document: "Document"
+        case .text: "Text"
         }
     }
 

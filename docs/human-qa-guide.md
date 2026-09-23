@@ -564,6 +564,21 @@ Simulator (agents): DEBUG launch arguments open the screens without taps: `-Chir
 -ChirpExtractFields -ChirpStructureEngine stub|needle`, `-ChirpVoiceCommands`, `-ChirpStructureEval stub,needle`
 (`App/Sources/Debug/StructurePreviewLaunch.swift`).
 
+## Create checklist (plan 022: text items, Create, Edit by voice, voice messages, PDF and Word)
+
+> Preconditions: the phone runs the `lane/create` build (Settings → About shows its commit); the speech model is
+> downloaded. Use only synthetic text and `say` audio. For Summary, Document and Edit by voice a model is set up in
+> Settings → Models; for voice messages a voice in Settings → Voices.
+
+Type or paste (Step 1)
+- [ ] Capture → Type or paste → type three lines → Save: the item opens as **Typed text** with the first line as its
+      title; it is in Capture's Recent and the Library (Local filter).
+- [ ] Save stays disabled for an empty or whitespace-only text; Cancel stores nothing.
+- [ ] Switch on "Clinical (patient information)" before saving: the item opens with the green Clinical badge, and a
+      Transform with a cloud model asks "Send this clinical transcript to …?" before anything is sent.
+- [ ] On the text item: Transform, Listen, Extract fields and Share (Text, Markdown, JSON) work as on a document;
+      Delete asks "Delete this text?".
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

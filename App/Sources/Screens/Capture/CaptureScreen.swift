@@ -17,6 +17,8 @@ struct CaptureScreen: View {
     @State private var pickerError: String?
     /// M5: the Paste a link sheet.
     @State private var isPastingLink = false
+    /// Plan 022: the Type or paste sheet.
+    @State private var isTyping = false
 
     static let importTypes: [UTType] = [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
 
@@ -38,6 +40,9 @@ struct CaptureScreen: View {
                         tile(
                             title: "Import audio", subtitle: "Voice Memos, Files",
                             systemImage: "square.and.arrow.down", action: { isImporting = true })
+                        tile(
+                            title: "Type or paste", subtitle: "Notes, text",
+                            systemImage: "text.cursor", action: { isTyping = true })
                     }
                     recordMeetingRow
                     recentHeader
@@ -57,6 +62,9 @@ struct CaptureScreen: View {
         }
         .sheet(isPresented: $isPastingLink) {
             PasteLinkSheet(environment: environment) { id in path.append(id) }
+        }
+        .sheet(isPresented: $isTyping) {
+            TextItemSheet { id in path.append(id) }
         }
         .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: $path)
         .fileImporter(

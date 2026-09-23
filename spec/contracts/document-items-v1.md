@@ -51,6 +51,19 @@ extension.
 - `privacyClass`: `personal` by default, like every item. OCR (Vision) runs on this iPhone; nothing leaves it.
 - No player, no SRT/VTT export (no timings); TXT, Markdown and JSON export the text.
 
+### Text item (`sourceType == .text`, plan 022)
+
+- Typed or pasted text saved by `ChirpFeatures.TextItemService`. `fileName` is `Text`; there is no media folder
+  (`mediaRelativePath` nil), no engine, no timings, no speakers, no `documentFormat`.
+- `rawTranscript`: the text as saved (surrounding blank space trimmed, line endings `\n`); `cleanTranscript` nil.
+  Empty text is refused (nothing is stored); more than 1,000,000 characters is refused.
+- `derivedTitle`: the first non-empty line without Markdown heading or list markers, at most 80 characters;
+  `derivedSnippet`: from the text after that line (`SnippetDeriver`), nil for a one-line text.
+- `status`: `completed` from the insert (never processing, never retried); `privacyClass` as chosen when saving
+  (`personal` by default, `clinical` from the "Clinical (patient information)" switch).
+- It opens on the document screen (no player; TXT, Markdown and JSON export) and runs every template, Ask, Listen and
+  Create step like any item, routed on its `EffectivePrivacyClass`. A generated document never changes its text.
+
 ### Link item (`sourceType == .podcast` or `.url`)
 
 - Podcast and direct media: `sourceURL` is the pasted link; `sourceTitle` the episode title when known. The row is

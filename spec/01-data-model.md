@@ -44,7 +44,7 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 |---|---|---|
 | `id` | UUID (primary key) | Also names the `media/<id>/` folder |
 | `createdAt`, `updatedAt` | Date | Library order uses `createdAt` (indexed), newest first |
-| `sourceType` | text enum | `file` · `dictation` · `meeting` · `url` · `podcast` · `document` |
+| `sourceType` | text enum | `file` · `dictation` · `meeting` · `url` · `podcast` · `document` · `text` (plan 022: typed or pasted text; no column added) |
 | `fileName` | text | Original file name shown to the user |
 | `mediaRelativePath` | text, nullable | e.g. `media/<id>/source.m4a`, relative to the root |
 | `audioTrackOrdinal` | int, nullable | M1.5 (`v2-audio-track-ordinal`): the zero-based audio track chosen in a multi-track file; NULL = automatic (the first track, and every earlier row). Reused by Retry ([contract](contracts/file-transcription-audio-tracks-v1.md)) |
