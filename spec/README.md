@@ -101,6 +101,7 @@ section; never delete its history.
 | [ADR-010](adr/010-plugin-license-gate.md) | License gate for plug-ins that conflict with GPL-3.0 |
 | [ADR-011](adr/011-language-model-providers-direct-ports.md) | Language models via direct ports (`ChirpEngineHTTPLLM`, `ChirpEngineAppleFM`), not AnyLanguageModel |
 | [ADR-013](adr/013-jev-decision-model.md) | Jev as an opt-in cloud decision model (`ChirpEngineJev`, `DecisionModel` contract); clinical items never sent |
+| [ADR-015](adr/015-on-device-llm-llama-cpp.md) | Small language models on the iPhone through llama.cpp built from source (`ChirpEngineLlamaCpp`); Qwen3.5 2B default, Qwen3 4B Instruct quality tier; MLX Swift not adopted |
 
 ## Milestones
 

@@ -45,6 +45,11 @@ jobs:
           command -v rustup >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           scripts/build_needle.sh
 
+      # M7 (ADR-015): llama.cpp from its pinned source release, so the tests and the app build cover
+      # ChirpEngineLlamaCpp. The real-model test stays skipped (CHIRP_ONDEVICE_LLM_TESTS=1 only), so CI downloads no model.
+      - name: Build llama.cpp runtime (llama.cpp → vendor/llama.xcframework)
+        run: scripts/build_llamacpp.sh
+
       - name: ChirpKit package tests
         run: swift test --package-path ChirpKit
 
