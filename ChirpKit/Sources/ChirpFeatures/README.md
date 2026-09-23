@@ -231,6 +231,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   cannot be read). `VoicePlayer.routingPolicy(companion:)` is the voices' policy: only the companion's own trust
   counts, never a host trusted in Settings → Models. `companionTokenRejected` is the one sentence for a companion
   401, in the player and in Settings → Voices.
+- `Voice/VoiceMessageExporter.swift` (plan 022 Step 5): the `VoiceMessageProducing` behind Share → Voice message and
+  a Create chain's voice message. Same chunks, voice and routing as `VoicePlayer` (before every chunk and retry, on
+  `currentPrivacyClass`, raised never lowered); chunks are synthesized **in order, one at a time**, into
+  `tmp/voice-message-<uuid>/chunk-<i>.<ext>`, then `VoiceMessageWriting` joins them (350 ms after a paragraph) and
+  the file moves to `media/<itemID>/voice-<n>.m4a` (`nextNumber(in:)`; never overwrites). `phase`: `preparing`,
+  `needsConfirmation`, `synthesizing(done:total:)` (real chunk counts), `assembling`, `finished(VoiceMessageFile)`,
+  `failed(sentence)`; `retry()` resumes at the failed chunk (or re-joins), `cancel()` keeps nothing. **Only the
+  app's dialog calls `confirmPendingSynthesis(requestID:)`**; `declinePendingSynthesis()` sends nothing; both fire
+  `onAnswered`. `sweepStaleWork()` runs at launch. Tests: `VoiceMessageExporterTests`.
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link

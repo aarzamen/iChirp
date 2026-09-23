@@ -25,6 +25,8 @@ Since M2 it also owns microphone capture and the audio session (see
 - `SpeechPlaybackEngine` — the `ChirpCore.SpeechAudioPlaying` conformer (plan
   020): plays `VoicePlayer`'s synthesized chunks through the same
   `AudioSessionController` (`.playback`).
+- `VoiceMessageWriter` — the `ChirpCore.VoiceMessageWriting` conformer (plan
+  022): joins a voice message's chunks into one `.m4a`.
 
 ## What's here
 
@@ -174,6 +176,17 @@ read).
 restarted engine can run without delivering buffers — upstream's silent
 stall). Resume automatically only on `.shouldResume`. Tests never sleep:
 `SharedMicrophoneStream.drain()` waits for the engine and callback queues.
+
+## Voice messages (plan 022, `VoiceMessage/`)
+
+- `VoiceMessage/VoiceMessageWriter.swift` — reads each synthesized chunk file
+  with `AVAudioFile` (mp3, wav or m4a, whatever the engine returned),
+  converts it with `AVAudioConverter` to 24 kHz mono Float32, writes real
+  zero samples for the pause after a paragraph, and encodes one AAC `.m4a`
+  (48 kbit/s) through `AVAudioFile(forWriting:)`. Returns the length in ms;
+  an unreadable chunk throws `unreadableChunk(i)` and leaves no file. Runs
+  off the main actor. Tests: `VoiceMessageWriterTests` (two rates, the pause,
+  AAC mono 24 kHz, 1.1 s).
 
 ## Speech playback (plan 020, `Playback/`)
 

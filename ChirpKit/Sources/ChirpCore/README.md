@@ -78,6 +78,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `MeetingRecorder`.
 - `Pipeline/SpeechWAVFile.swift` (M3): a Foundation-only 16 kHz mono Float32 WAV writer for a meeting's temporary
   live-preview chunks.
+- `Pipeline/VoiceMessageWriting.swift` (plan 022): the seam between ChirpFeatures' `VoiceMessageExporter` and
+  ChirpAudio's `VoiceMessageWriter` (chunk files in, one `.m4a` out), plus `SynthesizedAudio.Format.fileExtension`.
 - `Pipeline/SpeechAudioPlaying.swift` (plan 020): the speech output seam (`SpeechAudioPlaying`,
   `SpeechPlaybackEvent`) between ChirpFeatures' `VoicePlayer` and ChirpAudio's `SpeechPlaybackEngine`.
 - `Models/MeetingSession.swift` (M3): `MeetingSessionFiles` (`recording.lock`, `meeting.caf`, `chunks/`),

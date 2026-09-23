@@ -50,6 +50,79 @@ final class CreateTourUITests: XCTestCase {
         shot("capture-recent-text-item")
     }
 
+    /// Step 5: a clinical text item → Share → Voice message… with the stub Mac companion (untrusted, so it asks first),
+    /// then the share sheet with the saved `.m4a`.
+    func testVoiceMessageFromAClinicalTextItem() throws {
+        app.launchArguments = Self.companionArguments
+        app.launch()
+        chooseStubVoice()
+        app.tabBars.buttons["Capture"].tap()
+        saveTextItem(
+            "Synthetic voice note\nThis synthetic note is read by a stub voice. Nothing in it is real.", clinical: true)
+        let share = app.buttons["Share"].firstMatch
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        share.tap()
+        app.buttons["Voice message…"].tap()
+        let question = app.alerts.firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 15))
+        XCTAssertTrue(
+            question.label.hasPrefix("Make a voice message of this clinical text with Mac companion?"), question.label)
+        shot("voice-message-clinical-question")
+        question.buttons["Send"].tap()
+        let saved = app.staticTexts["Voice message saved"]
+        if !saved.waitForExistence(timeout: 60) {
+            shot("voice-message-not-saved")
+            XCTFail("the voice message was not saved")
+            return
+        }
+        // The share sheet opens by itself once the file is saved.
+        sleep(2)
+        shot("voice-message-share-sheet")
+        let close = app.buttons.matching(NSPredicate(format: "label IN {'Close', 'Cancel'}")).firstMatch
+        if close.waitForExistence(timeout: 5) { close.tap() }
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        shot("voice-message-saved")
+    }
+
+    // MARK: - Steps
+
+    static let companionArguments = [
+        "-ChirpQACompanionHost", "127.0.0.1", "-ChirpQACompanionPort", "8799",
+        "-ChirpQACompanionToken", "synthetic-qa-token",
+    ]
+
+    /// Settings → Voices → Mac companion (the stub) → a stub voice.
+    private func chooseStubVoice() {
+        app.tabBars.buttons["Settings"].tap()
+        let voicesLink = button(beginningWith: "Voices")
+        scrollTo(voicesLink)
+        voicesLink.tap()
+        tapWhenHittable(button(beginningWith: "Mac companion"))
+        XCTAssertTrue(app.staticTexts["Ready"].waitForExistence(timeout: 15), "the stub companion answers")
+        let low = button(beginningWith: "Stub tone (low)")
+        XCTAssertTrue(low.waitForExistence(timeout: 10))
+        low.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+    }
+
+    /// Capture → Type or paste → Save; the item opens.
+    private func saveTextItem(_ text: String, clinical: Bool) {
+        let tile = button(beginningWith: "Type or paste")
+        XCTAssertTrue(tile.waitForExistence(timeout: 20))
+        tile.tap()
+        let editor = app.textViews["Text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        dismissKeyboardTip()
+        editor.typeText(text)
+        if clinical {
+            app.switches.matching(NSPredicate(format: "label BEGINSWITH 'Clinical'")).firstMatch.switches.firstMatch
+                .tap()
+        }
+        app.buttons["Save"].tap()
+        XCTAssertTrue(app.staticTexts["Typed text"].waitForExistence(timeout: 10), "the text item opens")
+    }
+
     // MARK: - Helpers
 
     /// The first keyboard of a fresh simulator shows a slide-to-type tip over the sheet.
@@ -62,15 +135,37 @@ final class CreateTourUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
 
+    private func tapWhenHittable(_ element: XCUIElement, timeout: TimeInterval = 10) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !(element.exists && element.isHittable), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        element.tap()
+    }
+
+    private func scrollTo(_ element: XCUIElement) {
+        var tries = 0
+        while !element.isHittable, tries < 6 {
+            app.swipeUp()
+            tries += 1
+        }
+    }
+
     private func staticText(beginningWith prefix: String) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+    }
+
+    /// "TypeOrPasteSavesATextItem" for `testTypeOrPasteSavesATextItem`, so every test's screenshots sort together.
+    private var tourPrefix: String {
+        let method = name.split(separator: " ").last.map { String($0.dropLast()) } ?? "tour"
+        return method.hasPrefix("test") ? String(method.dropFirst(4)) : method
     }
 
     private func shot(_ name: String) {
         step += 1
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = String(format: "%02d-%@", step, name)
+        attachment.name = String(format: "%@-%02d-%@", tourPrefix, step, name)
         attachment.lifetime = .keepAlways
         add(attachment)
         let url = URL(fileURLWithPath: folder).appendingPathComponent("\(attachment.name ?? name).png")

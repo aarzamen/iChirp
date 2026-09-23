@@ -34,6 +34,8 @@ struct TranscriptScreen: View {
     @State private var opensTransformAfterDecision = false
     /// M6: Extract fields (Needle 3 or the STUB), a draft card for review.
     @State private var isExtractingFields = false
+    /// Plan 022: Share → Voice message.
+    @State private var voiceMessage: VoiceMessageJob?
 
     enum TranscriptTab { case transcript, ask }
 
@@ -54,7 +56,7 @@ struct TranscriptScreen: View {
             content
         }
         // Plan 020: the now-playing bar and the voice confirmation (the Transform sheet shows its own).
-        .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming) { source in
+        .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming && voiceMessage == nil) { source in
             switch source {
             case .transcript(let readID): readID == id
             case .askAnswer: true
@@ -145,6 +147,7 @@ struct TranscriptScreen: View {
                 .presentationDetents([.medium, .large])
             }
         }
+        .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
                 .presentationDetents([.medium, .large])
@@ -463,6 +466,12 @@ struct TranscriptScreen: View {
             Menu {
                 ForEach(ExportFormat.allCases, id: \.self) { format in
                     Button(format.displayName) { share(format) }
+                }
+                Divider()
+                Button {
+                    voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+                } label: {
+                    Label("Voice message…", systemImage: "waveform.badge.plus")
                 }
             } label: {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)

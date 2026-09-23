@@ -15,6 +15,8 @@ struct DeliverableDetailScreen: View {
     @State private var confirmingDelete = false
     @State private var copied = false
     @State private var deleteError: String?
+    /// Plan 022: More → Save as voice message.
+    @State private var voiceMessage: VoiceMessageJob?
 
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
@@ -54,7 +56,9 @@ struct DeliverableDetailScreen: View {
             .padding(.bottom, 24)
         }
         .background(Tokens.Color.ground)
-        .voiceReading(environment.voicePlayer) { $0 == .deliverable(id: id) }  // plan 020
+        .voiceReading(environment.voicePlayer, confirmationEnabled: voiceMessage == nil) {
+            $0 == .deliverable(id: id)  // plan 020
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
@@ -79,6 +83,14 @@ struct DeliverableDetailScreen: View {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
                 Menu {
+                    Button {
+                        voiceMessage = document.deliverable.flatMap {
+                            VoiceMessageJob.deliverable($0, text: document.draft)
+                        }
+                    } label: {
+                        Label("Save as voice message", systemImage: "waveform.badge.plus")
+                    }
+                    Divider()
                     Button(role: .destructive) {
                         confirmingDelete = true
                     } label: {
@@ -91,6 +103,7 @@ struct DeliverableDetailScreen: View {
         }
         .disabled(document.deliverable == nil && !document.isDeleted && document.loadError == nil)
         .task { await document.load() }
+        .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
         .sheet(item: $shareText) { item in
             ActivityView(items: [item.text])
                 .presentationDetents([.medium, .large])

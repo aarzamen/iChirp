@@ -579,6 +579,18 @@ Type or paste (Step 1)
 - [ ] On the text item: Transform, Listen, Extract fields and Share (Text, Markdown, JSON) work as on a document;
       Delete asks "Delete this text?".
 
+Voice messages (Step 5; Settings → Voices has a voice)
+- [ ] A transcript → Share → Voice message…: "Speaking · Part 1 of N" counts up, then "Voice message saved" and the
+      share sheet offers `<title>.m4a`; AirDrop or save it to Files and play it: the whole text, in order, with a short
+      pause between paragraphs.
+- [ ] The same on a document, a text item, and a generated document (More → Save as voice message, which speaks the
+      text as edited).
+- [ ] A clinical item with Grok voices (or an untrusted Mac): "Make a voice message of this clinical text with …?";
+      Cancel says nothing was sent; Send makes it.
+- [ ] No voice set up: the sheet says what is missing (Settings → Voices) and sends nothing. Turn off Wi-Fi mid-way:
+      a sentence and Retry, which continues from the part that failed.
+- [ ] Saving twice keeps both (`voice-1.m4a`, `voice-2.m4a` in the item's folder); deleting the item deletes them.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

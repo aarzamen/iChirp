@@ -25,6 +25,8 @@ struct DocumentScreen: View {
     @State private var isTransforming = false
     /// M6: Extract fields from a typed or pasted note (no audio, so a field cannot seek).
     @State private var isExtractingFields = false
+    /// Plan 022: Share → Voice message.
+    @State private var voiceMessage: VoiceMessageJob?
 
     /// Formats that make sense without timings.
     static let exportFormats: [ExportFormat] = [.txt, .markdown, .json]
@@ -36,7 +38,7 @@ struct DocumentScreen: View {
 
     var body: some View {
         content
-            .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming) {
+            .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming && voiceMessage == nil) {
                 $0 == .document(id: id)  // plan 020
             }
             .background(Tokens.Color.ground)
@@ -78,6 +80,7 @@ struct DocumentScreen: View {
                         onSeek: { _ in })
                 }
             }
+            .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
             .sheet(item: $shareItem) { item in
                 ActivityView(items: [item.url])
                     .presentationDetents([.medium, .large])
@@ -342,6 +345,12 @@ struct DocumentScreen: View {
             Menu {
                 ForEach(Self.exportFormats, id: \.self) { format in
                     Button(format.displayName) { share(format) }
+                }
+                Divider()
+                Button {
+                    voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+                } label: {
+                    Label("Voice message…", systemImage: "waveform.badge.plus")
                 }
             } label: {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)

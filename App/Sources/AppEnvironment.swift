@@ -371,6 +371,7 @@ import Observation
             .sweep()
         await refreshMeetingRecoveries(presentIfAny: true)
         ExportTempFiles.sweepStale()
+        VoiceMessageExporter.sweepStaleWork()  // plan 022: chunks a killed voice message left in tmp
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
         await capture.start()
