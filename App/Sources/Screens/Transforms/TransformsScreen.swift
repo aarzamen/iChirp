@@ -1,40 +1,16 @@
+import ChirpCore
+import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
-/// Tab 3: the Transforms and deliverable templates planned for milestone M4. A read-only list; nothing here
-/// pretends to run.
+/// Tab 3: recent generated documents (open one to read, edit, copy or share it) and every template (tap one to run it
+/// on a transcript). Transcript → Transform runs the same templates on the transcript at hand.
 struct TransformsScreen: View {
-    struct Item: Identifiable {
-        let id: String
-        let title: String
-        let summary: String
-        let systemImage: String
-    }
-
-    static let items: [Item] = [
-        Item(
-            id: "polish", title: "Polish", summary: "Clean up the wording, keep your voice",
-            systemImage: "wand.and.stars"),
-        Item(
-            id: "distill", title: "Distill", summary: "Cut to the essential points",
-            systemImage: "line.3.horizontal.decrease"),
-        Item(id: "decide", title: "Decide", summary: "Turn this into a recommendation", systemImage: "scalemass"),
-        Item(
-            id: "brief", title: "Brief", summary: "A custom Transform template · BLUF, then three bullets",
-            systemImage: "doc.text"),
-        Item(
-            id: "meeting-notes", title: "Meeting notes", summary: "Summary, decisions and owners from a meeting",
-            systemImage: "person.2"),
-        Item(
-            id: "soap-note", title: "SOAP note", summary: "Subjective, objective, assessment and plan",
-            systemImage: "stethoscope"),
-        Item(
-            id: "agenda", title: "Agenda", summary: "Topics and time boxes for the next meeting",
-            systemImage: "list.number"),
-        Item(id: "action-items", title: "Action items", summary: "Who does what, by when", systemImage: "checklist"),
-    ]
+    @Environment(AppEnvironment.self) private var environment
+    @State private var launching: PromptTemplate?
 
     var body: some View {
+        let library = environment.deliverableLibrary
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -44,20 +20,23 @@ struct TransformsScreen: View {
                         .frame(minHeight: 44, alignment: .leading)
                         .accessibilityAddTraits(.isHeader)
                     Text(
-                        "Rewrite transcripts and selected text into the documents you need. Not built yet — "
-                            + "milestone M4. They will run on device unless you choose a cloud model."
+                        "Turn transcripts into the documents you need. They run "
+                            + "\(environment.languageModels.defaultChoice.place); change that in Settings → Models."
                     )
                     .chirpFont(14)
                     .foregroundStyle(Tokens.Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 6)
 
-                    VStack(spacing: 8) {
-                        ForEach(Self.items) { item in
-                            row(item)
-                        }
+                    if let error = library.loadError {
+                        Text("Couldn’t read your documents: \(error)")
+                            .chirpFont(13)
+                            .foregroundStyle(AppColor.error)
+                            .padding(.top, 12)
                     }
-                    .padding(.top, 18)
+                    recentSection(library.recent)
+                    templateSection("Documents", library.documentTemplates)
+                    templateSection("Rewrites", library.transformTemplates)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -66,41 +45,113 @@ struct TransformsScreen: View {
             .background(Tokens.Color.ground)
             .statusBarScrim()
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: UUID.self) { id in
+                DeliverableDetailScreen(id: id, environment: environment)
+            }
+            .refreshable { await library.load() }
+        }
+        .task { await library.load() }
+        .sheet(item: $launching, onDismiss: { Task { await library.load() } }) { template in
+            TemplateLaunchSheet(template: template, environment: environment)
         }
     }
 
-    private func row(_ item: Item) -> some View {
+    @ViewBuilder private func recentSection(_ recent: [Deliverable]) -> some View {
+        SectionLabel("Recent documents")
+            .padding(.leading, 4)
+            .padding(.top, 20)
+            .padding(.bottom, 8)
+        if recent.isEmpty {
+            Text("Nothing yet. Open a transcript and tap Transform, or pick a template below.")
+                .chirpFont(14)
+                .foregroundStyle(Tokens.Color.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .chirpCard(radius: Tokens.Radius.m, padding: 14)
+        } else {
+            VStack(spacing: 8) {
+                ForEach(recent) { deliverable in
+                    NavigationLink(value: deliverable.id) {
+                        DeliverableRow(deliverable: deliverable, sourceTitle: sourceTitle(deliverable))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func templateSection(_ title: String, _ templates: [PromptTemplate]) -> some View {
+        if !templates.isEmpty {
+            SectionLabel(title)
+                .padding(.leading, 4)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
+            VStack(spacing: 8) {
+                ForEach(templates) { template in
+                    Button {
+                        launching = template
+                    } label: {
+                        TemplateRow(template: template, trailing: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Choose a transcript to run it on")
+                }
+            }
+        }
+    }
+
+    private func sourceTitle(_ deliverable: Deliverable) -> String? {
+        environment.library.items.first { $0.id == deliverable.transcriptionID }?.displayTitle
+    }
+}
+
+/// A generated document in a list: title, source transcript, where it ran and when, and its privacy class.
+struct DeliverableRow: View {
+    let deliverable: Deliverable
+    let sourceTitle: String?
+
+    var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(AppColor.tintFill)
-                Image(systemName: item.systemImage)
+                RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
+                    .fill(AppColor.quietFill)
+                Image(systemName: "doc.richtext")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.accentInk)
+                    .foregroundStyle(Tokens.Color.secondary)
             }
             .frame(width: 38, height: 38)
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
+                Text(deliverable.title)
                     .chirpFont(15.5, .semibold)
                     .foregroundStyle(Tokens.Color.ink)
-                Text(item.summary)
+                    .lineLimit(1)
+                Text(meta)
                     .chirpFont(12.5)
                     .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
             }
             Spacer(minLength: 8)
-            Text("Milestone M4")
-                .chirpFont(10.5, .bold)
-                .foregroundStyle(AppColor.accentText)
-                .padding(.horizontal, 8)
-                .frame(minHeight: 20)
-                .background(Capsule().fill(AppColor.tintFill))
+            if deliverable.privacyClass == .clinical {
+                PrivacyClassBadge(privacyClass: .clinical)
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Tokens.Color.mutedText)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(minHeight: 68)
+        .frame(minHeight: 64)
         .background(CardBackground(radius: Tokens.Radius.m))
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.title), \(item.summary), not built yet, milestone M4")
+    }
+
+    private var meta: String {
+        var parts: [String] = []
+        if let sourceTitle { parts.append(sourceTitle) }
+        parts.append(Formatting.day(deliverable.createdAt) + " " + Formatting.timeOfDay(deliverable.createdAt))
+        parts.append(deliverable.provider)
+        return parts.joined(separator: " · ")
     }
 }

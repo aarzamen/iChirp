@@ -4,6 +4,7 @@ import ChirpEngineFluidAudio
 import ChirpExport
 import ChirpFeatures
 import ChirpIngest
+import ChirpKeychain
 import ChirpStore
 import Foundation
 import Observation
@@ -62,6 +63,16 @@ import Observation
     let continuedProcessing: SystemContinuedProcessingScheduler?
     /// The Parakeet version the speech engine was built with.
     let runningVariant: ParakeetVariant
+    /// M4: providers from Settings → Models (metadata in UserDefaults, API keys only in the Keychain).
+    let providerStore: UserDefaultsLanguageModelProviderStore
+    /// M4: templates, generated documents and the content-free run ledger.
+    let deliverableStore: GRDBDeliverableStore
+    /// M4: **the only path from a transcript to a language model** (routing, clinical confirmation, ledger).
+    let deliverables: DeliverableService
+    /// M4: Settings → Models and the model Transform and Ask start with.
+    let languageModels: LanguageModelsViewModel
+    /// M4: the Transforms tab's templates and recent documents.
+    let deliverableLibrary: DeliverableLibraryViewModel
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
     /// the "download the model" banner before it knows).
     private(set) var isLaunched = false
@@ -191,6 +202,15 @@ import Observation
         }
         let inbox = IncomingFileInbox.appDefault()
         self.inbox = inbox
+        // M4. Routing reads the provider store at every check, so un-trusting a Mac stops the next call of a run.
+        let providerStore = UserDefaultsLanguageModelProviderStore(secrets: KeychainSecretStore())
+        let deliverableStore = GRDBDeliverableStore(database: database)
+        self.providerStore = providerStore
+        self.deliverableStore = deliverableStore
+        self.deliverables = DeliverableService(
+            transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
+        self.languageModels = LanguageModelsViewModel(store: providerStore, factory: AppLanguageModelFactory())
+        self.deliverableLibrary = DeliverableLibraryViewModel(store: deliverableStore)
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }
@@ -247,7 +267,20 @@ import Observation
         await library.start()
         await capture.start()
         await speechSettings.refresh()
+        await launchLanguageModels()
         isLaunched = true
+    }
+
+    /// M4: installs or upgrades the built-in templates, then reads the Transforms lists and the model state.
+    private func launchLanguageModels() async {
+        do {
+            try await deliverables.installBuiltInTemplates()
+        } catch {
+            logger.error(
+                "templates_install_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
+        }
+        await deliverableLibrary.load()
+        await languageModels.refresh()
     }
 
     // MARK: - Actions shared by screens
@@ -451,6 +484,11 @@ import Observation
 
     func makeTranscriptViewModel(id: UUID) -> TranscriptViewModel {
         TranscriptViewModel(id: id, store: store, paths: paths, settings: settings)
+    }
+
+    /// M4: one generated document (Transforms tab, or a finished Transform run).
+    func makeDocumentViewModel(id: UUID) -> DeliverableDocumentViewModel {
+        DeliverableDocumentViewModel(id: id, store: deliverableStore)
     }
 
     /// Whether the speech model is on disk (the Capture banner shows when it is not).

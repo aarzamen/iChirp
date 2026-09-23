@@ -21,6 +21,7 @@ struct DocumentScreen: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var copied = false
+    @State private var isTransforming = false
 
     /// Formats that make sense without timings.
     static let exportFormats: [ExportFormat] = [.txt, .markdown, .json]
@@ -56,6 +57,14 @@ struct DocumentScreen: View {
                 Task { await model.load() }
             }
             .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
+            // M4: a document runs the same templates as a transcript (its text is the "transcript" input).
+            .sheet(isPresented: $isTransforming, onDismiss: { Task { await environment.deliverableLibrary.load() } }) {
+                if let item = model.transcription {
+                    TransformSheet(
+                        transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
+                        environment: environment)
+                }
+            }
             .sheet(item: $shareItem) { item in
                 ActivityView(items: [item.url])
                     .presentationDetents([.medium, .large])
@@ -306,7 +315,7 @@ struct DocumentScreen: View {
             }
             .accessibilityLabel("Share")
             barButton(title: "Transform", systemImage: "sparkles", emphasized: true) {
-                placeholder = .transform
+                isTransforming = true
             }
         }
         .frame(minHeight: 58)

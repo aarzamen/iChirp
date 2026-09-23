@@ -69,6 +69,9 @@ contract that proves no content or identifiers leave the device.
   `@AppStorage` key is a rejected pattern. M4: `ChirpKeychain.KeychainSecretStore`, service
   `com.aarzamen.ichirp.language-models`, one item per provider, `AfterFirstUnlockThisDeviceOnly`, never synced.
   Provider settings in `UserDefaults` hold no key (tested); in memory a key is a redacted `SecretValue`.
+- Settings → Models never loads a stored key into the form: the key field says "Stored in the Keychain" and a blank
+  field keeps it. The app-hosted `KeychainSecretStoreAppTests` checks the real iOS Keychain item is
+  this-device-only and never synchronizable (it needs a signed host; unsigned `CODE_SIGNING_ALLOWED=NO` runs skip it).
 - Provider error text is scrubbed of key artifacts; it can still echo prompt text, so it is shown to the user but
   never logged or stored (logs and the ledger carry `LanguageModelError.kindName`).
 - The Apple Developer team id may appear in `Config/Signing.local.xcconfig.example` while the repo is private.
@@ -82,7 +85,12 @@ contract that proves no content or identifiers leave the device.
   durations, sizes and error types.
 - Debugging with real audio happens on the owner's phone with their own data; nothing from it is copied into the repo,
   issues, or chat transcripts.
-- Exports and shares are user actions; the app never shares automatically.
+- Exports and shares are user actions; the app never shares automatically. Copy of a transcript or a generated
+  document is local-only (`UIPasteboard` `.localOnly`), so it never reaches Universal Clipboard.
+- The clinical confirmation (M4) is shown per run, titled "Send this clinical transcript to <provider>?"; only its
+  Send button mints the override (enforced by `AppTests/ClinicalConfirmationTests`). Lowering a transcript from
+  Clinical asks first. The first contact with a Mac shows iOS's local-network prompt (`NSLocalNetworkUsageDescription`);
+  App Transport Security allows plain http only to local hosts (`NSAllowsLocalNetworking`).
 - Clinical output from language or structure models is a draft; numbers (doses, dates, durations) are re-validated
   in code and the clinician reviews before use.
 

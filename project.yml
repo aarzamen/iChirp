@@ -21,6 +21,9 @@ targets:
     dependencies:
       - package: ChirpKit
         products: [ChirpCore, ChirpText, ChirpExport, ChirpStore, ChirpAudio, ChirpEngineFluidAudio, ChirpFeatures, ChirpUI, ChirpIngest]
+      # M4: language models (Apple on-device, HTTP providers) and the Keychain key store. No entitlement needed.
+      - package: ChirpKit
+        products: [ChirpEngineAppleFM, ChirpEngineHTTPLLM, ChirpKeychain]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:
@@ -79,6 +82,14 @@ targets:
         # M2: the dictation Live Activity (Lock Screen and Dynamic Island), started by the app while recording.
         NSSupportsLiveActivities: true
         NSMicrophoneUsageDescription: Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.
+        # M4: Settings → Models can point at Ollama or LM Studio on the owner's Mac. The usage text is shown by iOS's
+        # local-network prompt; NSAllowsLocalNetworking permits plain http only to local hosts (cloud stays https,
+        # enforced by LanguageModelProviderConfiguration.validate()). No Bonjour discovery, so no NSBonjourServices.
+        NSLocalNetworkUsageDescription: >-
+          Parakeet connects to a model server on your Mac (Ollama or LM Studio) when you choose one in
+          Settings → Models.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"
@@ -131,7 +142,26 @@ targets:
     platform: iOS
     sources: [AppTests]
     dependencies: [{ target: iChirp }]
+    settings:
+      base:
+        # M4: lets a simulator run that signs the test bundle ad hoc (Xcode's default) host the real Keychain test.
+        # Not a signing setting; the unsigned CODE_SIGNING_ALLOWED=NO runs in scripts/ are unchanged.
+        GENERATE_INFOPLIST_FILE: YES
+  # M4: a screen tour for QA screenshots (Settings → Models, Transcript, Transform, the clinical confirmation, Ask,
+  # Transforms). Its own scheme, never part of scripts/test.sh; see UITests/M4ScreenTourUITests.swift.
+  iChirpUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies: [{ target: iChirp }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: iChirp
 schemes:
+  iChirpUITour:
+    build: { targets: { iChirp: all, iChirpUITests: [test] } }
+    test: { targets: [iChirpUITests], gatherCoverageData: false }
   iChirp:
     build: { targets: { iChirp: all, iChirpTests: [test] } }
     test: { targets: [iChirpTests], gatherCoverageData: false }

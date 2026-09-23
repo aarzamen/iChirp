@@ -127,6 +127,21 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
   `.answered` or `.failed(sentence)`.
+- `LanguageModelsViewModel.swift` (M4 UI): Settings → Models and the model a run uses.
+  - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM` and `ChirpEngineHTTPLLM`
+    (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`); tests use a fake.
+  - `LanguageModelChoice` is Apple's on-device model or one provider; `ModelPlace` words where it runs ("on this
+    iPhone", "on Mac Studio", "in the cloud (Claude)").
+  - `LanguageModelProviderDraft` is the provider form: locality derived from the typed address, the trust switch only
+    for a home-network host, `apiKeyChange` (a blank key keeps the stored one), and `problem` as a sentence.
+  - `LanguageModelsViewModel` lists providers and Apple's availability, sets the default, saves and deletes through
+    the provider store (key to the Keychain first), tests a connection and lists models (typed key, else the stored
+    one), and builds a run's engine with `makeModel(for:)`, reading the key just then.
+- `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
+  category and recent documents) and `DeliverableDocumentViewModel` (one document: text, template version number,
+  `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
+- `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
+  time; answers are not stored (the ledger records each run without content).
 
 ## Meetings (M3, `Meeting/`)
 
@@ -283,6 +298,9 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
 - **Clinical content to a cloud or untrusted LAN engine needs a `PrivacyOverride`**: only `confirmOverride` makes
   one, only from a request this service issued, for one run. The UI must call it only from the user's tap on
   "Send" in the confirmation that shows `request.title` and `request.message`; never from code that did not ask.
+  In the app that is `ClinicalConfirmationActions.userTappedSend()`
+  (`App/Sources/Screens/Transforms/ClinicalConfirmation.swift`), and `AppTests/ClinicalConfirmationTests` fails when
+  any other app code calls `confirmOverride`.
   Its use is logged as `privacy_override_used` (ids, engine id, locality; host `.private`) and recorded as
   `llm_runs.privacyOverride`. A LAN engine that does not report `endpointHost` is never trusted.
 - **Every run that reaches routing writes one `llm_runs` row** (succeeded, failed, cancelled or refused), outside

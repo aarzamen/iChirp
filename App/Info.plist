@@ -79,6 +79,13 @@
 	<string>0</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Parakeet connects to a model server on your Mac (Ollama or LM Studio) when you choose one in Settings → Models.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.</string>
 	<key>NSSupportsLiveActivities</key>

@@ -16,31 +16,6 @@ struct Placeholder: Identifiable, Equatable {
 }
 
 extension Placeholder {
-    static let pasteLink = Placeholder(
-        id: "paste-link", title: "Paste a link", milestone: "M5",
-        summary: "Paste a YouTube, podcast or X link and Parakeet transcribes it on this iPhone.",
-        systemImage: "link")
-    static let recordMeeting = Placeholder(
-        id: "record-meeting", title: "Record Meeting", milestone: "M3",
-        summary: "Record from the microphone with a live transcript, then save it with speaker labels, on device.",
-        systemImage: "record.circle")
-    static let notes = Placeholder(
-        id: "notes", title: "Notes", milestone: "M3",
-        summary: "Notes you write while a meeting records, kept next to its transcript.",
-        systemImage: "note.text")
-    static let ask = Placeholder(
-        id: "ask", title: "Ask", milestone: "M4",
-        summary: "Ask questions about this transcript and get answers that cite the moments they come from.",
-        systemImage: "bubble.left.and.text.bubble.right")
-    static let transform = Placeholder(
-        id: "transform", title: "Transform", milestone: "M4",
-        summary: "Rewrite a transcript with Polish, Distill, Decide or your own Transforms.",
-        systemImage: "sparkles")
-    static let cloudModels = Placeholder(
-        id: "cloud-models", title: "Cloud models", milestone: "M4",
-        summary: "Optionally let Ask and Transforms use a cloud model you set up. Off by default; clinical items "
-            + "stay on device.",
-        systemImage: "cloud")
     static let gridLayout = Placeholder(
         id: "grid-layout", title: "Grid layout", milestone: "M8",
         summary: "Browse the Library as a grid of covers.",

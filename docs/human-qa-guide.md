@@ -274,6 +274,70 @@ Guardrails and regression
 Screenshots to attach
 - [ ] The Paste a link sheet mid-download; a scanned PDF's document screen with an OCR page; a YouTube caption row.
 
+## M4 checklist (language models: Transform, Ask, Settings → Models)
+
+> Preconditions: the iPhone 17 Pro runs the `m4/language-models-ui` build (Settings → About shows its commit);
+> Apple Intelligence is on (iPhone Settings → Apple Intelligence & Siri) and its model has finished downloading; the
+> Mac runs Ollama with a small model pulled (`ollama pull llama3.2:3b`, then `OLLAMA_HOST=0.0.0.0 ollama serve` so the
+> phone can reach it) or LM Studio's server with "Serve on Local Network" on; the phone and Mac are on the same Wi-Fi;
+> a throwaway cloud API key is at hand (optional). Use only synthetic recordings (make one with `say`, below).
+> Console.app streams the phone with the filter `subsystem:com.aarzamen.ichirp`.
+
+Make a synthetic "clinical" recording on the Mac and AirDrop it to the phone:
+
+```bash
+say -o ~/Desktop/synthetic-visit.m4a --data-format=aac "Synthetic patient reports a mild headache for two days. \
+No fever. Blood pressure one twenty over eighty. Plan: rest, fluids, follow up Thursday."
+```
+
+Apple on-device model
+- [ ] Settings → Privacy → Models for Ask and Transforms → "Apple on-device model" shows **Ready** (with Apple
+      Intelligence off it shows the sentence "Apple Intelligence is off…" and Transform says so instead of running).
+- [ ] Import `synthetic-visit.m4a`, open it, Transform → Summary: the status reads "Writing…", text streams in, then
+      an editable document with "Saved in Transforms"; Copy, then paste in Notes: the text arrives (it does not reach
+      the Mac's clipboard: Universal Clipboard is off for it).
+- [ ] Ask tab → "Decisions": the chip says "Answering on this iPhone", the answer streams, a `00:00`-style chip
+      appears under it and tapping it plays the audio from that moment.
+
+Your Mac (Ollama or LM Studio)
+- [ ] Models → Add a model → Ollama on your Mac → address `http://<your-mac>.local:11434` → "Get models from the
+      server" lists your models; the first contact shows iOS's **local network** prompt ("Parakeet connects to a model
+      server on your Mac…"): Allow.
+- [ ] Test connection → "Connected". The trust switch appears only for this home-network address (type an
+      `https://` internet address instead: the switch disappears).
+- [ ] Leave "Trust for clinical transcripts" **off**, save, pick it as the default. On the transcript, set the privacy
+      chip to **Clinical**, Transform → Summary: a dialog asks "Send this clinical transcript to <name>?" → Cancel:
+      "Not sent. Nothing left this iPhone." (Ollama's log shows no request).
+- [ ] Edit the model, turn trust **on**, save; Transform → SOAP note: no dialog, the SOAP note streams in, carries the
+      "Draft for your review" note and the Clinical badge.
+- [ ] Transforms tab → Recent documents → open the SOAP note: From, Template (with version), Provider, Model, Ran
+      ("On <your-mac> (Ollama)"), Privacy (Clinical) and Made are right; edit a word, leave, reopen: the edit stayed.
+
+Cloud (synthetic text only)
+- [ ] Models → Add a model → Anthropic (Claude) → your key → Test connection → "Connected". Leave the model's editor
+      and reopen it: the key field says "Stored in the Keychain", never the key.
+- [ ] Clinical transcript → Transform → **SOAP note** with the cloud model → the dialog "Send this clinical transcript
+      to Claude? It will leave this iPhone and go to Claude over the internet. This applies to this run only." →
+      **Send**: the note is made. Run it again: the dialog asks again (nothing is remembered).
+- [ ] A **Personal** transcript → SOAP note with the cloud model still asks (a SOAP run is clinical); Summary does not.
+
+Guardrails
+- [ ] Lowering a transcript from Clinical asks "Mark as Personal?" first; documents already made stay Clinical.
+- [ ] Stop during a long run: "Cancelled. Nothing was saved." and no new document in Transforms.
+- [ ] Turn Wi-Fi off and run with the Mac model: a sentence ("Could not reach the model…"), Retry works once back.
+- [ ] Delete a model: it disappears, and a run that used it as the default falls back to the Apple model.
+- [ ] Console never shows transcript or document text; `privacy_override_used` appears only after a Send.
+
+Regression
+- [ ] `scripts/device_smoke.sh` prints `SMOKE PASS`; Transcript's Copy, Share (all formats) and the player still work.
+
+Screenshots to attach
+- [ ] The clinical dialog; a streamed SOAP note; Ask with a citation chip; Settings → Models.
+
+Simulator screen tour (agents): `python3 scripts/llm_stub_server.py &` (synthetic answers on port 11999), then
+`TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/m4-screens" xcodebuild test -project iChirp.xcodeproj -scheme
+iChirpUITour -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` walks every M4 screen and saves 14 screenshots.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo
