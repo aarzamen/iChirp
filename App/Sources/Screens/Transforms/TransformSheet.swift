@@ -11,15 +11,21 @@ struct TransformSheet: View {
     let transcriptionID: UUID
     let transcriptTitle: String
     let privacyClass: PrivacyClass
+    /// M6a: a built-in's canonical key Jev suggested, shown first as "Suggested by Jev" (never run automatically).
+    let suggestedTemplateKey: String?
 
     @State private var host: TransformRunHost
     @State private var choice: LanguageModelChoice
     @State private var notes = ""
 
-    init(transcriptionID: UUID, transcriptTitle: String, privacyClass: PrivacyClass, environment: AppEnvironment) {
+    init(
+        transcriptionID: UUID, transcriptTitle: String, privacyClass: PrivacyClass, environment: AppEnvironment,
+        suggestedTemplateKey: String? = nil
+    ) {
         self.transcriptionID = transcriptionID
         self.transcriptTitle = transcriptTitle
         self.privacyClass = privacyClass
+        self.suggestedTemplateKey = suggestedTemplateKey
         _host = State(initialValue: TransformRunHost(environment: environment))
         _choice = State(initialValue: environment.languageModels.defaultChoice)
     }
@@ -56,6 +62,13 @@ struct TransformSheet: View {
                     Text("Couldn’t read the templates: \(error)")
                         .chirpFont(13)
                         .foregroundStyle(AppColor.error)
+                }
+                if let key = suggestedTemplateKey,
+                    let suggested = (library.documentTemplates + library.transformTemplates).first(where: {
+                        $0.canonicalKey == key
+                    })
+                {
+                    templateSection("Suggested by Jev", [suggested])
                 }
                 templateSection("Documents", library.documentTemplates)
                 templateSection("Rewrites", library.transformTemplates)
