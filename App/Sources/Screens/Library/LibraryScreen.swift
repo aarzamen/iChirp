@@ -4,7 +4,11 @@ import ChirpUI
 import SwiftUI
 
 /// Tab 2 (canvas `Library.dc.html`): search, filter chips, day sections and rows. Swipe a row to delete (with
-/// confirmation) or star it.
+/// confirmation) or favorite it.
+///
+/// Polish (UX audit X): 44 pt targets for the chips, the layout toggle and Clear search, one name for favorites
+/// ("Favorite" / "Unfavorite"), and empty states that say what to do. The filters themselves are unchanged (F63 and
+/// the documents filter are owner decisions for a later lane).
 struct LibraryScreen: View {
     @Environment(AppEnvironment.self) private var environment
 
@@ -67,6 +71,7 @@ struct LibraryScreen: View {
         .padding(.top, 8)
     }
 
+    /// The canvas's 36 pt segmented look; the Grid button's target is the full 44 pt height (F64).
     private var layoutToggle: some View {
         HStack(spacing: 2) {
             Button {
@@ -76,6 +81,7 @@ struct LibraryScreen: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Tokens.Color.secondary)
                     .frame(width: 44, height: 30)
+                    .frame(height: 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("Grid layout, not built yet")
@@ -91,8 +97,9 @@ struct LibraryScreen: View {
                 .accessibilityLabel("List layout, selected")
         }
         .buttonStyle(.plain)
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppColor.quietFill))
+        .padding(.horizontal, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppColor.quietFill).frame(height: 36))
     }
 
     private var searchField: some View {
@@ -102,7 +109,7 @@ struct LibraryScreen: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Tokens.Color.secondary)
                 .accessibilityHidden(true)
-            TextField("Search transcripts, speakers, labels", text: $library.searchText)
+            TextField("Search titles, text and speakers", text: $library.searchText)  // F68: no "labels" exist
                 .chirpFont(14.5)
                 .foregroundStyle(Tokens.Color.ink)
                 .textInputAutocapitalization(.never)
@@ -115,7 +122,8 @@ struct LibraryScreen: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(Tokens.Color.mutedText)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear search")
@@ -147,6 +155,8 @@ struct LibraryScreen: View {
             Text(filter.title)
                 .chirpFont(13.5, .semibold)
                 .foregroundStyle(selected ? AppColor.accentText : Tokens.Color.secondary)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 14)
                 .frame(minHeight: 34)
                 .background(
@@ -155,6 +165,8 @@ struct LibraryScreen: View {
                             Capsule().strokeBorder(
                                 selected ? AppColor.tintStrokeSelected : Tokens.Color.border, lineWidth: 1))
                 )
+                .frame(minHeight: 44)  // F64: a 34 pt capsule in a 44 pt target
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -172,13 +184,15 @@ struct LibraryScreen: View {
                 } else if library.items.isEmpty {
                     EmptyStateView(
                         title: "Your library is empty",
-                        message: "Import audio from Capture. Every transcript lands here, searchable and on device.")
+                        message: "Tap Create on Capture to speak, type, paste a link or pick a file. Everything you "
+                            + "make lands here.")  // F65
+                } else if library.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // F68: an empty filter is not a failed search.
+                    EmptyStateView(title: "Nothing here yet", message: "Nothing in \(library.filter.title) yet.")
                 } else {
                     EmptyStateView(
                         title: "No matches",
-                        message: library.searchText.isEmpty
-                            ? "Nothing in \(library.filter.title) yet."
-                            : "Nothing matches “\(library.searchText)” in \(library.filter.title).")
+                        message: "Nothing matches “\(library.searchText)” in \(library.filter.title).")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -224,13 +238,14 @@ struct LibraryScreen: View {
             Button {
                 Task { await toggleFavorite(item) }
             } label: {
-                Label(item.isFavorite ? "Unstar" : "Star", systemImage: item.isFavorite ? "star.slash" : "star")
+                Label(
+                    LibraryFavoriteCopy.title(isFavorite: item.isFavorite),
+                    systemImage: item.isFavorite ? "star.slash" : "star")
             }
             .tint(Tokens.Color.favorite)
         }
         .confirmationDialog(
-            item.isTextItem
-                ? "Delete this text?" : item.isDocument ? "Delete this document?" : "Delete transcript and its audio?",
+            LibraryDeleteCopy.title(for: item),
             isPresented: Binding(
                 get: { pendingDelete?.id == item.id },
                 set: { if !$0 { pendingDelete = nil } }),
@@ -241,20 +256,14 @@ struct LibraryScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(
-                item.isTextItem
-                    ? "“\(item.displayTitle)” and anything saved with it will be removed from this iPhone. This can’t be undone."
-                    : item.isDocument
-                        ? "“\(item.displayTitle)” and its copy of the file will be removed from this iPhone. This can’t be undone."
-                        : "“\(item.displayTitle)” and its audio will be removed from this iPhone. This can’t be undone."
-            )
+            Text(LibraryDeleteCopy.message(for: item))
         }
         .contextMenu {
             Button {
                 Task { await toggleFavorite(item) }
             } label: {
                 Label(
-                    item.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                    LibraryFavoriteCopy.title(isFavorite: item.isFavorite),
                     systemImage: item.isFavorite ? "star.slash" : "star")
             }
             Button(role: .destructive) {
@@ -282,5 +291,34 @@ struct LibraryScreen: View {
         } catch {
             actionError = Formatting.message(for: error)
         }
+    }
+}
+
+/// One name for the star everywhere (F67): the Library's swipe and menu and the Transcript screen.
+enum LibraryFavoriteCopy {
+    static func title(isFavorite: Bool) -> String {
+        isFavorite ? "Unfavorite" : "Favorite"
+    }
+}
+
+/// The delete question for a Library item, shared by the Library and the Transcript screen's More → Delete…
+///
+/// Deleting a row also deletes the documents made from it (the `deliverables` foreign key cascades), so the message
+/// says so.
+enum LibraryDeleteCopy {
+    static func title(for item: Transcription) -> String {
+        item.isTextItem
+            ? "Delete this text?" : item.isDocument ? "Delete this document?" : "Delete transcript and its audio?"
+    }
+
+    static func message(for item: Transcription) -> String {
+        let name = "“\(item.displayTitle)”"
+        let what =
+            item.isTextItem
+            ? "\(name) and anything made from it"
+            : item.isDocument
+                ? "\(name), its copy of the file and anything made from it"
+                : "\(name), its audio and any documents made from it"
+        return "\(what) will be removed from this iPhone. This can’t be undone."
     }
 }

@@ -173,6 +173,10 @@ import SwiftUI
 }
 
 /// The canvas player bar: coral play button, scrubber with current/total time, and the speed button.
+///
+/// The scrubber draws the canvas's 6 pt track but takes touches over 44 pt, and VoiceOver meets it as a real slider
+/// ("Playback position, 00:06 of 00:30", swipe up or down to move 5 seconds) instead of a custom element with no
+/// numeric value (UX audit F58).
 struct PlayerBar: View {
     let player: AudioPlayerModel
     @State private var scrubFraction: Double?
@@ -200,17 +204,15 @@ struct PlayerBar: View {
                         scrubFraction = nil
                     }
                 )
-                .accessibilityElement()
-                .accessibilityLabel("Playback position")
-                .accessibilityValue(
-                    "\(Formatting.clock(ms: shownMs)) of \(Formatting.clock(ms: Int(player.duration * 1000)))"
-                )
-                .accessibilityAdjustableAction { direction in
-                    switch direction {
-                    case .increment: player.skip(by: 5)
-                    case .decrement: player.skip(by: -5)
-                    @unknown default: break
+                .accessibilityRepresentation {
+                    Slider(
+                        value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }),
+                        in: 0...max(player.duration, 1), step: 5
+                    ) {
+                        Text("Playback position")
                     }
+                    .accessibilityValue(
+                        "\(Formatting.clock(ms: shownMs)) of \(Formatting.clock(ms: Int(player.duration * 1000)))")
                 }
                 HStack {
                     Text(Formatting.clock(ms: shownMs))
@@ -282,7 +284,10 @@ private struct Scrubber: View {
                     .onEnded { value in onCommit(Self.clamp(value.location.x / width)) }
             )
         }
-        .frame(height: 22)
+        // A 44 pt touch area that lays out as the canvas's 22 pt (the extra overlaps the card's padding and the
+        // non-interactive time labels).
+        .frame(height: 44)
+        .padding(.vertical, -11)
     }
 
     private static func clamp(_ value: Double) -> Double {

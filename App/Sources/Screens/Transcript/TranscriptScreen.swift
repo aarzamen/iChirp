@@ -7,10 +7,18 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// One transcript (canvas `Transcript.dc.html`): header with star and rename, Transcript / Notes / Ask tabs and the
-/// privacy class, player bar, speaker paragraphs with tappable timestamps, and Copy / Share / Transform (M4).
+/// One transcript (canvas `Transcript.dc.html`): header with star and rename, Transcript / Ask tabs with a Notes button
+/// and the privacy class, player bar, speaker paragraphs with tappable timestamps, and Copy / Share / Listen /
+/// Transform (M4).
+///
+/// Polish (UX audit T): 44 pt targets for the star, timestamps and More; the tabs never break mid-word (the privacy
+/// control moves to its own row when they do not fit); the class the privacy rules really use is named when a
+/// document made from the transcript is stricter (F51); Share lists Text, PDF, Word, Voice message and then "More
+/// formats"; More → Delete… asks like the Library.
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let id: UUID
 
     @State private var model: TranscriptViewModel
@@ -36,6 +44,12 @@ struct TranscriptScreen: View {
     @State private var isExtractingFields = false
     /// Plan 022: Share → Voice message.
     @State private var voiceMessage: VoiceMessageJob?
+    /// F51: the class the privacy rules use (`EffectivePrivacyClass`), when it is read; bumped after a Transform so a new
+    /// document's class is seen.
+    @State private var effectiveClass: PrivacyClass?
+    @State private var documentsRevision = 0
+    /// F53: More → Delete… is asking.
+    @State private var isConfirmingDelete = false
 
     enum TranscriptTab { case transcript, ask }
 
@@ -92,6 +106,7 @@ struct TranscriptScreen: View {
             hasLoaded = true
             player.load(model.mediaURL)
         }
+        .task(id: effectiveClassKey) { await refreshEffectiveClass() }
         .onChange(of: environment.jobCenter.progress[id]?.stage) { _, _ in
             // A job started, moved on or ended for this row: re-read it (the text appears when it completes).
             Task {
@@ -108,6 +123,7 @@ struct TranscriptScreen: View {
             isPresented: $isTransforming,
             onDismiss: {
                 suggestedTemplateKey = nil
+                documentsRevision += 1  // a new document may be stricter than the transcript (F51)
                 Task { await environment.deliverableLibrary.load() }
             }
         ) {
@@ -120,6 +136,7 @@ struct TranscriptScreen: View {
         .sheet(
             item: $decisionRun,
             onDismiss: {
+                documentsRevision += 1
                 if opensTransformAfterDecision {
                     opensTransformAfterDecision = false
                     isTransforming = true
@@ -153,6 +170,15 @@ struct TranscriptScreen: View {
                 .presentationDetents([.medium, .large])
                 .ignoresSafeArea()
         }
+        .confirmationDialog(
+            model.transcription.map { LibraryDeleteCopy.title(for: $0) } ?? "Delete transcript and its audio?",
+            isPresented: $isConfirmingDelete, titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { Task { await delete() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(model.transcription.map { LibraryDeleteCopy.message(for: $0) } ?? "")
+        }
         .alert("Rename transcript", isPresented: $isRenaming) {
             TextField("Title", text: $renameText)
             Button("Save") { Task { await rename() } }
@@ -182,11 +208,13 @@ struct TranscriptScreen: View {
                         Image(systemName: item.isFavorite ? "star.fill" : "star")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(item.isFavorite ? Tokens.Color.favorite : Tokens.Color.mutedText)
-                            .frame(minWidth: 24, minHeight: 24)
+                            .frame(minWidth: 44, minHeight: 44)  // F47: the glyph stays small, the target is 44 pt
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(item.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+                    // F67: one name ("Favorite"); VoiceOver says "selected" while it is on.
+                    .accessibilityLabel("Favorite")
+                    .accessibilityAddTraits(item.isFavorite ? .isSelected : [])
 
                     Button {
                         startRename()
@@ -224,7 +252,7 @@ struct TranscriptScreen: View {
                     Task { await toggleFavorite() }
                 } label: {
                     Label(
-                        item.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                        LibraryFavoriteCopy.title(isFavorite: item.isFavorite),
                         systemImage: item.isFavorite ? "star.slash" : "star")
                 }
             }
@@ -240,55 +268,122 @@ struct TranscriptScreen: View {
                     Label(ExtractFieldsViewModel.menuTitle, systemImage: "list.bullet.rectangle")
                 }
             }
+            if model.transcription != nil {
+                Divider()
+                Button(role: .destructive) {
+                    isConfirmingDelete = true  // F53: the Library's question, then the Library's delete
+                } label: {
+                    Label("Delete…", systemImage: "trash")
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .foregroundStyle(Tokens.Color.ink)
+                .frame(width: 44, height: 44)  // F56
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("More options")
         .disabled(model.transcription == nil)
     }
 
-    // MARK: - Tabs (Transcript and Ask real; Notes M3) and the privacy class (M4)
+    // MARK: - Tabs (Transcript and Ask), the Notes button (M3) and the privacy class (M4)
 
+    /// One row when it fits; otherwise the privacy control gets its own row above the tabs, and the tabs scroll
+    /// sideways rather than break a word (F48). Labels never wrap.
     private var tabs: some View {
-        HStack(spacing: 24) {
-            tabButton("Transcript", selected: selectedTab == .transcript) { selectedTab = .transcript }
-            tabButton("Notes", selected: false) { isShowingNotes = true }  // M3: opens the notes sheet
-            tabButton("Ask", selected: selectedTab == .ask) { selectedTab = .ask }
-            Spacer(minLength: 0)
-            if let item = model.transcription {
-                PrivacyClassControl(current: item.privacyClass) { newClass in
-                    // Through the service, so the transcript's documents are raised with it (never lowered).
-                    try await environment.deliverables.setPrivacyClass(newClass, transcriptionID: id)
-                    await model.load()
+        VStack(alignment: .leading, spacing: 0) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    tabItems
+                    Spacer(minLength: 0)
+                    privacyControl
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    privacyControl
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) { tabItems }
+                    }
                 }
             }
-        }
-        .frame(minHeight: 44)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Tokens.Color.border).frame(height: 1)
+            .frame(minHeight: 44)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Tokens.Color.border).frame(height: 1)
+            }
+            effectiveClassNote
         }
         .padding(.horizontal, 24)
     }
 
-    private func tabButton(_ title: String, selected: Bool, notBuilt: Bool = false, action: @escaping () -> Void)
-        -> some View
-    {
+    @ViewBuilder private var tabItems: some View {
+        tabButton("Transcript", selected: selectedTab == .transcript) { selectedTab = .transcript }
+        tabButton("Ask", selected: selectedTab == .ask) { selectedTab = .ask }
+        // F52: Notes opens a sheet, so it looks like a button, not a third tab.
+        Button {
+            isShowingNotes = true
+        } label: {
+            Label("Notes", systemImage: "square.and.pencil")
+                .labelStyle(.titleAndIcon)
+                .chirpFont(14.5, .semibold)
+                .foregroundStyle(AppColor.accentText)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Notes")
+        .accessibilityHint("Opens your notes and the speaker names")
+    }
+
+    @ViewBuilder private var privacyControl: some View {
+        if let item = model.transcription {
+            PrivacyClassControl(current: item.privacyClass) { newClass in
+                // Through the service, so the transcript's documents are raised with it (never lowered).
+                try await environment.deliverables.setPrivacyClass(newClass, transcriptionID: id)
+                await model.load()
+            }
+        }
+    }
+
+    /// F51: when a document made from this transcript is stricter than the transcript, say which class the privacy
+    /// rules use (Listen, Ask and Transform follow it), so the chip and the behavior never disagree unexplained.
+    @ViewBuilder private var effectiveClassNote: some View {
+        if let item = model.transcription, let effective = effectiveClass,
+            effective.strictness > item.privacyClass.strictness
+        {
+            Label {
+                Text("Treated as \(effective.title): a document made from it is \(effective.title.lowercased()).")
+                    .chirpFont(12.5)
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(Tokens.Color.secondary)
+            }
+            .padding(.vertical, 6)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func tabButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .chirpFont(14.5, selected ? .bold : .semibold)
                 .foregroundStyle(selected ? Tokens.Color.ink : Tokens.Color.secondary)
-                .frame(minHeight: 43)
+                .lineLimit(1)
+                .fixedSize()  // F48: never "Tra/ns/cri/pt"
+                .frame(minHeight: 44)
                 .overlay(alignment: .bottom) {
                     if selected {
                         Rectangle().fill(Tokens.Color.accent).frame(height: 2.5)
                     }
                 }
+                .frame(minWidth: 44)  // the underline stays the text's width; the target is at least 44 pt
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint(notBuilt ? "Not built yet" : "")
     }
 
     // MARK: - Content
@@ -370,6 +465,8 @@ struct TranscriptScreen: View {
                                 Label("Listen from Here", systemImage: "speaker.wave.2")
                             }
                         }
+                        // F55: the long-press item, reachable from the VoiceOver actions rotor too.
+                        .accessibilityAction(named: "Listen from Here") { listen(from: index) }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -388,6 +485,7 @@ struct TranscriptScreen: View {
                 ParagraphTagChip(title: jevTag)  // M6a: this session only
             }
             if showsTiming {
+                // The 44 pt timestamp target overlaps the paragraph spacing instead of adding to it.
                 HStack(spacing: 7) {
                     if let speakerIndex {
                         SpeakerDot(label: model.speakerLabel(for: paragraph.speakerId), speakerIndex: speakerIndex)
@@ -399,13 +497,14 @@ struct TranscriptScreen: View {
                             .chirpFont(11.5)
                             .monospacedDigit()
                             .foregroundStyle(player.isAvailable ? AppColor.accentText : Tokens.Color.secondary)
-                            .frame(minWidth: 44, minHeight: 28, alignment: .leading)
+                            .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // F49: 44 pt to tap
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!player.isAvailable)
                     .accessibilityLabel("Play from \(Formatting.clock(ms: paragraph.startMs))")
                 }
+                .padding(.vertical, -8)
             }
             Text(paragraph.text)
                 .chirpFont(16)
@@ -459,23 +558,27 @@ struct TranscriptScreen: View {
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        HStack(spacing: 0) {
+        // Labels share one baseline even where the glyphs differ in height (F40); the Listen button is shared.
+        HStack(alignment: .lastTextBaseline, spacing: 0) {
             barButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
                 copyText()
             }
             Menu {
-                ForEach(ExportFormat.allCases, id: \.self) { format in
-                    Button(format.displayName) { share(format) }
-                }
+                // F54: the everyday formats first, in the order the document screens use; the rest under one menu.
+                Button(ExportFormat.txt.displayName) { share(.txt) }
                 // Plan 022 Step 6: page formats.
                 ForEach(DocumentExportFormat.allCases, id: \.self) { format in
                     Button(format.displayName) { shareDocument(format) }
                 }
-                Divider()
                 Button {
                     voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
                 } label: {
                     Label("Voice message…", systemImage: "waveform.badge.plus")
+                }
+                Menu("More formats") {
+                    ForEach(Self.moreShareFormats, id: \.self) { format in
+                        Button(Self.shareTitle(format)) { share(format) }
+                    }
                 }
             } label: {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
@@ -510,8 +613,16 @@ struct TranscriptScreen: View {
         VStack(spacing: 4) {
             Image(systemName: systemImage)
                 .font(.system(size: 19, weight: .medium))
+                .frame(height: 22)
+            // F50: one line in a quarter of the bar; at accessibility sizes it shrinks a little rather than break
+            // "Transfor/m" (a long press shows the large label).
             Text(title)
                 .chirpFont(11, emphasized ? .bold : .semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 0.7 : 1)
+        }
+        .accessibilityShowsLargeContentViewer {
+            Label(title, systemImage: systemImage)
         }
         .foregroundStyle(emphasized ? AppColor.accentText : Tokens.Color.ink)
         .frame(maxWidth: .infinity, minHeight: 58)
@@ -555,6 +666,7 @@ struct TranscriptScreen: View {
             options: [.localOnly: true]
         )
         copied = true
+        AccessibilityNotification.Announcement("Copied").post()  // F55
         Task {
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
@@ -590,6 +702,44 @@ struct TranscriptScreen: View {
             try await model.rename(renameText)
         } catch {
             actionError = Formatting.message(for: error)
+        }
+    }
+
+    /// F53: the Library's delete (running job cancelled, row, audio and its documents removed), then back.
+    private func delete() async {
+        do {
+            try await environment.delete(id)
+            dismiss()
+        } catch {
+            actionError = Formatting.message(for: error)
+        }
+    }
+
+    /// Re-read when the stored class changes or a Transform or Jev sheet closes (F51).
+    private var effectiveClassKey: String {
+        "\(model.transcription?.privacyClass.rawValue ?? "-")#\(documentsRevision)"
+    }
+
+    private func refreshEffectiveClass() async {
+        guard let item = model.transcription else {
+            effectiveClass = nil
+            return
+        }
+        // Unreadable documents: say nothing extra rather than guess (the routers themselves fail safe to clinical).
+        effectiveClass = try? await EffectivePrivacyClass.of(item, in: environment.deliverableStore)
+    }
+
+    /// F54: the formats under Share → More formats, in this order.
+    static let moreShareFormats: [ExportFormat] = [.markdown, .srt, .vtt, .json]
+
+    /// F54: plain words for the specialist formats ("Subtitles (SRT)", "Data (JSON)").
+    static func shareTitle(_ format: ExportFormat) -> String {
+        switch format {
+        case .txt: "Text"
+        case .markdown: "Markdown"
+        case .srt: "Subtitles (SRT)"
+        case .vtt: "Subtitles (VTT)"
+        case .json: "Data (JSON)"
         }
     }
 
