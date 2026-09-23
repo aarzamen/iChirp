@@ -35,7 +35,11 @@ pipeline directly.
   review flag. The model copies tags; code maps them back. A unit is never guessed, "25 minute timer" stays minutes,
   mg/mcg stay distinct, ages are not durations, and a spoken self-correction keeps the corrected value flagged for
   review. The vital-sign hundreds shorthand ("one forty two over eighty eight") applies only in vital-sign context;
-  before a dose unit it is read whole ("one twenty-five micrograms" = 125 mcg, never 25) and flagged. A dose keeps a
+  before a dose unit it is read whole ("one twenty-five micrograms" or "one-twenty-five" = 125 mcg, never 25) and
+  flagged. "And" inside a spoken number is part of it ("a hundred and twenty-five micrograms" = 125 mcg, "one thousand
+  and fifty units" = 1050, both unflagged because they are certain); a bare "hundred and twelve" is read as 112 and
+  flagged; numbers said together but not one number ("fifty and a hundred milligrams") are carried into the tag and
+  flagged (re-review C1-R). A dose keeps a
   following "per kg", "/kg/min", "an hour" or "/5 mL" in its unit and tag (`mg/kg`, `g/h`), flagged; a number said
   right before a dose is carried into its tag and flagged. Every correction word next to a quantity ("no", "sorry",
   "I mean", "scratch that", "wait", "not" before one) flags it; a unit-only correction rebuilds the quantity, and a

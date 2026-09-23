@@ -39,7 +39,16 @@ enum IndependentNumberReader {
                 if let value = Double(token.replacingOccurrences(of: ",", with: "")) { reading.numbers.append(value) }
                 continue
             }
-            if isNumberWord(token) || (token == "and" && !group.isEmpty)
+            // Re-review C1-R: "a hundred" is one hundred, and "and" belongs to a number only after "hundred" or
+            // "thousand" ("a hundred and twenty-five" is 125; "fifty and a hundred" is 50, then 100).
+            if token == "a" || token == "an", index + 1 < tokens.count,
+                ["hundred", "thousand"].contains(tokens[index + 1])
+            {
+                flush()
+                group.append("one")
+                continue
+            }
+            if isNumberWord(token) || (token == "and" && ["hundred", "thousand"].contains(group.last ?? ""))
                 || ((token == "oh" || token == "point") && (!group.isEmpty || token == "point"))
             {
                 group.append(token)
@@ -64,6 +73,7 @@ enum IndependentNumberReader {
         while words.last == "and" || words.last == "point" || words.last == "oh" { words.removeLast() }
         guard !words.isEmpty else { return [] }
         if words.first == "point" { words.insert("zero", at: 0) }
+        if words.first == "hundred" || words.first == "thousand" { words.insert("one", at: 0) }
         let formatter = NumberFormatter()
         formatter.numberStyle = .spellOut
         formatter.locale = Locale(identifier: "en_US")
@@ -195,6 +205,9 @@ enum SentenceNeighbours {
 
     /// Words that correct what was just said. Plain "no" counts only between commas or dashes (see `correction(in:)`).
     static let correctionWords: Set<String> = ["sorry", "correction", "rather", "actually", "wait", "oops"]
+    /// Words that can sit inside a spoken number or between two numbers said together ("a hundred *and* twelve",
+    /// "fifty *and a* hundred").
+    static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
     static let timeOrWeight = ["kg", "kilo", "kilogram", "hour", "minute", "day", "week"]
     static let correctionPairs: Set<String> = [
@@ -211,12 +224,28 @@ enum SentenceNeighbours {
         func gap(_ from: Int, _ to: Int) -> String {
             ns.substring(with: NSRange(location: from, length: max(0, to - from)))
         }
-        if let previous = before.last,
-            gap(previous.range.upperBound, tag.sourceRange.lowerBound).allSatisfy({ $0 == " " || $0 == "-" }),
-            isNumber(previous.text)
-        {
-            problems.append(
-                "“\(previous.text)” was said right before “\(tag.sourceText)”: check which amount was meant.")
+        // Re-review C1-R: the words right before the tag, across "and" / "a" inside a spoken number. The whole spoken
+        // number is re-read, so "a hundred and" before "twenty-five micrograms" reads as 125, not 25.
+        var run: [Word] = []
+        var edge = tag.sourceRange.lowerBound
+        for word in before.reversed() {
+            guard gap(word.range.upperBound, edge).allSatisfy({ $0 == " " || $0 == "-" }),
+                isNumber(word.text) || spokenNumberJoiners.contains(word.text)
+            else { break }
+            run.insert(word, at: 0)
+            edge = word.range.lowerBound
+        }
+        if let firstNumber = run.firstIndex(where: { isNumber($0.text) }) {
+            let start = run[run.first?.text == "a" || run.first?.text == "an" ? 0 : firstNumber].range.lowerBound
+            let spoken = gap(start, tag.sourceRange.upperBound)
+            let said = gap(start, tag.sourceRange.lowerBound).trimmingCharacters(in: .whitespaces)
+            let whole = IndependentNumberReader.read(spoken).numbers
+            if whole.count == 1, let value = tag.value, !IndependentNumberReader.same(whole[0], value) {
+                problems.append(
+                    "The spoken number “\(spoken)” reads as \(NumericNormalizer.format(whole[0])), not \(tag.display).")
+            } else {
+                problems.append("“\(said)” was said right before “\(tag.sourceText)”: check which amount was meant.")
+            }
         }
         if tag.kind == .dose, after.count >= 2,
             gap(tag.sourceRange.upperBound, after[0].range.lowerBound).trimmingCharacters(in: .whitespaces).isEmpty

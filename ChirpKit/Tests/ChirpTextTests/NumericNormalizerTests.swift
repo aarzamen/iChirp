@@ -158,6 +158,58 @@ final class NumericNormalizerTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review C1-R: "and" inside a spoken number
+
+    func testAndInsideASpokenNumberIsReadAsTheWholeNumber() throws {
+        let cases: [(String, Double, String, String)] = [
+            (
+                "Takes levothyroxine a hundred and twenty-five micrograms daily.", 125, "mcg",
+                "a hundred and twenty-five micrograms"
+            ),
+            ("Levothyroxine a hundred and twelve micrograms.", 112, "mcg", "a hundred and twelve micrograms"),
+            ("Amoxicillin a hundred and fifty milligrams.", 150, "mg", "a hundred and fifty milligrams"),
+            ("Amoxicillin two hundred and fifty mg three times a day.", 250, "mg", "two hundred and fifty mg"),
+            ("Heparin one thousand and fifty units.", 1050, "units", "one thousand and fifty units"),
+            ("Heparin a thousand units.", 1000, "units", "a thousand units"),
+        ]
+        for (text, value, unit, source) in cases {
+            let doses = NumericNormalizer.normalize(text).tags.filter { $0.kind == .dose }
+            XCTAssertEqual(doses.count, 1, text)
+            let dose = try XCTUnwrap(doses.first, text)
+            XCTAssertEqual(dose.value, value, text)
+            XCTAssertEqual(dose.unit, unit, text)
+            XCTAssertEqual(dose.sourceText, source, "the whole spoken number is the evidence: \(text)")
+            XCTAssertFalse(dose.needsReview, "a fully spoken number is certain: \(text)")
+        }
+    }
+
+    func testHundredWithNoNumberBeforeItIsReadWholeAndFlagged() throws {
+        let dose = try XCTUnwrap(
+            NumericNormalizer.normalize("Levothyroxine hundred and twelve micrograms.").tags.first { $0.kind == .dose })
+        XCTAssertEqual(dose.value, 112)
+        XCTAssertEqual(dose.sourceText, "hundred and twelve micrograms")
+        XCTAssertTrue(dose.needsReview, "“hundred” with no number before it may have lost a word")
+    }
+
+    func testNumbersJoinedByAndThatAreNotOneNumberAreFlaggedNeverCollapsed() throws {
+        for text in ["Give fifty and a hundred milligrams.", "Give 50 and 100 mg."] {
+            let doses = NumericNormalizer.normalize(text).tags.filter { $0.kind == .dose }
+            XCTAssertEqual(doses.count, 1, text)
+            let dose = try XCTUnwrap(doses.first, text)
+            XCTAssertTrue(dose.needsReview, text)
+            XCTAssertTrue(dose.sourceText.lowercased().hasPrefix("fifty") || dose.sourceText.hasPrefix("50"), text)
+            XCTAssertNotEqual(dose.value, 150, text)
+        }
+    }
+
+    func testHyphenatedSpokenHundredsBeforeADoseIsTheWholeNumber() throws {
+        let dose = try XCTUnwrap(
+            NumericNormalizer.normalize("Amoxicillin one-fifty milligrams.").tags.first { $0.kind == .dose })
+        XCTAssertEqual(dose.value, 150, "re-review minor 2: never 50")
+        XCTAssertEqual(dose.sourceText, "one-fifty milligrams")
+        XCTAssertTrue(dose.needsReview)
+    }
+
     func testANumberRightBeforeADoseIsCarriedIntoTheTagAndFlagged() throws {
         let result = NumericNormalizer.normalize("Take one 25 microgram tablet.")
         let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose })

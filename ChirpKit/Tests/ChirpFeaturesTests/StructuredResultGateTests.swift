@@ -208,6 +208,64 @@ final class StructuredResultGateTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review C1-R: the independent check reads "and" inside a spoken number
+
+    func testTheIndependentReaderReadsWholeSpokenNumbers() {
+        let cases: [(String, [Double])] = [
+            ("a hundred and twenty-five micrograms", [125]),
+            ("two hundred and fifty mg", [250]),
+            ("one thousand and fifty units", [1050]),
+            ("hundred and twelve micrograms", [112]),
+            ("one-fifty milligrams", [150]),
+            ("fifty and a hundred milligrams", [50, 100]),
+            ("five, no, fifty milligrams", [5, 50]),
+        ]
+        for (text, numbers) in cases {
+            XCTAssertEqual(IndependentNumberReader.read(text).numbers, numbers, text)
+        }
+    }
+
+    func testTheIndependentCheckSeesAcrossAndInsideASpokenNumber() {
+        // The old normalizer's side tables: each tag holds only the tail of the spoken number.
+        let cases: [(String, String, Double, String, String, String)] = [
+            (
+                "Takes levothyroxine a hundred and twenty-five micrograms daily.", "twenty-five micrograms", 25, "mcg",
+                "levothyroxine", "125"
+            ),
+            ("Levothyroxine hundred and twelve micrograms.", "twelve micrograms", 12, "mcg", "levothyroxine", "112"),
+            ("Amoxicillin a hundred and fifty milligrams.", "fifty milligrams", 50, "mg", "amoxicillin", "150"),
+            ("Amoxicillin two hundred and fifty mg.", "fifty mg", 50, "mg", "amoxicillin", "250"),
+            ("Heparin one thousand and fifty units.", "fifty units", 50, "units", "heparin", "1050"),
+            ("Amoxicillin one-fifty milligrams.", "fifty milligrams", 50, "mg", "amoxicillin", "150"),
+        ]
+        for (text, source, value, unit, drug, whole) in cases {
+            let sentence = handTagged(text, [(source, "dose_1", .dose, value, unit)])
+            let result = StructuredCallValidator.validate(medication(drug), sentence: sentence, catalog: .soapMeds)
+            XCTAssertTrue(result.problems.contains { $0.contains(whole) }, "\(text): \(result.problems)")
+            XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: result.problems), .needsReview)
+        }
+        // A near miss: two numbers joined by "and" are not one number.
+        let nearMiss = handTagged(
+            "Give amoxicillin fifty and a hundred milligrams.", [("a hundred milligrams", "dose_1", .dose, 100, "mg")])
+        XCTAssertFalse(
+            StructuredCallValidator.validate(medication("amoxicillin"), sentence: nearMiss, catalog: .soapMeds)
+                .problems.isEmpty)
+    }
+
+    func testAWholeSpokenNumberFromTheNormalizerPassesTheIndependentCheck() throws {
+        for (text, drug, value) in [
+            ("Takes levothyroxine a hundred and twenty-five micrograms daily.", "levothyroxine", 125.0),
+            ("Heparin one thousand and fifty units.", "heparin", 1050),
+            ("Amoxicillin two hundred and fifty mg.", "amoxicillin", 250),
+        ] {
+            let result = try validate(
+                text,
+                #"[{"name":"add_medication","arguments":{"drug":"\#(drug)","dose_tag":"dose_1","status":"taking"}}]"#)
+            XCTAssertEqual(result.problems, [], text)
+            XCTAssertEqual(result.arguments["dose"]?["value"], .number(value), text)
+        }
+    }
+
     // MARK: - Review L3 I2 and I3: a value must sit next to what it belongs to
 
     func testADoseMustSitNextToItsOwnDrug() throws {

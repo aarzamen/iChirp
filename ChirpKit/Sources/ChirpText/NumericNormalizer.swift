@@ -269,13 +269,27 @@ private struct NumericScanner {
             guard let first = tokens.firstIndex(where: { $0.start == result[index].start }) else { continue }
             let floor = index > 0 ? result[index - 1].nextToken : 0
             var reasons: [String] = []
-            if result[index].kind == .dose, first - 1 >= floor, isNumberWord(first - 1) {
-                var start = first - 1
-                while start - 1 >= floor, isNumberWord(start - 1) { start -= 1 }
-                let words = text.utf16Substring(tokens[start].start, tokens[first - 1].end)
-                result[index].start = tokens[start].start
+            if result[index].kind == .dose {
+                // Numbers said right before a dose, also across "and" / "a" (re-review C1-R: "fifty and a hundred
+                // milligrams" is not 100 mg).
+                var start = first
+                var cursor = first - 1
+                while cursor >= floor, isNumberWord(cursor) || Self.spokenNumberJoiners.contains(tokens[cursor].text) {
+                    if isNumberWord(cursor) { start = cursor }
+                    cursor -= 1
+                }
+                if start < first {
+                    let words = text.utf16Substring(tokens[start].start, tokens[first - 1].end)
+                    result[index].start = tokens[start].start
+                    reasons.append(
+                        "“\(words)” was said right before \(result[index].display): check which amount was meant.")
+                }
+            }
+            if ["hundred", "thousand"].contains(tokens[first].text) {
+                let said = text.utf16Substring(result[index].start, result[index].end)
                 reasons.append(
-                    "“\(words)” was said right before \(result[index].display): check which amount was meant.")
+                    "“\(said)” has no number before “\(tokens[first].text)”, so it was read as \(result[index].display): "
+                        + "check the amount.")
             }
             if let marker = correctionMarker(before: first, floor: floor) {
                 reasons.append("“\(marker)” was said right before \(result[index].display): check this value.")
@@ -666,6 +680,16 @@ private struct NumericScanner {
         var cursor = index
         var any = false
         var lastKind = ""  // "unit", "teen", "tens", "hundred", "thousand"
+        // Re-review C1-R: "a hundred and twenty-five" is 125, and a bare leading "hundred" / "thousand" is read as one
+        // hundred / one thousand ("hundred and twelve" = 112; `annotateNeighbours` flags that form).
+        if (token.text == "a" && ["hundred", "thousand"].contains(peek(index + 1) ?? ""))
+            || ["hundred", "thousand"].contains(token.text)
+        {
+            current = 1
+            any = true
+            lastKind = "unit"
+            if token.text == "a" { cursor += 1 }
+        }
         while cursor < tokens.count {
             let word = tokens[cursor].text
             if word == "-", any, cursor + 1 < tokens.count, Self.tens[tokens[cursor - 1].text] != nil {
@@ -688,8 +712,8 @@ private struct NumericScanner {
                 total += max(current, 1) * 1000
                 current = 0
                 lastKind = "thousand"
-            } else if word == "and", lastKind == "hundred", let next = peek(cursor + 1),
-                Self.units[next] != nil || Self.tens[next] != nil
+            } else if word == "and", lastKind == "hundred" || lastKind == "thousand",
+                Self.numberAfterAnd(peek(cursor + 1))
             {
                 cursor += 1
                 continue
@@ -745,6 +769,12 @@ private struct NumericScanner {
         guard index < tokens.count, !tokens[index].isDigits, let hundreds = Self.units[tokens[index].text],
             (1...9).contains(hundreds), let next = peek(index + 1)
         else { return nil }
+        // Re-review minor 2: "one-fifty" is the same shorthand as "one fifty".
+        if next == "-", let word = peek(index + 2), Self.tens[word] != nil || (Self.units[word] ?? 0) >= 10,
+            let rest = cardinal(at: index + 2), rest.value < 100
+        {
+            return (Double(hundreds * 100) + rest.value, rest.next)
+        }
         if next == "oh", let digit = peek(index + 2).flatMap({ Self.units[$0] }), digit < 10 {
             var value = Double(hundreds * 100 + digit)
             var cursor = index + 3
@@ -824,6 +854,12 @@ private struct NumericScanner {
         return Self.timeUnits[word]
     }
 
+    /// A word that may follow "and" inside a spoken number ("a hundred and *twenty*-five", "one thousand and *fifty*").
+    static func numberAfterAnd(_ word: String?) -> Bool {
+        guard let word else { return false }
+        return units[word] != nil || tens[word] != nil
+    }
+
     static func spelledUnit(_ unit: String, _ value: Double) -> String {
         let one = value == 1
         switch unit {
@@ -873,6 +909,8 @@ private struct NumericScanner {
         "minute": "min", "minutes": "min", "min": "min", "mins": "min",
         "day": "day", "days": "day", "week": "wk", "weeks": "wk", "dose": "dose",
     ]
+    /// Words that can sit between two number words said next to each other ("fifty *and a* hundred").
+    static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
     /// "per mouth" is a route, not part of the dose.
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
     static let punctuation: Set<String> = [",", ".", ";", ":", "-", "—", "–", "…"]
