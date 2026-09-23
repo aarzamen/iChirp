@@ -20,6 +20,8 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         /// Errors to throw for the text of a chunk, consumed one per attempt.
         var failures: [String: [SpeechSynthesisError]] = [:]
         var gates: [CheckedContinuation<Void, Error>] = []
+        var voices: [SynthesisVoice] = []
+        var availabilityChecks = 0
     }
 
     private let state: Mutex<State>
@@ -49,6 +51,12 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         state.withLock { $0.availability = availability }
     }
 
+    func setVoices(_ voices: [SynthesisVoice]) {
+        state.withLock { $0.voices = voices }
+    }
+
+    var availabilityChecks: Int { state.withLock { $0.availabilityChecks } }
+
     func fail(text: String, with errors: [SpeechSynthesisError]) {
         state.withLock { $0.failures[text] = errors }
     }
@@ -59,8 +67,14 @@ final class FakeSpeechEngine: SpeechSynthesizing, Sendable {
         gate?.resume()
     }
 
-    func availability() async -> SpeechSynthesisAvailability { state.withLock { $0.availability } }
-    func voices() async throws -> [SynthesisVoice] { [] }
+    func availability() async -> SpeechSynthesisAvailability {
+        state.withLock {
+            $0.availabilityChecks += 1
+            return $0.availability
+        }
+    }
+
+    func voices() async throws -> [SynthesisVoice] { state.withLock { $0.voices } }
 
     func synthesize(_ request: SynthesisRequest) async throws -> SynthesizedAudio {
         let (mode, failure) = state.withLock { state -> (Mode, SpeechSynthesisError?) in
@@ -184,4 +198,56 @@ func eventually(
         try? await Task.sleep(for: .milliseconds(5))
     }
     XCTFail("timed out waiting for \(message())", file: file, line: line)
+}
+
+/// The app's voice engines, faked: one engine per provider, "not set up" on demand.
+@MainActor
+final class FakeVoiceEngines: VoiceEngineProviding {
+    let companion: FakeSpeechEngine
+    let xai: FakeSpeechEngine
+    var companionSetUp = true
+    var keyError: SpeechSynthesisError?
+    private(set) var validations = 0
+    private(set) var refreshes = 0
+
+    init(
+        companion: FakeSpeechEngine = FakeSpeechEngine(
+            id: "companion.speech", name: "Mac companion", locality: .localNetwork, host: "studio.local"),
+        xai: FakeSpeechEngine = FakeSpeechEngine(id: "xai.tts", name: "Grok voices", locality: .cloud, host: "api.x.ai")
+    ) {
+        self.companion = companion
+        self.xai = xai
+    }
+
+    func engine(for kind: VoiceProviderKind) -> any SpeechSynthesizing {
+        kind == .companion ? companion : xai
+    }
+
+    func engineForUtterance(_ kind: VoiceProviderKind) throws -> any SpeechSynthesizing {
+        if kind == .companion, !companionSetUp {
+            throw SpeechSynthesisError.notConfigured("set up the Mac companion in Settings → Mac companion.")
+        }
+        return engine(for: kind)
+    }
+
+    func validateXAIKey() async throws {
+        validations += 1
+        if let keyError { throw keyError }
+    }
+
+    func refreshCompanionAvailability() {
+        refreshes += 1
+    }
+}
+
+/// A `VoiceSettingsStoring` in memory.
+final class MemoryVoiceSettingsStore: VoiceSettingsStoring, Sendable {
+    private let value: Mutex<VoiceSettings>
+
+    init(_ settings: VoiceSettings = VoiceSettings()) {
+        value = Mutex(settings)
+    }
+
+    func load() -> VoiceSettings { value.withLock { $0 } }
+    func save(_ settings: VoiceSettings) { value.withLock { $0 = settings } }
 }

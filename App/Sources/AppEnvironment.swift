@@ -1,6 +1,7 @@
 import ChirpAudio
 import ChirpCore
 import ChirpEngineFluidAudio
+import ChirpEngineVoiceHTTP
 import ChirpExport
 import ChirpFeatures
 import ChirpIngest
@@ -73,6 +74,14 @@ import Observation
     let languageModels: LanguageModelsViewModel
     /// M4: the Transforms tab's templates and recent documents.
     let deliverableLibrary: DeliverableLibraryViewModel
+    // Plan 020: voices (Listen, spoken Ask answers, dictation read-back).
+    /// The Mac companion's address and pairing token. Plan 019's Settings → Mac companion store replaces the stand-in.
+    let companionConfiguration: any CompanionConfiguration
+    let voiceEngines: AppVoiceEngines
+    /// **Reads text aloud**; routes every chunk (clinical → trusted Mac, or a per-reading confirmation for the cloud).
+    let voicePlayer: VoicePlayer
+    /// Settings → Voices.
+    let voiceSettings: VoiceSettingsViewModel
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
     /// the "download the model" banner before it knows).
     private(set) var isLaunched = false
@@ -211,6 +220,21 @@ import Observation
             transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
         self.languageModels = LanguageModelsViewModel(store: providerStore, factory: AppLanguageModelFactory())
         self.deliverableLibrary = DeliverableLibraryViewModel(store: deliverableStore)
+        // Plan 020. Routing reads the providers' trusted hosts and the companion's trust at every chunk.
+        let companionConfiguration = StandInCompanionConfiguration.make()
+        let voiceSecrets = KeychainSecretStore()
+        let voiceEngines = AppVoiceEngines(secrets: voiceSecrets, companion: companionConfiguration)
+        let voiceSettingsStore = UserDefaultsVoiceSettingsStore()
+        let voicePlayer = VoicePlayer(
+            player: SpeechPlaybackEngine(session: audioSession),
+            selection: { try voiceSettingsStore.load().selection(engines: voiceEngines) },
+            routingPolicy: { providerStore.routingPolicy().trusting(companionConfiguration.companionEndpoint()) })
+        self.companionConfiguration = companionConfiguration
+        self.voiceEngines = voiceEngines
+        self.voicePlayer = voicePlayer
+        self.voiceSettings = VoiceSettingsViewModel(
+            store: voiceSettingsStore, secrets: voiceSecrets, engines: voiceEngines, player: voicePlayer,
+            stockXAIVoices: XAIVoice.stockVoices)
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }

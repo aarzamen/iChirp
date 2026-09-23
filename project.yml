@@ -24,6 +24,9 @@ targets:
       # M4: language models (Apple on-device, HTTP providers) and the Keychain key store. No entitlement needed.
       - package: ChirpKit
         products: [ChirpEngineAppleFM, ChirpEngineHTTPLLM, ChirpKeychain]
+      # Plan 020: voices (Mac companion, Grok voices over HTTP). No entitlement or capability.
+      - package: ChirpKit
+        products: [ChirpEngineVoiceHTTP]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:

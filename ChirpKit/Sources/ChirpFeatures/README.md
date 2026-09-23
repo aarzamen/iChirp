@@ -198,6 +198,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/VoiceProviderKind.swift`: the two voice providers (Mac companion, Grok voices) and their engine ids.
+- `Voice/VoiceSettings.swift`: `VoiceSettings` (provider, companion voice and style, Grok stock voice, a free-text
+  Voice ID that wins over it, Speak Ask answers; no secret), `UserDefaultsVoiceSettingsStore`
+  (`ichirp.voiceSettings`), `VoiceEngineProviding` (the app builds engines over `ChirpEngineVoiceHTTP`; the companion
+  is pinned per utterance), `VoiceSecrets.xaiAccount` (Keychain account, equal to `XAIVoice.secretAccount`), and
+  `VoiceSettings.selection(engines:)` (a `notConfigured` sentence when a choice is missing).
+- `Voice/VoiceSettingsViewModel.swift`: Settings → Voices. Companion state and voices (first voice picked when none
+  is), the xAI key saved to the Keychain only (paste artifacts stripped, field cleared) with Check key
+  (`GET /v1/api-key`), `setupProblem` for honest Listen hints, and Test voice (a fixed synthetic sentence through
+  `VoicePlayer`, class general).
 
 ## Wiring (app composition root)
 
