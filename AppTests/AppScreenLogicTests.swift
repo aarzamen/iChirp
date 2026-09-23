@@ -1,3 +1,5 @@
+import AVFoundation
+import ChirpAudio
 import ChirpCore
 import ChirpFeatures
 import ChirpText
@@ -96,6 +98,28 @@ final class AppScreenLogicTests: XCTestCase {
             TranscriptParagraph(startMs: 3, endMs: 4, text: "d", speakerId: "S2"),
         ]
         XCTAssertEqual(TranscriptScreen.speakerOrder(paragraphs), ["S2": 0, "S1": 1])
+    }
+
+    /// Review L2 M9: the transcript's media and a reading never play at once: starting the media pauses the reading.
+    func testStartingTheMediaTellsTheReadingToPause() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("media-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000))
+        buffer.frameLength = 16_000
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+        }
+        var pausedReadings = 0
+        let model = AudioPlayerModel(
+            session: AudioSessionController(platform: LiveAudioSessionPlatform.shared),
+            willPlay: { pausedReadings += 1 })
+        model.load(url)
+        XCTAssertTrue(model.isAvailable)
+        model.play()
+        XCTAssertEqual(pausedReadings, 1)
+        model.stop()
     }
 
     func testSpeedLabelsCycleInCanvasOrder() {

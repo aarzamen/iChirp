@@ -26,10 +26,14 @@ import SwiftUI
     @ObservationIgnored private var sessionActive = false
     @ObservationIgnored private let session: AudioSessionController
     @ObservationIgnored private var sessionObserver: AudioSessionController.ObserverToken?
+    @ObservationIgnored private let willPlay: @MainActor () -> Void
     @ObservationIgnored private let logger = Log.logger("player")
 
-    init(session: AudioSessionController) {
+    /// - Parameter willPlay: runs before the media starts (the Transcript screen pauses a reading aloud, so the two
+    ///   never play at once and never release the shared `.playback` session under each other; review L2 M9).
+    init(session: AudioSessionController, willPlay: @escaping @MainActor () -> Void = {}) {
         self.session = session
+        self.willPlay = willPlay
         sessionObserver = session.observe(.playback) { [weak self] event in
             Task { @MainActor in self?.handle(event) }
         }
@@ -81,7 +85,9 @@ import SwiftUI
     }
 
     func play() {
-        guard let player, activateSession() else { return }
+        guard let player else { return }
+        willPlay()
+        guard activateSession() else { return }
         if player.currentTime >= player.duration - 0.05 {
             player.currentTime = 0
         }
