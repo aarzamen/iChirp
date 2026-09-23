@@ -11,8 +11,12 @@ import SwiftUI
 /// Every state is real: the timer counts recorded audio, the meter draws the microphone's level, the live text comes
 /// from Parakeet passes over the recorded chunks (display-only), and the progress bar is the engine's own. The
 /// canvas's "Room" meter is not drawn: an iPhone has no second source for it (plan 012 Step 7, handoff).
+///
+/// At accessibility text sizes (UX audit AA) the recording card puts the timer under the state, Mute and Pause grow
+/// with their labels instead of truncating, and Stop & save takes its own full-width row.
 struct MeetingScreen: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Called with the saved meeting's id when the person opens its transcript.
     let openTranscript: (UUID) -> Void
 
@@ -113,30 +117,19 @@ struct MeetingScreen: View {
 
     private var recordingCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 14) {
-                RosetteMark(halo: meeting.state == .recording)
-                    .frame(width: 46, height: 54)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
-                        Circle()
-                            .fill(stateDotColor)
-                            .frame(width: 9, height: 9)
-                            .accessibilityHidden(true)
-                        Text(stateTitle)
-                            .chirpFont(15, .bold)
-                            .foregroundStyle(Tokens.Color.ink)
-                    }
-                    Text(sourceLine)
-                        .chirpFont(12.5)
-                        .foregroundStyle(Tokens.Color.secondary)
+            if dynamicTypeSize.isAccessibilitySize {
+                HStack(alignment: .center, spacing: 14) {
+                    rosette
+                    stateLines
                 }
-                Spacer(minLength: 8)
-                Text(Formatting.clock(ms: Int(meeting.recordedSeconds * 1000)))
-                    .chirpTitleFont(26, .heavy)
-                    .monospacedDigit()
-                    .foregroundStyle(Tokens.Color.ink)
-                    .accessibilityLabel("Recorded \(Formatting.duration(ms: Int(meeting.recordedSeconds * 1000)))")
+                recordedTime
+            } else {
+                HStack(alignment: .center, spacing: 14) {
+                    rosette
+                    stateLines
+                    Spacer(minLength: 8)
+                    recordedTime
+                }
             }
             if meeting.state.isCapturing || meeting.state == .starting {
                 LevelMeter(
@@ -146,6 +139,40 @@ struct MeetingScreen: View {
         .padding(16)
         .background(CardBackground(radius: Tokens.Radius.l))
         .accessibilityElement(children: .contain)
+    }
+
+    private var rosette: some View {
+        RosetteMark(halo: meeting.state == .recording)
+            .frame(width: 46, height: 54)
+            .accessibilityHidden(true)
+    }
+
+    private var stateLines: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(stateDotColor)
+                    .frame(width: 9, height: 9)
+                    .accessibilityHidden(true)
+                Text(stateTitle)
+                    .chirpFont(15, .bold)
+                    .foregroundStyle(Tokens.Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(sourceLine)
+                .chirpFont(12.5)
+                .foregroundStyle(Tokens.Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var recordedTime: some View {
+        Text(Formatting.clock(ms: Int(meeting.recordedSeconds * 1000)))
+            .chirpTitleFont(26, .heavy)
+            .monospacedDigit()
+            .foregroundStyle(Tokens.Color.ink)
+            .lineLimit(1)
+            .accessibilityLabel("Recorded \(Formatting.duration(ms: Int(meeting.recordedSeconds * 1000)))")
     }
 
     /// What the microphone is doing, in one line (the canvas's "Mic + room audio" corrected to the real source).
@@ -234,7 +261,7 @@ struct MeetingScreen: View {
                     if meeting.notes.isEmpty {
                         Text("Agenda, decisions, action items…")
                             .chirpFont(15)
-                            .foregroundStyle(Tokens.Color.mutedText)
+                            .foregroundStyle(Tokens.Color.secondary)  // F89: 4.5:1, not mutedText
                             .padding(.horizontal, 15)
                             .padding(.vertical, 18)
                             .allowsHitTesting(false)
@@ -387,32 +414,23 @@ struct MeetingScreen: View {
 
     @ViewBuilder private var bottomBar: some View {
         if meeting.state.isCapturing || meeting.state == .starting {
-            HStack(spacing: 10) {
-                smallButton(
-                    meeting.isMuted ? "Unmute" : "Mute", systemImage: meeting.isMuted ? "mic.slash.fill" : "mic.fill"
-                ) { meeting.toggleMute() }
-                .accessibilityHint("Muted time is recorded as silence.")
-                if meeting.state == .paused || meeting.state == .waitingForResume {
-                    smallButton("Resume", systemImage: "play.fill") { meeting.resume() }
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    // F73: nothing truncates; Stop & save gets the full width on its own row.
+                    VStack(spacing: 10) {
+                        HStack(spacing: 10) {
+                            muteButton
+                            pauseButton
+                        }
+                        stopButton
+                    }
                 } else {
-                    smallButton("Pause", systemImage: "pause.fill") { meeting.pause() }
-                        .disabled(meeting.state != .recording)
-                        .accessibilityHint("Nothing is recorded until you resume.")
+                    HStack(spacing: 10) {
+                        muteButton
+                        pauseButton
+                        stopButton
+                    }
                 }
-                Button {
-                    notesFocused = false
-                    meeting.stop()
-                } label: {
-                    Label("Stop & save", systemImage: "stop.fill")
-                        .chirpFont(16, .bold)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(Capsule().fill(Tokens.Color.stopRed))
-                }
-                .buttonStyle(.plain)
-                .disabled(!meeting.state.isCapturing)
-                .accessibilityHint("Stops recording and transcribes the meeting on this iPhone.")
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)
@@ -421,7 +439,46 @@ struct MeetingScreen: View {
         }
     }
 
-    /// A compact round-cornered button: icon over a short label (Mute, Pause, Resume).
+    private var muteButton: some View {
+        smallButton(
+            meeting.isMuted ? "Unmute" : "Mute", systemImage: meeting.isMuted ? "mic.slash.fill" : "mic.fill"
+        ) { meeting.toggleMute() }
+        .accessibilityHint("Muted time is recorded as silence.")
+    }
+
+    @ViewBuilder private var pauseButton: some View {
+        if meeting.state == .paused || meeting.state == .waitingForResume {
+            smallButton("Resume", systemImage: "play.fill") { meeting.resume() }
+        } else {
+            smallButton("Pause", systemImage: "pause.fill") { meeting.pause() }
+                .disabled(meeting.state != .recording)
+                .accessibilityHint("Nothing is recorded until you resume.")
+        }
+    }
+
+    private var stopButton: some View {
+        Button {
+            notesFocused = false
+            meeting.stop()
+        } label: {
+            Label("Stop & save", systemImage: "stop.fill")
+                .chirpFont(16, .bold)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(Capsule().fill(Tokens.Color.stopRed))
+        }
+        .buttonStyle(.plain)
+        .disabled(!meeting.state.isCapturing)
+        .accessibilityHint("Stops recording and transcribes the meeting on this iPhone.")
+    }
+
+    /// Mute and Pause share the row equally at accessibility sizes; otherwise they keep their compact width.
+    private var smallButtonMaxWidth: CGFloat? { dynamicTypeSize.isAccessibilitySize ? .infinity : nil }
+
+    /// A compact round-cornered button: icon over a short label (Mute, Pause, Resume). At least 78 × 56; it grows with
+    /// its label rather than truncating it (F73), and fills its share of the row at accessibility sizes.
     private func smallButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
@@ -430,11 +487,14 @@ struct MeetingScreen: View {
                 Text(title)
                     .chirpFont(12, .semibold)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize()
             }
             .foregroundStyle(Tokens.Color.ink)
-            .frame(width: 78, height: 56)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(minWidth: 78, maxWidth: smallButtonMaxWidth, minHeight: 56)
             .background(CardBackground(radius: 18))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -453,7 +513,8 @@ private struct LevelMeter: View {
             Text(label)
                 .chirpFont(12, .semibold)
                 .foregroundStyle(Tokens.Color.secondary)
-                .frame(width: 30, alignment: .leading)
+                .fixedSize()
+                .frame(minWidth: 30, alignment: .leading)
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule().fill(AppColor.quietFill)
