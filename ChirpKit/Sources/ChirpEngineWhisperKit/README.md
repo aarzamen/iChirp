@@ -17,11 +17,16 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
 - `WhisperKitEngine.swift` (ports upstream `WhisperEngine`): the `SpeechEngine` and `SpeechEngineUnloading` actor.
   - **Files:** the model lives at `<dir>/models/argmaxinc/whisperkit-coreml/<folder>` and the tokenizer at
     `<dir>/models/openai/whisper-*`. A completion marker is written after a successful download. `assetStatus` is
-    ready only when both the marker and `tokenizer.json` are present.
+    ready only when the marker, `tokenizer.json` and `tokenizer_config.json` are all present.
   - **Load:** `prepare` loads once and shares the load. It refuses (`modelNotDownloaded`) while files are missing,
-    and never downloads.
-  - **Calls:** one call at a time on the loaded pipeline (a FIFO permit). Cancellation stops decoding through
-    WhisperKit's callback.
+    and never downloads. A caller cancelled while it waits for the load (a first-time Core ML compile can take
+    minutes) stops waiting at once; the load goes on for the others (`SharedTaskWait.swift`, as Parakeet's).
+    `unloadModels()` is refused while a load runs, so two pipelines are never loaded at once.
+  - **Calls:** one call at a time on the loaded pipeline (`AsyncPermit`, FIFO). A call cancelled while it waits in
+    line leaves at once with `CancellationError`, so a dictation's Stop or Cancel never waits behind a file job.
+    Cancellation of the running call stops decoding through WhisperKit's callback.
+  - **Delete:** refused while a call runs. Otherwise new loads are refused at once, a load or download in flight is
+    waited for and its model released, and only then are the folders removed.
   - **Language:** a forced language that yields nothing is retried with detection (upstream).
   - **Words:** trimmed, in milliseconds, with non-decreasing starts and `endMs >= startMs`. The probability is
     clamped to 0…1.
@@ -34,9 +39,16 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
   - **Download:** `WhisperKit.download(variant:downloadBase:)` fetches the model, and
     `ModelUtilities.loadTokenizer(for:tokenizerFolder:)` fetches the tokenizer into the same Hub layout. This is the
     only network use.
-  - **Load:** `WhisperKitConfig` with `download: false`, the local model folder and the tokenizer folder.
+  - **Load:** the tokenizer is read from local files first (`AutoTokenizerWrapper.from(modelFolder:)`); a damaged
+    one is refused (`WhisperKitLoadError.tokenizerUnreadable`, shown as "Delete it and download it again") because
+    WhisperKit would otherwise fetch it from Hugging Face. Then `WhisperKitConfig` with `download: false`, the local
+    model folder and the tokenizer folder.
   - **Transcribe:** VAD chunking with `.incremental` file loading, two concurrent windows, `skipSpecialTokens` and
-    word timestamps.
+    word timestamps. Progress is the share of the file decoded: the end of the last segment WhisperKit found (its
+    `segmentDiscoveryCallback`, in file time) over the file's length, below 1 until the engine reports the end.
+    WhisperKit's own `progress` restarts for every streamed window, so it is not used.
+- `AsyncPermit.swift` and `SharedTaskWait.swift`: copies of ChirpEngineFluidAudio's cancellation-aware permit and
+  shared-task wait (an engine target depends only on ChirpCore).
 
 ## What to know before editing
 
@@ -58,10 +70,16 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
 
 - `WhisperKitEngineTests` (fake backend):
   - descriptors against their registry rows, and stable variant ids;
-  - nothing downloads or loads implicitly; monotonic download progress; a missing tokenizer means not ready;
+  - nothing downloads or loads implicitly; monotonic download progress; a missing tokenizer (`tokenizer.json` or
+    `tokenizer_config.json`) means not ready; a damaged tokenizer is refused at load, never fetched;
   - a failed download can be retried;
   - word mapping and clamping; the language fallback; `emptyTranscript`; prompt cancellation;
-  - one call at a time with a single load; unload then reload; delete touches only its own variant; language codes.
+  - one call at a time with a single load; unload then reload; delete touches only its own variant; language codes;
+  - review I1: a queued call cancelled behind a running one returns at once while the first keeps running; a
+    cancelled waiter leaves the shared load while it continues; a dictation's live-preview pass queued behind a file
+    job ends at once when the dictation stops (through `SpeechEngineRouter` and `TailWindowPreviewSession`);
+  - review M3: an unload during a load starts no second load; a delete during a load waits for it and releases its
+    model; review M1: progress is the share of audio covered, below 1 until the end.
 - `WhisperKitEngineIntegrationTests`: opt-in with `CHIRP_WHISPER_TESTS=1`. It runs the real model on a `say`
-  recording on the Mac. `CHIRP_WHISPER_VARIANT=large-v3-turbo` picks the big one, and `CHIRP_WHISPER_MODELS_DIR`
+  recording on the Mac, and checks that progress is real (a value between 0 and 1 before the final 1). `CHIRP_WHISPER_VARIANT=large-v3-turbo` picks the big one, and `CHIRP_WHISPER_MODELS_DIR`
   sets the models folder (default `~/Library/Caches/iChirpTests/WhisperKit`).

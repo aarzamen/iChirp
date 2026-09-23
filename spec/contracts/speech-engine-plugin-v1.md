@@ -52,7 +52,9 @@ an engine that breaks them corrupts transcripts silently.
   - Input is a 16 kHz mono PCM WAV (the `AudioNormalizing` output). Engines must not require any other format.
   - If assets are missing it throws `SpeechEngineError.modelNotDownloaded(<engine id>)`; it **never downloads**.
   - Empty recognized text throws `SpeechEngineError.emptyTranscript`.
-  - Task cancellation is honored promptly and surfaces as `CancellationError` or `SpeechEngineError.cancelled`.
+  - Task cancellation is honored promptly and surfaces as `CancellationError` or `SpeechEngineError.cancelled`. That
+    includes a call that is still waiting: for an engine's one-call-at-a-time permit or for a model load another
+    caller started. The waiter leaves at once; the running call and the shared load go on for the others.
   - Result: `text` (the engine's text, unmodified), `words` (`WordTimestamp` in milliseconds from the start of the
     file, non-decreasing `startMs`, `endMs >= startMs`, confidence 0…1, `speakerId` nil), `language` (BCP-47 or nil;
     do not guess), `engineID` (= `descriptor.id`), `engineVariant` (e.g. `v3`).
@@ -62,7 +64,7 @@ an engine that breaks them corrupts transcripts silently.
     recorded file is never changed), but the result's shape and every rule above stay the same.
 - FluidAudio's Core ML engines run every inference inside `ANEInferenceGate`. The gate is internal to
   `ChirpEngineFluidAudio` and does not serialize on iOS 26. WhisperKit (M7) serializes calls on its own pipeline
-  instead. Apple Speech runs in iOS's speech service.
+  instead, with a cancellable FIFO permit. Apple Speech runs in iOS's speech service.
 - `SpeechEngineUnloading` (M7, optional): `unloadModels()` drops a loaded model, and the next `prepare` loads it again
   from disk. It is refused silently while a job holds the model.
 - Conformers are `Sendable` (actors in practice); single-threaded C runtimes are confined to one actor.
@@ -141,7 +143,10 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
 - `TailWindowPreviewSessionTests` (ChirpCoreTests since M7; single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
   interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
   `.dictation` purpose uses it, `.file` never does).
-- `ModelAssetLifecycleTests.testACancelledWaiterStopsWaitingWhileTheSharedLoadContinues`.
+- `ModelAssetLifecycleTests.testACancelledWaiterStopsWaitingWhileTheSharedLoadContinues`, and for WhisperKit
+  `WhisperKitEngineTests.testACallQueuedBehindARunningCallStopsPromptlyWhenCancelledWhileTheFirstKeepsRunning`,
+  `testACancelledWaiterForTheSharedLoadStopsWaitingWhileTheLoadContinues` and
+  `testALivePreviewPassWaitingBehindAFileJobEndsPromptlyWhenTheDictationStops`.
 - `ParakeetEngineIntegrationTests` (gated by `CHIRP_MODEL_TESTS=1`: real transcription, monotonic timestamps,
   diarization returns at least one speaker).
 - `FileTranscriptionPipelineTests.testMissingModelFailsWithActionableMessage` and
