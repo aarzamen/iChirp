@@ -18,6 +18,8 @@ public final class GRDBDeliverableStore: DeliverableStoring {
 
     /// Plan 022: the same database for the document versions (`DeliverableVersionStore.swift`).
     var versionsDatabase: DatabaseManager { database }
+    /// Plan 023: the same database for the Library's lists of documents (`DeliverableListingStore.swift`).
+    var listingDatabase: DatabaseManager { database }
 
     public enum StoreError: Error, Equatable, LocalizedError {
         case templateNotFound

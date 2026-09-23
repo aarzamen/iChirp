@@ -98,6 +98,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Models/DeliverableVersion.swift` and `Pipeline/DeliverableVersionStoring.swift` (plan 022): a generated document's
   append-only versions (`DeliverableVersion`, `DeliverableVersionDraft`, `DeliverableVersionAppend`) and the store
   protocol `GRDBDeliverableStore` implements.
+- `Pipeline/DeliverableListing.swift` (plan 023, UX audit F43): the Library's read-only lists of generated documents.
+  `DeliverableSummary` is a document without its full text (type, source id, class, dates and `textStart`, the first
+  320 characters; `snippet` folds them to one Markdown-free line only when a row asks), and `DeliverableListing` lists
+  every one (no limit), observes the list and searches title and text. `GRDBDeliverableStore` implements it.
 - `Models/StructuredResult.swift` (M6): the evidence ledger's values (`StructuredRun`, `StructuredField` with its
   `StructuredSourceSpan` and `StructuredVerdict`, `StructuredEvalRun`) and `StructuredResultStoring`
   ([structured-results-v1](../../../spec/contracts/structured-results-v1.md)).

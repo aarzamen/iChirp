@@ -34,6 +34,14 @@ ChirpStore depends on ChirpText.
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
   version when it is not the newest, appends the new one, makes it the document's text and raises its class, all in
   one transaction). Contract: `spec/contracts/deliverables-v1.md` (Versions).
+- `DeliverableListingStore.swift` (plan 023, UX audit F43) — `GRDBDeliverableStore`'s `DeliverableListing`, read
+  only, no schema change: `fetchDeliverableSummaries()` (every document, newest first, `createdAt` then id; only
+  `substr(text, 1, 320)` of the text is read, and columns are read by position, so 5,000 summaries take about 25 ms in
+  a debug build on the Mac), `observeDeliverableSummaries()` (a `ValueObservation` of the `deliverables` table on its
+  own serial queue, cancelled with the stream; a transcript's delete reaches it through the cascade) and
+  `searchDeliverables(matching:)` (title or text; an ASCII query is a `LIKE` with `%`, `_` and `\` escaped, which
+  SQLite folds case for; any other query compares in Swift with `localizedCaseInsensitiveContains`). A row this build
+  cannot read is skipped and logged by id, like `decodeRows`. Contract: `spec/contracts/deliverables-v1.md` (Listing).
 - `StructuredResultStore.swift` (M6) — `StructuredResultsSchema` (the tables of `v7-structured-results`: runs
   cascade-deleted with their transcript, fields with their run; an unknown stored verdict reads as `needsReview`,
   never `act`), the row mirrors, and `GRDBStructuredResultStore` (`StructuredResultStoring`: save a run with its

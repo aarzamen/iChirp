@@ -25,6 +25,8 @@ database and every screen that lists or edits documents.
 
 - The M4-UI lane: Transforms tab (templates, recent deliverables), Transcript → Transform, the editable result,
   Ask, Settings → Models.
+- Plan 023 (UX audit F43): the Library (every document next to recordings and text items, the Documents filter,
+  search over document text) and each item's "Made from this", through `DeliverableListing` (read only).
 - Future export of deliverables (M8) and structure models that read them (M6).
 
 ## Stable fields and semantics
@@ -85,6 +87,22 @@ database and every screen that lists or edits documents.
   version row on the phone; it is never logged and never in the ledger. Restore appends the chosen text as a
   `restore` version (no model).
 
+### Listing (plan 023, UX audit F43; no schema change)
+
+- `DeliverableListing` (`ChirpCore/Pipeline/DeliverableListing.swift`, implemented in
+  `ChirpStore/DeliverableListingStore.swift`) is read only. `fetchDeliverableSummaries()` returns **every** document,
+  newest first (`createdAt`, then id): there is no limit anywhere, so no document can become unreachable.
+  `observeDeliverableSummaries()` emits the same list now and after every change to `deliverables` (a new document,
+  an edit, a new version, a raised class, a delete, a transcript's cascade).
+- A `DeliverableSummary` carries everything but the full text: `textStart` is the first 320 characters. The same
+  fallbacks as a full read apply (an unknown class reads `clinical`, an unknown locality `cloud`); a row that cannot
+  be read at all is skipped and logged by id only, so one bad row never empties the list.
+- `searchDeliverables(matching:)` returns the ids whose title or text contains the query, ignoring case; `%` and `_`
+  in the query match literally.
+- The Library shows each document with its source's title and the class the privacy rules use for it: the stricter
+  of its own class, its source's class and every other document made from that source (`EffectivePrivacyClass`);
+  clinical when the source row cannot be read.
+
 ## Non-stable fields
 
 - Template wording (bump `revision`), `sortOrder`, titles, the prompt preamble and map/reduce instructions, the
@@ -103,6 +121,12 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
   `testPromptVersionsAreImmutableInTheDatabase`; soft delete keeps versions; deliverable round trip, edit, newest
   first; `testGeneratedTextNeverTouchesTheTranscript`; raising never lowers; unknown class reads clinical;
   transcript delete cascades deliverables and keeps the ledger; `updatePrivacyClass` is field-level.
+- `DeliverableListingStoreTests` (ChirpStoreTests): every document newest first with no cap, the folded start of the
+  text, unknown class reads clinical, an unreadable row is skipped, the observation follows insert, edit, raised
+  class, a transcript's cascade and delete, search ignores case and escapes `LIKE` wildcards, and 5,000 documents list
+  and search within budget. `LibraryDocumentsTests` (ChirpFeaturesTests): every one of more than 100 documents is
+  reachable by paging, the Documents filter holds exactly the documents, search finds document text, "Made from this"
+  is newest first, and 8,000 rows stay within budget.
 - `PromptTemplateRendererTests` (ChirpTextTests), `BuiltInTemplatesTests` (ChirpFeaturesTests).
 - `DeliverableVersionStoreTests` (ChirpStoreTests): original kept as version 1, hand edits kept, restore appends,
   class only rises, the database refuses to change or delete a version, cascades remove them with the document.
