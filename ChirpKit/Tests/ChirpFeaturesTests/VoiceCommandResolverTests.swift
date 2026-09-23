@@ -120,7 +120,35 @@ struct CommandEngine: StructureModel {
 final class RecordingSpeaker: ReadBackSpeaking, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String] = []
+    private var idStorage: [UUID] = []
     var isAvailable: Bool { true }
     var texts: [String] { lock.withLock { storage } }
-    func readBack(_ text: String) async { lock.withLock { storage.append(text) } }
+    var transcriptionIDs: [UUID] { lock.withLock { idStorage } }
+    func readBack(_ text: String, transcriptionID: UUID) async {
+        lock.withLock {
+            storage.append(text)
+            idStorage.append(transcriptionID)
+        }
+    }
+}
+
+final class ReadBackRelayTests: XCTestCase {
+    func testUnconnectedRelayIsSilent() async {
+        let relay = ReadBackRelay()
+        XCTAssertFalse(relay.isAvailable)
+        await relay.readBack("Synthetic sentence.", transcriptionID: UUID())
+    }
+
+    func testConnectedRelayForwardsTextAndTheDictationID() async {
+        let relay = ReadBackRelay()
+        let speaker = RecordingSpeaker()
+        relay.connect(
+            isAvailable: { true },
+            speak: { text, id in await speaker.readBack(text, transcriptionID: id) })
+        let id = UUID()
+        XCTAssertTrue(relay.isAvailable)
+        await relay.readBack("Synthetic sentence.", transcriptionID: id)
+        XCTAssertEqual(speaker.texts, ["Synthetic sentence."])
+        XCTAssertEqual(speaker.transcriptionIDs, [id])
+    }
 }

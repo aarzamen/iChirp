@@ -2,19 +2,49 @@ import ChirpCore
 import Foundation
 import Observation
 
-/// Speaks text aloud for the "read back" command. Plan 020's `VoicePlayer` conforms in the app; until then the
-/// default does nothing (and says so in the chip), so this lane never waits for the voice lane.
+/// Speaks text aloud for the "read back" command. The app connects it to plan 020's `VoicePlayer` through
+/// `ReadBackRelay`; the dictation's id travels along so the player routes every chunk on that transcript's current
+/// (effective) privacy class.
 public protocol ReadBackSpeaking: Sendable {
     /// Whether a voice is set up at all (the chip says "no voice set up" otherwise).
     var isAvailable: Bool { get }
-    func readBack(_ text: String) async
+    func readBack(_ text: String, transcriptionID: UUID) async
 }
 
-/// The no-op default: no voice output is wired yet.
+/// The no-op default: no voice output is wired.
 public struct SilentReadBack: ReadBackSpeaking {
     public init() {}
     public var isAvailable: Bool { false }
-    public func readBack(_ text: String) async {}
+    public func readBack(_ text: String, transcriptionID: UUID) async {}
+}
+
+/// A read-back target connected after construction (the app builds dictation before the voice player). Until
+/// `connect` is called it behaves like `SilentReadBack`.
+public final class ReadBackRelay: ReadBackSpeaking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var availability: (@Sendable () -> Bool)?
+    private var speaker: (@Sendable (String, UUID) async -> Void)?
+
+    public init() {}
+
+    public func connect(
+        isAvailable: @escaping @Sendable () -> Bool, speak: @escaping @Sendable (String, UUID) async -> Void
+    ) {
+        lock.withLock {
+            availability = isAvailable
+            speaker = speak
+        }
+    }
+
+    public var isAvailable: Bool {
+        let check = lock.withLock { availability }
+        return check?() ?? false
+    }
+
+    public func readBack(_ text: String, transcriptionID: UUID) async {
+        let speak = lock.withLock { speaker }
+        await speak?(text, transcriptionID)
+    }
 }
 
 /// What the Dictating screen should open after the copy ("send to SOAP", "send to Transform").
@@ -140,7 +170,7 @@ public struct VoiceCommandChip: Sendable, Equatable {
             case .readBack:
                 if readBack.isAvailable {
                     let readBack = self.readBack
-                    Task { await readBack.readBack(copiedText) }
+                    Task { await readBack.readBack(copiedText, transcriptionID: transcriptionID) }
                 } else {
                     readBackUnavailable = true
                 }

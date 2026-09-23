@@ -178,8 +178,10 @@ import Observation
             appBuild: BuildIdentity.current.summary, runtime: "needle-rs \(NeedleRuntimeInfo.pinnedCommit.prefix(8))")
         self.structuredExtraction = StructuredExtractionService(
             transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines)
-        // "Read back" speaks through plan 020's voice player once it lands; until then the no-op default says so.
-        let dictationVoiceCommands = DictationVoiceCommands(settings: structureStore, engines: structureEngines)
+        // "Read back" speaks through plan 020's voice player; the relay is connected once the player exists (below).
+        let readBackRelay = ReadBackRelay()
+        let dictationVoiceCommands = DictationVoiceCommands(
+            settings: structureStore, engines: structureEngines, readBack: readBackRelay)
         self.dictationVoiceCommands = dictationVoiceCommands
         self.dictation = DictationCoordinator(
             capture: DictationRecorder(stream: microphone, session: audioSession),
@@ -299,6 +301,17 @@ import Observation
             routingPolicy: { VoicePlayer.routingPolicy(companion: companionConfiguration.companionEndpoint()) },
             currentPrivacyClass: { source in
                 await VoiceSourcePrivacy.current(for: source, transcripts: store, deliverables: deliverableStore)
+            })
+        // Dictation "read back": the player re-reads the dictation's effective class before every chunk; an unknown row
+        // reads as clinical (the most protective class), so a cloud voice asks first.
+        readBackRelay.connect(
+            isAvailable: { (try? voiceSettingsStore.load().selection(engines: voiceEngines)) != nil },
+            speak: { text, id in
+                let privacy =
+                    await VoiceSourcePrivacy.current(
+                        for: .dictationReadBack(id: id), transcripts: store, deliverables: deliverableStore)
+                    ?? .clinical
+                await voicePlayer.speak(text: text, privacyClass: privacy, source: .dictationReadBack(id: id))
             })
         self.companionConfiguration = companionConfiguration
         self.voiceEngines = voiceEngines

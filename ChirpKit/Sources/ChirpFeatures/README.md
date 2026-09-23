@@ -284,8 +284,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
-- `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (plan 020's voice player conforms later; the
-  default `SilentReadBack` does nothing and the screen says so), `DictationVoiceCommanding` (the coordinator's hooks)
+- `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects
+  a `ReadBackRelay` to plan 020's `VoicePlayer` with source `.dictationReadBack(id:)`, so every chunk routes on that
+  dictation's effective class; `SilentReadBack` is the unconnected default), `DictationVoiceCommanding` (the coordinator's hooks)
   and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, the final-pass resolution, the
   pending Transform). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
 
