@@ -2,8 +2,9 @@
 
 > Status: ACTIVE for language models (M4: plan 013 Steps 1–5 in the core lane: engines, keys, routing, templates,
 > deliverables, map-reduce; Step 6 in the M4-UI lane: the screens, see "Screens (M4)"). PROPOSAL for structure models
-> (M6).
-> Contracts: [language-model-plugin-v1](contracts/language-model-plugin-v1.md), [deliverables-v1](contracts/deliverables-v1.md).
+> (M6), except Jev, built as the M6a trial (plan 021; see "Screens (M6a)").
+> Contracts: [language-model-plugin-v1](contracts/language-model-plugin-v1.md), [deliverables-v1](contracts/deliverables-v1.md),
+> [decision-model-plugin-v1](contracts/decision-model-plugin-v1.md) (M6a).
 > Decision on providers: [ADR-011](adr/011-language-model-providers-direct-ports.md).
 
 Two engine kinds turn transcripts into documents:
@@ -104,7 +105,7 @@ Rules ([deliverables-v1](contracts/deliverables-v1.md)):
 | Model | What it is | Where it runs | Use in iChirp | Rule |
 |---|---|---|---|---|
 | **Needle 3** | 8–35 MB model for tool calls, grammar-constrained JSON extraction and embeddings, each with a calibrated confidence | On device, CPU, through its own `libneedle.a` runtime (Cactus not needed) | Extract SOAP sections, meds, doses, dates, action items; route dictation voice commands; lightweight embeddings | **Personal builds only** (binary-only runtime, [ADR-010](adr/010-plugin-license-gate.md)); one model per process and not thread-safe, so one actor |
-| **Jev** | Typed-decision model: choice, score, yes/no with confidence in one pass | **Cloud API only** | Pick a template, classify a recording | Opt-in; **never receives clinical content by default** |
+| **Jev** | Typed-decision model: choice, score, yes/no with confidence in one pass | **Cloud API only** (`ChirpEngineJev`, `http.jev`, pinned `jev-1.13.0`) | **Built (M6a): classify, template, paragraph tags; clinical blocked** ([plan 021](../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md), [ADR-013](adr/013-jev-decision-model.md)) | Opt-in, off by default; **never receives a clinical item, override or not**; choice questions only in v1 |
 | **Laya** | Open alternative to Jev (ModernBERT-large plus a decision head, Apache-2.0) | Needs Core ML or ONNX conversion | Local classification if conversion works | Research spike in M6 |
 | FluidAudio CUA-S1-FORMS | Tiny Core ML decision model | On device | Candidate for choosing between options | Evaluate only |
 
@@ -156,3 +157,23 @@ Details: [`12-privacy.md`](12-privacy.md).
   that calls `confirmOverride`; `AppTests/ClinicalConfirmationTests` enforces that by a source scan and proves with a
   real database and a recording cloud model that Stop, Cancel, a late Send, Retry, choosing another template and Ask
   send nothing until Send.
+
+## Screens (M6a)
+
+- **Wiring.** `AppEnvironment` builds `JevSettingsStore` (toggle and model in `UserDefaults`, key in the Keychain under
+  `structure.provider.jev.api-key`), the one `DecisionService` (same transcript store, run ledger and routing policy as
+  M4) and `JevSettingsViewModel`. `App/Sources/DecisionModels/AppDecisionModelFactory.swift` is the only app code that
+  imports `ChirpEngineJev` (`DecisionModelAppTests`). The DEBUG launch argument `-ChirpJevBaseURL` points Jev at the
+  QA stub (`scripts/jev_stub_server.py`); Release ignores it.
+- **Settings → Models → Decision models** (`DecisionModelsSection`, `JevKeySheet`): "Jev (TypeSafe AI, cloud)" with a
+  toggle (off by default), the key sheet (a blank field keeps the stored key; the key is never shown), Test connection
+  (one question about a fixed pangram, no transcript text), and the sentence "Jev answers short multiple-choice
+  questions about a transcript. It runs on TypeSafe's servers and never receives clinical items."
+- **Transcript → Jev** (toolbar menu, only while Jev is on and the transcript has text): Classify recording, Suggest a
+  template, Tag paragraphs. On a clinical item the items are disabled under "Jev is a cloud service; clinical items
+  stay on this iPhone." Each opens `DecisionResultSheet`: the answer, the verdict (Confident / Likely / Unsure), the
+  confidence as a number, every option as a labelled bar with its percentage, model and latency, what was sent, and
+  one Apply action: **Mark as clinical…** (with a confirmation; only when Jev says clinical encounter at Likely or
+  better), **Use this template** (Transform opens with "Suggested by Jev" first; nothing runs by itself) or **Show
+  tags** (chips on the paragraphs for this visit only; never saved). Errors show the sentence and Retry.
+- Documents open their own screen (`DocumentScreen`) and have no Jev menu in M6a.

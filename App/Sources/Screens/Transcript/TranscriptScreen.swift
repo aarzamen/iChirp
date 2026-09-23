@@ -27,6 +27,11 @@ struct TranscriptScreen: View {
     @State private var selectedTab: TranscriptTab = .transcript
     @State private var ask: AskSessionViewModel
     @State private var isTransforming = false
+    /// M6a: the Jev decision on screen, its tags (this session only) and a template it suggested for Transform.
+    @State private var decisionRun: DecisionRunViewModel?
+    @State private var paragraphTags: [Int: String] = [:]
+    @State private var suggestedTemplateKey: String?
+    @State private var opensTransformAfterDecision = false
 
     enum TranscriptTab { case transcript, ask }
 
@@ -38,6 +43,8 @@ struct TranscriptScreen: View {
     }
 
     var body: some View {
+        // Read here so the Transform sheet (built in a closure) sees Jev's suggestion when it opens (M6a).
+        let suggestedTemplate = suggestedTemplateKey
         VStack(spacing: 0) {
             tabs
             content
@@ -49,6 +56,17 @@ struct TranscriptScreen: View {
         .toolbar {
             ToolbarItem(placement: .principal) { titleHeader }
             ToolbarItem(placement: .topBarTrailing) { moreMenu }
+            if JevMenuPolicy.isVisible(
+                jevEnabled: environment.jevSettingsModel.isMenuVisible, status: model.transcription?.status),
+                let item = model.transcription
+            {
+                ToolbarItem(placement: .topBarTrailing) {
+                    JevMenu(privacyClass: item.privacyClass) { recipe in
+                        decisionRun = DecisionRunViewModel(
+                            recipe: recipe, transcriptionID: id, service: environment.decisions)
+                    }
+                }
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if model.transcription?.status == .completed, selectedTab == .transcript {
@@ -72,12 +90,39 @@ struct TranscriptScreen: View {
         .sheet(isPresented: $isShowingNotes, onDismiss: { Task { await model.load() } }) {
             TranscriptNotesSheet(id: id, store: environment.store)  // M3: notes and speaker names
         }
-        .sheet(isPresented: $isTransforming, onDismiss: { Task { await environment.deliverableLibrary.load() } }) {
+        .sheet(
+            isPresented: $isTransforming,
+            onDismiss: {
+                suggestedTemplateKey = nil
+                Task { await environment.deliverableLibrary.load() }
+            }
+        ) {
             if let item = model.transcription {
                 TransformSheet(
                     transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
-                    environment: environment)
+                    environment: environment, suggestedTemplateKey: suggestedTemplate)
             }
+        }
+        .sheet(
+            item: $decisionRun,
+            onDismiss: {
+                if opensTransformAfterDecision {
+                    opensTransformAfterDecision = false
+                    isTransforming = true
+                }
+            }
+        ) { run in
+            DecisionResultSheet(
+                run: run, host: environment.jevSettingsModel.host,
+                markClinical: {
+                    try await environment.deliverables.setPrivacyClass(.clinical, transcriptionID: id)
+                    await model.load()
+                },
+                useTemplate: { key in
+                    suggestedTemplateKey = key
+                    opensTransformAfterDecision = true
+                },
+                showTags: { paragraphTags = $0 })
         }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
@@ -285,7 +330,8 @@ struct TranscriptScreen: View {
                             paragraph,
                             speakerIndex: paragraph.speakerId.flatMap { speakerOrder[$0] },
                             showsTiming: hasTimings,
-                            isCurrent: index == current)
+                            isCurrent: index == current,
+                            jevTag: paragraphTags[index])
                     }
                 }
                 .padding(.horizontal, 24)
@@ -296,9 +342,13 @@ struct TranscriptScreen: View {
     }
 
     private func paragraphView(
-        _ paragraph: TranscriptParagraph, speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool
+        _ paragraph: TranscriptParagraph, speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
+        jevTag: String? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let jevTag {
+                ParagraphTagChip(title: jevTag)  // M6a: this session only
+            }
             if showsTiming {
                 HStack(spacing: 7) {
                     if let speakerIndex {

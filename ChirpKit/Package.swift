@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "ChirpEngineFluidAudio", targets: ["ChirpEngineFluidAudio"]),
         .library(name: "ChirpEngineAppleFM", targets: ["ChirpEngineAppleFM"]),
         .library(name: "ChirpEngineHTTPLLM", targets: ["ChirpEngineHTTPLLM"]),
+        .library(name: "ChirpEngineJev", targets: ["ChirpEngineJev"]),
         .library(name: "ChirpKeychain", targets: ["ChirpKeychain"]),
         .library(name: "ChirpIngest", targets: ["ChirpIngest"]),
         .library(name: "ChirpFeatures", targets: ["ChirpFeatures"]),
@@ -31,6 +32,8 @@ let package = Package(
         .target(name: "ChirpEngineFluidAudio", dependencies: ["ChirpCore", .product(name: "FluidAudio", package: "FluidAudio")], exclude: ["README.md"]),
         .target(name: "ChirpEngineAppleFM", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpEngineHTTPLLM", dependencies: ["ChirpCore"], exclude: ["README.md"]),
+        // M6a (plan 021): Jev, TypeSafe's cloud decision model. ChirpCore only; no SDK.
+        .target(name: "ChirpEngineJev", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpKeychain", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         // M5: links, podcasts, downloads, YouTube captions and document text. Apple frameworks only, no new dependency.
         .target(name: "ChirpIngest", dependencies: ["ChirpCore"], exclude: ["README.md"]),
@@ -46,6 +49,9 @@ let package = Package(
         .testTarget(name: "ChirpEngineFluidAudioTests", dependencies: ["ChirpEngineFluidAudio"], resources: [.copy("Fixtures")]),
         .testTarget(name: "ChirpEngineAppleFMTests", dependencies: ["ChirpEngineAppleFM"]),
         .testTarget(name: "ChirpEngineHTTPLLMTests", dependencies: ["ChirpEngineHTTPLLM"]),
+        // ChirpFeatures too: the gated live eval runs the app's own recipes and window through the real engine.
+        .testTarget(
+            name: "ChirpEngineJevTests", dependencies: ["ChirpEngineJev", "ChirpFeatures"], resources: [.copy("Fixtures")]),
         .testTarget(name: "ChirpKeychainTests", dependencies: ["ChirpKeychain"]),
         .testTarget(name: "ChirpIngestTests", dependencies: ["ChirpIngest"]),
         .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"]),

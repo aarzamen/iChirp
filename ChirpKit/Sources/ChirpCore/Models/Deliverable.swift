@@ -196,6 +196,8 @@ public struct Deliverable: Codable, Sendable, Equatable, Identifiable {
 public struct LanguageModelRun: Codable, Sendable, Equatable, Identifiable {
     public enum Feature: String, Codable, Sendable, CaseIterable {
         case deliverable, ask
+        /// M6a: one typed-decision call (`DecisionService`, spec/contracts/decision-model-plugin-v1.md).
+        case decision
     }
 
     public enum Status: String, Codable, Sendable, CaseIterable {

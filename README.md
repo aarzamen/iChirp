@@ -29,7 +29,7 @@ the Cactus runtime. The product vision is in [`spec/00-vision.md`](spec/00-visio
 | M3 | Meeting recording with crash recovery, Notes tab | Roadmap |
 | M4 | Language models and deliverables: summaries, meeting notes, agendas, SOAP notes, Ask | Roadmap |
 | M5 | Ingest breadth: podcasts, media links, YouTube, PDFs, text documents | Roadmap |
-| M6 | Structure models: Needle, Jev, Laya | Roadmap |
+| M6 | Structure models: Needle, Jev, Laya | Partial: Jev trial (plan 021) built and simulator-verified; its live eval waits on the owner's Jev key |
 | M7 | Engine breadth and on-device benchmarks | Roadmap |
 | M8 | Polish: PDF/DOCX export, keyboard, widgets, accessibility, iPad | Roadmap |
 

@@ -41,7 +41,7 @@ commands, steps, done criteria and STOP conditions.
 | [018](2026-09-22-018-design-companion-voice-needle-jev.md) | Design: Mac companion, voice output, Needle 3, Jev | **APPROVED** 2026-09-22 | Governs 015, 019, 020, 021 |
 | [019](2026-09-22-019-mac-companion-and-m5-finish.md) | Parakeet companion on the Mac (speech + YouTube audio) and finishing plan 014 | **EXECUTOR-READY** | Lane L1 |
 | [020](2026-09-22-020-voice-output.md) | Voice output: Listen, spoken answers, read-back (companion voices, Grok voices) | **EXECUTOR-READY** | Lane L2 |
-| [021](2026-09-22-021-m6a-jev-decision-trial.md) | M6a: Jev decision-model trial (owner's plan) | **EXECUTOR-READY** | Lane L4; Step 7 needs the owner's Jev key |
+| [021](2026-09-22-021-m6a-jev-decision-trial.md) | M6a: Jev decision-model trial (owner's plan) | **PARTIAL** — Steps 0–6 built on `m6a/jev-decision-trial` (lane L4): `DecisionModel` contract, `ChirpEngineJev`, `DecisionService` with three recipes and a provisional gate, Settings → Decision models, Transcript Jev menu; focused package tests, 42 app tests (3 signed-only skips) and the M6a UI tour green on the simulator; clinical items never sent | Step 7: the owner runs `JevLiveEvalTests` on their key and the gate is set from its calibration table; Step 8: full package suite and device build (controller) |
 | [022](2026-09-22-022-create-anything-in-anything-out.md) | Create: anything in, anything out (text items, Create sheet, edit by voice, voice messages, PDF/DOCX) | **READY after wave 1** (owner direction 2026-09-22) | Wave 2 |
 
 ## Recommended order and dependencies

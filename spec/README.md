@@ -23,7 +23,7 @@ Every spec starts with a `> Status:` line. **ACTIVE** means it governs code that
 | 05 | [Audio pipeline](05-audio-pipeline.md) | Decoding, storage, later capture and background audio | ACTIVE (M1 decode); later sections PROPOSAL |
 | 06 | [Speech engines](06-speech-engines.md) | Engine plug-ins, Parakeet via FluidAudio, scheduler, diarization, pin discipline | ACTIVE |
 | 07 | [Text processing](07-text-processing.md) | Deterministic clean-up, words, segments, paragraphs, cues, titles | ACTIVE |
-| 08 | [Language and structure models](08-language-and-structure-models.md) | LLM/SLM providers, deliverable templates, Needle/Jev/Laya | ACTIVE for language models (M4 core and screens); PROPOSAL for structure models (M6) |
+| 08 | [Language and structure models](08-language-and-structure-models.md) | LLM/SLM providers, deliverable templates, Needle/Jev/Laya | ACTIVE for language models (M4 core and screens) and the Jev trial (M6a); PROPOSAL for the rest of M6 |
 | 09 | [Testing](09-testing.md) | Test layers, fixtures, gated tests, device smoke, agent test loop | ACTIVE |
 | 10 | [Agent working method](10-ai-coding-method.md) | Source-of-truth precedence, context zone, plans, review, definition of done | ACTIVE |
 | 11 | [Ingest](11-ingest.md) | Share sheet, Voice Memos, podcasts, links, YouTube, PDFs and text documents | ACTIVE (M1.5, M5; share extension and YouTube audio still proposals) |
@@ -100,6 +100,7 @@ section; never delete its history.
 | [ADR-009](adr/009-deterministic-cleanup-raw-default.md) | Deterministic clean-up pipeline with Raw as the default |
 | [ADR-010](adr/010-plugin-license-gate.md) | License gate for plug-ins that conflict with GPL-3.0 |
 | [ADR-011](adr/011-language-model-providers-direct-ports.md) | Language models via direct ports (`ChirpEngineHTTPLLM`, `ChirpEngineAppleFM`), not AnyLanguageModel |
+| [ADR-013](adr/013-jev-decision-model.md) | Jev as an opt-in cloud decision model (`ChirpEngineJev`, `DecisionModel` contract); clinical items never sent |
 
 ## Milestones
 
@@ -114,7 +115,7 @@ Each later milestone has an executor-ready plan; the [plans board](../docs/plans
 | M3 | Meeting recording: background audio, crash-safe recording plus `recording.lock` recovery, live chunks, final pass plus diarization, Notes tab | IN PROGRESS (built on `m3/meetings`: focused package tests, 25 app tests, simulator record/kill/recover verified; device checks pending) | [012](../docs/plans/2026-09-22-012-m3-meetings.md) |
 | M4 | Language models and deliverables: providers, Keychain keys, templates (summary, meeting notes, agenda, SOAP, action items, Transforms), Ask with citations, privacy router | In progress: core (Steps 1–5) merged; screens (Step 6) on `m4/language-models-ui`, simulator-verified; owner device QA pending | [013](../docs/plans/2026-09-22-013-m4-language-models-and-deliverables.md) |
 | M5 | Ingest breadth: podcasts, direct media links, YouTube strategy, PDF (text plus OCR), TXT/MD/RTF/DOCX import | IN PROGRESS (built on `m5/ingest`; YouTube audio awaits the owner; device checks pending) | [014](../docs/plans/2026-09-22-014-m5-ingest.md) |
-| M6 | Structure models: Needle 3 (personal builds), Jev (opt-in, non-clinical), Laya research; confidence gating | NOT STARTED | [015](../docs/plans/2026-09-22-015-m6-structure-models.md) |
+| M6 | Structure models: Needle 3 (personal builds), Jev (opt-in, non-clinical), Laya research; confidence gating | PARTIAL: Jev trial (021) built on `m6a/jev-decision-trial` and simulator-verified; its live eval (Step 7) waits on the owner's Jev key; Needle and Laya in 015 | [015](../docs/plans/2026-09-22-015-m6-structure-models.md), [021](../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md) |
 | M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | NOT STARTED | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
 | M8 | Polish: PDF/DOCX export, keyboard extension, Transforms share extension, widgets, accessibility, iPad, localization | NOT STARTED | [017](../docs/plans/2026-09-22-017-m8-polish.md) |
 

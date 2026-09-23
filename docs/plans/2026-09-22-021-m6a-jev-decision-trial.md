@@ -22,6 +22,24 @@
 > is otherwise unchanged. Parallel lanes: plan 019 (Mac companion), plan 020 (voices), plan 015 (Needle). Keep edits
 > to shared files (`Package.swift`, `project.yml`, `AppEnvironment.swift`, Settings → Models, Transcript screen)
 > additive and small; put new UI in new files.
+>
+> **Drift check result (lane L4, 2026-09-22, at `dd7fd56f`):** (1) plan 013 is IN PROGRESS with the M4 core merged
+> at `5cf6aa86`; (2) the only diff in the listed paths since `0554ccfb` is the expected voice-lane change
+> (`EngineDescriptor.swift` +2 lines, new `SpeechSynthesis.swift`); (3) every "Current state" item below still holds.
+> Refinements, none of which changes the approach:
+> - **Plan 015 Step 5 is no longer Jev's.** The 015 revision already moved Jev here (its header says so) and its
+>   Step 5 is now Needle's gate and `v7-structured-results`. So this plan does **not** mark 015 Step 5; the board and
+>   015's own header already point at 021.
+> - **Step 0 (TypeSafe docs, read 2026-09-22):** the request and choice-answer shapes match "The Jev wire contract"
+>   exactly. The documented response adds one top-level field, `usage: {input_tokens, output_tokens}`. It is additive
+>   (the ported decoder ignores it), so this is not the STOP case; `JevWire.Response` decodes it as optional,
+>   `DecisionResult` gains optional `inputTokens`/`outputTokens`, the ledger row stores them as
+>   `promptTokens`/`completionTokens` (existing columns), and the eval's cost uses `input_tokens` when present
+>   (`request bytes / 4` otherwise). The docs cap a choice at 255 options (this plan keeps 250) and document 422
+>   (validation) and 529 (overloaded), both mapped to `providerError`. The docs' examples use the alias
+>   `jev-latest`; an alias answers with the versioned id (`jev-1.13.0`), which the kept "response model equals
+>   requested model" rule would reject, so the default stays the pinned `jev-1.13.0` (the docs recommend pinning when
+>   thresholds are tuned to a version).
 
 ## Status
 
@@ -37,7 +55,7 @@
   (the HTTP hardening pattern to copy), [language-model-plugin-v1](../../spec/contracts/language-model-plugin-v1.md)
   (the contract shape to mirror), [Cactus/Needle/Jev research](../research/2026-09-22-cactus-needle-jev.md)
 - **Planned at:** commit `0554ccfb`, 2026-09-22
-- **Status:** EXECUTOR-READY
+- **Status:** PARTIAL — Steps 0–6 done on `m6a/jev-decision-trial` (lane L4, 2026-09-22); Step 7 waits on the owner's Jev key; Step 8's full suite and device build are run by the controller at merge
 
 ## Why this matters
 

@@ -45,6 +45,8 @@ Each contract document includes:
   crash recovery and the retention safety predicates (M3).
 - [Document Items and Link Provenance v1](document-items-v1.md): document rows (PDF, text, RTF, HTML, DOCX), link
   rows (podcast, media, YouTube captions), the `v6-documents` columns and the download resume files (M5).
+- [Decision Model Plug-in v1](decision-model-plugin-v1.md): `DecisionModel` (typed choice questions with calibrated
+  probabilities), answer validation, the `decision` ledger feature and the clinical block (M6a, Jev).
 
 ## Candidate contracts (write them with their milestone)
 

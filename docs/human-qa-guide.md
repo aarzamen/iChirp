@@ -338,6 +338,61 @@ Simulator screen tour (agents): `python3 scripts/llm_stub_server.py &` (syntheti
 `TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/m4-screens" xcodebuild test -project iChirp.xcodeproj -scheme
 iChirpUITour -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` walks every M4 screen and saves 14 screenshots.
 
+## M6a checklist (Jev decision model trial, plan 021)
+
+> Preconditions: the phone runs the `m6a/jev-decision-trial` build (Settings → About shows its commit); you have a Jev
+> API key from TypeSafe at hand; the phone is online. Use only synthetic recordings (the M4 `say` recording above,
+> plus a synthetic meeting: `say -o ~/Desktop/synthetic-meeting.m4a --data-format=aac "Welcome everyone. Let's
+> review the launch plan. Sam will send the agenda by Friday. We agreed to ship next Tuesday. Any questions?"`).
+> Jev is a **cloud** service: an excerpt of a transcript (up to 3,000 characters) goes to TypeSafe; clinical items
+> never do. Console.app streams the phone with the filter `subsystem:com.aarzamen.ichirp`.
+
+Settings
+- [ ] Settings → Privacy → Models for Ask and Transforms → **Decision models**: "Jev (TypeSafe AI, cloud)" is **Off**,
+      and the sentence under it reads "Jev answers short multiple-choice questions about a transcript. It runs on
+      TypeSafe's servers and never receives clinical items." With it off, a transcript shows **no Jev** button.
+- [ ] Turn it on → the caption says "On · api.typesafe.ai · jev-1.13.0 · add a key". Tap **Jev API key** → paste
+      your key → **Test connection** → "Connected". Save → the row says "Stored in the Keychain".
+- [ ] Reopen **Jev API key**: the field is empty with "Stored in the Keychain · type to replace" (the key is never
+      shown). Type a wrong key → Test connection → "Failed" with "Authentication failed…". Cancel keeps the real key.
+
+Each recipe on a Personal item (import `synthetic-meeting.m4a` and open it)
+- [ ] **Jev → Classify recording**: "Asking Jev…", then the answer (for example "Meeting") with a verdict
+      (Confident / Likely / Unsure), "confidence 0.xx", a bar with a percentage for every option, "Model jev-1.13.0 ·
+      answered in N ms", and the note that an excerpt went to api.typesafe.ai.
+- [ ] **Jev → Suggest a template**: a template with its bars; when it is Likely or Confident, **Use this template**
+      opens Transform with "Suggested by Jev" at the top (nothing runs until you tap it).
+- [ ] **Jev → Tag paragraphs**: "N paragraphs tagged", each with its label and bars; **Show tags** puts small chips
+      ("Action item", "Decision"…) on those paragraphs. Leave the transcript and come back: the chips are gone.
+- [ ] Classify the M4 `synthetic-visit.m4a` while it is **Personal**: if Jev says "Clinical encounter" (Likely or
+      better), **Mark as clinical…** asks first, then the privacy chip turns Clinical.
+
+Clinical items
+- [ ] On a **Clinical** item, Jev's menu shows "Jev is a cloud service; clinical items stay on this iPhone." and
+      all three items are greyed out. Nothing is sent (Console shows no `decision_started`).
+
+Failure modes (each shows a sentence and **Retry**, never a made-up answer)
+- [ ] Airplane mode → Classify → "Could not reach the model…" → Retry after turning it off works.
+- [ ] Remove the key (Jev API key → Remove the stored key → Save) → Classify → "Add a Jev API key in Settings → Models."
+- [ ] Simulator only (stub): `JEV_STUB_MODE=401`, `429`, `500` and `garbage` show "Authentication failed…",
+      "The provider is rate-limiting requests…", "Provider error: TypeSafe answered HTTP 500…" and "The model sent a
+      response iChirp could not read." respectively.
+
+Privacy and ledger
+- [ ] Console never shows transcript text or the key; each run logs `decision_started` / `decision_finished` with ids,
+      counts and an error kind only.
+
+Screenshots to attach
+- [ ] Settings → Decision models; each recipe's result sheet; the tags on a transcript; the disabled menu on a clinical
+      item.
+
+Simulator screen tour (agents): `python3 scripts/jev_stub_server.py &` (synthetic answers on port 11998) and
+`JEV_STUB_MODE=401 JEV_STUB_PORT=11997 python3 scripts/jev_stub_server.py &`, then
+`TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/m6a-screens" TEST_RUNNER_CHIRP_JEV_STUB_URL=http://127.0.0.1:11998
+TEST_RUNNER_CHIRP_JEV_STUB_401_URL=http://127.0.0.1:11997 xcodebuild test -project iChirp.xcodeproj -scheme
+iChirpUITour -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:iChirpUITests/M6aJevTourUITests`
+walks the Jev screens and saves the screenshots.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

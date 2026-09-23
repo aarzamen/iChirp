@@ -44,6 +44,12 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
   `ChirpEngineHTTPLLM`. Contract: `spec/contracts/language-model-plugin-v1.md`.
 - `Engines/StructureModel.swift`: the M6 extraction and embedding contract. No conformers yet.
+- `Engines/DecisionModel.swift` (M6a): the typed-decision contract (`DecisionModel` with `endpointHost`,
+  `availability()` and `decide`; `DecisionQuestion` with 2…250 options and `validate()`, `DecisionState`,
+  `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionRequestError`). Reuses `LanguageModelAvailability`
+  and `LanguageModelError`. Conformer: `ChirpEngineJev`. Contract: `spec/contracts/decision-model-plugin-v1.md`.
+- `Models/Deliverable.swift`: M4 templates, versions, deliverables and the `LanguageModelRun` ledger row; M6a adds the
+  `decision` feature value (no schema change).
 - `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
   each privacy class.
 - `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`, including the M1.5
@@ -84,7 +90,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   other modules. Any change to the engine protocols (`SpeechEngine`, `SpeakerDiarizing`,
   `ModelAssetManaging`, `LanguageModel`, `StructureModel`, `EngineDescriptor`) must also update
   `spec/contracts/speech-engine-plugin-v1.md` (and, for `LanguageModel`, `SecretStoring` and the provider types,
-  `spec/contracts/language-model-plugin-v1.md`) and its tests in the same change.
+  `spec/contracts/language-model-plugin-v1.md`; for `DecisionModel`, `spec/contracts/decision-model-plugin-v1.md`)
+  and its tests in the same change.
 - Keep ChirpCore free of third-party dependencies and UI frameworks. Engine-specific code belongs in
   its own target, such as `ChirpEngineFluidAudio`.
 - `Transcription` round-trips through a default `JSONEncoder`/`JSONDecoder`. New stored properties must be

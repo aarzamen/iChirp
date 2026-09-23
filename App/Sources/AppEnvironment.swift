@@ -73,6 +73,12 @@ import Observation
     let languageModels: LanguageModelsViewModel
     /// M4: the Transforms tab's templates and recent documents.
     let deliverableLibrary: DeliverableLibraryViewModel
+    /// M6a (plan 021): Jev's toggle and model (UserDefaults) and API key (Keychain only).
+    let jevSettings: JevSettingsStore
+    /// M6a: **the only path from a transcript to a decision model**; clinical items are refused outright.
+    let decisions: DecisionService
+    /// M6a: Settings → Models → Decision models, and whether the Transcript shows the Jev menu.
+    let jevSettingsModel: JevSettingsViewModel
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
     /// the "download the model" banner before it knows).
     private(set) var isLaunched = false
@@ -211,6 +217,15 @@ import Observation
             transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
         self.languageModels = LanguageModelsViewModel(store: providerStore, factory: AppLanguageModelFactory())
         self.deliverableLibrary = DeliverableLibraryViewModel(store: deliverableStore)
+        // M6a: Jev. `-ChirpJevBaseURL` (DEBUG only) points it at the QA stub; routing reads the same provider policy.
+        let jevSettings = JevSettingsStore(
+            secrets: KeychainSecretStore(), baseURLOverride: JevDebugLaunch.baseURLOverride())
+        let decisionFactory = AppDecisionModelFactory()
+        self.jevSettings = jevSettings
+        self.decisions = DecisionService(
+            transcripts: store, ledger: deliverableStore, routingPolicy: { providerStore.routingPolicy() },
+            settings: jevSettings, factory: decisionFactory)
+        self.jevSettingsModel = JevSettingsViewModel(store: jevSettings, factory: decisionFactory)
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }

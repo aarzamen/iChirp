@@ -309,6 +309,36 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   window (twice at most); input that still cannot fit fails with `transcriptTooLong` and stores nothing.
 - **Results are new rows.** The transcript is never written except by `setPrivacyClass`.
 
+## Decision models (M6a, `Decisions/`, plan 021)
+
+- `DecisionService.swift`: **the only path from a transcript to a `DecisionModel`** (contract
+  `spec/contracts/decision-model-plugin-v1.md`; `DecisionServiceTests.testOnlyDecisionServiceCallsDecide` scans
+  ChirpFeatures and `App/Sources` for other `.decide(` calls). `run(recipe:transcriptionID:)`: Jev off →
+  `DecisionError.disabled` (no row); load the transcript; **a clinical item returns `.blockedClinical` with a
+  `refused` ledger row and nothing sent** (no override for decision engines in v1), and a routing-policy refusal
+  returns `.blockedByRouting` the same way; window; no key → `missingKey`; one `decide` after re-reading the class as
+  stored now; the gate; one metadata-only `llm_runs` row (`feature = decision`, `engineId = http.jev`, excerpt length,
+  the provider's token counts, `callCount` 1, or 0 when nothing was sent) whatever the outcome.
+- `DecisionInputWindow.swift`: `excerpt` (the first 3,000 characters cut back to a sentence end, or to a space when
+  the only sentence end is in the first third), `paragraphs(of:)` (the Transcript screen's paragraphs),
+  `paragraphExcerpt` (`p01: …` lines for at most 12 paragraphs, fewer when they are long) and content-free `facts`
+  (`duration_seconds`, `speaker_count`, `paragraph_count`, `source` = audio/document/link). Nothing else is sent.
+- `DecisionRecipe.swift`: `recordingKind` (`kind`: meeting, dictation, lecture_or_talk, interview,
+  clinical_encounter, other), `templateSuggestion` (`template`: the nine built-in keys plus `none`) and
+  `paragraphTags` (`p01`…`p12`: action_item, decision, question, statement). Instructions say the text is untrusted.
+- `DecisionOutcome.swift`: `DecisionGate` (`act` ≥ 0.80, `suggest` ≥ 0.55, else `unsure`; the one place the
+  thresholds live, set from the live eval's calibration table), `DecisionVerdict`, `DecisionItem`, `DecisionReport`
+  (consequences as suggestions: `suggestsMarkingClinical`, `suggestedTemplateKey`, session-only `paragraphTags`),
+  `DecisionOutcome`, `DecisionError`.
+- `JevSettingsStore.swift`: `JevSettings` (toggle, pinned model `jev-1.13.0`, TypeSafe's address unless the DEBUG
+  `-ChirpJevBaseURL` override), `JevSettingsStoring` / `JevSettingsStore` (toggle and model in `UserDefaults` under
+  `ichirp.jevSettings`; **the key only in the Keychain** under `structure.provider.jev.api-key`, written first), and
+  `DecisionModelFactory` (the app's `AppDecisionModelFactory` is the only importer of `ChirpEngineJev`).
+- `JevSettingsViewModel.swift`: Settings → Models → Decision models (`setEnabled`, `saveKey`, `testConnection`,
+  `isMenuVisible`). `keyText` always starts empty and a blank field keeps the stored key; the key itself never enters
+  the view model. `DecisionRunViewModel.swift`: one decision for the result sheet (`running` → `decided` / `blocked` /
+  `failed` with Retry; `cancel()` when the sheet closes). App tests: `AppTests/DecisionModelAppTests`.
+
 ## How to verify
 
 ```bash
@@ -317,6 +347,7 @@ scripts/check.sh ChirpFeaturesTests
 
 The M4 tests on their own: `swift test --package-path ChirpKit --filter
 "DeliverableService|MapReduceGenerator|DeliverableRunViewModel|SingleGenerationPath|BuiltInTemplates|LanguageModelProviderStore"`.
+The M6a tests: `scripts/check.sh "DecisionServiceTests|JevSettingsStoreTests"`.
 `DeliverableServiceRoutingTests.testFullPrivacyMatrix` prints the 24-row routing matrix it checked.
 
 This runs the package build, the ChirpFeatures tests (pipeline, job center, Library/Capture, Transcript, Speech

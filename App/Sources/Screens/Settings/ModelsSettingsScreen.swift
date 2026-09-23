@@ -115,6 +115,9 @@ struct ModelsSettingsScreen: View {
                     }
                     .accessibilityLabel("Add a model")
                 }
+
+                // M6a (plan 021): Jev, the opt-in cloud decision model.
+                DecisionModelsSection()
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)
@@ -123,7 +126,10 @@ struct ModelsSettingsScreen: View {
         .background(Tokens.Color.ground)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .task { await models.refresh() }
+        .task {
+            await models.refresh()
+            environment.jevSettingsModel.refresh()
+        }
         .sheet(item: $editing) { draft in
             ProviderEditorSheet(draft: draft)
         }
