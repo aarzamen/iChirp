@@ -27,6 +27,9 @@ struct DocumentScreen: View {
     @State private var isExtractingFields = false
     /// Plan 022: Share → Voice message.
     @State private var voiceMessage: VoiceMessageJob?
+    /// The item's class as the routers use it, with why (UX audit F51): a Personal text with a SOAP note reads
+    /// "Clinical (it has a SOAP note)".
+    @State private var privacy: EffectivePrivacyExplanation?
 
     /// Formats that make sense without timings.
     static let exportFormats: [ExportFormat] = [.txt, .markdown, .json]
@@ -57,6 +60,7 @@ struct DocumentScreen: View {
             .task {
                 await model.load()
                 hasLoaded = true
+                await loadPrivacy()
             }
             .onChange(of: environment.jobCenter.progress[id]?.fraction) { _, _ in
                 Task { await model.load() }
@@ -66,7 +70,15 @@ struct DocumentScreen: View {
             }
             .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
             // M4: a document runs the same templates as a transcript (its text is the "transcript" input).
-            .sheet(isPresented: $isTransforming, onDismiss: { Task { await environment.deliverableLibrary.load() } }) {
+            .sheet(
+                isPresented: $isTransforming,
+                onDismiss: {
+                    Task {
+                        await environment.deliverableLibrary.load()
+                        await loadPrivacy()  // a SOAP note made just now raises the class
+                    }
+                }
+            ) {
                 if let item = model.transcription {
                     TransformSheet(
                         transcriptionID: id, transcriptTitle: item.displayTitle, privacyClass: item.privacyClass,
@@ -115,7 +127,7 @@ struct DocumentScreen: View {
                         Image(systemName: item.isFavorite ? "star.fill" : "star")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(item.isFavorite ? Tokens.Color.favorite : Tokens.Color.mutedText)
-                            .frame(minWidth: 24, minHeight: 24)
+                            .frame(minWidth: 44, minHeight: 44)  // the hit area (UX audit F47)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -132,6 +144,7 @@ struct DocumentScreen: View {
                     .buttonStyle(.plain)
                     .accessibilityHint("Renames the document")
                 }
+                // The format and size show once, here; the card below names the kind (UX audit F69).
                 Text(Formatting.day(item.createdAt) + " · " + DocumentRow.meta(for: item))
                     .chirpFont(11.5)
                     .monospacedDigit()
@@ -228,35 +241,48 @@ struct DocumentScreen: View {
         }
     }
 
+    /// The cover, what the item is and where it was read, then the privacy class on its own row, so nothing wraps into
+    /// a narrow column (UX audit F69).
     private func summaryCard(_ item: Transcription) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            DocumentCover(format: item.documentFormat, size: 56, badge: DocumentRow.coverBadge(for: item))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(Self.kindTitle(for: item))
-                    .chirpFont(14.5, .semibold)
-                    .foregroundStyle(Tokens.Color.ink)
-                Text(DocumentRow.meta(for: item))
-                    .chirpFont(12.5)
-                    .monospacedDigit()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 14) {
+                DocumentCover(format: item.documentFormat, size: 56, badge: DocumentRow.coverBadge(for: item))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(Self.kindTitle(for: item))
+                        .chirpFont(14.5, .semibold)
+                        .foregroundStyle(Tokens.Color.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        item.isTextItem
+                            ? "Saved on this iPhone. Only you can see it." : "Read on this iPhone. Only you can see it."
+                    )
+                    .chirpFont(12)
                     .foregroundStyle(Tokens.Color.secondary)
-                Text(
-                    item.isTextItem
-                        ? "Saved on this iPhone. Only you can see it." : "Read on this iPhone. Only you can see it."
-                )
-                .chirpFont(12)
-                .foregroundStyle(Tokens.Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 0)
             }
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 0)
-            PrivacyClassControl(current: item.privacyClass) { newClass in
+            PrivacyClassControl(current: item.privacyClass, effective: privacy) { newClass in
                 // Through the service, so documents made from this item are raised with it (never lowered).
                 try await environment.deliverables.setPrivacyClass(newClass, transcriptionID: id)
                 await model.load()
+                await loadPrivacy()
             }
         }
         .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CardBackground(radius: Tokens.Radius.s))
+    }
+
+    private func loadPrivacy() async {
+        privacy = try? await EffectivePrivacyExplanation.current(
+            transcriptionID: id, transcripts: environment.store, deliverables: environment.deliverableStore)
+    }
+
+    /// "Markdown", "Data (JSON)".
+    static func formatTitle(_ format: ExportFormat) -> String {
+        format == .json ? "Data (JSON)" : format.displayName
     }
 
     /// "PDF document", "Typed text".
@@ -342,19 +368,23 @@ struct DocumentScreen: View {
             barButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
                 copyText()
             }
+            // One Share order on every screen: PDF, Word, Text, Voice message…, then the other formats (UX audit F54).
             Menu {
-                ForEach(Self.exportFormats, id: \.self) { format in
-                    Button(format.displayName) { share(format) }
-                }
                 // Plan 022 Step 6: page formats.
                 ForEach(DocumentExportFormat.allCases, id: \.self) { format in
                     Button(format.displayName) { shareDocument(format) }
                 }
+                Button(ExportFormat.txt.displayName) { share(.txt) }
                 Divider()
                 Button {
                     voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
                 } label: {
                     Label("Voice message…", systemImage: "waveform.badge.plus")
+                }
+                Menu("More formats") {
+                    ForEach(Self.exportFormats.filter { $0 != .txt }, id: \.self) { format in
+                        Button(Self.formatTitle(format)) { share(format) }
+                    }
                 }
             } label: {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
@@ -389,6 +419,7 @@ struct DocumentScreen: View {
         VStack(spacing: 4) {
             Image(systemName: systemImage)
                 .font(.system(size: 19, weight: .medium))
+                .frame(height: 22)  // one icon box for every bar item, so the labels line up (UX audit F40)
             Text(title)
                 .chirpFont(11, emphasized ? .bold : .semibold)
         }

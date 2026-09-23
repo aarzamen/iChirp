@@ -56,8 +56,9 @@ struct PasteLinkSheet: View {
             .navigationTitle("Paste a link")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Cancel before anything started; Done once a link is on its way (it keeps going in the Library).
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button(model.startedID == nil ? "Cancel" : "Done") { dismiss() }
                 }
             }
         }
@@ -114,7 +115,7 @@ struct PasteLinkSheet: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Tokens.Color.secondary)
                 .accessibilityHidden(true)
-            TextField("Podcast, YouTube or audio link", text: $model.text, axis: .vertical)
+            TextField("Podcast, YouTube or web link", text: $model.text, axis: .vertical)
                 .chirpFont(15)
                 .foregroundStyle(Tokens.Color.ink)
                 .lineLimit(1...4)
@@ -132,7 +133,8 @@ struct PasteLinkSheet: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(Tokens.Color.mutedText)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)  // the hit area (UX audit F90)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear link")
@@ -198,10 +200,16 @@ struct PasteLinkSheet: View {
                     .chirpFont(14)
                     .foregroundStyle(Tokens.Color.ink)
                 Spacer(minLength: 8)
-                Button("Cancel") { model.cancel() }
-                    .chirpFont(14, .semibold)
-                    .foregroundStyle(AppColor.accentText)
-                    .frame(minHeight: 44)
+                Button {
+                    model.cancel()
+                } label: {
+                    Text("Cancel")
+                        .chirpFont(14, .semibold)
+                        .foregroundStyle(AppColor.accentText)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
@@ -253,9 +261,10 @@ struct PasteLinkSheet: View {
                 }
             } label: {
                 CapsuleButtonLabel(title: "Get the audio from your Mac", kind: .filled)
+                    .frame(minHeight: 44)  // inside the label: a frame outside a Button does not widen its hit area
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(minHeight: 44)
             .accessibilityHint("Sends only this video’s link to your Mac.")
         }
         .padding(14)
@@ -296,17 +305,19 @@ struct PasteLinkSheet: View {
                     onOpen(id)
                 } label: {
                     CapsuleButtonLabel(title: "Open", kind: .filled)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .frame(minHeight: 44)
                 Button {
                     model.reset()
                     fieldFocused = true
                 } label: {
                     CapsuleButtonLabel(title: "Paste another link", kind: .tinted)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .frame(minHeight: 44)
             }
         }
         .padding(14)

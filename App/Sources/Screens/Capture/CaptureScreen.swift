@@ -4,9 +4,9 @@ import ChirpUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Tab 1 (canvas `Home.dc.html`, plan 022 redesign): the header, the **Create** card (the primary action: anything in,
-/// anything out), the shortcuts (Dictate, Type or paste, Paste a link, Import audio), Record Meeting, and the three most
-/// recent items.
+/// Tab 1 (canvas `Home.dc.html`, plan 022 redesign): the header (with a chip that says where things run, true for the
+/// current settings), the **Create** card (the primary action: anything in, anything out), the shortcuts (Dictate, Type
+/// or paste, Paste a link, Import a file), Record Meeting, and the three most recent items.
 struct CaptureScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let openTab: (AppTab) -> Void
@@ -19,7 +19,12 @@ struct CaptureScreen: View {
     @State private var isPastingLink = false
     /// Plan 022: the Type or paste sheet.
     @State private var isTyping = false
+    /// UX audit F13: the "Where things run" sheet behind the header chip.
+    @State private var isShowingReach = false
+    /// Bumped when the screen appears, so the chip re-reads settings that are not observed (the Mac companion's trust).
+    @State private var reachRefresh = 0
 
+    /// Audio and video (the transcription pipeline's inputs).
     static let importTypes: [UTType] = [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
 
     var body: some View {
@@ -46,11 +51,12 @@ struct CaptureScreen: View {
                         tile(
                             title: "Type or paste", subtitle: "Notes, any text",
                             systemImage: "text.cursor", action: { isTyping = true })
+                        // One wording for links everywhere (UX audit F16); files of every kind come in through Import.
                         tile(
-                            title: "Paste a link", subtitle: "Podcast, YouTube, PDF", systemImage: "link",
+                            title: "Paste a link", subtitle: "Podcast, YouTube, web link", systemImage: "link",
                             action: { isPastingLink = true })
                         tile(
-                            title: "Import audio", subtitle: "Voice Memos, Files",
+                            title: "Import a file", subtitle: "Voice Memos, audio, PDF, Word",
                             systemImage: "square.and.arrow.down", action: { isImporting = true })
                     }
                     recordMeetingRow
@@ -77,10 +83,14 @@ struct CaptureScreen: View {
         }
         .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: $path)
         .fileImporter(
-            isPresented: $isImporting, allowedContentTypes: Self.importTypes, allowsMultipleSelection: true,
+            isPresented: $isImporting, allowedContentTypes: CreateFileTypes.all, allowsMultipleSelection: true,
             onCompletion: handleImport
         )
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
+        .sheet(isPresented: $isShowingReach) {
+            WhereThingsRunSheet(reach: reach) { openTab(.settings) }
+        }
+        .onAppear { reachRefresh += 1 }
         .alert(
             "Couldn’t import that file",
             isPresented: Binding(
@@ -98,13 +108,37 @@ struct CaptureScreen: View {
         }
     }
 
+    /// Audio and video go to the transcription pipeline, documents (PDF, Word, text) to the reader, as when another app
+    /// shares them.
     private func handleImport(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
-            environment.importFiles(urls)
+            let split = Self.splitImports(urls)
+            if !split.media.isEmpty { environment.importFiles(split.media) }
+            if !split.documents.isEmpty { environment.importDocuments(split.documents) }
         case .failure(let error):
             pickerError = Formatting.message(for: error)
         }
+    }
+
+    /// Picked files by where they go: the transcription pipeline or the document reader.
+    static func splitImports(_ urls: [URL]) -> (media: [URL], documents: [URL]) {
+        (
+            urls.filter { IncomingFileInbox.kind(of: $0) == .media },
+            urls.filter { IncomingFileInbox.kind(of: $0) == .document }
+        )
+    }
+
+    /// Where the configured routes send content now (UX audit F13).
+    private var reach: ContentReach {
+        _ = reachRefresh
+        return ContentReach.current(
+            speechEngineName: environment.finalSpeechModel.name,
+            defaultModel: environment.languageModels.defaultChoice,
+            otherProviders: environment.languageModels.choices,
+            voice: environment.voiceSettings.settings.provider,
+            companionTrusted: environment.companionConfiguration.companionEndpoint()?.isTrusted ?? false,
+            jevEnabled: environment.jevSettingsModel.isEnabled)
     }
 
     // MARK: - Header
@@ -118,9 +152,9 @@ struct CaptureScreen: View {
                 .foregroundStyle(Tokens.Color.ink)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            StatusChip.onDevice()
+            ContentReachChip(reach: reach) { isShowingReach = true }
         }
-        .frame(minHeight: 40)
+        .frame(minHeight: 44)
     }
 
     // MARK: - Create (plan 022)
@@ -233,10 +267,11 @@ struct CaptureScreen: View {
                         .chirpFont(15, .semibold)
                         .foregroundStyle(Tokens.Color.ink)
                     // Copy correction (handoff): "press", not "hold" (no Action Button key-up for third-party apps).
+                    // Text-safe green (5.3:1; `success` is for fills and icons only, UX audit F12).
                     Text(environment.dictation.polishAfter ? "Clean text on copy" : "Action Button or tap")
                         .chirpFont(12)
                         .foregroundStyle(
-                            environment.dictation.polishAfter ? Tokens.Color.success : Tokens.Color.secondary)
+                            environment.dictation.polishAfter ? Tokens.Color.privacyBadgeInk : Tokens.Color.secondary)
                 }
             }
             .padding(14)
@@ -343,10 +378,17 @@ struct CaptureScreen: View {
         HStack(alignment: .firstTextBaseline) {
             SectionLabel("Recent", size: 12.5)
             Spacer()
-            Button("See all") { openTab(.library) }
-                .chirpFont(13.5, .semibold)
-                .foregroundStyle(AppColor.accentText)
-                .frame(minHeight: 32)
+            Button {
+                openTab(.library)
+            } label: {
+                Text("See all")
+                    .chirpFont(13.5, .semibold)
+                    .foregroundStyle(AppColor.accentText)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)  // the hit area (UX audit F11)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the Library")
         }
     }
 
@@ -403,9 +445,10 @@ struct ModelMissingBanner: View {
             Spacer(minLength: 8)
             Button(action: openSettings) {
                 CapsuleButtonLabel(title: "Settings", kind: .filled)
+                    .frame(minHeight: 44)  // inside the label: a frame outside a Button does not widen its hit area
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(minHeight: 44)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
