@@ -64,11 +64,13 @@ public enum Tokens {
 
     // MARK: - Palette (plan 023, F6)
 
-    /// Every color token as numbers. Light values are the owner's canvas (unchanged); dark values are the plan 023
-    /// (ux-audit-2b9ad612 F6) dark palette: warm near-black surfaces instead of pure black, the coral, greens and
-    /// speaker colors desaturated and lifted just enough to read on them without glare, and pills as deep tinted
-    /// fills rather than light patches. Increase Contrast values step every text and glyph color further from its
-    /// background in both schemes (F5, extended to dark mode).
+    /// Every color token as numbers. Light values are the owner's canvas, except five glyph colors the owner had
+    /// strengthened to reach 3:1 (plan 023 F6, approved 2026-09-23: `favorite`, `mutedText`, `success`, `accent` and
+    /// the amber speaker dot, each the nearest same-hue value that passes; the canvas value is in its comment). Dark
+    /// values are the plan 023 (ux-audit-2b9ad612 F6) dark palette: warm near-black surfaces instead of pure black,
+    /// the coral, greens and speaker colors desaturated and lifted just enough to read on them without glare, and
+    /// pills as deep tinted fills rather than light patches. Increase Contrast values step every text and glyph color
+    /// further from its background in both schemes (F5, extended to dark mode).
     ///
     /// "Text" below means WCAG 4.5:1 against every background it is drawn on; "glyph" means 3:1 (icons, dots,
     /// fills whose shape carries meaning, and the white glyph on them). `ContrastTests` holds the table of pairs.
@@ -96,17 +98,19 @@ public enum Tokens {
         /// Secondary text and meta. Text-safe on ground, surface, quiet and tint fills.
         public static let secondary = ColorValue(
             light: 0x6B6B6B, dark: 0xA69E96, lightHighContrast: 0x4F4F4F, darkHighContrast: 0xCFC8C0)
-        /// Icons, chevrons and placeholders only — not text (use `secondary`). The canvas light value is 2.75:1 on
-        /// `surface` (below 3:1, see `ContrastTests`' documented canvas exceptions); every other appearance is at
-        /// least 3:1 as a glyph.
+        /// Icons, chevrons, the empty favorite star and placeholders only — not text (use `secondary`). At least 3:1
+        /// as a glyph in every appearance; light is `#909090` (3.05:1 on `ground`), up from the canvas `#9C9C9C`
+        /// (2.63:1) by the owner's choice (plan 023 F6).
         public static let mutedText = ColorValue(
-            light: 0x9C9C9C, dark: 0x857C74, lightHighContrast: 0x6B6B6B, darkHighContrast: 0xA69E96)
+            light: 0x909090, dark: 0x857C74, lightHighContrast: 0x6B6B6B, darkHighContrast: 0xA69E96)
 
         // MARK: Accent (coral)
 
-        /// The brand coral, for fills and glyphs: the Create circle, Play, progress, the selected tab underline.
-        /// Carries a white glyph (3:1). Slightly desaturated in dark mode so a large coral circle does not glare.
-        public static let accent = ColorValue(light: 0xE86B3B, dark: 0xD9673F, lightHighContrast: 0xC2562D)
+        /// The brand coral, for fills and glyphs: the Create circle, Play, progress, the selected tab underline, the
+        /// selected tile's check. Carries a white glyph (3:1). Light is `#E76331`, a shade deeper than the canvas
+        /// `#E86B3B` so the check on a selected (tint) tile reaches 3:1 (plan 023 F6). Slightly desaturated in dark
+        /// mode so a large coral circle does not glare.
+        public static let accent = ColorValue(light: 0xE76331, dark: 0xD9673F, lightHighContrast: 0xC2562D)
         /// Accent text and links (the app-wide tint). Text-safe on ground and surface; a light coral in dark mode.
         public static let accentInk = ColorValue(
             light: 0xBE4E26, dark: 0xF0916A, lightHighContrast: 0x8F3A1B, darkHighContrast: 0xFFB28F)
@@ -131,8 +135,9 @@ public enum Tokens {
 
         // MARK: Status
 
-        /// "On" switches, ready dots, check glyphs — a glyph color, not text (use `successInk`).
-        public static let success = ColorValue(light: 0x33A854, dark: 0x3E9F5A, lightHighContrast: 0x23813F)
+        /// "On" switches, ready dots, check glyphs — a glyph color, not text (use `successInk`). Light is `#32A553`
+        /// (3.02:1 on `ground`), a hair deeper than the canvas `#33A854` (2.92:1) (plan 023 F6).
+        public static let success = ColorValue(light: 0x32A553, dark: 0x3E9F5A, lightHighContrast: 0x23813F)
         /// Text-safe green.
         public static let successInk = ColorValue(
             light: 0x1E7B4A, dark: 0x72CE8E, lightHighContrast: 0x155E38, darkHighContrast: 0x9BE3B0)
@@ -144,8 +149,9 @@ public enum Tokens {
             light: 0xC9342B, dark: 0xBA3A30, lightHighContrast: 0xA3241D, darkHighContrast: 0xA8322A)
         /// The recording dot and the listening circle (white glyph, 3:1).
         public static let recordRed = ColorValue(light: 0xE64D42, dark: 0xE0574C, lightHighContrast: 0xC7362C)
-        /// The favorite star. Canvas light value is 2.03:1 on white (documented canvas exception).
-        public static let favorite = ColorValue(light: 0xF5A623, dark: 0xE8A23C, lightHighContrast: 0xA86E00)
+        /// The favorite star. Light is a deeper amber, `#C98109` (3.03:1 on `ground`), instead of the canvas
+        /// `#F5A623` (1.94:1) (plan 023 F6).
+        public static let favorite = ColorValue(light: 0xC98109, dark: 0xE8A23C, lightHighContrast: 0xA86E00)
         /// The Meeting rosette (brand mark, decorative).
         public static let rosette = ColorValue(light: 0x59A659, dark: 0x63B067, lightHighContrast: 0x3F8A43)
 
@@ -172,12 +178,16 @@ public enum Tokens {
         public static let seedStrokeBright = ColorValue.fixed(0x9DBFA8)
         /// Coral text, caret and waveform on `night`.
         public static let dictationAccent = ColorValue.fixed(0xFF8A5C)
+        /// The Dictating screen's tentative (not yet final) words and "Listening…": white at this opacity over
+        /// `night`, 4.67:1. Was 42% (4.11:1) until the owner chose 46% (plan 023 F6, 2026-09-23).
+        public static let dictationTentativeOpacity = 0.46
 
         // MARK: Speakers
 
         /// Speaker dot / label-ink pairs, in palette order: blue, purple, green, amber. Inks are text-safe on
-        /// ground, surface and tint (the current paragraph) in every appearance; the four stay clearly distinct
-        /// (`ContrastTests` checks a CIE76 color difference of 25 or more between any two).
+        /// ground, surface and tint (the current paragraph) in every appearance, and every dot is at least 3:1 there
+        /// (the light amber dot is `#C47C22`, a shade deeper than the canvas `#D18524`, plan 023 F6); the four stay
+        /// clearly distinct (`ContrastTests` checks a CIE76 color difference of 25 or more between any two).
         public static let speakers: [(dot: ColorValue, ink: ColorValue)] = [
             (
                 ColorValue(light: 0x3382D6, dark: 0x4F97E3),
@@ -192,7 +202,7 @@ public enum Tokens {
                 ColorValue(light: 0x1E7B5D, dark: 0x5CC9A0, lightHighContrast: 0x155E46, darkHighContrast: 0x8FDDBF)
             ),
             (
-                ColorValue(light: 0xD18524, dark: 0xD8963A, lightHighContrast: 0xB0701A),
+                ColorValue(light: 0xC47C22, dark: 0xD8963A, lightHighContrast: 0xB0701A),
                 ColorValue(light: 0x8F5A12, dark: 0xE3A857, lightHighContrast: 0x6B430A, darkHighContrast: 0xF0C68A)
             ),
         ]
@@ -229,7 +239,8 @@ public enum Tokens {
 
         public static let ink = color(Palette.ink)
         public static let secondary = color(Palette.secondary)
-        /// Icon/placeholder fill only — **not text** (F4); text reads `secondary`. See `Palette.mutedText`.
+        /// Icon/placeholder fill only — **not text** (F4, 3.19:1 on `surface`); text reads `secondary`. See
+        /// `Palette.mutedText`.
         public static let mutedText = color(Palette.mutedText)
 
         // MARK: Accent
@@ -251,7 +262,7 @@ public enum Tokens {
 
         // MARK: Status
 
-        /// Icon and dot-fill green only — **3.06:1 as text on `surface`, below 4.5:1 (F4).** Text reads
+        /// Icon and dot-fill green only — **3.16:1 as text on `surface`, below 4.5:1 (F4).** Text reads
         /// `successInk`.
         public static let success = color(Palette.success)
         /// Text-safe green in every appearance.
@@ -277,6 +288,8 @@ public enum Tokens {
         public static let seedStrokeDim = color(Palette.seedStrokeDim)
         public static let seedStrokeBright = color(Palette.seedStrokeBright)
         public static let dictationAccent = color(Palette.dictationAccent)
+        /// The Dictating screen's tentative words: white at `Palette.dictationTentativeOpacity` (on `night` only).
+        public static let dictationTentative = hex(0xFFFFFF).opacity(Palette.dictationTentativeOpacity)
 
         // MARK: Speakers
 

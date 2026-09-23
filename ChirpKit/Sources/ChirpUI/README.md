@@ -51,8 +51,12 @@ standalone script and checked without building the package (see "How to verify" 
 
 **Every color has a light, a dark and an Increase Contrast value (plan 023, ux-audit-2b9ad612 F6).** The
 numbers live in `Tokens.Palette`; `Tokens.Color.color(_:)` turns a `ColorValue` into a `UIColor` dynamic provider that
-reads `userInterfaceStyle` and `accessibilityContrast` (macOS, with no UIKit, gets the plain light value). The light
-values are the owner's canvas, unchanged. The dark palette: warm near-black surfaces (`ground` `#15120F`, `surface`
+reads `userInterfaceStyle` and `accessibilityContrast` (macOS, with no UIKit, gets the plain light value). The owner
+approved the palette on 2026-09-23 with two changes: five canvas glyph colors below 3:1 in light mode moved to the
+nearest same-hue value that passes (`favorite`, `mutedText`, `success`, `accent`, the amber speaker dot; each token's
+comment gives the canvas value), and the Dictating screen's tentative words went from 42% to 46% white
+(`Palette.dictationTentativeOpacity`, `Color.dictationTentative`). Every other light value is the canvas. The dark
+palette: warm near-black surfaces (`ground` `#15120F`, `surface`
 `#1F1B18`), warm off-white `ink`, a slightly desaturated coral, deep tinted pills (`tint`, `privacyBadgeFill`,
 `partialAudioFill`) instead of light patches, and light inks for text on them. The night tokens (`night`,
 `coverNight`, the seed strokes, `dictationAccent`) are `ColorValue.fixed`: the same in every appearance, because the
@@ -66,7 +70,7 @@ accent text on a `tint` fill is `accentInkPressed`. Adding a token means adding 
 its `Color` line, and its name to `Palette.named` — `ContrastTests` fails for a named token that no pair measures.
 
 **Not every color that *looks* like it should be text-safe is.** `success` and `mutedText` are
-icon/dot-fill colors only — 3.06:1 and 2.75:1 as text, both below WCAG's 4.5:1. Text needs
+icon/dot-fill colors only — 3.16:1 and 3.19:1 as text, both below WCAG's 4.5:1. Text needs
 `successInk` (new) or `secondary` instead; see each token's doc comment in `Tokens.swift`, and
 `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` for the numbers.
 
@@ -101,8 +105,7 @@ rather than eyeballing new numbers.
 - `swift test --package-path ChirpKit --filter ChirpUITests` —
   `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` measures WCAG contrast for every foreground × background pair the
   app draws (the table mirrors the call sites) in all four appearances, straight from `Tokens.Palette`: 4.5:1 for text,
-  3:1 for glyphs. Its only accepted exceptions are pinned with their ratios: five canvas glyph colors in default light
-  mode (each fixed under Increase Contrast) and the Dictating screen's spec'd 42% tentative text. It also checks that
+  3:1 for glyphs, with no exceptions (the last six were removed by the owner's choices of 2026-09-23). It also checks that
   Increase Contrast never lowers contrast, that dark surfaces are warm near-black, that dark pills do not glare, that
   the four speaker colors stay distinct (CIE76 ΔE ≥ 25) and that every token is measured or listed as decorative.
 - `AppTests/PaletteScreenRenderTests.swift` (app-hosted) renders the Dictating and Meeting covers over a light and a

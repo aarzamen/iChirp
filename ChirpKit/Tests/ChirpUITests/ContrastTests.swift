@@ -6,7 +6,8 @@
 // `swift test --package-path ChirpKit`, no simulator needed.
 //
 // The pair table below mirrors the call sites (which foreground token sits on which background). When a screen puts
-// a token on a new background, add the pair here.
+// a token on a new background, add the pair here. There are no exceptions: on 2026-09-23 the owner had the last five
+// below-3:1 canvas glyph colors strengthened and the Dictating screen's tentative text raised to 46% (plan 023 F6).
 
 import XCTest
 
@@ -186,7 +187,8 @@ final class ContrastTests: XCTestCase {
         table += pairs(white(0.82), on: [night], .text, "Dictating status line")
         table += pairs(white(0.72), on: [night], .text, "Dictating captions and control labels")
         table += pairs(white(0.6), on: [night], .text, "Dictating dimmed text while finishing")
-        table += pairs(white(0.42), on: [night], .text, "Dictating tentative tail and \"Listening…\"")
+        table += pairs(
+            white(P.dictationTentativeOpacity), on: [night], .text, "Dictating tentative tail and \"Listening…\"")
         table += pairs(dictationAccent, on: [night], .text, "Dictating errors, caret, \"Then:\" chip")
         table += pairs(success, on: [night], .text, darkOnly: true, "Dictating \"Copied to your clipboard\"")
         // Glyphs (3:1).
@@ -209,30 +211,6 @@ final class ContrastTests: XCTestCase {
         return table
     }()
 
-    /// Pairs below their threshold that the tests accept, each measured and explained. Only the owner's light
-    /// canvas (default contrast) and the Dictating spec appear here; dark mode and every Increase Contrast
-    /// appearance have none except the spec'd tentative tail. `testDocumentedExceptionsAreExact` pins each ratio,
-    /// so fixing one means deleting its line.
-    private static let exceptions: [String: (ratio: Double, why: String)] = [
-        "favorite on ground|light": (1.94, "canvas star amber #F5A623"),
-        "favorite on surface|light": (2.03, "canvas star amber #F5A623"),
-        "mutedText on ground|light": (2.63, "canvas muted gray #9C9C9C (F4)"),
-        "mutedText on surface|light": (2.75, "canvas muted gray #9C9C9C (F4)"),
-        "success on ground|light": (2.92, "canvas green #33A854; 3.06:1 on surface"),
-        "accent on tint|light": (2.87, "canvas coral #E86B3B on canvas tint #FFF0EB"),
-        "speaker3.dot on ground|light": (2.84, "canvas amber dot #D18524; the label carries the speaker"),
-        "speaker3.dot on surface|light": (2.96, "canvas amber dot #D18524; the label carries the speaker"),
-        "speaker3.dot on tint|light": (2.67, "canvas amber dot #D18524; the label carries the speaker"),
-        "white@42% over night on night|light": (4.11, "spec'd 42% tentative tail (spec/04-ui.md Dictating)"),
-        "white@42% over night on night|dark": (4.11, "spec'd 42% tentative tail (spec/04-ui.md Dictating)"),
-        "white@42% over night on night|lightHighContrast": (4.11, "spec'd 42% tentative tail"),
-        "white@42% over night on night|darkHighContrast": (4.11, "spec'd 42% tentative tail"),
-    ]
-
-    private static func key(_ pair: Pair, _ appearance: Appearance) -> String {
-        "\(pair.id)|\(appearance.rawValue)"
-    }
-
     // MARK: - Every pair, every appearance
 
     func testEveryTextAndGlyphPairMeetsWCAGInEveryAppearance() {
@@ -240,7 +218,7 @@ final class ContrastTests: XCTestCase {
         for pair in Self.table {
             for appearance in pair.appearances() {
                 let ratio = pair.ratio(in: appearance)
-                guard ratio < pair.kind.minimum, Self.exceptions[Self.key(pair, appearance)] == nil else { continue }
+                guard ratio < pair.kind.minimum else { continue }
                 failures.append(
                     String(
                         format: "%@ in %@: %.2f:1 < %.1f:1 (%@)", pair.id, appearance.rawValue, ratio,
@@ -248,42 +226,6 @@ final class ContrastTests: XCTestCase {
             }
         }
         XCTAssertTrue(failures.isEmpty, "Contrast below WCAG:\n" + failures.joined(separator: "\n"))
-    }
-
-    func testDocumentedExceptionsAreExact() {
-        // Each exception must exist in the table, still measure what it says (so a silent change is caught), and
-        // still be below its threshold (so a fixed one is removed from the list rather than lingering).
-        var seen = Set<String>()
-        for pair in Self.table {
-            for appearance in pair.appearances() {
-                let key = Self.key(pair, appearance)
-                guard let exception = Self.exceptions[key] else { continue }
-                seen.insert(key)
-                let ratio = pair.ratio(in: appearance)
-                XCTAssertEqual(ratio, exception.ratio, accuracy: 0.01, "\(key) now measures \(ratio)")
-                XCTAssertLessThan(ratio, pair.kind.minimum, "\(key) passes now; delete its exception")
-            }
-        }
-        XCTAssertEqual(seen, Set(Self.exceptions.keys), "exceptions that match no pair")
-    }
-
-    func testIncreaseContrastFixesEveryCanvasException() {
-        // The light canvas keeps its glyph colors by default, but with Increase Contrast every one of them passes.
-        let canvasExceptions = Self.table.filter {
-            Self.exceptions[Self.key($0, .light)] != nil && $0.foreground.name != "white@42% over night"
-        }
-        XCTAssertFalse(canvasExceptions.isEmpty)
-        for pair in canvasExceptions {
-            XCTAssertGreaterThanOrEqual(
-                pair.ratio(in: .lightHighContrast), pair.kind.minimum, "\(pair.id) with Increase Contrast")
-        }
-    }
-
-    func testDarkModeHasNoExceptionsOutsideTheDictatingSpec() {
-        let darkExceptions = Self.exceptions.keys.filter {
-            ($0.hasSuffix("|dark") || $0.hasSuffix("|darkHighContrast")) && !$0.hasPrefix("white@42%")
-        }
-        XCTAssertEqual(darkExceptions, [])
     }
 
     func testIncreaseContrastNeverLowersContrast() {
@@ -362,6 +304,11 @@ final class ContrastTests: XCTestCase {
         }
     }
 
+    func testDictationTentativeTextIsTheOwnersFortySixPercent() {
+        // Plan 023 F6 (owner, 2026-09-23): 46% white on night, 4.67:1 — up from the canvas's 42% (4.11:1).
+        XCTAssertEqual(P.dictationTentativeOpacity, 0.46, accuracy: 0.0001)
+    }
+
     func testDarkByDesignColorsAreTheSameInEveryAppearance() {
         // The Dictating screen and the covers are dark by design; they must not shift with the system scheme.
         for (name, value) in [
@@ -411,13 +358,13 @@ final class ContrastTests: XCTestCase {
     }
 
     func testSuccessFailsAsTextSoItMustStayIconOnly() {
-        // `success` is documented "icon and dot-fill only" because it fails as text in light mode (audit: 3.06:1).
-        // Text reads `successInk`.
+        // `success` is documented "icon and dot-fill only" because it fails as text in light mode (3.16:1). Text
+        // reads `successInk`.
         XCTAssertLessThan(Self.contrastRatio(P.success.light, P.surface.light), 4.5)
     }
 
     func testMutedTextBaseFailsAsTextSoItMustStayIconOnly() {
-        // `mutedText` is documented "icon/placeholder fill only" (audit: 2.75:1); text reads `secondary`.
+        // `mutedText` is documented "icon/placeholder fill only" (3.19:1); text reads `secondary`.
         XCTAssertLessThan(Self.contrastRatio(P.mutedText.light, P.surface.light), 4.5)
     }
 

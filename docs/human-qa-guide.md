@@ -878,7 +878,10 @@ Increase Contrast, both schemes
       chevrons stronger; in Dark mode text gets brighter and borders clearer. Nothing gets harder to read.
 
 Regression
-- [ ] Light mode looks exactly as before (the canvas colors did not change).
+- [ ] Light mode looks as before, except five icons are a shade stronger (owner's choice, 2026-09-23): the filled
+      favorite star is a deeper amber, chevrons and the empty star a darker gray, the check on a selected Create tile,
+      the green switch and the amber speaker dot slightly deeper.
+- [ ] Dictating: the grey not-yet-final words are a little brighter (46% white) and easy to read.
 - [ ] The launch screen matches the scheme (no white flash in Dark mode).
 
 Screenshots to attach
