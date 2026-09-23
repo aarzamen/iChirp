@@ -12,9 +12,11 @@ an engine that breaks them corrupts transcripts silently.
 ## Producers
 
 - `ChirpKit/Sources/ChirpCore/Engines/` — `EngineDescriptor.swift`, `ModelAssets.swift`, `SpeechEngine.swift`,
-  `LiveSpeechSession.swift` (M2), `LanguageModel.swift`, `StructureModel.swift`, `EngineCatalog.swift`
-  (`PrivacyRoutingPolicy`).
+  `LiveSpeechSession.swift` (M2), `TailWindowPreviewSession.swift` (M2, in ChirpCore since M7),
+  `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `LanguageModel.swift`, `StructureModel.swift`,
+  `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
 - Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
+  `ChirpEngineAppleSpeech` (`AppleSpeechEngine`) and `ChirpEngineWhisperKit` (`WhisperKitEngine`, one per variant) in M7;
   `ParakeetEngine` is also a `LiveSpeechSessionProviding` since M2 (tail-window preview); every future
   `ChirpEngine<Provider>` target.
 
@@ -58,7 +60,11 @@ an engine that breaks them corrupts transcripts silently.
   - `options.purpose` (M2, additive, default `.file`) says what the text is for. An engine may tune for `.dictation`
     (Parakeet appends 0.5 s of trailing silence to a clip that still fits one model window, decoded in memory; the
     recorded file is never changed), but the result's shape and every rule above stay the same.
-- Core ML engines run every inference inside `ANEInferenceGate`.
+- FluidAudio's Core ML engines run every inference inside `ANEInferenceGate`. The gate is internal to
+  `ChirpEngineFluidAudio` and does not serialize on iOS 26. WhisperKit (M7) serializes calls on its own pipeline
+  instead. Apple Speech runs in iOS's speech service.
+- `SpeechEngineUnloading` (M7, optional): `unloadModels()` drops a loaded model, and the next `prepare` loads it again
+  from disk. It is refused silently while a job holds the model.
 - Conformers are `Sendable` (actors in practice); single-threaded C runtimes are confined to one actor.
 
 **`SpeakerDiarizing`**
@@ -86,6 +92,22 @@ an engine that breaks them corrupts transcripts silently.
 - Before any engine processes an item, callers check `PrivacyRoutingPolicy.allows(_:for:host:userOverride:)`
   ([ADR-002](../adr/002-local-first-and-privacy-classes.md)). Engines do not enforce privacy themselves.
 
+**Live and final routes** (M7, additive; `SpeechEngineRouter.swift`, `SpeechEngineCapabilities.swift`)
+- `SpeechEngineCapabilityRegistry` has one row per engine build, keyed by `(descriptor id, variant)`. A new engine adds
+  its row, and its test pins the descriptor (id, word timestamps) to that row.
+- `SpeechEngineRouter` is a `SpeechEngine` and a `LiveSpeechSessionProviding` that stands for the engine chosen on each
+  route. `.live` gives display-only text: the dictation preview and a meeting's live text. `.final` gives every kept
+  transcript.
+- Consumers call `SpeechRouting.resolve(_:for:)` **once, when the job is queued**. They check privacy routing against
+  the resolved engine's descriptor and store its id. A router's `descriptor` is its current final engine; nothing
+  should read it mid-job.
+- A live engine without `LiveSpeechSessionProviding` is previewed with `TailWindowPreviewSession`. Each pass writes the
+  window to a temporary 16 kHz WAV, transcribes it with purpose `.dictation`, and deletes it.
+- A meeting holds a `SpeechEngineLease` from start until it finishes. `select` throws `meetingInProgress` while any
+  lease is out.
+- `SpeechEngineAvailabilityReporting` (optional) lets an engine say it cannot run on this device. Settings lists it
+  with the reason and never downloads it.
+
 **Target rule**
 - An engine target depends only on `ChirpCore` plus its SDK and exposes one registration entry point (M1:
   `FluidAudioEngines.makeDefault(settings:)`). No other target imports the SDK.
@@ -112,7 +134,11 @@ conformer and fake in the same change, and keep persisted `engine` ids readable.
 - `ParakeetEngineNotDownloadedTests` (`assetStatus() == .notDownloaded`; `transcribe` throws `modelNotDownloaded`).
 - `WordTimingParityTests` (engine-internal word builder equals ChirpText's).
 - `ANEInferenceGateTests` (ported from upstream).
-- `TailWindowPreviewSessionTests` (single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
+- `SpeechEngineRouterTests` and `SpeechEngineCapabilityRegistryTests` (ChirpCoreTests): separate routes, snapshot at
+  enqueue, lease blocks a switch, not-in-build refusal, tail preview over a deleted temporary WAV, no session without
+  the model, forgiving decoding, the memory budget. `SpeechRouteConsumersTests` (ChirpFeaturesTests): files and
+  meetings use the final route, a queued file keeps its engine, a meeting holds and releases the lease.
+- `TailWindowPreviewSessionTests` (ChirpCoreTests since M7; single-flight, 15 s window, skip without new audio, cancel-and-drain on finish,
   interactive slot) and `ParakeetDictationPadTests` (0.5 s pad only when the padded clip fits one window; the
   `.dictation` purpose uses it, `.file` never does).
 - `ModelAssetLifecycleTests.testACancelledWaiterStopsWaitingWhileTheSharedLoadContinues`.

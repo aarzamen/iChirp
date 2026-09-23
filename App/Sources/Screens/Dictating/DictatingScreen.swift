@@ -70,8 +70,10 @@ struct DictatingScreen: View {
         .frame(minHeight: 30)
     }
 
+    /// M7: the engine that writes the kept text (the final route); Parakeet unless Settings → Speech engines says so.
     private var modelName: String {
-        environment.runningVariant == .v3 ? "Parakeet v3" : "Parakeet v2"
+        environment.speechEngines.row(for: .final)?.capabilities.displayName
+            ?? (environment.runningVariant == .v3 ? "Parakeet v3" : "Parakeet v2")
     }
 
     private var statusTitle: String {

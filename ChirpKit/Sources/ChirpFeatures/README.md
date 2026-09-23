@@ -107,6 +107,15 @@ pipeline's `Task`s and publishes its progress to the UI.
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
   `settingsValue`, which saves on every set — only the fields Settings edits, onto the freshest stored value, so the
   dictation screen's "Polish after" (M2) is never overwritten by an older copy.
+- `SpeechEnginesViewModel.swift` (M7, plan 016): Settings → Speech engines.
+  - It lists one row per engine build from `SpeechEngineCapabilityRegistry`. Each row is either a registered instance
+    with its model state, or a row this build or device cannot run, listed with the reason: not in this build, over
+    the memory budget, or `SpeechEngineAvailabilityReporting`.
+  - `choices(for:)` returns only ready engines (for live, also able to preview) plus the current choice.
+  - `select` goes through `SpeechEngineRouter.select`, which refuses during a meeting. `download` and `delete` go
+    through the engine.
+- `SpeechRouteStore.swift` (M7): `SpeechRouteStoring` and `UserDefaultsSpeechRouteStore`. The live and final routes
+  are saved as JSON under `ichirp.speechRoutes`. A missing or unreadable value means Parakeet on both.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
 - `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
@@ -322,7 +331,35 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `Structure/StructureEvalViewModel.swift`: Settings → Structure models → Eval (run the STUB or Needle, save each run
   to `structured_eval_runs`, export).
 
+## ASR benchmark (M7 Step 6, `Benchmark/`)
+
+- `ASRBenchmark.swift`:
+  - `ASRBenchmarkItem`; `ASRBenchmarkReferenceSet`, which reads `asr-benchmark-reference.json` written by
+    `scripts/make_benchmark_audio.sh` and bundled from `App/Resources/Benchmark`.
+  - `ASRBenchmarkEngine`, `ASRBenchmarkResult` and `ASRBenchmarkRun`, whose per-engine `summaries` give corpus WER,
+    total audio ÷ total time as a real-time factor, load time and peak memory.
+  - `ASRBenchmarkRunner`:
+    - It normalizes each recording once, then for each engine: unload (`SpeechEngineUnloading`), then each recording
+      inside `SpeechJobScheduler.run(.fileTranscription)`, then unload again. Every engine and every job runs one at a
+      time with the app's other jobs.
+    - `prepare` is timed once per engine, as load time after the unload.
+    - Peak physical footprint is sampled every 100 ms by an injected reader (`MemoryProbe` in the app).
+    - Privacy routing runs first: the synthetic set is `.general`, and a person's own file is treated as `.clinical`.
+      An engine without its model is reported, never downloaded.
+    - A person's own file keeps no recognized text.
+  - `ASRBenchmarkExport`: CSV (RFC 4180) and JSON (`ichirp.asr-benchmark/v1`).
+- `ASRBenchmarkStore.swift`: an actor holding one JSON file (`<library>/benchmarks/asr-benchmark-runs.json`) with the
+  newest 20 runs. Before saving, it strips text from results without a reference. There is no database table and no
+  migration.
+- `ASRBenchmarkViewModel.swift`: the Benchmark screen.
+  - Engine choices with the reason an engine cannot run; ready engines are selected by default.
+  - The reference-set toggle, and added files copied from the importer.
+  - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
+
 ## Wiring (app composition root)
+
+M7: `speech` below is the app's `SpeechEngineRouter` (`AppSpeechEngines.makeRouter`), not Parakeet itself. Parakeet,
+Apple Speech and WhisperKit are registered in it, and the routes are saved in `UserDefaultsSpeechRouteStore`.
 
 ```swift
 let jobs = TranscriptionJobCenter(continuedProcessing: SystemContinuedProcessingScheduler())  // nil in tests
@@ -354,6 +391,16 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
 ```
 
 ## What to know before editing
+
+- **Speech routes (M7).**
+  - Every consumer takes its route's engine once, when the job is queued: `SpeechRouting.resolve(self.speech, for:)`.
+    It then uses that engine for the whole job: routing check, `prepare`, `transcribe` and the stored `engine` id. A
+    route change applies to the next job only.
+  - `.final`: `FileTranscriptionPipeline.run`, the dictation final pass and `MeetingFinalizer.run`.
+  - `.live`: the dictation preview (through the router's `makeLiveSession`) and `MeetingCoordinator`'s live text.
+  - A meeting holds the router's lease from `start()` until its state is finished (saved, failed or idle).
+  - `MeetingCoordinator` sends pause, resume and mute through one chain of tasks (`sendToRecorder`), so they reach
+    the recorder in order.
 
 - **Privacy routing runs before any engine gets audio** (ADR-002, `spec/12-privacy.md`). `run` asks
   `PrivacyRoutingPolicy` (injected, default: no trusted LAN hosts) whether the speech engine's locality may process

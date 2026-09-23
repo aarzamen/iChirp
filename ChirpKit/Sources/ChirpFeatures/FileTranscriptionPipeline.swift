@@ -370,6 +370,8 @@ public actor FileTranscriptionPipeline {
         let id = row.id
         var transcription = row
         let settingsValue = settings.load()
+        // M7: the final route's engine as the job is queued; a route change later applies to the next job only.
+        let speech = SpeechRouting.resolve(self.speech, for: .final)
         try Task.checkCancellation()
 
         try Self.checkSpeechRouting(privacyRouting, speech: speech.descriptor, privacyClass: row.privacyClass, id: id)
@@ -396,7 +398,6 @@ public actor FileTranscriptionPipeline {
         try Task.checkCancellation()
 
         report(id, .waitingForEngine, 0.15)
-        let speech = self.speech
         let candidateDiarizer = settingsValue.speakerLabelsEnabled ? await readyDiarizer(for: row) : nil
         let onProgress = self.onProgress
         let store = self.store
@@ -440,7 +441,7 @@ public actor FileTranscriptionPipeline {
         }
         try Task.checkCancellation()
 
-        apply(output, to: &transcription, audioDurationMs: normalized.durationMs)
+        apply(output, to: &transcription, audioDurationMs: normalized.durationMs, engineID: speech.descriptor.id)
         let words = settingsValue.cleanupMode == .clean ? await customWords() : []
         complete(&transcription, settings: settingsValue, customWords: words)
         return transcription
@@ -554,11 +555,13 @@ public actor FileTranscriptionPipeline {
     }
 
     /// Engine fields, words, duration and speakers (port of upstream `transcribeAudio`'s result handling).
-    private func apply(_ output: EngineOutput, to transcription: inout Transcription, audioDurationMs: Int) {
+    private func apply(
+        _ output: EngineOutput, to transcription: inout Transcription, audioDurationMs: Int, engineID: String
+    ) {
         let result = output.result
         transcription.rawTranscript = result.text
         transcription.language = result.language ?? transcription.language
-        transcription.engine = speech.descriptor.id
+        transcription.engine = engineID
         transcription.engineVariant = result.engineVariant
         let speechEndMs = result.words.map(\.endMs).max() ?? 0
         let durationMs = max(transcription.durationMs ?? 0, audioDurationMs, speechEndMs)

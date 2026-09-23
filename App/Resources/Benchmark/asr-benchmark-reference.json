@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "fox",
+      "file": "asr-bench-fox.m4a",
+      "voice": "Samantha",
+      "text": "The quick brown fox jumps over the lazy dog while the farmer watches from the porch."
+    },
+    {
+      "id": "meeting",
+      "file": "asr-bench-meeting.m4a",
+      "voice": "Daniel",
+      "text": "Let's move the design review to Thursday afternoon and ask the team to send their notes before lunch."
+    },
+    {
+      "id": "clinic",
+      "file": "asr-bench-clinic.m4a",
+      "voice": "Karen",
+      "text": "The patient reports a mild headache and a sore throat since yesterday. No fever. Plan rest, fluids and a follow up visit next week."
+    },
+    {
+      "id": "science",
+      "file": "asr-bench-science.m4a",
+      "voice": "Moira",
+      "text": "Photosynthesis turns sunlight, water and carbon dioxide into sugar and oxygen inside the leaves of green plants."
+    },
+    {
+      "id": "directions",
+      "file": "asr-bench-directions.m4a",
+      "voice": "Tessa",
+      "text": "Turn left at the old library, walk past the bakery, and the museum entrance is on your right."
+    }
+  ]
+}

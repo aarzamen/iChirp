@@ -28,6 +28,14 @@ record the result here before shipping an IPA to anyone else.
   deliberately not ported (the repository is public).
 - Network service, not a dependency: xAI's text-to-speech API (`api.x.ai`), used only with the owner's own key.
 
+## System frameworks with separate model terms
+
+### Apple Speech (`SpeechTranscriber`, `SpeechAnalyzer`, `AssetInventory`)
+
+- Part of iOS 26 (the Speech framework); nothing is linked from a package. `ChirpEngineAppleSpeech` (M7).
+- Model: Apple's on-device speech model, downloaded and managed by iOS under the iOS SDK / software license terms;
+  it is never redistributed in the app or the repository.
+
 ## Swift package dependencies (linked into the app)
 
 ### FluidAudio
@@ -45,6 +53,16 @@ record the result here before shipping an IPA to anyone else.
 - License: MIT. Copyright (C) 2015-2025 Gwendal Roué.
 - Source: <https://github.com/groue/GRDB.swift>
 - Used for: the local SQLite database.
+
+### WhisperKit (`argmax-oss-swift`)
+
+- Version: exact 1.1.0 (see `ChirpKit/Package.swift`; revision `1e2a1637` in `Package.resolved`).
+- License: MIT. Copyright (c) 2024 argmax, inc. (from the resolved checkout's `LICENSE`, checked 2026-09-22).
+- Source: <https://github.com/argmaxinc/argmax-oss-swift>
+- Linked: only the `WhisperKit` product and its `ArgmaxCore` target (`ChirpEngineWhisperKit`, M7).
+- Includes: a copy of Hugging Face `swift-transformers` 1.1.6 (Hub and Tokenizers) in `ArgmaxCore/External`, Apache-2.0
+  (the package's `NOTICES` file carries the license text).
+- Resolved but not linked: `swift-argument-parser` 1.8.2 (Apache-2.0), used only by the package's command-line tool.
 
 ## System frameworks and remote services used by language engines (M4)
 
@@ -138,6 +156,17 @@ app's container and excluded from device backups.
   `3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597` (checked after download).
 - Used for: the quality tier of the on-device model (M7, `ChirpEngineLlamaCpp`), downloaded only on request.
 
+### OpenAI Whisper (WhisperKit Core ML conversions by Argmax)
+
+- License: MIT (the `argmaxinc/whisperkit-coreml` repository and OpenAI's Whisper weights). The tokenizer files come
+  from `openai/whisper-base` and `openai/whisper-large-v3`, which are Apache-2.0 on Hugging Face. Attribution: OpenAI,
+  Argmax.
+- Sources: <https://huggingface.co/argmaxinc/whisperkit-coreml>. The folders are `openai_whisper-base` and
+  `openai_whisper-large-v3-v20240930_turbo_632MB`. The tokenizers are at <https://huggingface.co/openai/whisper-base>
+  and <https://huggingface.co/openai/whisper-large-v3>.
+- Used for: speech-to-text with `ChirpEngineWhisperKit` (M7). Downloaded only when the owner taps Download in
+  Settings → Speech engines.
+
 ### Speaker diarization models (pyannote segmentation, WeSpeaker embeddings, VBx clustering)
 
 - License: per each model card on Hugging Face, **verify before distributing**.
@@ -177,7 +206,6 @@ These are recorded so their license verdicts are not rediscovered each time. Eac
 | Cactus engine | Custom source-available license with company-size limits | Not GPL-compatible for distribution: opt-in personal builds only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
 | Needle 3 (`libneedle.a` runtime) | Weights Apache-2.0; runtime binary-only | Not used: Needle runs on needle-rs source instead ([ADR-012](spec/adr/012-needle-from-needle-rs-source.md)); `libneedle.a` stays personal-builds-only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
 | AnyLanguageModel | Apache-2.0 | Compatible, **evaluated and not linked** (ADR-011: 0.9.0 pulls 8 packages incl. swift-nio and swift-syntax; its Ollama adapter omits `num_ctx`) |
-| WhisperKit (`argmax-oss-swift`) | MIT | Compatible |
 | MLX Swift | MIT | Compatible, **evaluated and not linked** (ADR-015: SwiftPM-built binaries cannot load its Metal shaders, so package tests could never run a real model; sample apps rely on the increased-memory entitlement) |
 | llama.cpp | MIT | Linked since M7 (see "Built from source by a script" above; ADR-015) |
 | LFM2.5 models (Liquid AI) | LFM Open License (revenue-capped) | Not offered as on-device models: only Apache-2.0 or MIT weights (ADR-015) |

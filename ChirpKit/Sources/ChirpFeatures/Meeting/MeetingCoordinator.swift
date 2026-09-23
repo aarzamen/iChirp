@@ -110,6 +110,9 @@ public enum MeetingFlowState: Equatable, Sendable {
     @ObservationIgnored private let freeBytes: @Sendable () -> Int64?
     @ObservationIgnored private let logger = Log.logger("meeting")
 
+    /// M7: while a meeting runs (start → saved, failed or discarded) it holds the speech router's lease, so neither
+    /// route can change under it.
+    @ObservationIgnored private var engineLease: SpeechEngineLease?
     @ObservationIgnored private var live: MeetingLiveTranscriber?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var liveTask: Task<Void, Never>?
@@ -150,6 +153,7 @@ public enum MeetingFlowState: Equatable, Sendable {
     public func start() {
         guard state.isFinished else { return }
         reset()
+        engineLease = SpeechRouting.beginLease(on: speech)
         setState(.starting)
         flowTask = Task { await self.begin() }
     }
@@ -281,7 +285,8 @@ public enum MeetingFlowState: Equatable, Sendable {
         let name = Self.displayName(for: now)
         let lock = MeetingSessionLock(
             sessionId: id, startedAt: now, launchId: lockStore.launchId, displayName: name, state: .recording,
-            speechEngine: speech.descriptor.id, speechEngineVariant: nil, privacyClass: .personal)
+            speechEngine: SpeechRouting.resolve(speech, for: .final).descriptor.id, speechEngineVariant: nil,
+            privacyClass: .personal)
         // The lock is on disk before the recorder may write a single buffer.
         do {
             try lockStore.write(lock)
@@ -324,9 +329,10 @@ public enum MeetingFlowState: Equatable, Sendable {
     /// Live text when the speech model is on disk and routing allows it; VAD chunks when the voice-activity model
     /// is on disk too, else fixed 5 s chunks. The model loads now, so the final pass does not pay for it.
     private func startLivePreview(folder: URL) async {
+        // M7: the live route's engine (it may differ from the final route's).
+        let speech = SpeechRouting.resolve(self.speech, for: .live)
         guard privacyRouting.allows(speech.descriptor, for: .personal), case .ready = await speech.assetStatus()
         else { return }
-        let speech = self.speech
         Task.detached(priority: .utility) { try? await speech.prepare() }
         var chunker: any MeetingLiveAudioChunking = FixedMeetingLiveAudioChunker()
         if let voiceActivity, privacyRouting.allows(voiceActivity.descriptor, for: .personal),
@@ -571,6 +577,10 @@ public enum MeetingFlowState: Equatable, Sendable {
     private func setState(_ new: MeetingFlowState) {
         guard new != state else { return }
         state = new
+        if new.isFinished {
+            SpeechRouting.endLease(engineLease, on: speech)
+            engineLease = nil
+        }
         if new != .idle, !new.isCapturing, new != .starting { isScreenHidden = false }
         onStateChange?(new)
         let ready = stateWaiters.filter { $0.matches(new) }

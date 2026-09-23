@@ -169,6 +169,23 @@ final class ModelAssetLifecycleTests: XCTestCase {
         XCTAssertEqual(leases, 0)
     }
 
+    /// M7: the benchmark unloads between engines; a held model is never dropped.
+    func testUnloadDropsTheRuntimeOnlyWhenNoJobHoldsItAndTheNextPrepareLoadsAgain() async throws {
+        let assets = FakeAssets(present: true)
+        let lifecycle = ModelAssetLifecycle(hooks: assets.hooks(), network: .testing())
+        let lease = try await lifecycle.acquire()
+        let refused = await lifecycle.unload()
+        XCTAssertFalse(refused, "a job holds the model")
+        await lifecycle.release(lease)
+        let unloaded = await lifecycle.unload()
+        XCTAssertTrue(unloaded)
+        let isLoaded = await lifecycle.isLoaded
+        XCTAssertFalse(isLoaded)
+        try await lifecycle.prepare()
+        XCTAssertEqual(assets.loadCount, 2)
+        XCTAssertTrue(assets.isPresent, "unload never touches the files")
+    }
+
     func testConcurrentPreparesShareOneLoad() async throws {
         let assets = FakeAssets(present: true, loadBlocks: true)
         let lifecycle = ModelAssetLifecycle(hooks: assets.hooks(), network: .testing())

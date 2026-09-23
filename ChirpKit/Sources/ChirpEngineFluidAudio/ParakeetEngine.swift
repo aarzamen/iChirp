@@ -36,7 +36,7 @@ struct ParakeetRuntime: Sendable {
 /// Concurrency: each `transcribe` call checks out its own `AsrManager` from a small idle pool, because an
 /// `AsrManager` has exactly one progress stream and one progress session. Two jobs on one manager would share (and
 /// crash on) that stream. `deleteAssets` throws while a transcription runs.
-public actor ParakeetEngine: SpeechEngine {
+public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
     public static let engineID = "fluidaudio.parakeet-tdt"
 
     /// Parakeet TDT v3's 25 European languages (BCP-47), per the model card.
@@ -158,6 +158,13 @@ public actor ParakeetEngine: SpeechEngine {
         for worker in workers {
             await worker.cleanup()
         }
+    }
+
+    /// M7: frees the loaded model and the idle managers (the benchmark measures each engine's own load and memory).
+    /// Does nothing while a job holds the model. No `cleanup()`: it clears FluidAudio's process-wide cache.
+    public func unloadModels() async {
+        guard await lifecycle.unload() else { return }
+        idleWorkers = []
     }
 
     // MARK: - SpeechEngine

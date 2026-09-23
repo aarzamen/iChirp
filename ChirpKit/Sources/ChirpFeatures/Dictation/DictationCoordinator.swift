@@ -290,10 +290,11 @@ public struct DictationTextRules: Sendable {
         updatesTask = Task { await self.consume(updates, generation: generation) }
 
         // The model loads while the person speaks, so the final pass does not pay for it.
-        let speech = self.speech
+        let speech = SpeechRouting.resolve(self.speech, for: .final)
         Task.detached(priority: .utility) { try? await speech.prepare() }
 
-        if privacyRouting.allows(speech.descriptor, for: .personal),
+        // M7: the live route may be a different engine from the final one; routing checks the one that gets audio.
+        if privacyRouting.allows(SpeechRouting.resolve(self.speech, for: .live).descriptor, for: .personal),
             let session = await liveSessions?.makeLiveSession(
                 scheduler: scheduler, options: SpeechTranscriptionOptions(purpose: .dictation))
         {
@@ -503,7 +504,8 @@ public struct DictationTextRules: Sendable {
     private func runFinalPass(row: Transcription, url: URL) async -> Result<FinalText, any Error> {
         let settingsValue = settings.load()
         let polish = polishAfter
-        let speech = self.speech
+        // M7: the final route's engine as this pass is queued.
+        let speech = SpeechRouting.resolve(self.speech, for: .final)
         let routing = privacyRouting
         let store = self.store
         do {

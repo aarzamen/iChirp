@@ -58,6 +58,12 @@ import Observation
     let library: LibraryViewModel
     let capture: CaptureViewModel
     let speechSettings: SpeechSettingsViewModel
+    /// M7: the live and final speech-engine routes; every consumer gets this router instead of Parakeet itself.
+    let speechRouter: SpeechEngineRouter
+    /// M7: Settings → Speech engines.
+    let speechEngines: SpeechEnginesViewModel
+    /// M7: Settings → Speech engines → Benchmark.
+    let benchmark: ASRBenchmarkViewModel
     /// Where iOS copies files other apps hand to Parakeet (nil only if the Documents folder cannot be found).
     let inbox: IncomingFileInbox?
     /// M5: podcast, media and YouTube links (network only on the person's Transcribe or Retry).
@@ -126,7 +132,14 @@ import Observation
         let settings = UserDefaultsSettingsStore()
         let settingsValue = settings.load()
         let engines = FluidAudioEngines.makeDefault(settings: settingsValue)
+        let speechRouter = AppSpeechEngines.makeRouter(
+            parakeet: engines.speech,
+            modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true),
+            store: UserDefaultsSpeechRouteStore())
+        self.speechRouter = speechRouter
+        self.speechEngines = SpeechEnginesViewModel(router: speechRouter)
         let scheduler = SpeechJobScheduler()
+        self.benchmark = AppSpeechEngines.makeBenchmark(router: speechRouter, scheduler: scheduler, paths: paths)
         let continuedProcessing = SystemContinuedProcessingScheduler()
         let jobCenter = TranscriptionJobCenter(continuedProcessing: continuedProcessing)
         self.continuedProcessing = continuedProcessing
@@ -147,7 +160,7 @@ import Observation
             store: store,
             normalizer: normalizer,
             trackProbe: normalizer,
-            speech: engines.speech,
+            speech: speechRouter,
             diarizer: engines.diarizer,
             scheduler: scheduler,
             settings: settings,
@@ -185,8 +198,8 @@ import Observation
         self.dictationVoiceCommands = dictationVoiceCommands
         self.dictation = DictationCoordinator(
             capture: DictationRecorder(stream: microphone, session: audioSession),
-            speech: engines.speech,
-            liveSessions: engines.speech,
+            speech: speechRouter,
+            liveSessions: speechRouter,
             scheduler: scheduler,
             store: store,
             paths: paths,
@@ -204,7 +217,7 @@ import Observation
             paths: paths,
             store: store,
             normalizer: normalizer,
-            speech: engines.speech,
+            speech: speechRouter,
             diarizer: engines.diarizer,
             scheduler: scheduler,
             settings: settings,
@@ -220,7 +233,7 @@ import Observation
         self.meetingBackground = meetingBackground
         self.meeting = MeetingCoordinator(
             recorder: MeetingRecorder(stream: microphone, session: audioSession),
-            speech: engines.speech,
+            speech: speechRouter,
             voiceActivity: voiceActivity,
             scheduler: scheduler,
             store: store,
@@ -380,6 +393,7 @@ import Observation
         await library.start()
         await capture.start()
         await speechSettings.refresh()
+        await speechEngines.refresh()
         await launchLanguageModels()
         isLaunched = true
     }
@@ -613,6 +627,14 @@ import Observation
     /// Runs a Settings Download tap under its own continued-processing request, so the download keeps going with the
     /// phone locked and shows in the system's progress UI; Cancel there cancels it. When the system refuses the request
     /// (the Simulator always does) it falls back to the M1 keep-alive (`DownloadKeepAlive`).
+    /// M7: Settings → Speech engines' Download for one engine build.
+    func downloadSpeechEngine(_ key: SpeechEngineVariantKey, title: String) {
+        let engines = speechEngines
+        downloadModel(title: title) { onProgress in
+            await engines.download(key, onProgress: onProgress)
+        }
+    }
+
     private func downloadModel(
         title: String,
         _ download: @escaping @MainActor (_ onProgress: @escaping @MainActor (Double) -> Void) async -> Bool
@@ -650,8 +672,11 @@ import Observation
         DeliverableDocumentViewModel(id: id, store: deliverableStore)
     }
 
-    /// Whether the speech model is on disk (the Capture banner shows when it is not).
+    /// Whether the final route's speech model is on disk (the Capture banner shows when it is not).
     var isSpeechModelReady: Bool {
+        if let row = speechEngines.row(for: .final), row.id.engineID != ParakeetEngine.engineID {
+            return row.isReady
+        }
         if case .ready = speechSettings.speechStatus { return true }
         return false
     }
