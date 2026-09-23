@@ -138,7 +138,10 @@ Dictating screen
       row.
 - [ ] Dictate a few seconds of silence, Stop & copy: "Didn’t catch that — no speech was recognized." with Retry; the
       Library row is Failed and keeps its audio.
-- [ ] Cancel while recording: the screen closes, no Recent row appears.
+- [ ] Cancel within the first few seconds of recording: the screen closes at once, no Recent row appears.
+- [ ] Dictate for 10 seconds or more, tap Cancel: "Discard this 10-second dictation?" (the length is the recorded
+      time). **Keep dictating**: recording continues and the timer keeps counting. Cancel again → **Discard dictation**:
+      the screen closes, no Recent row appears.
 - [ ] Airplane mode on: dictation still works end to end (nothing uses the network).
 
 Action Button, Control, Live Activity (Step 7)
@@ -758,6 +761,51 @@ Voice messages (Step 5; Settings → Voices has a voice)
       the document keeps it).
 - [ ] Create → Link (a YouTube video with captions) → Transcript: the Transcribe step says "Captions saved from
       YouTube; nothing was transcribed".
+
+## Polish wave 3 checklist (lane u3: Transcript, Library, Ask, Notes, Dictating, Meeting)
+
+> Preconditions: a build of `polish/u3-transcript` (or later); one synthetic transcript with two speakers (the bundled
+> sample through Create → File → Transcript). Settings app → Accessibility → Display & Text Size → Larger Text: check
+> the default size and the largest size. Use throwaway, non-clinical sentences only.
+
+Dictating (never lose a recording)
+- [ ] Dictate about 10 seconds, tap **Cancel**: it asks "Discard this 10-second dictation?" before anything goes;
+      **Keep dictating** keeps recording. Tap Cancel within 3 seconds of a new dictation: it closes without asking.
+- [ ] Stop & copy, then tap Cancel while "Finishing" shows: it asks, with **Keep transcribing**; keeping it copies as
+      usual.
+- [ ] At the largest text size: every text on the night screen is larger (status, engine chip, live text, timer,
+      control labels, footer); "Stop & copy" and "Polish after" wrap to two lines rather than being cut; nothing runs
+      off the screen.
+
+Transcript
+- [ ] The star, each paragraph's time and the ••• button are easy to hit (44 pt); the time still seeks the player.
+- [ ] At the largest text size the Transcript / Ask labels never break mid-word; the privacy chip moves to its own
+      row above them. Notes is a pencil button that opens the notes sheet.
+- [ ] Make a SOAP note from a Personal transcript, close the sheet: under the tabs, "Treated as Clinical: a document
+      made from it is clinical." (Listen then asks the clinical question, as before.)
+- [ ] Share: Text, PDF, Word, Voice message…, then More formats → Markdown, Subtitles (SRT), Subtitles (VTT), Data
+      (JSON); each shares the right file.
+- [ ] ••• → Delete… on a throwaway transcript: the Library's question, naming its audio and the documents made from
+      it; Delete returns to the list and the row is gone. Cancel keeps it.
+- [ ] VoiceOver: Copy announces "Copied"; a paragraph's actions include "Listen from Here"; the scrubber reads as
+      "Playback position, 00:06 of 00:30" and swiping up or down moves it 5 seconds.
+
+Notes sheet (typed notes are never lost)
+- [ ] Type a line, wait a second, swipe the sheet down: it closes; reopen: the line is there (no Done needed).
+- [ ] Type a line and swipe down at once: the sheet stays up until the line is saved (a moment), then closes.
+
+Ask
+- [ ] The suggestion chips ("Action items", "Decisions", "What's the plan?"), citation chips and Send are easy to hit.
+- [ ] An answer without a timestamp chip says "No timestamp found for this answer."
+
+Library
+- [ ] The filter chips and Clear search are easy to hit; swipe a row: **Favorite** / **Unfavorite** (the same words as
+      the long-press menu and the Transcript screen).
+- [ ] An empty filter says "Nothing here yet"; a search with no result says "No matches".
+
+Meeting (largest text size)
+- [ ] Mute, Pause and Stop & save are not cut off: Mute and Pause share one row and Stop & save has its own; the timer
+      sits under the state.
 
 ## Writing a checklist (for agents)
 

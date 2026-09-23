@@ -159,6 +159,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   (review N4). Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
+- `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
+  (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
+  ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final
+  pass). `canDiscard(in:)` says whether Cancel still discards anything in a state. It only decides the question: the
+  discard stays `DictationCoordinator.cancel()`, unchanged.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
   add (trimmed; a blank replacement is none), edit, on/off, delete, readable errors for empty fields and duplicates;
   `DictationTextRules.enabled(in:)` reads the enabled lists for a dictation.
@@ -270,7 +275,10 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   than N days; keep forever by default) and `MeetingAudioRetentionSweeper` (marks the row `audioRemovedAt` first,
   then deletes `meeting.caf`; the transcript and notes stay).
 - `TranscriptNotesViewModel.swift`: the Transcript's Notes tab (notes saved with `updateUserNotes`, blank clears;
-  speaker rename with `renameSpeaker`, blank names refused).
+  speaker rename with `renameSpeaker`, blank names refused). UX audit F59: the notes save as you type, one write
+  `autosaveDelay` (0.8 s) after the last keystroke; `flush()` writes at once (Done, the sheet going away); writes run
+  one after another with the text as it is when each runs, so the newest text always lands last;
+  `discardUnsavedNotes()` is the explicit "Close without saving" after a failed write.
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 
