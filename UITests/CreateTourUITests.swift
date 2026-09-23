@@ -223,7 +223,7 @@ final class CreateTourUITests: XCTestCase {
         tapCreate()
         let question = app.alerts.firstMatch
         XCTAssertTrue(question.waitForExistence(timeout: 20))
-        XCTAssertTrue(question.label.hasPrefix("Send this clinical transcript to Synthetic Cloud?"), question.label)
+        XCTAssertTrue(question.label.hasPrefix("Send this clinical text to Synthetic Cloud?"), question.label)
         shot("clinical-summary-question")
         question.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Not sent. Nothing left this iPhone."].waitForExistence(timeout: 10))

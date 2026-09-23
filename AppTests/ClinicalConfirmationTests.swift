@@ -55,7 +55,7 @@ final class ClinicalConfirmationTests: XCTestCase {
         await host.start(request)
         let first = try XCTUnwrap(host.run)
         guard case .needsConfirmation(let asked) = first.phase else { return XCTFail("\(first.phase)") }
-        XCTAssertEqual(asked.title, "Send this clinical transcript to Synthetic Cloud?")
+        XCTAssertEqual(asked.title, "Send this clinical text to Synthetic Cloud?")
         try await harness.assertNothingSent("after start")
 
         // Stop / closing the sheet while the dialog is up.

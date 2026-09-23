@@ -343,7 +343,7 @@ Your Mac (Ollama or LM Studio)
 - [ ] Test connection → "Connected". The trust switch appears only for this home-network address (type an
       `https://` internet address instead: the switch disappears).
 - [ ] Leave "Trust for clinical transcripts" **off**, save, pick it as the default. On the transcript, set the privacy
-      chip to **Clinical**, Transform → Summary: a dialog asks "Send this clinical transcript to <name>?" → Cancel:
+      chip to **Clinical**, Transform → Summary: a dialog asks "Send this clinical text to <name>?" → Cancel:
       "Not sent. Nothing left this iPhone." (Ollama's log shows no request).
 - [ ] Edit the model, turn trust **on**, save; Transform → SOAP note: no dialog, the SOAP note streams in, carries the
       "Draft for your review" note and the Clinical badge.
@@ -694,7 +694,7 @@ Type or paste (Step 1)
       title; it is in Capture's Recent and the Library (Local filter).
 - [ ] Save stays disabled for an empty or whitespace-only text; Cancel stores nothing.
 - [ ] Switch on "Clinical (patient information)" before saving: the item opens with the green Clinical badge, and a
-      Transform with a cloud model asks "Send this clinical transcript to …?" before anything is sent.
+      Transform with a cloud model asks "Send this clinical text to …?" before anything is sent.
 - [ ] On the text item: Transform, Listen, Extract fields and Share (Text, Markdown, JSON) work as on a document;
       Delete asks "Delete this text?".
 
@@ -709,7 +709,7 @@ Create (Step 3)
 - [ ] Link (a podcast episode or a direct audio link) → Transcript: "Transcribe · NN%" moves for real; Hide, the Create
       card shows the same percent, tap returns. A YouTube link without captions says so and points to Paste a link.
 - [ ] File (a Voice Memo from Files; a PDF) → Summary: the audio is transcribed, the PDF read, then summarised.
-- [ ] Clinical on + a cloud model: "Send this clinical transcript to …?" before anything is sent; Cancel says "Not
+- [ ] Clinical on + a cloud model: "Send this clinical text to …?" before anything is sent; Cancel says "Not
       sent. Nothing left this iPhone." and Retry asks again.
 - [ ] No model, no voice, no speech model: the sheet says which, Create stays disabled; nothing is created.
 - [ ] Close Create and reopen: the last choices are selected again (never the text or link).
@@ -725,7 +725,7 @@ Edit by voice (Step 4)
 - [ ] Versions: Version 2 (Current, "Edited by voice", the instruction) and Version 1 (Original); Restore version 1
       adds Version 3 and the original text is back; nothing disappeared.
 - [ ] Type in the editor, then Edit by voice again: Versions shows your typed text as "Your edit" before the new one.
-- [ ] A SOAP note with a cloud model: "Send this clinical transcript to …?" before anything is sent; Cancel changes
+- [ ] A SOAP note with a cloud model: "Send this clinical text to …?" before anything is sent; Cancel changes
       nothing.
 - [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
       with a small model: "too long for this model to rewrite in one pass", nothing changed.

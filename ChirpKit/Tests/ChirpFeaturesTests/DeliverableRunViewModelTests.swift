@@ -26,7 +26,7 @@ final class DeliverableRunViewModelTests: XCTestCase {
             request: .template(id: BuiltInTemplates.summary.id, userNotes: nil))
         await viewModel.start()
         guard case .needsConfirmation(let request) = viewModel.phase else { return XCTFail("\(viewModel.phase)") }
-        XCTAssertEqual(request.title, "Send this clinical transcript to Claude?")
+        XCTAssertEqual(request.title, "Send this clinical text to Claude?")
         XCTAssertTrue(model.requests.isEmpty)
 
         await viewModel.confirmOverride()

@@ -22,7 +22,7 @@ import SwiftUI
 }
 
 /// The per-run question before clinical text goes to a cloud or untrusted home-network model. The title and message
-/// come from the service's `PrivacyOverrideRequest` ("Send this clinical transcript to Claude?"); the answer is never
+/// come from the service's `PrivacyOverrideRequest` ("Send this clinical text to Claude?"); the answer is never
 /// remembered, so the next run asks again.
 struct ClinicalConfirmationModifier: ViewModifier {
     let run: DeliverableRunViewModel?

@@ -5,21 +5,29 @@ import ChirpCore
 import Foundation
 import Observation
 
-/// The Transforms tab: the templates and the most recent generated documents.
+/// The Transforms tab: the templates and the generated documents, newest first, a page at a time. "Show more" reaches
+/// every document there is (UX audit F43: nothing may become unreachable past the first page).
 @MainActor @Observable public final class DeliverableLibraryViewModel {
     public private(set) var templates: [PromptTemplate] = []
+    /// The documents shown: the newest `recentLimit`, plus a page for every `showMore()`.
     public private(set) var recent: [Deliverable] = []
+    /// There are older documents than the ones in `recent`.
+    public private(set) var hasMore = false
     /// Set when the lists could not be read.
     public private(set) var loadError: String?
     /// False until the first `load()` finished.
     public private(set) var hasLoaded = false
 
     @ObservationIgnored private let store: any DeliverableStoring
-    @ObservationIgnored private let recentLimit: Int
+    /// How many documents a page adds.
+    public let pageSize: Int
+    /// How many documents `load()` reads: grows by `pageSize` with each `showMore()` and stays for later reloads.
+    @ObservationIgnored private var limit: Int
 
     public init(store: any DeliverableStoring, recentLimit: Int = 50) {
         self.store = store
-        self.recentLimit = recentLimit
+        pageSize = max(1, recentLimit)
+        limit = max(1, recentLimit)
     }
 
     /// Documents made from a whole transcript (Summary, Meeting notes, SOAP note, …).
@@ -30,12 +38,22 @@ import Observation
     public func load() async {
         do {
             templates = try await store.fetchTemplates()
-            recent = try await store.fetchRecentDeliverables(limit: recentLimit)
+            // One more than shown says whether an older document exists.
+            let fetched = try await store.fetchRecentDeliverables(limit: limit + 1)
+            recent = Array(fetched.prefix(limit))
+            hasMore = fetched.count > limit
             loadError = nil
         } catch {
             loadError = error.localizedDescription
         }
         hasLoaded = true
+    }
+
+    /// Reads the next page of older documents (the list keeps them on later reloads).
+    public func showMore() async {
+        guard hasMore else { return }
+        limit += pageSize
+        await load()
     }
 }
 

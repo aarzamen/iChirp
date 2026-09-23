@@ -177,11 +177,23 @@ pipeline's `Task`s and publishes its progress to the UI.
   `generate(templateID:transcriptionID:userNotes:model:override:)` and `ask(question:…)` stream
   `DeliverableRunEvent`s; `setPrivacyClass(_:transcriptionID:)` sets a transcript's class and raises (never lowers)
   its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`. Routes (first check and every
-  later call) use the transcript's `EffectivePrivacyClass`.
+  later call) use the transcript's `EffectivePrivacyClass`. The question is titled "Send this clinical text to
+  <provider>?" (any item, not only a transcript; UX audit F33), and `PrivacyOverrideRequest.reason` says why an item not
+  marked clinical counts as clinical (`ClinicalRunReason`), in front of `message`.
 - `EffectivePrivacyClass.swift`: **the one rule for how private a transcript's content is** when it may leave the
   phone: the stricter of the transcript's class and every deliverable made from it (a personal transcript with a
   clinical SOAP note is clinical; review L4 M1). `DeliverableService`, `DecisionService` and `VoicePlayer`'s class
   provider read it as stored at each check.
+- `EffectivePrivacyExplanation.swift` (polish lane u2, UX audit F51): the words for that rule, never a second rule.
+  `EffectivePrivacyExplanation` (stored class, effective class, the titles of the documents that raise it; `label`
+  "Clinical (it has a SOAP note)", `sentence` "Marked Personal, but it counts as clinical because a SOAP note was made
+  from it.") for labels and the voice questions; `ClinicalRunReason.sentence` for the per-run question (the item's
+  documents, a template with a clinical output, or the clinical document being edited); `PrivacyClass.displayName`.
+  Tests: `PolishCreateLaneTests`.
+- `ContentReach.swift` (polish lane u2, UX audit F13/F74): where the configured routes send content now (speech on
+  this iPhone; the default model; the voice; Jev), its `level` (`onDevice` only when every default route is on this
+  iPhone, `homeNetwork`, `cloud`), the Capture chip's title and the "Where things run" sheet's rows. Reads settings the
+  app passes in; sends and reads no content. Tests: `PolishCreateLaneTests`.
 - `MapReduceGenerator.swift`: `DeliverablePromptAssembler` (tagged source blocks, `{{transcript}}` /
   `{{userNotes}}` placement, Ask citation rules), `GenerationBudget` (from the engine's context window: a quarter
   reserved for output, 3 characters per token, 10% margin) and `MapReduceGenerator` (one call when it fits;
@@ -222,7 +234,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   that would not fit: size, memory, "Download Anyway"), `measurementCaution` ("Not yet measured on iPhone", louder for
   the quality tier) and `UnavailableLocalModel`. Tests: `LocalModelFitTests`.
 - `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
-  category and recent documents) and `DeliverableDocumentViewModel` (one document: text, template version number,
+  category and the generated documents a page at a time: `hasMore` and `showMore()`, so no document becomes
+  unreachable past the first 50; UX audit F43) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
 - `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
   time; answers are not stored (the ledger records each run without content).
@@ -657,7 +670,8 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
 - Step 4, Edit by voice: `DeliverableService.routeEdit(deliverableID:model:)` and `edit(deliverableID:instruction:spoken:
   model:override:)` (in `DeliverableService.swift`, the "Edits" section): routes like every run (the transcript's
   effective class raised by the document's), one model call with `Create/DocumentEditPrompt.swift`'s request (the
-  document in `<document>` tags, the instruction after it), refuses a document that cannot go in and back out in one
+  document in `<document>` tags, the instruction after it; `unwrappedEdit` removes an echoed wrapper from the rewrite
+  before it is saved, UX audit F32), refuses a document that cannot go in and back out in one
   call (`documentTooLongToEdit`, nothing sent), and stores the result through `DeliverableVersionStoring` (the store
   must implement it, `versionsUnavailable` otherwise) as the next version. Ledger feature `edit`; the instruction is
   never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.

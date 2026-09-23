@@ -82,7 +82,7 @@ final class M4ScreenTourUITests: XCTestCase {
         button(containing: "SOAP note").tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
-        XCTAssertTrue(alert.label.hasPrefix("Send this clinical transcript to Synthetic Cloud?"), alert.label)
+        XCTAssertTrue(alert.label.hasPrefix("Send this clinical text to Synthetic Cloud?"), alert.label)
         shot("clinical-confirmation")
         alert.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Not sent. Nothing left this iPhone."].waitForExistence(timeout: 5))
