@@ -40,7 +40,7 @@ commands, steps, done criteria and STOP conditions.
 | [017](2026-09-22-017-m8-polish.md) | M8: polish | **NOT STARTED** | |
 | [018](2026-09-22-018-design-companion-voice-needle-jev.md) | Design: Mac companion, voice output, Needle 3, Jev | **APPROVED** 2026-09-22 | Governs 015, 019, 020, 021 |
 | [019](2026-09-22-019-mac-companion-and-m5-finish.md) | Parakeet companion on the Mac (speech + YouTube audio) and finishing plan 014 | **EXECUTOR-READY** | Lane L1 |
-| [020](2026-09-22-020-voice-output.md) | Voice output: Listen, spoken answers, read-back (companion voices, Grok voices) | **EXECUTOR-READY** | Lane L2 |
+| [020](2026-09-22-020-voice-output.md) | Voice output: Listen, spoken answers, read-back (companion voices, Grok voices) | **IN PROGRESS** — lane L2 on `lane/voice`; drift check clean at `dd7fd56f` | Lane L2 |
 | [021](2026-09-22-021-m6a-jev-decision-trial.md) | M6a: Jev decision-model trial (owner's plan) | **EXECUTOR-READY** | Lane L4; Step 7 needs the owner's Jev key |
 
 ## Recommended order and dependencies
