@@ -25,7 +25,12 @@ Then read `ParakeetEngine.swift`.
   files. A load that finishes for an older generation is discarded. The FluidAudio calls come in through
   `Hooks`, which is also the test seam. A download first checks the network path (only when files are missing)
   and fails at once without one. It then retries transient failures up to 3 times, after 2 s, 8 s and 20 s, and
-  stops at once when cancelled.
+  stops at once when cancelled. `unload()` also refuses while an `acquire()` is in flight, tracked by
+  `pendingAcquires`, not only while its lease is held (review N5): otherwise a route change's unload could land in
+  the narrow window between a shared load finishing and the acquiring caller's own resumption (a handful of
+  scheduler hops through `awaitSharedTask`'s relay task in `SharedTaskWait.swift`), and that caller would see
+  `modelNotDownloaded` for a model that is on disk. `afterPrepareForTesting` is a test-only seam that lands a test
+  deterministically in that window instead of racing real scheduling.
 - `DownloadNetworkPolicy.swift`: the retry backoff, the injectable sleep and the pre-flight path check
   (`NWPathMonitor`'s first update, 2 s timeout; no answer lets the download try). Tests inject a policy that never
   waits and never reads the real network. FluidAudio owns its `URLSession`, so `waitsForConnectivity` and a
