@@ -64,6 +64,30 @@ pipeline directly.
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.
+- `Markdown/` (UX audit F23, plan 023 — "formatted view, plain copy"): a generated document's Markdown, rendered on
+  screen and flattened for Copy from the same parse.
+  - `MarkdownBlock.swift`: `MarkdownBlockParser.parse(_:)`, a pure, deterministic line-based block parser —
+    `.heading` (a real `#`…`######` line, or a line that is a single bold run and nothing else, the shape every
+    built-in template uses for its section names, e.g. `**Subjective**`), `.paragraph`, `.list` (bulleted,
+    numbered or a mix, with a `MarkdownListItem.level` for nesting), `.code` (a fenced ```` ``` ```` block). A
+    numbered marker needs a digit run followed by ". "/") " (so "120/80 mmHg" and "3.5 mg" are never read as list
+    items); each two leading spaces of indentation is one more nesting level.
+  - `MarkdownInline.swift` (internal): resolves bold/italic/inline-code/links within one block's text via
+    `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`, shared by the renderer (keeps the
+    attributes) and the flattener (keeps only the plain characters). A `[label](url)` is rewritten to
+    "label (url)" first — `AttributedString` alone drops the url — and a "*" directly between two digits is
+    escaped first too, so a line with the same "N*N" multiplication written twice does not have its two unmatched
+    `*`s pair with each other and corrupt both numbers (`MarkdownInlineTests`, `PlainTextFlattenerPropertyTests`).
+  - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line
+    plus a blank line after; a bullet becomes `PlainTextFlattener.bulletMarker` ("- ", not "•": it pastes
+    identically everywhere an EMR field might mangle a glyph) at every nesting level; a numbered item keeps its own
+    number; paragraphs are separated by one blank line; code is shown as plain text. Every word of the source
+    survives, in order — pinned as a property test, not just fixed examples.
+  - `MarkdownDocument.swift`: the SwiftUI renderer, plus `MarkdownDocumentStyle` (fonts/colors are all overridable;
+    the default is Dynamic-Type-following system text styles, since this module cannot import the App target's
+    `chirpFont`, and a fixed `.system(size:)` font would not track the user's text-size setting the way a relative
+    style does). `.textSelection(.enabled)` once at the top; a heading carries `.isHeader` and
+    `.accessibilityHeading(_:)` for VoiceOver's rotor.
 - `TranscriptPromptText.swift`: model input shaping (M4). `TranscriptPromptFormatter.timestampedText(for:)`
   (`[mm:ss] Speaker: text` per segment with the roster's current labels, else the display text), `TextChunker`
   (ported upstream split: paragraph, then line, then sentence boundaries; never loses text) and
