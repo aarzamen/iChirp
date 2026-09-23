@@ -315,6 +315,16 @@ import Observation
         tokenByJob[id] != nil
     }
 
+    /// Suspends until the job of row `id` has ended, or returns at once when it has none (plan 022: a Create chain
+    /// waits on the real job, never on a timer). A job started for the same row meanwhile (a Retry) is waited for too.
+    public func waitForJob(_ id: UUID) async {
+        while let token = tokenByJob[id], let task = tasks[token] {
+            await task.value
+            // A finished job removes itself; this only guards against spinning on one that did not.
+            if tokenByJob[id] == token { return }
+        }
+    }
+
     /// Suspends until every job running now, and any started meanwhile, has ended.
     public func waitUntilIdle() async {
         while let (token, task) = tasks.first {

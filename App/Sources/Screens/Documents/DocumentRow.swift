@@ -3,11 +3,14 @@ import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
-/// A document's cover (M5): a page with a folded corner and the format on it ("PDF", "DOCX", "MD").
+/// A document's cover (M5): a page with a folded corner and the format on it ("PDF", "DOCX", "MD"; "TEXT" for a
+/// typed or pasted text item, plan 022).
 struct DocumentCover: View {
     let format: DocumentFormat?
     let size: CGFloat
     var isProcessing = false
+    /// Replaces the format badge ("TEXT" for a text item).
+    var badge: String?
 
     var body: some View {
         ZStack {
@@ -29,7 +32,7 @@ struct DocumentCover: View {
                             .frame(width: size * (line == 2 ? 0.22 : 0.34), height: max(1.5, size * 0.035))
                     }
                 }
-                Text(Self.badge(for: format))
+                Text(badge ?? Self.badge(for: format))
                     .font(.system(size: max(7, size * 0.15), weight: .heavy, design: .rounded))
                     .foregroundStyle(Tokens.Color.accentInk)
                     .padding(.horizontal, size * 0.05)
@@ -89,7 +92,7 @@ struct DocumentRow: View {
                 HStack(alignment: style == .full ? .top : .center, spacing: 12) {
                     DocumentCover(
                         format: item.documentFormat, size: style == .full ? 52 : 40,
-                        isProcessing: item.status == .processing)
+                        isProcessing: item.status == .processing, badge: Self.coverBadge(for: item))
                     text
                     Spacer(minLength: 0)
                 }
@@ -164,9 +167,14 @@ struct DocumentRow: View {
         return derived.isEmpty ? nil : derived
     }
 
-    /// "PDF · 12 pages · 3 read with OCR", "Word · 1,204 words", "Markdown · 86 words".
+    /// "TEXT" on a typed or pasted text item's cover; nil keeps the format badge.
+    static func coverBadge(for item: Transcription) -> String? {
+        item.isTextItem ? "TEXT" : nil
+    }
+
+    /// "PDF · 12 pages · 3 read with OCR", "Word · 1,204 words", "Markdown · 86 words", "Text · 86 words".
     static func meta(for item: Transcription) -> String {
-        var parts = [item.documentFormat?.displayName ?? "Document"]
+        var parts = [item.isTextItem ? "Text" : item.documentFormat?.displayName ?? "Document"]
         if let pages = item.documentPages, !pages.isEmpty {
             parts.append(pages.count == 1 ? "1 page" : "\(pages.count) pages")
             let ocr = item.ocrPageCount
@@ -193,7 +201,8 @@ struct LibraryItemScreen: View {
     let environment: AppEnvironment
 
     var body: some View {
-        if environment.library.items.first(where: { $0.id == id })?.isDocument == true {
+        // Plan 022: a typed or pasted text item reads like a document (text only, no player).
+        if environment.library.items.first(where: { $0.id == id })?.isTextOnly == true {
             DocumentScreen(id: id, environment: environment)
         } else {
             TranscriptScreen(id: id, environment: environment)
@@ -210,7 +219,7 @@ struct LibraryItemRow: View {
     let onRetry: () -> Void
 
     var body: some View {
-        if item.isDocument {
+        if item.isTextOnly {
             DocumentRow(
                 item: item, progress: progress, style: compact ? .compact : .full, onOpen: onOpen, onRetry: onRetry)
         } else {

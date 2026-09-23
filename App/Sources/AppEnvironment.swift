@@ -54,6 +54,8 @@ import Observation
     /// a new launch) waits here for "Send this link to your Mac?" (review L1 M2; `CompanionRetryConfirmation`).
     var pendingCompanionRetry: PendingCompanionRetry?
     let jobCenter: TranscriptionJobCenter
+    /// Plan 022: the Create sheet and its chain (App/Sources/Create).
+    let create = CreateHost()
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
     let capture: CaptureViewModel
@@ -393,6 +395,7 @@ import Observation
             .sweep()
         await refreshMeetingRecoveries(presentIfAny: true)
         ExportTempFiles.sweepStale()
+        VoiceMessageExporter.sweepStaleWork()  // plan 022: chunks a killed voice message left in tmp
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
         await capture.start()

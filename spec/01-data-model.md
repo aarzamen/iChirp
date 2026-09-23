@@ -44,7 +44,7 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 |---|---|---|
 | `id` | UUID (primary key) | Also names the `media/<id>/` folder |
 | `createdAt`, `updatedAt` | Date | Library order uses `createdAt` (indexed), newest first |
-| `sourceType` | text enum | `file` · `dictation` · `meeting` · `url` · `podcast` · `document` |
+| `sourceType` | text enum | `file` · `dictation` · `meeting` · `url` · `podcast` · `document` · `text` (plan 022: typed or pasted text; no column added) |
 | `fileName` | text | Original file name shown to the user |
 | `mediaRelativePath` | text, nullable | e.g. `media/<id>/source.m4a`, relative to the root |
 | `audioTrackOrdinal` | int, nullable | M1.5 (`v2-audio-track-ordinal`): the zero-based audio track chosen in a multi-track file; NULL = automatic (the first track, and every earlier row). Reused by Retry ([contract](contracts/file-transcription-audio-tracks-v1.md)) |
@@ -117,6 +117,7 @@ dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processin
 | M4 | `prompts`, `prompt_versions`, `deliverables`, `llm_runs` | Templates, generated documents, a metadata-only run ledger (never content) |
 | M5 | **Built:** `v6-documents` (`sourceURL`, `sourceTitle`, `documentFormat`, `documentPages`) | Link, podcast and document provenance ([contract](contracts/document-items-v1.md)) |
 | M6 | **Built:** `v7-structured-results` (`structured_runs`, `structured_fields`, `structured_eval_runs`) | Structure-model evidence ledger: runs, fields with source spans, gate verdicts and review state, eval runs ([contract](contracts/structured-results-v1.md)) |
+| Plan 022 | **Built:** `v8-text-items` (`deliverable_versions`, append-only) | Edit by voice: every text a generated document has had ([contract](contracts/deliverables-v1.md), Versions); text items need no column |
 | M6 | `embeddings` (or a vector index) | Semantic search, after benchmarking against plain text search |
 
 Keep YAGNI: a table appears only with the feature that reads it.

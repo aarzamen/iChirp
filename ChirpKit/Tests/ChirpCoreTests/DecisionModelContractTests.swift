@@ -81,6 +81,8 @@ final class DecisionModelContractTests: XCTestCase {
 
     func testDecisionIsALedgerFeature() {
         XCTAssertEqual(LanguageModelRun.Feature(rawValue: "decision"), .decision)
-        XCTAssertEqual(LanguageModelRun.Feature.allCases, [.deliverable, .ask, .decision])
+        // Plan 022 adds `edit` (Edit by voice) after it; existing raw values never change.
+        XCTAssertEqual(LanguageModelRun.Feature.allCases, [.deliverable, .ask, .decision, .edit])
+        XCTAssertEqual(LanguageModelRun.Feature(rawValue: "edit"), .edit)
     }
 }

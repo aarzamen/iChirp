@@ -4,9 +4,9 @@ import ChirpUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Tab 1 (canvas `Home.dc.html`): the header, Dictate card, Paste a link / Import audio tiles, Record Meeting, and
-/// the three most recent transcriptions. Dictate (M2), Record Meeting (M3), Import audio and Recent are real; the rest
-/// open "Not built yet" sheets.
+/// Tab 1 (canvas `Home.dc.html`, plan 022 redesign): the header, the **Create** card (the primary action: anything in,
+/// anything out), the shortcuts (Dictate, Type or paste, Paste a link, Import audio), Record Meeting, and the three most
+/// recent items.
 struct CaptureScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let openTab: (AppTab) -> Void
@@ -17,6 +17,8 @@ struct CaptureScreen: View {
     @State private var pickerError: String?
     /// M5: the Paste a link sheet.
     @State private var isPastingLink = false
+    /// Plan 022: the Type or paste sheet.
+    @State private var isTyping = false
 
     static let importTypes: [UTType] = [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
 
@@ -34,8 +36,16 @@ struct CaptureScreen: View {
                             openTab(.settings)
                         }
                     }
-                    dictateCard
-                    HStack(spacing: 14) {
+                    createCard
+                    SectionLabel("Shortcuts", size: 12.5)
+                        .padding(.top, 4)
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14
+                    ) {
+                        dictateTile
+                        tile(
+                            title: "Type or paste", subtitle: "Notes, any text",
+                            systemImage: "text.cursor", action: { isTyping = true })
                         tile(
                             title: "Paste a link", subtitle: "Podcast, YouTube, PDF", systemImage: "link",
                             action: { isPastingLink = true })
@@ -61,6 +71,9 @@ struct CaptureScreen: View {
         }
         .sheet(isPresented: $isPastingLink) {
             PasteLinkSheet(environment: environment) { id in path.append(id) }
+        }
+        .sheet(isPresented: $isTyping) {
+            TextItemSheet { id in path.append(id) }
         }
         .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: $path)
         .fileImporter(
@@ -110,36 +123,47 @@ struct CaptureScreen: View {
         .frame(minHeight: 40)
     }
 
-    // MARK: - Dictate
+    // MARK: - Create (plan 022)
 
-    private var dictateCard: some View {
-        Button {
-            environment.dictation.start()
+    /// The primary action. While a chain runs behind "Hide", the card shows its real progress and brings it back.
+    private var createCard: some View {
+        let create = environment.create
+        // A chain exists until Done: running, waiting for an answer, or finished and not yet looked at.
+        let running = create.flow != nil
+        return Button {
+            create.open()
         } label: {
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
                         .fill(Tokens.Color.accent)
                         .shadow(color: Tokens.Color.accent.opacity(0.32), radius: 8, y: 6)
-                    Image(systemName: "waveform")
+                    Image(systemName: running ? "sparkles" : "plus")
                         .font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(.white)
                 }
-                .frame(width: 76, height: 76)
+                .frame(width: 72, height: 72)
                 .accessibilityHidden(true)
-
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Dictate")
+                    Text(running ? Self.createTitle(create) : "Create")
                         .chirpTitleFont(23)
                         .foregroundStyle(Tokens.Color.ink)
-                    // Copy correction (handoff): third-party apps get no Action Button key-up, so it is "press", not
-                    // "hold". The chip is true only while "Polish after" is on.
-                    Text("Press the Action Button, or tap to go hands-free.")
-                        .chirpFont(13.5)
-                        .foregroundStyle(Tokens.Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if environment.dictation.polishAfter {
-                        StatusChip.cleanTextOnCopy()
+                    Text(
+                        running
+                            ? Self.createStatus(create, progress: environment.jobCenter.progress)
+                            : "Speak, type, paste a link or pick a file. Get a transcript, summary, document or voice message."
+                    )
+                    .chirpFont(13.5)
+                    .monospacedDigit()
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    if running {
+                        Text(create.flow?.isActive == true ? "Return" : "See the result")
+                            .chirpFont(13.5, .bold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 30)
+                            .background(Capsule().fill(Tokens.Color.accentInk))
                             .padding(.top, 3)
                     }
                 }
@@ -147,13 +171,83 @@ struct CaptureScreen: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, minHeight: 140, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
             .background(CardBackground(radius: Tokens.Radius.xl, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.xl, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Starts dictating. The text is copied when you stop.")
+        .accessibilityHint(
+            running ? "Returns to what Parakeet is creating." : "Choose what you have and what you want.")
+    }
+
+    /// "Creating: Speak → Summary", "Created", "Stopped".
+    static func createTitle(_ create: CreateHost) -> String {
+        switch create.flow?.phase {
+        case .finished?: "Created"
+        case .failed?, .cancelled?: "Stopped"
+        case .waitingForAnswer?: "Waiting for you"
+        default: "Creating…"
+        }
+    }
+
+    /// The running stage in words, with the job's real percent when it has one.
+    static func createStatus(_ create: CreateHost, progress: [UUID: JobProgress]) -> String {
+        guard let flow = create.flow else { return "" }
+        switch flow.phase {
+        case .running(.input):
+            return create.request?.input == .speak ? "Recording…" : "Bringing it in…"
+        case .running(.transcribe):
+            guard let id = flow.itemID, let job = progress[id] else { return "Waiting to start" }
+            return Formatting.progress(job)
+        case .running(.operation): return "Writing with the model…"
+        case .running(.output): return "Making the voice message…"
+        case .waitingForAnswer: return "A clinical step is waiting for your answer. Nothing has been sent."
+        case .finished: return "Tap to see what was made."
+        case .failed(_, let message): return message
+        case .cancelled: return "Stopped. What was made stays in your Library."
+        case .idle: return ""
+        }
+    }
+
+    // MARK: - Dictate
+
+    /// Dictate as a shortcut (M2): the Action Button, Back Tap and this tile start the same dictation.
+    private var dictateTile: some View {
+        Button {
+            environment.dictation.start()
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
+                        .fill(Tokens.Color.accent)
+                    Image(systemName: "waveform")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 34, height: 34)
+                .accessibilityHidden(true)
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dictate")
+                        .chirpFont(15, .semibold)
+                        .foregroundStyle(Tokens.Color.ink)
+                    // Copy correction (handoff): "press", not "hold" (no Action Button key-up for third-party apps).
+                    Text(environment.dictation.polishAfter ? "Clean text on copy" : "Action Button or tap")
+                        .chirpFont(12)
+                        .foregroundStyle(
+                            environment.dictation.polishAfter ? Tokens.Color.success : Tokens.Color.secondary)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
+            .background(CardBackground(radius: Tokens.Radius.tile))
+            .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(
+            "Starts dictating. Press the Action Button, or tap to go hands-free. The text is copied when you stop.")
     }
 
     // MARK: - Tiles
@@ -183,7 +277,7 @@ struct CaptureScreen: View {
                 }
             }
             .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
             .background(CardBackground(radius: Tokens.Radius.tile))
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
         }
@@ -261,8 +355,8 @@ struct CaptureScreen: View {
         if recent.isEmpty {
             if environment.isLaunched {
                 EmptyStateView(
-                    title: "Nothing transcribed yet",
-                    message: "Tap Import audio to transcribe a voice memo or any audio or video file."
+                    title: "Nothing here yet",
+                    message: "Tap Create to speak, type, paste a link or pick a file. What you make shows here."
                 )
                 .background(CardBackground(radius: Tokens.Radius.s))
             }

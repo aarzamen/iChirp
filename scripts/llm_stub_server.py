@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# QA-only stub for the M4 screen tour (UITests/M4ScreenTourUITests.swift, docs/human-qa-guide.md "M4"): answers
+# QA-only stub for the M4 and plan 022 screen tours (UITests/M4ScreenTourUITests.swift, UITests/CreateTourUITests.swift,
+# docs/human-qa-guide.md "M4" and "Create"): answers
 # Ollama's /api/tags and /api/chat on http://127.0.0.1:11999 with canned SYNTHETIC text. It is not a model, stores
 # nothing and logs nothing. Usage: python3 scripts/llm_stub_server.py   (Ctrl-C to stop)
 import json, time
@@ -10,6 +11,8 @@ SOAP = ("S: Synthetic speaker reports the follow-up moved to Thursday.\n"
 DOC = ("Summary\n\nThe synthetic conversation covers a short exchange between two voices. "
        "One voice proposes a plan and the other agrees [00:00].\n\n- Decision: proceed as proposed\n- Owner: speaker one")
 ANSWER = "The speakers agreed to proceed with the plan [00:00]."
+# Plan 022 Edit by voice: any "revise a document" request gets this shorter synthetic rewrite.
+EDIT = "Summary (edited)\n\nThe synthetic speakers agree to proceed with the plan [00:00]."
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -27,7 +30,10 @@ class H(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         req = json.loads(self.rfile.read(length) or b"{}")
         prompt = " ".join(m.get("content", "") for m in req.get("messages", []))
-        text = SOAP if "SOAP" in prompt else (ANSWER if "Answer the question" in prompt else DOC)
+        if "You revise a document" in prompt:
+            text = EDIT
+        else:
+            text = SOAP if "SOAP" in prompt else (ANSWER if "Answer the question" in prompt else DOC)
         if not req.get("stream"):
             body = json.dumps({"model": "synthetic-stub:1b", "message": {"role": "assistant", "content": "Hi"}, "done": True}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json")

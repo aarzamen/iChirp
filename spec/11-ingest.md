@@ -19,6 +19,7 @@
 | YouTube link | M5 | `url` | Captions first; without captions, audio from the Mac companion (below) → pipeline |
 | PDF | M5 | `document` | Text extraction (and OCR for image pages) → a document the templates can use |
 | TXT, Markdown, RTF, HTML, DOCX | M5 | `document` | Read as text → a document |
+| Typed or pasted text | Plan 022 | `text` | Capture → Type or paste (or Create → Type or paste) → `TextItemService` saves a `.completed` row; nothing else runs |
 
 A **document** has text but no audio or word timings. It lives in the Library next to transcripts and can feed every
 M4 template (summary, meeting notes, SOAP note, …). It has no player and no SRT/VTT export.

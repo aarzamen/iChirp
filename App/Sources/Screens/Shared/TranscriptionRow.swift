@@ -19,6 +19,8 @@ struct TranscriptionCover: View {
                 glyphTile("waveform", fill: AppColor.tintFill, ink: Tokens.Color.accentInk)
             case .url, .podcast:
                 glyphTile("play.fill", fill: Tokens.Color.night, ink: .white)
+            case .text:
+                glyphTile("text.alignleft", fill: AppColor.quietFill, ink: Tokens.Color.secondary, stroked: true)
             case .file, .document:
                 glyphTile(
                     item.status == .processing ? "clock" : "doc.text",

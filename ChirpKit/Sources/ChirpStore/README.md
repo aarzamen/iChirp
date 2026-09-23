@@ -25,7 +25,13 @@ ChirpStore depends on ChirpText.
   additive `transcriptions` columns, `userNotes`, `isPartialAudio` NOT NULL DEFAULT 0 and `audioRemovedAt`), then
   `v6-documents` (M5: four nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`,
   `documentPages` JSON), then `v7-structured-results` (M6: the `structured_runs`, `structured_fields` and
-  `structured_eval_runs` tables; new tables only).
+  `structured_eval_runs` tables; new tables only), then `v8-text-items` (plan 022: the append-only
+  `deliverable_versions` table of Edit by voice; text items themselves need no column).
+- `DeliverableVersionStore.swift` (plan 022) — `DeliverableVersionSchema` (the `v8-text-items` table, cascade-deleted
+  with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
+  and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
+  version when it is not the newest, appends the new one, makes it the document's text and raises its class, all in
+  one transaction). Contract: `spec/contracts/deliverables-v1.md` (Versions).
 - `StructuredResultStore.swift` (M6) — `StructuredResultsSchema` (the tables of `v7-structured-results`: runs
   cascade-deleted with their transcript, fields with their run; an unknown stored verdict reads as `needsReview`,
   never `act`), the row mirrors, and `GRDBStructuredResultStore` (`StructuredResultStoring`: save a run with its

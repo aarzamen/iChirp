@@ -73,7 +73,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionRequestError`). Reuses `LanguageModelAvailability`
   and `LanguageModelError`. Conformer: `ChirpEngineJev`. Contract: `spec/contracts/decision-model-plugin-v1.md`.
 - `Models/Deliverable.swift`: M4 templates, versions, deliverables and the `LanguageModelRun` ledger row; M6a adds the
-  `decision` feature value (no schema change).
+  `decision` feature value, plan 022 the `edit` value (no schema change).
+- `Models/DeliverableVersion.swift` and `Pipeline/DeliverableVersionStoring.swift` (plan 022): a generated document's
+  append-only versions (`DeliverableVersion`, `DeliverableVersionDraft`, `DeliverableVersionAppend`) and the store
+  protocol `GRDBDeliverableStore` implements.
 - `Models/StructuredResult.swift` (M6): the evidence ledger's values (`StructuredRun`, `StructuredField` with its
   `StructuredSourceSpan` and `StructuredVerdict`, `StructuredEvalRun`) and `StructuredResultStoring`
   ([structured-results-v1](../../../spec/contracts/structured-results-v1.md)).
@@ -99,6 +102,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `MeetingRecorder`.
 - `Pipeline/SpeechWAVFile.swift` (M3): a Foundation-only 16 kHz mono Float32 WAV writer for a meeting's temporary
   live-preview chunks.
+- `Pipeline/VoiceMessageWriting.swift` (plan 022): the seam between ChirpFeatures' `VoiceMessageExporter` and
+  ChirpAudio's `VoiceMessageWriter` (chunk files in, one `.m4a` out), plus `SynthesizedAudio.Format.fileExtension`.
 - `Pipeline/SpeechAudioPlaying.swift` (plan 020): the speech output seam (`SpeechAudioPlaying`,
   `SpeechPlaybackEvent`) between ChirpFeatures' `VoicePlayer` and ChirpAudio's `SpeechPlaybackEngine`.
 - `Models/MeetingSession.swift` (M3): `MeetingSessionFiles` (`recording.lock`, `meeting.caf`, `chunks/`),

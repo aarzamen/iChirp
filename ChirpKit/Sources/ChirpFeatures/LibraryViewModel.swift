@@ -20,14 +20,14 @@ import Observation
             }
         }
 
-        /// `.video` means link sources (URL, podcast); `.local` means files and documents from the device.
+        /// `.video` means link sources (URL, podcast); `.local` means files, documents and typed text from the device.
         public func includes(_ sourceType: Transcription.SourceType) -> Bool {
             switch self {
             case .all: true
             case .meetings: sourceType == .meeting
             case .dictations: sourceType == .dictation
             case .video: sourceType == .url || sourceType == .podcast
-            case .local: sourceType == .file || sourceType == .document
+            case .local: sourceType == .file || sourceType == .document || sourceType == .text
             }
         }
     }

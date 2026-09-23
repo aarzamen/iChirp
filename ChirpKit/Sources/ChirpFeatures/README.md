@@ -274,6 +274,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   cannot be read). `VoicePlayer.routingPolicy(companion:)` is the voices' policy: only the companion's own trust
   counts, never a host trusted in Settings → Models. `companionTokenRejected` is the one sentence for a companion
   401, in the player and in Settings → Voices.
+- `Voice/VoiceMessageExporter.swift` (plan 022 Step 5): the `VoiceMessageProducing` behind Share → Voice message and
+  a Create chain's voice message. Same chunks, voice and routing as `VoicePlayer` (before every chunk and retry, on
+  `currentPrivacyClass`, raised never lowered); chunks are synthesized **in order, one at a time**, into
+  `tmp/voice-message-<uuid>/chunk-<i>.<ext>`, then `VoiceMessageWriting` joins them (350 ms after a paragraph) and
+  the file moves to `media/<itemID>/voice-<n>.m4a` (`nextNumber(in:)`; never overwrites). `phase`: `preparing`,
+  `needsConfirmation`, `synthesizing(done:total:)` (real chunk counts), `assembling`, `finished(VoiceMessageFile)`,
+  `failed(sentence)`; `retry()` resumes at the failed chunk (or re-joins), `cancel()` keeps nothing. **Only the
+  app's dialog calls `confirmPendingSynthesis(requestID:)`**; `declinePendingSynthesis()` sends nothing; both fire
+  `onAnswered`. `sweepStaleWork()` runs at launch. Tests: `VoiceMessageExporterTests`.
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link
@@ -579,6 +588,44 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `blocked` / `failed` with Retry; `cancel()` when the sheet closes); `failedAfterSending` tells the sheet whether an
   excerpt may have left the phone before the error. `DecisionReport.suggestsMarkingClinical` offers the raise whenever
   "clinical encounter" is Jev's top choice, at any confidence. App tests: `AppTests/DecisionModelAppTests`.
+
+## Create: anything in, anything out (plan 022, `Create/`)
+
+Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
+
+- `Create/TextItemService.swift` (Step 1): typed or pasted text as a Library item. `save(_:privacyClass:)` trims the
+  surrounding blank space, refuses empty text (`TextItemError.empty`, nothing stored) and text over
+  `maxCharacters`, and inserts a `.completed` `.text` row (`rawTranscript` = the text, `derivedTitle` = the first
+  line via `title(from:)`, no media, no engine). Contract: `spec/contracts/document-items-v1.md` (Text item). The row
+  routes like any other through `EffectivePrivacyClass`; tests: `TextItemServiceTests`, `TextItemStoreTests`.
+- `Create/CreateFlow.swift` (Step 2): the chain **input** (speak, type, link, file) → **transcribe** (the existing
+  jobs) → **operation** (none, Summary or a template) → **output** (the item, the document, a voice message).
+  `CreateRequest` = `CreateInput` + `CreateOutput` + the new item's class; `CreateFlowDependencies` are the existing
+  services as closures (dictation, `TextItemService`, link and file jobs, `waitForItem`, `retryItem`) plus
+  `DeliverableService` and a `VoiceMessageProducing` factory, so tests run every input × output with fakes. Stages
+  report `pending/running/done/skipped/failed`; `phase` is `running`, `waitingForAnswer(stage)`, `finished`,
+  `failed(stage, sentence)` or `cancelled`; `retry()` restarts at the failed stage and reuses an item already made.
+  **The chain never confirms a clinical question:** the operation's `DeliverableRunViewModel` and the voice message
+  ask through their own dialogs, and `onAnswered` resumes the chain. A new item is raised to the chosen class
+  (`DeliverableService.setPrivacyClass`) before any later step. Logs carry the chain id, item ids, kinds and stage
+  names only.
+- `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
+  `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
+- `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,
+  `ichirp.create.choices`; choices only, never text); `validated(templateIDs:)` drops a removed template.
+- Step 4, Edit by voice: `DeliverableService.routeEdit(deliverableID:model:)` and `edit(deliverableID:instruction:spoken:
+  model:override:)` (in `DeliverableService.swift`, the "Edits" section): routes like every run (the transcript's
+  effective class raised by the document's), one model call with `Create/DocumentEditPrompt.swift`'s request (the
+  document in `<document>` tags, the instruction after it), refuses a document that cannot go in and back out in one
+  call (`documentTooLongToEdit`, nothing sent), and stores the result through `DeliverableVersionStoring` (the store
+  must implement it, `versionsUnavailable` otherwise) as the next version. Ledger feature `edit`; the instruction is
+  never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.
+  `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
+  purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines
+  only; `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
+- Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
+  `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
+  `CreateSupportTests`.
 
 ## How to verify
 

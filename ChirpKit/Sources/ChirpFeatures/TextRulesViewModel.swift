@@ -144,6 +144,11 @@ import Observation
         guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
         return trimmed
     }
+
+    /// Plan 022: the enabled words and snippets for a spoken instruction's final pass (Edit by voice).
+    public func enabledRules() async -> DictationTextRules {
+        await DictationTextRules.enabled(in: store)
+    }
 }
 
 extension DictationTextRules {

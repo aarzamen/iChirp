@@ -77,6 +77,17 @@ import Observation
             .write(transcription, as: format, to: directory)
     }
 
+    /// Plan 022 Step 6: a PDF or Word copy of the item (title, facts, speakers and timestamps, every paragraph) in the
+    /// same `<tmp>/export-<id>/` folder as the text exports. Rendered off the main actor.
+    public func exportDocument(_ format: DocumentExportFormat) async throws -> URL {
+        guard let transcription else { throw TranscriptError.notLoaded }
+        let document = ExportDocument.transcript(transcription, cleanupMode: settings.load().cleanupMode)
+        let directory = ExportTempFiles.directory(for: transcription.id)
+        return try await Task.detached(priority: .userInitiated) {
+            try DocumentExporter().write(document, as: format, to: directory)
+        }.value
+    }
+
     /// Sets the user's title; a blank title removes the override (the derived title or file name shows again).
     /// A field-level store write, so it never overwrites a job's output that lands meanwhile.
     public func rename(_ title: String) async throws {

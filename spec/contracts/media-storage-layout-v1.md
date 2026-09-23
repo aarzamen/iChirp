@@ -17,6 +17,9 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   the row pointing at it, and removes the folder only when the person cancels (discard) the dictation.
 - `FileTranscriptionPipeline.sweepOrphanedTemporaryAudio()` at launch (deletes `normalized-16k.wav` left by a killed
   process; never a source file).
+- `ChirpFeatures.VoiceMessageExporter` (plan 022) writes `media/<id>/voice-<n>.m4a` (joined by ChirpAudio's
+  `VoiceMessageWriter`; its temporary chunks live in `tmp/voice-message-<uuid>/`, removed when it ends and swept at
+  launch).
 - `ChirpStore.DatabaseManager` (the database file).
 - The Library delete flow (removes the row and its media folder).
 
@@ -40,6 +43,7 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
         ├── recording.lock                     M3 (additive): the meeting session lock (meeting-session-v1)
         ├── chunks/                            M3 (additive): temporary live-preview chunks of a recording meeting
         ├── download.part, download.part.json  M5 (additive): an unfinished link download and its resume record
+        ├── voice-<n>.m4a                      Plan 022 (additive): a saved voice message, AAC mono 24 kHz, n = 1, 2, …
         └── normalized-16k.wav                 temporary decode for the engine (see below)
 ```
 
@@ -60,6 +64,11 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 - M5 (additive, [document-items-v1](document-items-v1.md)): `source.<ext>` is also a document's copy (`.pdf`,
   `.docx`, …) or a downloaded episode. `download.part` / `download.part.json` exist only while a link download is
   unfinished; Retry resumes from them, and completing the download removes both.
+- Plan 022 (additive): `voice-<n>.m4a` is a voice message the person saved from this item (its transcript or text,
+  or a document generated from it). `n` is one past the highest existing number, so a new message never replaces an
+  earlier one. No row points at it; it is deleted with the item's folder (a text item, which has no source file, gets
+  the folder when its first voice message is saved). The share sheet gets a copy named after the title in
+  `<tmp>/export-<id>/`, which `ExportTempFiles` removes with the item and sweeps at launch.
 - `Documents/Inbox/` (outside the root) is where iOS copies a file another app opens in Parakeet (M1.5 "Open in").
   That copy is temporary, never referenced by a row, and deleted once its import settles
   (`IncomingFileInbox.removeIfInside`, which touches nothing outside that folder).
@@ -82,6 +91,8 @@ recoverable step.
 - `FileTranscriptionPipelineTests.testProcessProducesCompletedTranscriptWithSpeakersAndSegments` (normalized WAV
   deleted, source kept), `testSweepDeletesOnlyOrphanedNormalizedAudio` (orphaned WAVs only).
 - `LibraryViewModelTests.testDeleteRemovesRowAndItsMediaFolder` (exactly the item's folder).
+- `VoiceMessageExporterTests` (`voice-1.m4a`, then `voice-2.m4a`, nothing overwritten; no file after a failure or
+  cancel; temporary chunks removed and swept) and `VoiceMessageWriterTests` (one AAC file with the pauses).
 - `IncomingFileInboxTests` (only files inside `Documents/Inbox/` are deleted; the imported copy stays).
 - `DictationRecorderTests` (the WAV's format and duration; a too-short recording and a cancelled one leave no file)
   and `DictationCoordinatorTests` (cancel leaves no row or folder; failure keeps the audio; the keep-audio setting).
