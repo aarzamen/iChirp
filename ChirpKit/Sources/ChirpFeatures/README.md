@@ -356,6 +356,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   - The reference-set toggle, and added files copied from the importer.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
 
+## Number fidelity (on-device language models, review I2, `Benchmark/NumberFidelity.swift`)
+
+- `NumberFidelity.check(note:required:source:)` → `NumberFidelityReport`: required numbers missing from a generated
+  note (verbatim, with the dose unit), and numbers in the note the source never had (how an altered digit shows up).
+- `SyntheticNumberVisit`: an invented, clinical pneumonia visit dense in repeated digits (500 mg, 1000 units, 118/76,
+  0.05 mg, 100.0 F, 1 1/2 tablets, …), all written in digits. Used by the opt-in real-model test in
+  `ChirpEngineLlamaCppTests` and the app's DEBUG `-ChirpLLMSmoke` runner, so the Mac and the phone check the same
+  thing. Tests: `NumberFidelityTests`.
+
 ## Wiring (app composition root)
 
 M7: `speech` below is the app's `SpeechEngineRouter` (`AppSpeechEngines.makeRouter`), not Parakeet itself. Parakeet,

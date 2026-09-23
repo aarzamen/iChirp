@@ -81,7 +81,6 @@ final class LlamaCppContext: LlamaSession {
     private let context: OpaquePointer
     private let vocab: OpaquePointer
     private var sampler: UnsafeMutablePointer<llama_sampler>
-    private let sampling: LlamaSampling
 
     init(modelAt url: URL, options: LlamaLoadOptions) throws {
         _ = LlamaBackend.initialized
@@ -110,8 +109,8 @@ final class LlamaCppContext: LlamaSession {
         self.model = model
         self.vocab = vocab
         self.context = context
-        self.sampling = options.sampling
-        self.sampler = Self.makeSampler(options.sampling, vocab: vocab)
+        // Replaced by the request's own chain in `reset(sampling:)` before any token is drawn.
+        self.sampler = Self.makeSampler(LlamaSampling.faithful)
         self.contextTokens = Int(llama_n_ctx(context))
         self.batchSize = Int(llama_n_batch(context))
     }
@@ -122,21 +121,21 @@ final class LlamaCppContext: LlamaSession {
         llama_model_free(model)
     }
 
-    private static func makeSampler(_ sampling: LlamaSampling, vocab: OpaquePointer) -> UnsafeMutablePointer<
-        llama_sampler
-    > {
+    /// The chain for `sampling`, stage by stage (`LlamaSampling.stages`). No stage looks at earlier tokens.
+    private static func makeSampler(_ sampling: LlamaSampling) -> UnsafeMutablePointer<llama_sampler> {
         let chain = llama_sampler_chain_init(llama_sampler_chain_default_params())!
-        if sampling.presencePenalty != 0 {
-            llama_sampler_chain_add(
-                chain,
-                llama_sampler_init_penalties(
-                    llama_vocab_n_tokens(vocab), sampling.penaltyLastN, 1.0, 0.0, sampling.presencePenalty))
+        for stage in sampling.stages {
+            let next: UnsafeMutablePointer<llama_sampler>? =
+                switch stage {
+                case .topK(let k): llama_sampler_init_top_k(k)
+                case .topP(let p): llama_sampler_init_top_p(p, 1)
+                case .minP(let p): llama_sampler_init_min_p(p, 1)
+                case .temperature(let t): llama_sampler_init_temp(t)
+                case .draw: llama_sampler_init_dist(UInt32.random(in: 0..<UInt32.max))
+                case .greedy: llama_sampler_init_greedy()
+                }
+            if let next { llama_sampler_chain_add(chain, next) }
         }
-        llama_sampler_chain_add(chain, llama_sampler_init_top_k(sampling.topK))
-        llama_sampler_chain_add(chain, llama_sampler_init_top_p(sampling.topP, 1))
-        if sampling.minP > 0 { llama_sampler_chain_add(chain, llama_sampler_init_min_p(sampling.minP, 1)) }
-        llama_sampler_chain_add(chain, llama_sampler_init_temp(sampling.temperature))
-        llama_sampler_chain_add(chain, llama_sampler_init_dist(UInt32.random(in: 0..<UInt32.max)))
         return chain
     }
 
@@ -152,11 +151,11 @@ final class LlamaCppContext: LlamaSession {
         return Array(tokens.prefix(Int(count)))
     }
 
-    func reset() {
+    func reset(sampling: LlamaSampling) {
         llama_memory_clear(llama_get_memory(context), true)
-        // A fresh chain: new random seed, empty penalty history.
+        // A fresh chain for this request: its own sampler, a new random seed.
         llama_sampler_free(sampler)
-        sampler = Self.makeSampler(sampling, vocab: vocab)
+        sampler = Self.makeSampler(sampling)
     }
 
     func decode(_ tokens: [Int32]) throws {
@@ -168,7 +167,7 @@ final class LlamaCppContext: LlamaSession {
     }
 
     func sample() -> Int32 {
-        // Samples from the last output and records the token for the penalties.
+        // Samples from the last output.
         llama_sampler_sample(sampler, context, -1)
     }
 

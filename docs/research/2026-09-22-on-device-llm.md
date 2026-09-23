@@ -33,8 +33,10 @@ yet**: memory, speed and first load on the iPhone 17 Pro are the open questions 
 The estimate is weights + a full window's f16 cache + 512 MB of llama.cpp buffers; the engine refuses to load when
 `os_proc_available_memory()` is below it. LFM2.5 1.2B (the plan's other default) was dropped: LFM Open License.
 Qwen3.5 2B is non-thinking by default; the engine pre-fills its template's empty `<think></think>` block exactly as
-Qwen's own template does, and drops any leading think block defensively. Sampling: temperature 0.7, top-p 0.8,
-top-k 20 (Qwen's non-thinking settings); presence penalty 1.0 for the 2B (it loops more easily), 0 for the 4B.
+Qwen's own template does, and drops any leading think block defensively. Sampling (review I2, section 3a): clinical
+requests are **greedy** for both models (always the most likely token, no randomness); general and personal requests
+use Qwen's non-thinking settings (temperature 0.7, top-p 0.8, top-k 20). **No profile has a presence, frequency,
+repetition or DRY penalty**: the first version's presence penalty 1.0 on the 2B altered repeated digits.
 
 ## 3. Mac measurements
 
@@ -56,6 +58,33 @@ Both notes had all four sections, copied 38.4 / 96 / 118/76 and "amoxicillin 500
 days" exactly, stated the clinician's assessment, and invented nothing clinical. Small flaws: both added "°C" to the
 temperature (a unit that was not spoken); the 4B left the positive strep test out of Objective. These are drafts, as
 the template says.
+
+## 3a. Numbers survive verbatim (review I2)
+
+Qwen's tokenizers write every number one digit at a time (the 2B's GGUF has no multi-digit tokens), so a penalty on
+tokens already written punishes the second "0" of "500", the second "1" of "1 1/2" and a unit already used.
+`LlamaCppRealModelTests.testNumbersSurviveVerbatimInTheSOAPNote` runs the SOAP template on an invented pneumonia
+visit dense in repeated digits (`SyntheticNumberVisit`: 0.05 mg, 500 mg twice, 250 mg, 1000 units, 1 1/2 tablets,
+100.0 F, 101.1 F twice, HR 110, BP 118/76, RR 22, 94%, glucose 211) and requires every one verbatim in the note and
+no number the visit never had (`NumberFidelity`). `CHIRP_ONDEVICE_LLM_REPEATS=n` repeats it. Mac, M4 Max, Metal:
+
+| Sampler | Qwen3.5 2B | Qwen3 4B Instruct 2507 |
+|---|---|---|
+| Before: temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.0 on the 2B (0 on the 4B) | **2 of 5 notes failed**: "1 1/2" became "1½"; "then 250 mg daily for 4 more days" was dropped | 5 of 5 passed |
+| After, clinical: greedy, no penalty | 3 of 3 passed, identical notes (415 tokens, 3.1–3.9 s) | 3 of 3 passed, identical notes (359 tokens, 4.5–4.6 s) |
+
+The greedy 2B note did not loop; it restated the medication list once, in Subjective, which is allowed. The earlier
+sick-call SOAP test also passed with greedy sampling (2B 271 tokens, 4B 255 tokens).
+
+Other settings that can move a number, and the rule for each (`LlamaSampling`'s doc comment is the source of truth):
+- temperature above 0 can draw a digit that is not the model's first choice → clinical is greedy;
+- top-k, top-p and min-p only remove unlikely tokens and cannot introduce one → harmless;
+- penalties over earlier tokens (presence, frequency, repetition) and DRY (it penalizes continuing a sequence already
+  written, which is a dose restated in Plan) → never, in any profile;
+- XTC (removes the most likely tokens), Mirostat and logit bias → never for documents;
+- outside the sampler: the prompt is never truncated, the key/value cache stays f16, the weights are Q4_K_M.
+
+A greedy run gives the same note every time, so Retry after a poor clinical draft gives the same draft: switch model.
 
 ## 4. Simulator tour (wiring, not speed)
 

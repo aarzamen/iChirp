@@ -173,7 +173,9 @@ public actor LlamaCppEngine {
         guard room >= 16 else { throw LanguageModelError.contextTooLong }
         let maxOutput = request.maxOutputTokens ?? room
 
-        session.reset()
+        // Clinical requests draw the most likely token every time and nothing penalizes a repeated digit (review I2).
+        let sampling = spec.sampling(for: request.privacyClass)
+        session.reset(sampling: sampling)
         let clock = ContinuousClock()
         let started = clock.now
         var index = 0
@@ -222,7 +224,7 @@ public actor LlamaCppEngine {
                 Double(max(generated - 1, 0)) / max(Self.seconds($0, finished), 1e-9)
             } ?? 0)
         logger.info(
-            "run_finished model=\(spec.id, privacy: .public) prompt_tokens=\(prompt.count, privacy: .public) completion_tokens=\(generated, privacy: .public) stop=\(stopReason, privacy: .public)"
+            "run_finished model=\(spec.id, privacy: .public) prompt_tokens=\(prompt.count, privacy: .public) completion_tokens=\(generated, privacy: .public) stop=\(stopReason, privacy: .public) sampling=\(sampling == .faithful ? "faithful" : "general", privacy: .public)"
         )
         guard producedText else { throw LanguageModelError.streamingError("the on-device model returned no text") }
         return GenerationUsage(
@@ -254,8 +256,7 @@ public actor LlamaCppEngine {
         let clock = ContinuousClock()
         let started = clock.now
         let options = LlamaLoadOptions(
-            contextTokens: spec.contextTokens, batchSize: configuration.batchSize, usesGPU: configuration.usesGPU,
-            sampling: spec.sampling)
+            contextTokens: spec.contextTokens, batchSize: configuration.batchSize, usesGPU: configuration.usesGPU)
         let session = try loader.loadSession(modelAt: url, options: options)
         let seconds = Self.seconds(started, clock.now)
         loaded = Loaded(modelID: spec.id, session: session)

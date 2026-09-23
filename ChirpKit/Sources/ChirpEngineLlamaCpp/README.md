@@ -23,7 +23,8 @@ and without the runtime the models say "not in this build".
 ## What's here
 
 - `LlamaCppModelCatalog.swift`: `LlamaCppModelSpec` (Hugging Face repository and revision, file, SHA-256, size,
-  context window, memory estimate, prompt format, sampler) and the catalog: **Qwen3.5 2B** (default) and
+  context window, memory estimate, prompt format, sampler), `LlamaSampling` and its chain `LlamaSamplerStage`
+  (clinical requests greedy via `sampling(for:)`; no stage ever looks at earlier tokens, review I2) and the catalog: **Qwen3.5 2B** (default) and
   **Qwen3 4B Instruct 2507** (quality), both Apache-2.0, Q4_K_M. `LlamaPromptFormat` writes ChatML as control pieces
   (special tokens recognised) and content pieces (never), so transcript text cannot open a new chat turn.
 - `LlamaCppSession.swift`: the seam. `LlamaSession` (tokenize, reset, decode, sample, end-of-generation, piece) and
@@ -47,6 +48,9 @@ and without the runtime the models say "not in this build".
 - **One runtime, one actor.** A `LlamaSession` is never touched outside `LlamaCppEngine`. Its `run` is synchronous on
   the engine's queue, so requests never interleave; state other code reads (`loadedModelID`, foreground) sits in a
   `Mutex`.
+- **Never penalize numbers.** No presence, frequency, repetition or DRY penalty in any profile, and clinical requests
+  are greedy: Qwen writes numbers digit by digit, so a penalty alters doses and vitals (`LlamaCppSamplingTests`; the
+  opt-in `testNumbersSurviveVerbatimInTheSOAPNote`). `LlamaSampling`'s doc comment lists every setting's effect.
 - **Never truncate.** A prompt that does not fit throws `contextTooLong` so `DeliverableService` re-plans; the window
   reported by `contextWindowTokens()` is the one allocated (`spec.contextTokens`).
 - **Foreground only.** iOS refuses GPU work in the background; the run stops with a sentence and the model unloads.
@@ -62,4 +66,7 @@ scripts/build_llamacpp.sh
 scripts/check.sh ChirpEngineLlamaCppTests
 # Real models on this Mac (downloads 1.3 GB and 2.5 GB once into ~/Library/Caches/iChirpTests/ondevice-llm):
 CHIRP_ONDEVICE_LLM_TESTS=1 swift test --package-path ChirpKit --filter LlamaCppRealModelTests
+# The number test alone, three times per model:
+CHIRP_ONDEVICE_LLM_TESTS=1 CHIRP_ONDEVICE_LLM_REPEATS=3 swift test --package-path ChirpKit \
+  --filter LlamaCppRealModelTests/testNumbersSurviveVerbatimInTheSOAPNote
 ```
