@@ -61,3 +61,5 @@ Add a line here for each new entry: `- [<title>](<category>/<slug>.md) — <one-
 
 - [Pre-link a Rust static library so it can sit next to FluidAudio's](build-errors/two-rust-static-libraries-duplicate-rust-eh-personality.md)
   — `duplicate symbol '_rust_eh_personality'` when a second Rust `staticlib` is linked
+- [Send order-sensitive commands through one chained task](concurrency/order-sensitive-commands-need-one-chained-task.md)
+  — a command test passes alone, fails in the full suite; a resume overtook a pause
