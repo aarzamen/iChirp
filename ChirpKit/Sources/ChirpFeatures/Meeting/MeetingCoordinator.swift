@@ -95,6 +95,10 @@ public enum MeetingFlowState: Equatable, Sendable {
     @ObservationIgnored public var onFinalPass: (@MainActor (_ id: UUID, _ running: Bool) -> Void)?
 
     @ObservationIgnored private let recorder: any MeetingAudioCapturing
+    /// The last pause / resume / mute / restart sent to the recorder. Each command waits for the one before it, so they
+    /// reach the recorder in the order the person gave them (independent `Task`s may run in any order; a resume that
+    /// overtook a pause left the recorder paused while the screen said Recording). Stop and discard wait for it too.
+    @ObservationIgnored private var recorderCommandTail: Task<Void, Never>?
     @ObservationIgnored private let speech: any SpeechEngine
     @ObservationIgnored private let voiceActivity: (any VoiceActivityDetecting)?
     @ObservationIgnored private let scheduler: SpeechJobScheduler
@@ -155,7 +159,7 @@ public enum MeetingFlowState: Equatable, Sendable {
         isUserPaused = true
         setState(.paused)
         let recorder = self.recorder
-        Task { await recorder.setPaused(true) }
+        sendToRecorder { await recorder.setPaused(true) }
     }
 
     /// Resume after the person paused, or restart the microphone after an interruption that did not resume.
@@ -165,9 +169,9 @@ public enum MeetingFlowState: Equatable, Sendable {
             isUserPaused = false
             setState(.recording)
             let recorder = self.recorder
-            Task { await recorder.setPaused(false) }
+            sendToRecorder { await recorder.setPaused(false) }
         case .waitingForResume:
-            Task { await self.restartMicrophone() }
+            sendToRecorder { [weak self] in await self?.restartMicrophone() }
         default:
             break
         }
@@ -178,7 +182,16 @@ public enum MeetingFlowState: Equatable, Sendable {
         isMuted.toggle()
         let muted = isMuted
         let recorder = self.recorder
-        Task { await recorder.setMuted(muted) }
+        sendToRecorder { await recorder.setMuted(muted) }
+    }
+
+    /// Appends one command to the ordered recorder chain (see `recorderCommandTail`).
+    private func sendToRecorder(_ command: @escaping @Sendable () async -> Void) {
+        let previous = recorderCommandTail
+        recorderCommandTail = Task {
+            await previous?.value
+            await command()
+        }
     }
 
     /// Stop & save: close the audio, save the transcript.
@@ -187,8 +200,10 @@ public enum MeetingFlowState: Equatable, Sendable {
         setState(.stopping)
         finalPassProgress = 0
         let previous = flowTask
+        let pendingCommands = recorderCommandTail
         flowTask = Task {
             await previous?.value
+            await pendingCommands?.value
             await self.stopAndFinalize()
         }
     }
@@ -206,8 +221,10 @@ public enum MeetingFlowState: Equatable, Sendable {
     public func discard() {
         guard state.isCapturing || state == .starting || failedID != nil else { return }
         let previous = flowTask
+        let pendingCommands = recorderCommandTail
         flowTask = Task {
             await previous?.value
+            await pendingCommands?.value
             await self.performDiscard()
         }
     }

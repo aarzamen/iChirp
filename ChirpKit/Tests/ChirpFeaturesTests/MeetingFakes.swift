@@ -61,6 +61,10 @@ final class FakeMeetingRecorder: MeetingAudioCapturing, @unchecked Sendable {
         var cancelCalls = 0
         var resumeCalls = 0
         var isRecording = false
+        /// When true, the next `setPaused(true)` waits until `releaseHeldPause()`: lets a test prove commands reach the
+        /// recorder in order even when one of them is slow.
+        var holdNextPause = false
+        var heldPause: CheckedContinuation<Void, Never>?
     }
 
     let state = Mutex(State())
@@ -93,7 +97,28 @@ final class FakeMeetingRecorder: MeetingAudioCapturing, @unchecked Sendable {
         continuation?.yield(update)
     }
 
-    func setPaused(_ paused: Bool) async { state.withLock { $0.paused.append(paused) } }
+    func setPaused(_ paused: Bool) async {
+        if paused, state.withLock({ $0.holdNextPause }) {
+            await withCheckedContinuation { continuation in
+                state.withLock {
+                    $0.holdNextPause = false
+                    $0.heldPause = continuation
+                }
+            }
+        }
+        state.withLock { $0.paused.append(paused) }
+    }
+
+    /// Lets a held `setPaused(true)` finish.
+    func releaseHeldPause() {
+        let held = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            defer { state.heldPause = nil }
+            return state.heldPause
+        }
+        held?.resume()
+    }
+
+    var isHoldingPause: Bool { state.withLock { $0.heldPause != nil } }
     func setMuted(_ muted: Bool) async { state.withLock { $0.muted.append(muted) } }
     func resume() async throws { state.withLock { $0.resumeCalls += 1 } }
 

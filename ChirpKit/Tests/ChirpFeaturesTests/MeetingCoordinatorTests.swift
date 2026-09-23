@@ -75,6 +75,28 @@ final class MeetingCoordinatorTests: XCTestCase {
         await h.coordinator.settle()
     }
 
+    /// A slow pause must not let a later resume overtake it: the recorder would end paused while the screen says
+    /// Recording (lost audio). Commands reach the recorder in the order the person gave them.
+    func testRecorderCommandsKeepTheirOrderWhenOneIsSlow() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        _ = try await startRecording(h)
+        let recorder = h.recorder
+        recorder.state.withLock { $0.holdNextPause = true }
+        h.coordinator.pause()
+        await spinUntil { recorder.isHoldingPause }
+        h.coordinator.resume()
+        h.coordinator.toggleMute()
+        // Give an out-of-order resume/mute every chance to overtake the held pause.
+        for _ in 0..<1_000 { await Task.yield() }
+        XCTAssertEqual(recorder.state.withLock { $0.paused }, [], "nothing may overtake the held pause")
+        recorder.releaseHeldPause()
+        await spinUntil { recorder.state.withLock { $0.paused == [true, false] && $0.muted == [true] } }
+        XCTAssertEqual(h.coordinator.state, .recording)
+        h.coordinator.discard()
+        await h.coordinator.settle()
+    }
+
     func testPauseMuteAndInterruptionsReachTheRecorderAndDriveTheState() async throws {
         let h = try MeetingHarness()
         harness = h
