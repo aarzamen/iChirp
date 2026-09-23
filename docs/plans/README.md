@@ -37,13 +37,40 @@ commands, steps, done criteria and STOP conditions.
 | [014](2026-09-22-014-m5-ingest.md) | M5: ingest breadth | **IN PROGRESS** — Steps 1–6 built and merged on `ichirp/foundation` at `5cf6aa86` (829 package tests, 34 app tests + 3 signed-only Keychain skips, lint and secret scan clean; `device_smoke.sh` SMOKE PASS on iPhone 17 Pro and 15 Pro, both running this build); open items closed on `lane/companion` by plan 019 (YouTube audio via the Mac companion, indeterminate downloads, client constant, a caption User-Agent fix; live podcast + captions tests pass) | Owner device QA (M5 and Mac companion checklists) |
 | [015](2026-09-22-015-m6-structure-models.md) | M6: Needle 3 on device (SOAP fields and medications, dictation voice commands) | **IN PROGRESS** — Steps 1–8 built on `lane/needle` (lane L3, not merged): needle-rs `4de50494` builds for iOS, Simulator and macOS; focused tests green, lint clean, secret scan clean; simulator screenshots; Eval recorded ([needle-eval](../research/2026-09-22-needle-eval.md)): Needle 3 soap-meds argument accuracy 44.6% (**experimental**, below the 90% bar), STUB 90.2% (labelled). Step 9 (Laya) not done. Clinical-safety round 3 on `fix/needle-allowlist`: the clinical gate is an allow-list (`ClinicalFieldProof`), 243-entry synthetic safety corpus, "scratch that" only at a certain boundary | Adversarial re-review 3 of the allow-list; merge (order L1 → L2 → L4 → L3), full gate, owner device QA (M6 checklist), on-device Needle latency |
 | [016](2026-09-22-016-m7-engine-breadth.md) | M7: engine breadth and benchmarks | **IN PROGRESS** — merged on `ichirp/foundation`: Step 1 (capability registry, live and final routes, meeting lease, Settings → Speech engines), Step 2 (Apple SpeechTranscriber), Step 4 (WhisperKit on `argmax-oss-swift` exact 1.1.0: Base, Large v3 Turbo), Step 5 (llama.cpp small language models, ADR-015; [research](../research/2026-09-22-on-device-llm.md)), Step 6 (ASR benchmark harness and screen; Mac numbers in [asr-engine-benchmarks](../research/2026-09-22-asr-engine-benchmarks.md)). Step 3 (streaming) not built | iPhone checks: Apple Speech, Turbo memory, benchmark numbers, on-device LLM numbers; owner device QA |
-| [017](2026-09-22-017-m8-polish.md) | M8: polish | **NOT STARTED** | |
+| [017](2026-09-22-017-m8-polish.md) | M8: polish | **IN PROGRESS** — UX-audit wave 3 merged (accessibility floor, Dynamic Type, 44 pt targets, contrast, honest privacy labels, nothing typed lost) and the dark palette (plan 023); keyboard, Transforms extension, widgets, iPad, localization not started | Extensions need new App IDs (owner OK) |
 | [023](2026-09-23-023-owner-design-decisions.md) | Owner design decisions from the UX audit (documents in Library, Capture recipes, formatted view with plain copy, dark palette) | **DECIDED** 2026-09-23 | Wave 4 lanes after the wave-3 polish merges |
 | [018](2026-09-22-018-design-companion-voice-needle-jev.md) | Design: Mac companion, voice output, Needle 3, Jev | **APPROVED** 2026-09-22 | Governs 015, 019, 020, 021 |
 | [019](2026-09-22-019-mac-companion-and-m5-finish.md) | Parakeet companion on the Mac (speech + YouTube audio) and finishing plan 014 | **BUILT on `lane/companion`** (lane L1): companion (103 pytest; live speech and YouTube checks on the Mac), Settings → Mac companion, YouTube audio via the Mac (simulator tour against the live companion), plan 014 items; focused Swift + app tests green, lint clean | Merge (L1 first), full gate, owner device QA (Mac companion checklist). Review round 1 fixes on `fix/review-round-1` (plan's "Review round 1") |
 | [020](2026-09-22-020-voice-output.md) | Voice output: Listen, spoken answers, read-back (companion voices, Grok voices) | **IMPLEMENTED** on `lane/voice` at `75f3a6b3` + docs — voice engines, `VoicePlayer`, Settings → Voices, Listen everywhere; focused package tests, 42 app tests and the voice UI tour green; lint clean | Merge after L1; live companion check; owner device QA (Voice checklist). Review round 1 fixes (C1, I1, I2 and minors) on `fix/review-round-1` |
 | [021](2026-09-22-021-m6a-jev-decision-trial.md) | M6a: Jev decision-model trial (owner's plan) | **PARTIAL** — Steps 0–6 built on `m6a/jev-decision-trial` (lane L4): `DecisionModel` contract, `ChirpEngineJev`, `DecisionService` with three recipes and a provisional gate, Settings → Decision models, Transcript Jev menu; focused package tests, 42 app tests (3 signed-only skips) and the M6a UI tour green on the simulator; clinical items never sent | Step 7: the owner runs `JevLiveEvalTests` on their key and the gate is set from its calibration table; Step 8: full package suite and device build (controller). Review round 1 fixes (M1–M9) on `fix/review-round-1` |
 | [022](2026-09-22-022-create-anything-in-anything-out.md) | Create: anything in, anything out (text items, Create sheet, edit by voice, voice messages, PDF/DOCX) | **IMPLEMENTED** on `lane/create` (text items, Create sheet and CreateFlow, Edit by voice with versions `v8-text-items`, voice messages, PDF and Word); review fixes (I1–I3, minors) on `fix/create-review`; owner device checklist open | Wave 2 |
+
+## Stopping point — 2026-09-23 (owner paused the token spend)
+
+`ichirp/foundation` = `main` after this push. Everything below is merged, gated (package + app-hosted tests, strict
+lint, secret scan) and installed where the phones had room.
+
+**Merged since 2026-09-22 evening:** M7 speech engines (Apple Speech, WhisperKit, routes, benchmark) and their two
+review rounds; the on-device language models (llama.cpp, Qwen) with their fixes; Create (plan 022) and its review
+fixes; the meeting ordering fix and a second real meeting bug (lagging notice); Needle rounds 2–3 (allow-list gate,
+243-phrase safety corpus); the Increased Memory Limit entitlement and "refuse instead of crash" for speech models; the
+UX audit's wave-3 polish (accessibility floor, nothing typed is lost, honest privacy labels); and plan 023's four owner
+decisions (documents in the Library, Capture recipes, formatted documents with plain Copy, the approved dark palette).
+
+**Open, in priority order (resume here):**
+1. **Needle round 4 — clinical safety, do first before anyone relies on Extract fields.** The round-3 adversarial
+   review (`.superpowers/sdd/milestones/fix-needle3-rereview.md`, outside git) found 78 of 168 new phrasings clean and
+   wrong, and probed closed-list rules (R1–R7, W1-narrow, S1–S3) that gave 0 clean-and-wrong over 441 phrases. Branch
+   `fix/needle-round4` exists but has no commits. **Until then: do not use Extract fields on real clinical dictation.**
+2. **Copy flattener fixes** (`review-flattener.md`): "# of doses given: 3" loses its "#", "2) item" becomes "2.",
+   HTML entities decode; and the document screen should show the effective privacy class like the Library row.
+   Branch `fix/flattener` exists, no commits. No number was ever changed on Copy.
+3. **Phone checks, blocked by storage:** iPhone 17 Pro ~6 GB free and iPhone 15 Pro ~3 GB free are needed to run
+   `scripts/device_benchmark.sh whisper-turbo` and `scripts/device_llm_smoke.sh qwen3.5-2b` / `qwen3-4b` (numbers go
+   into the two research docs), re-run Apple Speech, and check the 15 Pro's 2.3–2.5 GB Parakeet launch peak.
+4. Owner QA on the phone: Speak recipes, Edit by voice (hold), Dictating Cancel prompt, dark mode, Library documents.
+5. The 11 remaining UX-audit owner decisions (plan 023 "Still open"); Jev live eval (needs the owner's key); Grok
+   voices (xAI key); Laya spike; M7 Step 3 streaming; M8 extensions (need new App IDs — owner OK required).
 
 ## Recommended order and dependencies
 
