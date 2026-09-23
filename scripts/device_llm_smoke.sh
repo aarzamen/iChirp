@@ -6,9 +6,12 @@
 # completed and every number survived verbatim.
 #
 # Usage: scripts/device_llm_smoke.sh [model]            # model: qwen3.5-2b (default) or qwen3-4b, or a full catalog id
-#   DEVICE_ID=<identifier> scripts/device_llm_smoke.sh  # same device choice as scripts/run_device.sh:
-#                                                       # DEVICE_ID, else Config/Device.local, else the one reachable
-#                                                       # iPhone; never a hard-coded phone
+#   DEVICE_ID=<identifier> scripts/device_llm_smoke.sh  # the device: DEVICE_ID, else Config/Device.local — nothing
+#                                                       # else. Unlike run_device.sh's other callers, this script
+#                                                       # never falls back to "the one reachable iPhone": it
+#                                                       # downloads 1.3-2.5 GB to the phone and writes a synthetic
+#                                                       # clinical row to its Library, so guessing the device is not
+#                                                       # acceptable (review N4). Neither set: refuses, exit 1.
 #   LLM_SMOKE_TIMEOUT_S=3600 scripts/device_llm_smoke.sh qwen3-4b   # wait longer than the default 1800 s
 #   SMOKE_CONSOLE=1 scripts/device_llm_smoke.sh         # also stream the app's stdout/stderr to .build/device-logs/
 #
@@ -29,7 +32,25 @@ POLL_S=10
 RUN_ID="$(uuidgen)"
 mkdir -p .build/device-logs
 
-# Same device rules as run_device.sh (DEVICE_ID, Config/Device.local, or the single reachable iPhone).
+# This script downloads 1.3-2.5 GB to the phone and writes a synthetic clinical row to its Library, so — unlike
+# run_device.sh's other callers, which may fall back to "the one reachable iPhone" — it never guesses the device
+# (review N4). Refuse here, before run_device.sh runs at all, unless the device is named explicitly.
+if [ -z "${DEVICE_ID:-}" ]; then
+  CONFIG_DEVICE_ID=""
+  if [ -f Config/Device.local ]; then
+    CONFIG_DEVICE_ID=$(sed -nE 's/^[[:space:]]*DEVICE_ID[[:space:]]*=[[:space:]]*"?([^"[:space:]#]+)"?.*/\1/p' \
+      Config/Device.local | head -1)
+  fi
+  if [ -z "$CONFIG_DEVICE_ID" ]; then
+    echo "error: device_llm_smoke.sh never guesses which iPhone to use (it downloads 1.3-2.5 GB and writes a" >&2
+    echo "synthetic clinical row to the phone's Library). Set DEVICE_ID=<identifier>, or add" >&2
+    echo "DEVICE_ID=<identifier> to Config/Device.local (copy Config/Device.local.example), then rerun." >&2
+    exit 1
+  fi
+fi
+
+# DEVICE_ID (just checked above) or Config/Device.local (just confirmed to have one): never the reachable-iPhone
+# fallback, because one of those two is now guaranteed.
 DEVICE_ID="$(scripts/run_device.sh --print-device)"
 export DEVICE_ID
 echo "Device: $DEVICE_ID   model: $MODEL   run: $RUN_ID"
