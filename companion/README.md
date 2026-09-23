@@ -31,6 +31,8 @@ It prints something like:
 ```
 
 Other commands: `scripts/companion.sh --list-models` (which voices are ready), `--port 8766` (another port),
+`--host 127.0.0.1` (this Mac only, e.g. for the iPhone Simulator), `--token-file <path>` (another token, e.g. a
+throwaway one for testing),
 `--download qwen3-tts-0.6b` (smaller, about 2.0 GB, no style instructions), `--download kokoro-82m` (about 390 MB;
 also run `uv sync --project companion --extra kokoro` for its phonemizer).
 

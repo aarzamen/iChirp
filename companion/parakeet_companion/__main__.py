@@ -8,6 +8,7 @@ import logging
 import socket
 import subprocess
 import sys
+from pathlib import Path
 
 from . import config
 from .app import LOGGER_NAME, create_app, sweep_stale_downloads
@@ -28,6 +29,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="the name the iPhone should use, e.g. my-mac.local (default: this Mac's local host name)",
     )
+    parser.add_argument(
+        "--token-file",
+        type=Path,
+        default=None,
+        help="where the pairing token lives (default ~/Library/Application Support/ParakeetCompanion/token)",
+    )
     parser.add_argument("--download", metavar="MODEL", help="download a speech model into the Hugging Face cache, then exit")
     parser.add_argument("--list-models", action="store_true", help="list the speech models and whether each is ready")
     args = parser.parse_args(argv)
@@ -42,7 +49,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        token, created = load_or_create_token(config.token_path())
+        token_file = args.token_file.expanduser() if args.token_file else config.token_path()
+        token, created = load_or_create_token(token_file)
     except TokenFileError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
@@ -51,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = CompanionSettings(token=token)
     app = create_app(settings, speech=speech, youtube=youtube)
     host_name = args.advertise_host or _local_host_name()
-    _print_banner(args.host, args.port, host_name, token, created, speech, youtube)
+    _print_banner(args.host, args.port, host_name, token, token_file, created, speech, youtube)
 
     import uvicorn
 
@@ -135,6 +143,7 @@ def _print_banner(
     port: int,
     host_name: str,
     token: str,
+    token_file: Path,
     created: bool,
     speech: SpeechBackend | None,
     youtube: YouTubeBackend | None,
@@ -148,7 +157,7 @@ def _print_banner(
         f"    Host:          {host_name}",
         f"    Port:          {port}",
         f"    Pairing token: {token}" + ("   (new)" if created else ""),
-        f"    (kept in {config.token_path()}, readable only by you)",
+        f"    (kept in {token_file}, readable only by you)",
         "",
     ]
     if speech is None:

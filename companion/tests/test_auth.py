@@ -62,3 +62,22 @@ def test_damaged_token_file_is_refused(tmp_path) -> None:
 )
 def test_is_authorized(header, expected) -> None:
     assert is_authorized(header, "t" * 43) is expected
+
+
+def test_cli_token_file_option_is_used(tmp_path, monkeypatch) -> None:
+    """`--token-file` points the companion at another token (a throwaway one for QA), created 0600 like the default."""
+    import parakeet_companion.__main__ as cli
+
+    captured: dict = {}
+
+    def fake_run(app, **kwargs) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr(cli, "build_backends", lambda: (None, None))
+    monkeypatch.setattr(cli, "sweep_stale_downloads", lambda: 0)
+    path = tmp_path / "qa-token"
+    assert cli.main(["--host", "127.0.0.1", "--port", "8799", "--token-file", str(path), "--advertise-host", "x.local"]) == 0
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert captured["kwargs"]["host"] == "127.0.0.1" and captured["kwargs"]["port"] == 8799
+    assert captured["kwargs"]["access_log"] is False
