@@ -33,6 +33,9 @@ struct DocumentScreen: View {
 
     var body: some View {
         content
+            .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming) {
+                $0 == .document(id: id)  // plan 020
+            }
             .background(Tokens.Color.ground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
@@ -314,6 +317,10 @@ struct DocumentScreen: View {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
             }
             .accessibilityLabel("Share")
+            // Plan 020: reads the document's text aloud.
+            ListenBarButton(source: .document(id: id), privacyClass: model.transcription?.privacyClass ?? .clinical) {
+                model.transcription?.displayText ?? ""
+            }
             barButton(title: "Transform", systemImage: "sparkles", emphasized: true) {
                 isTransforming = true
             }

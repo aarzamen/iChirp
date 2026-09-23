@@ -48,6 +48,18 @@ chunk (`mp3`, `wav` or `aac`).
 | `companion.speech` | `CompanionVoice` | localNetwork | `POST /v1/audio/speech` on the companion ([mac-companion-v1](mac-companion-v1.md)) |
 | `xai.tts` | `XAIVoice` | cloud | `POST https://api.x.ai/v1/tts`, Bearer key; `GET /v1/api-key` validates |
 
+## The caller (plan 020)
+
+`ChirpFeatures.VoicePlayer` is the one caller: it asks `availability()` (no text sent), routes with
+`PrivacyRoutingPolicy` before the first and every later chunk, chunks with `SpeechChunker` (first chunk ≤ 500
+characters, later ≤ 2 500, never above `maxCharactersPerRequest`), synthesizes one chunk at a time and one ahead of
+the one playing, and plays through ChirpCore's `SpeechAudioPlaying` (`Pipeline/SpeechAudioPlaying.swift`; conformer
+ChirpAudio `SpeechPlaybackEngine`, which uses M2's `AudioSessionController` `.playback` and yields to recording).
+Clinical text to a cloud voice (or an untrusted Mac) waits for `VoicePlayer`'s own per-utterance confirmation
+(`VoiceConfirmationRequest`), never a remembered one.
+
 ## Changes
 
 - v1 (2026-09-22): initial.
+- v1 (2026-09-22, plan 020): conformers `CompanionVoice` and `XAIVoice`; the caller and the `SpeechAudioPlaying` seam
+  documented above (no protocol change).

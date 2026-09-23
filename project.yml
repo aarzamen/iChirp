@@ -27,6 +27,9 @@ targets:
       # M6a (plan 021): Jev, the opt-in cloud decision model (HTTPS only, no SDK). No entitlement needed.
       - package: ChirpKit
         products: [ChirpEngineJev]
+      # Plan 020: voices (Mac companion, Grok voices over HTTP). No entitlement or capability.
+      - package: ChirpKit
+        products: [ChirpEngineVoiceHTTP]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:

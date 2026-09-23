@@ -430,6 +430,86 @@ TEST_RUNNER_CHIRP_JEV_STUB_401_URL=http://127.0.0.1:11997 xcodebuild test -proje
 iChirpUITour -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:iChirpUITests/M6aJevTourUITests`
 walks the Jev screens and saves the screenshots.
 
+## Voice checklist (plan 020: Listen, Speak answers, Settings → Voices)
+
+> Preconditions: the phone runs the `lane/voice` build merged with plan 019's Mac companion (Settings → About shows
+> the commit); the Mac runs the companion (`scripts/companion.sh`, which prints the address and pairing token) with a
+> voice model loaded; the phone and Mac are on the same Wi-Fi; for Grok voices, your xAI key (and, if you want it,
+> your cloned voice's id from your xAI account). Use only synthetic text (the M4 checklist's `synthetic-visit.m4a`, or
+> a text document you type). Console.app filter: `subsystem:com.aarzamen.ichirp category:voice`.
+
+Before the phone (optional, on the Mac): the opt-in live check speaks one synthetic sentence through the companion
+and, with your key in this shell only, through xAI:
+
+```bash
+cd /Users/ama/Documents/GitHub/iChirp
+CHIRP_LIVE_VOICE_TESTS=1 CHIRP_LIVE_VOICE_OUT="$PWD/.build/voice-live" \
+  swift test --package-path ChirpKit --filter VoiceLiveTests   # companion token read from its token file
+open .build/voice-live                                           # listen to voice-live-companion.wav
+# xAI too: paste the key at the silent prompt (not echoed, not saved in shell history or any file):
+read -rs XAI_API_KEY && export XAI_API_KEY
+CHIRP_LIVE_VOICE_TESTS=1 swift test --package-path ChirpKit --filter VoiceLiveTests
+unset XAI_API_KEY
+```
+
+Settings → Voices
+- [ ] Settings → Read aloud → Voices says "Not chosen" at first; choose **Mac companion**: Status turns **Ready** and
+      the companion's voices appear (Ryan, Kokoro voices…); pick one; the Settings row now reads "Mac companion · <voice>".
+- [ ] Stop the companion on the Mac, tap Check again: a sentence says it is not reachable at `<your-mac>.local`.
+      Start it again, Check again: Ready.
+- [ ] Style: type "calm and unhurried", Test voice: the sentence "This is Parakeet, reading aloud in the voice you
+      chose." plays in that voice through the speaker (or AirPods).
+- [ ] Choose **Grok voices**, paste your key, Save key: the field clears and says "Saved in the Keychain"; Check key:
+      "Key works". Leave and reopen: the key is never shown. Test voice with Eve, then type your cloned voice's id in
+      **Voice ID**: Test voice speaks in your voice; the stock checkmark disappears while a Voice ID is typed.
+
+Listen
+- [ ] A document (Library → a text or PDF document) → **Listen**: the bar shows "Document · <voice>" and
+      "Reading 1 of N" moving on; Pause / resume / ✕ work; the Listen button reads **Stop** while it plays.
+- [ ] A transcript → play the media to a later paragraph, pause it, **Listen**: reading starts at that paragraph and
+      the media stays paused. Long-press another paragraph → **Listen from Here**.
+- [ ] Transforms → a document → **Listen** (toolbar); a Transform result → **Listen** in its bottom bar; citations
+      like `[00:12]` and Markdown symbols are not read out.
+- [ ] Ask: turn on **Speak answers**, ask "What was decided?": the answer is read when it finishes; the Listen chip
+      under an older answer reads that one.
+- [ ] Leave a screen while it reads: the reading stops (nothing plays without its Stop button).
+
+Privacy and audio
+- [ ] With the Mac companion **not** trusted (plan 019's Settings → Mac companion), a **Clinical** transcript or a
+      SOAP note → Listen: "Read this clinical text aloud with Mac companion?" → **Cancel**: nothing plays and the
+      companion's log shows no `/v1/audio/speech`. Listen again → **Read aloud**: it reads; Listen once more: it asks
+      again.
+- [ ] Trust the Mac: the same clinical Listen reads without asking.
+- [ ] Grok voices + a Clinical item → "Read this clinical text aloud with Grok voices? The text will leave this
+      iPhone…" → Cancel sends nothing; Read aloud reads it (this reading only).
+- [ ] While reading, start a dictation (Action Button): the reading goes quiet at once (it never plays into the
+      microphone) and dictation records and copies normally; afterwards ▶ in the bar or Listen reads again. Same with
+      Record Meeting. A phone call pauses the reading; ▶ resumes it (it never resumes by itself).
+- [ ] Airplane mode while reading with Grok voices: after the current part finishes, the bar shows the error with
+      Retry; Retry (back online) continues from the part that failed.
+- [ ] Console shows `voice_speak … chars=… chunks=…`, never the text; `voice_privacy_override_confirmed` only after
+      Read aloud.
+
+Regression
+- [ ] `scripts/device_smoke.sh` prints `SMOKE PASS`; dictation, meetings, the transcript player and M4 Transform/Ask
+      work as before.
+
+Screenshots to attach
+- [ ] Settings → Voices (companion Ready with voices; Grok with the key saved); the now-playing bar; the clinical
+      voice question.
+
+Simulator tour (agents; synthetic stubs, no Mac companion needed):
+
+```bash
+cd /Users/ama/Documents/GitHub/iChirp
+python3 scripts/voice_stub_server.py &   # companion speech API on 127.0.0.1:8799 (synthetic tones)
+python3 scripts/llm_stub_server.py &     # for the clinical SOAP → Listen steps
+scripts/gen.sh
+TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/voice-screens" xcodebuild test -project iChirp.xcodeproj \
+  -scheme iChirpUITour -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:iChirpUITests/VoiceScreenTourUITests
+```
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

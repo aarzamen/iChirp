@@ -22,6 +22,9 @@ Since M2 it also owns microphone capture and the audio session (see
   shared stream into `media/<id>/dictation.wav`.
 - `MeetingRecorder` — the `ChirpCore.MeetingAudioCapturing` conformer (M3): the
   shared stream into `media/<id>/meeting.caf`.
+- `SpeechPlaybackEngine` — the `ChirpCore.SpeechAudioPlaying` conformer (plan
+  020): plays `VoicePlayer`'s synthesized chunks through the same
+  `AudioSessionController` (`.playback`).
 
 ## What's here
 
@@ -171,6 +174,23 @@ read).
 restarted engine can run without delivering buffers — upstream's silent
 stall). Resume automatically only on `.shouldResume`. Tests never sleep:
 `SharedMicrophoneStream.drain()` waits for the engine and callback queues.
+
+## Speech playback (plan 020, `Playback/`)
+
+- `Playback/SpeechPlaybackEngine.swift` — port of Readback's `PlaybackEngine`
+  (the owner's macOS read-aloud app): `AVAudioPlayerNode` → main mixer,
+  chunks scheduled back to back (gapless) with 350 ms of silence after a
+  paragraph, `.chunkStarted` / `.drained` / `.finished` events, a route
+  change rebuilds the graph and restarts the current chunk. The session is
+  `AudioSessionController`'s `.playback` use: `beginUtterance()` throws
+  `recordingInProgress` while dictating or recording a meeting; recording
+  pre-empts it with `.interruptionBegan`, which pauses the reading (and it
+  never resumes by itself, like the transcript `PlayerBar`); unplugged
+  headphones pause it too; `stop()` releases the session only if playback
+  still holds it. Chunk files live in `tmp/speech-<utterance id>/` with the
+  provider's extension (`mp3`, `wav`, `m4a`) and are deleted as they finish
+  or on stop; stale `speech-*` folders are swept when the engine is made at
+  launch. **Dictation and meeting code is not changed by this.**
 
 ## How to verify
 

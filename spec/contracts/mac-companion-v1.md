@@ -64,6 +64,16 @@ line, no URL echoed), `504` over the 15-minute download limit. The server reduce
   Mac trusted (`PrivacyRoutingPolicy`). A YouTube link is not clinical content, but the phone still asks once per
   link before sending it off the device.
 
+## Phone side
+
+The phone reads the companion's address, port, trusted flag and pairing token through ChirpCore's
+`CompanionConfiguration` (`Engines/CompanionConfiguration.swift`), at every call; plan 019's Settings → Mac companion
+store is the conformer. `CompanionEndpoint.locality` is `.localNetwork` only for a host on the home network
+(`LocalNetworkHost.isLocal`); any other address counts as `.cloud`, and its trusted flag is ignored.
+`PrivacyRoutingPolicy.trusting(_:)` adds a trusted companion's host to the routing policy. Speech clients:
+`ChirpEngineVoiceHTTP.CompanionVoice` (plan 020).
+
 ## Changes
 
 - v1 (2026-09-22): initial.
+- v1 (2026-09-22, plan 020): phone-side `CompanionConfiguration` / `CompanionEndpoint` in ChirpCore (no wire change).

@@ -44,6 +44,7 @@ struct AskView: View {
                         HStack {
                             ModelChoiceMenu(prefix: "Answering", choice: $choice)
                             Spacer(minLength: 0)
+                            SpeakAnswersToggle()  // plan 020
                         }
                         if let message = environment.unavailableMessage(for: choice) {
                             ModelUnavailableNote(message: message)
@@ -56,8 +57,13 @@ struct AskView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         ForEach(session.exchanges) { exchange in
-                            ExchangeView(exchange: exchange, seek: seek, retry: { ask(exchange.question) })
-                                .id(exchange.id)
+                            ExchangeView(
+                                exchange: exchange, seek: seek, retry: { ask(exchange.question) },
+                                listenState: ListenButtonState.of(
+                                    .askAnswer(id: exchange.id), player: environment.voicePlayer),
+                                listen: { listen(to: exchange) }
+                            )
+                            .id(exchange.id)
                         }
                     }
                     .padding(.horizontal, 24)
@@ -78,6 +84,28 @@ struct AskView: View {
         }
         .clinicalConfirmation(for: pendingRun)
         .task { await environment.languageModels.refresh() }
+        .onChange(of: newestAnsweredID) { _, answered in
+            // Plan 020: "Speak answers" reads each new answer once it is complete.
+            guard let answered, environment.voiceSettings.settings.speakAskAnswers,
+                let exchange = session.exchanges.first(where: { $0.id == answered })
+            else { return }
+            listen(to: exchange)
+        }
+    }
+
+    /// The newest question's id once its answer is complete.
+    private var newestAnsweredID: UUID? {
+        guard let last = session.exchanges.last, case .answered = last.run.phase else { return nil }
+        return last.id
+    }
+
+    /// Plan 020: reads one answer aloud (or stops it), routed with the class the answer was made with.
+    private func listen(to exchange: AskSessionViewModel.Exchange) {
+        guard case .answered(let answer) = exchange.run.phase else { return }
+        environment.voicePlayer.toggleListening(
+            to: .askAnswer(id: exchange.id),
+            privacyClass: transcription.privacyClass.stricter(answer.route.privacyClass)
+        ) { answer.text }
     }
 
     /// The newest question's run, while it waits for the clinical confirmation.
@@ -203,6 +231,9 @@ private struct ExchangeView: View {
     let exchange: AskSessionViewModel.Exchange
     let seek: (Int) -> Void
     let retry: () -> Void
+    /// Plan 020: the answer's Listen button.
+    let listenState: ListenButtonState
+    let listen: () -> Void
 
     var body: some View {
         let run = exchange.run
@@ -229,9 +260,25 @@ private struct ExchangeView: View {
             }
             if case .answered(let answer) = run.phase {
                 citations(answer.citations)
-                Text("Answered \(ModelPlace.phrase(for: answer.route))")
-                    .chirpFont(11.5)
-                    .foregroundStyle(Tokens.Color.secondary)
+                HStack(spacing: 10) {
+                    Text("Answered \(ModelPlace.phrase(for: answer.route))")
+                        .chirpFont(11.5)
+                        .foregroundStyle(Tokens.Color.secondary)
+                    Spacer(minLength: 0)
+                    Button(action: listen) {
+                        Label(listenState.title, systemImage: listenState.systemImage)
+                            .labelStyle(.titleAndIcon)
+                            .chirpFont(12.5, .semibold)
+                            .foregroundStyle(AppColor.accentText)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 30)
+                            .background(Capsule().fill(AppColor.tintFill))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(listenState == .listen ? "Listen to this answer" : "Stop reading this answer")
+                }
             } else if let line = RunStatus.text(run.phase) {
                 HStack(spacing: 8) {
                     if RunStatus.isActive(run.phase) {
@@ -280,5 +327,32 @@ private struct ExchangeView: View {
     private func isFailure(_ phase: DeliverableRunViewModel.Phase) -> Bool {
         if case .failed = phase { return true }
         return false
+    }
+}
+
+/// Plan 020: Ask's "Speak answers" switch (saved in Settings → Voices' settings).
+private struct SpeakAnswersToggle: View {
+    @Environment(AppEnvironment.self) private var environment
+
+    var body: some View {
+        let voice = environment.voiceSettings
+        let isOn = voice.settings.speakAskAnswers
+        Button {
+            voice.settings.speakAskAnswers.toggle()
+        } label: {
+            Label("Speak answers", systemImage: isOn ? "speaker.wave.2.fill" : "speaker.slash")
+                .labelStyle(.titleAndIcon)
+                .chirpFont(12.5, .semibold)
+                .foregroundStyle(isOn ? AppColor.accentText : Tokens.Color.secondary)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 30)
+                .background(Capsule().fill(isOn ? AppColor.tintFill : AppColor.quietFill))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Speak answers")
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }

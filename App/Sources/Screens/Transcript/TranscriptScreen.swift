@@ -49,6 +49,14 @@ struct TranscriptScreen: View {
             tabs
             content
         }
+        // Plan 020: the now-playing bar and the voice confirmation (the Transform sheet shows its own).
+        .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming) { source in
+            switch source {
+            case .transcript(let readID): readID == id
+            case .askAnswer: true
+            default: false
+            }
+        }
         .background(Tokens.Color.ground)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -331,7 +339,16 @@ struct TranscriptScreen: View {
                             speakerIndex: paragraph.speakerId.flatMap { speakerOrder[$0] },
                             showsTiming: hasTimings,
                             isCurrent: index == current,
-                            jevTag: paragraphTags[index])
+                            jevTag: paragraphTags[index]
+                        )
+                        .contextMenu {
+                            // Plan 020: read aloud from this paragraph onward.
+                            Button {
+                                listen(from: index)
+                            } label: {
+                                Label("Listen from Here", systemImage: "speaker.wave.2")
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -433,6 +450,10 @@ struct TranscriptScreen: View {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
             }
             .accessibilityLabel("Share")
+            // Plan 020: reads from the paragraph at the playhead (or the start); the media player pauses first.
+            ListenBarButton(
+                source: .transcript(id: id), privacyClass: model.transcription?.privacyClass ?? .clinical,
+                text: { listenText(from: listenStartIndex) }, willListen: { player.pause() })
             barButton(title: "Transform", systemImage: "sparkles", emphasized: true) {
                 isTransforming = true
             }
@@ -467,6 +488,28 @@ struct TranscriptScreen: View {
     }
 
     // MARK: - Actions
+
+    /// Plan 020: "Listen from Here" on a paragraph.
+    private func listen(from index: Int) {
+        guard let item = model.transcription else { return }
+        player.pause()
+        let text = SpeakableText.prepare(listenText(from: index))
+        let voice = environment.voicePlayer
+        Task { await voice.speak(text: text, privacyClass: item.privacyClass, source: .transcript(id: id)) }
+    }
+
+    /// The transcript's paragraphs from `index` on, one paragraph each (a short pause between them).
+    private func listenText(from index: Int) -> String {
+        let paragraphs = model.paragraphs
+        guard paragraphs.indices.contains(index) else { return model.plainText }
+        return paragraphs[index...].map(\.text).joined(separator: "\n\n")
+    }
+
+    /// Where Listen starts: the paragraph at the media playhead once the media has played, else the first.
+    private var listenStartIndex: Int {
+        guard player.currentTime > 0, !(model.transcription?.wordTimestamps ?? []).isEmpty else { return 0 }
+        return TranscriptTiming.currentParagraphIndex(in: model.paragraphs, atMs: Int(player.currentTime * 1000)) ?? 0
+    }
 
     private func seek(toMs ms: Int) {
         player.seek(to: TimeInterval(ms) / 1000)

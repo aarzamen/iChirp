@@ -24,6 +24,7 @@ struct SettingsScreen: View {
                     speechGroup
                     privacyGroup
                     textGroup
+                    VoiceSettingsGroup()  // plan 020: Settings → Voices
                     AboutSection()
                     #if DEBUG
                     DiagnosticsSection()
