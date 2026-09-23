@@ -57,7 +57,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   (`phase == .failed`) with no row created. `reset()` clears it for another link. Plan 019: when captions are missing
   (or YouTube refuses them) and a Mac companion is set up, `phase == .companionOffer(reason)`; the person confirms
   once per link (`needsCompanionConfirmation`, `confirmCompanion()`) and `getAudioFromMac()` starts a `.companion`
-  job. Without a companion the failure says how to set one up.
+  job. Without a companion the failure keeps the captions error's own advice (try again later, share the file) and
+  adds how to set one up.
 - `CompanionSettingsStore.swift` (plan 019): Settings → Mac companion. Host, port and the trusted flag in
   `UserDefaults` (`ichirp.companion`); the pairing token only in `SecretStoring` (`companion.pairing-token`). It is
   **the concrete `CompanionConfiguration`** (ChirpCore) that plan 020's voices read, makes the `CompanionClient`

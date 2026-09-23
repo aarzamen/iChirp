@@ -391,13 +391,26 @@ final class LinkImportCompanionOfferTests: XCTestCase {
         XCTAssertEqual(model.phase, .companionOffer("YouTube wouldn’t give Parakeet this video’s captions."))
     }
 
+    /// Review L1 M4: without a companion, M5's own guidance stays (try again later, share the file), then the hint.
+    func testWithoutACompanionTheCaptionErrorKeepsItsOwnAdvice() async {
+        for error in [YouTubeCaptionError.blocked, .consentRequired, .pageChanged, .tokenRequired] {
+            let model = makeModel(captionsError: error, companion: nil)
+            model.text = youtube
+            model.transcribe()
+            await model.waitUntilSettled()
+            guard case .failed(let message) = model.phase else { return XCTFail("expected a failure") }
+            XCTAssertTrue(message.hasPrefix(error.errorDescription ?? "-"), message)
+            XCTAssertTrue(message.contains("Settings → Mac companion"), message)
+        }
+    }
+
     func testNoCaptionsWithoutACompanionSaysHowToSetItUp() async throws {
         let model = makeModel(captionsError: .noCaptions, companion: nil)
         model.text = youtube
         model.transcribe()
         await model.waitUntilSettled()
         guard case .failed(let message) = model.phase else { return XCTFail("expected a failure") }
-        XCTAssertTrue(message.hasPrefix("This video has no captions."))
+        XCTAssertTrue(message.hasPrefix(YouTubeCaptionError.noCaptions.errorDescription ?? "-"), message)
         XCTAssertTrue(message.contains("Settings → Mac companion"))
         XCTAssertNil(model.companionLink)
         let rows = try await store.fetchAll()
