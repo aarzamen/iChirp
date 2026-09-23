@@ -23,7 +23,9 @@ throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scr
 
 - `NeedleCModel.swift`: `NeedleRuntimeInfo` (the pinned commit, whether the runtime is linked) and `NeedleCModel`, a
   thin synchronous wrapper over `needle_v3_load`, `needle_v3_generate`, `needle_v3_confidence_for`,
-  `needle_free_str` and `needle_last_error`. Not thread-safe; only the runtime actor owns one.
+  `needle_free_str` and `needle_last_error`. Not thread-safe; only the runtime actor owns one. `needle_v3_has_confidence`
+  is read once at load: a model without a head throws `.noConfidenceHead`, and a failed score on a model with one
+  throws `.confidenceFailed` with `needle_last_error`.
 - `NeedleRuntime.swift`: `NeedleInferring` (load, unload, complete), the `NeedleRuntime` actor (one model per
   process, on its own serial queue so a multi-second generation never blocks Swift's cooperative pool; one
   constrained greedy generation, then the confidence head over the completion) and `NeedleToolCallParser` (port of

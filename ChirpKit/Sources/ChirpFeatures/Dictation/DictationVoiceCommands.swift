@@ -130,6 +130,10 @@ public struct VoiceCommandChip: Sendable, Equatable {
 
     public var isEnabled: Bool { settings.load().voiceCommandsEnabled }
 
+    /// Review L3 minor 4: dictation is routed as clinical (the strictest class), so a voice command's words only ever
+    /// reach an on-device structure engine, whatever class the dictation is saved with later.
+    static let routingClass = PrivacyClass.clinical
+
     public func reset() {
         liveTask?.cancel()
         liveTask = nil
@@ -153,7 +157,8 @@ public struct VoiceCommandChip: Sendable, Equatable {
 
     private func checkLive(_ text: String) async {
         let resolver = await makeResolver()
-        guard let match = await resolver.liveCommand(in: text), !Task.isCancelled else { return }
+        guard let match = await resolver.liveCommand(in: text, privacyClass: Self.routingClass), !Task.isCancelled
+        else { return }
         // Review L3 minor 6 (plan 015 Step 7): the live check is chip-only. A live "stop" never ends the recording
         // (a false positive would lose the words said after it); the final pass still applies a spoken "stop".
         chip = VoiceCommandChip(
@@ -164,7 +169,7 @@ public struct VoiceCommandChip: Sendable, Equatable {
     public func applyToFinalPass(_ text: String) async -> VoiceCommandResult {
         liveTask?.cancel()
         guard isEnabled else { return .unchanged(text) }
-        let result = await makeResolver().resolve(text)
+        let result = await makeResolver().resolve(text, privacyClass: Self.routingClass)
         lastResult = result
         return result
     }

@@ -116,19 +116,26 @@ struct StructureGateScreen: View {
                     footer:
                         "At or above Act, a field is shown solid; at or above Provisional, dashed; below, it waits in "
                         + "Needs review. A failed check (a number that does not trace to the transcript, out of range, a "
-                        + "spoken correction) always needs review. Every field stays a draft until you review it."
+                        + "spoken correction) always needs review. Every field stays a draft until you review it. "
+                        + "Act never goes below 70 and Provisional never below 50."
                 ) {
                     SettingsRow(title: "Act", caption: "Default 85") {
-                        Slider(value: $structure.settingsValue.actThreshold, in: 0.5...0.99, step: 0.01)
-                            .frame(width: 150)
+                        Slider(
+                            value: $structure.settingsValue.actThreshold, in: StructureSettings.actFloor...0.99,
+                            step: 0.01
+                        )
+                        .frame(width: 150)
                         Text("\(Int((structure.settingsValue.actThreshold * 100).rounded()))")
                             .chirpFont(15)
                             .monospacedDigit()
                             .frame(width: 30)
                     }
                     SettingsRow(title: "Provisional", caption: "Default 60") {
-                        Slider(value: $structure.settingsValue.provisionalThreshold, in: 0.3...0.95, step: 0.01)
-                            .frame(width: 150)
+                        Slider(
+                            value: $structure.settingsValue.provisionalThreshold,
+                            in: StructureSettings.provisionalFloor...0.95, step: 0.01
+                        )
+                        .frame(width: 150)
                         Text("\(Int((structure.settingsValue.provisionalThreshold * 100).rounded()))")
                             .chirpFont(15)
                             .monospacedDigit()

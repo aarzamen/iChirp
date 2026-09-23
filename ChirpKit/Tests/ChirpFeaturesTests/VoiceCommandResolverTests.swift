@@ -130,6 +130,21 @@ final class VoiceCommandResolverTests: XCTestCase {
         XCTAssertTrue(commands.appliedSummary?.contains("STUB") ?? false, commands.appliedSummary ?? "nil")
     }
 
+    @MainActor
+    func testDictationCommandWordsNeverReachAnEngineOffThePhone() async {
+        var settings = StructureSettings()
+        settings.voiceCommandsEnabled = true
+        settings.engine = .needle
+        let cloud = RecordingStructureModel(
+            locality: .cloud, reply: #"[{"name":"new_paragraph","arguments":{}}]"#, confidence: 0.99)
+        let commands = DictationVoiceCommands(
+            settings: InMemoryStructureSettingsStore(settings),
+            engines: StructureEngines(needle: cloud, needleAvailability: { .ready }))
+        let result = await commands.applyToFinalPass("First. New paragraph. Second.")
+        XCTAssertEqual(result.text, "First. New paragraph. Second.")
+        XCTAssertEqual(cloud.callCount, 0, "review L3 minor 4: dictation routes as clinical")
+    }
+
     func testReadBackUsesTheSpeakerAndSendToOpensTransform() async {
         let speaker = RecordingSpeaker()
         var settings = StructureSettings()

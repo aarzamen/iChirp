@@ -33,6 +33,8 @@ public enum NeedleRuntimeError: Error, Equatable, Sendable, LocalizedError {
     case generationFailed(String)
     /// The container exports no confidence head, so nothing can be gated.
     case noConfidenceHead
+    /// `needle_v3_confidence_for` failed on a model that has a head (for example, the input is too long).
+    case confidenceFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -40,6 +42,7 @@ public enum NeedleRuntimeError: Error, Equatable, Sendable, LocalizedError {
         case .loadFailed(let reason): "Needle could not load its model: \(reason)"
         case .generationFailed(let reason): "Needle could not answer: \(reason)"
         case .noConfidenceHead: "This Needle model has no confidence head, so its answers cannot be gated."
+        case .confidenceFailed(let reason): "Needle could not score its answer: \(reason)"
         }
     }
 }
@@ -52,6 +55,8 @@ final class NeedleCModel {
     #if canImport(NeedleC)
     private let handle: OpaquePointer
     #endif
+    /// Read once at load (review L3 minor 3), so a later failure is reported as what it is.
+    let hasConfidenceHead: Bool
 
     /// Loads a `.cact` container from disk.
     init(contentsOf url: URL) throws(NeedleRuntimeError) {
@@ -60,6 +65,7 @@ final class NeedleCModel {
             throw .loadFailed(Self.lastError() ?? "unknown error")
         }
         self.handle = handle
+        hasConfidenceHead = needle_v3_has_confidence(handle)
         #else
         throw .notInBuild
         #endif
@@ -91,9 +97,10 @@ final class NeedleCModel {
     /// judgement, never the bare query).
     func confidence(query: String, toolsJSON: String, completion: String) throws(NeedleRuntimeError) -> Double {
         #if canImport(NeedleC)
+        guard hasConfidenceHead else { throw .noConfidenceHead }
         var value: Float = 0
         guard needle_v3_confidence_for(handle, query, toolsJSON, completion, &value) else {
-            throw .noConfidenceHead
+            throw .confidenceFailed(Self.lastError() ?? "unknown error")
         }
         return Double(value)
         #else

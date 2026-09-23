@@ -35,9 +35,15 @@ public struct StructureSettings: Codable, Sendable, Equatable {
         if let value = try? container.decodeIfPresent(StructureEngineChoice.self, forKey: .engine) { engine = value }
     }
 
-    /// The gate these settings describe (thresholds clamped to 0…1, provisional never above act).
+    /// The lowest act and provisional thresholds the settings allow (review L3 minor 2: the eval's wrong allergies
+    /// scored 0.29 and 0.39, so the gate never goes that low).
+    public static let actFloor = 0.70
+    public static let provisionalFloor = 0.50
+
+    /// The gate these settings describe (thresholds clamped to their floors and 1, provisional never above act).
     public var gate: StructuredResultGate {
-        StructuredResultGate(act: actThreshold, provisional: provisionalThreshold)
+        StructuredResultGate(
+            act: max(actThreshold, Self.actFloor), provisional: max(provisionalThreshold, Self.provisionalFloor))
     }
 }
 

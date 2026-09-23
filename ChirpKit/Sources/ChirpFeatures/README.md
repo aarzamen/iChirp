@@ -260,7 +260,7 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   utterance that equals one of its phrases, optionally after "okay"/"please").
 
 - `Structure/StructuredResultGate.swift`: `StructureSettings` (voice commands off by default, gate thresholds,
-  engine choice; its own UserDefaults key) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
+  engine choice; its own UserDefaults key; the gate never below act 0.70 / provisional 0.50) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
   else needs review; any problem forces needs review); `StructuredCallValidator` (per sentence: maps tags back to the
   normalizer's values, traces digits a model copied, **re-reads every number independently of the normalizer**
   (`IndependentNumberCheck.swift`: regex digits, spell-out `NumberFormatter`, its own unit list, plus the words right
@@ -297,7 +297,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   a `ReadBackRelay` to plan 020's `VoicePlayer` with source `.dictationReadBack(id:)`, so every chunk routes on that
   dictation's effective class; `SilentReadBack` is the unconnected default), `DictationVoiceCommanding` (the coordinator's hooks)
   and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, chip only, even for "stop"; the
-  final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental"). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+  final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental";
+  dictation is routed as clinical, so command words only reach on-device engines). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
   order (Needle answered differently, and worse, when the schema keys were sorted).

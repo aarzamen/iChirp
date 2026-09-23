@@ -37,6 +37,15 @@ final class StructuredResultGateTests: XCTestCase {
         XCTAssertEqual(store.load().gate, StructuredResultGate())
     }
 
+    func testTheSettingsGateHasAFloor() {
+        var settings = StructureSettings()
+        settings.actThreshold = 0.5
+        settings.provisionalThreshold = 0.3
+        XCTAssertEqual(settings.gate.act, 0.7, "review L3 minor 2")
+        XCTAssertEqual(settings.gate.provisional, 0.5)
+        XCTAssertEqual(settings.gate.verdict(confidence: 0.39), .needsReview, "the eval's “allergy to hypertension”")
+    }
+
     func testSettingsDecodeForgivingly() throws {
         let decoded = try JSONDecoder().decode(StructureSettings.self, from: Data(#"{"engine":"martian"}"#.utf8))
         XCTAssertEqual(decoded, StructureSettings())
