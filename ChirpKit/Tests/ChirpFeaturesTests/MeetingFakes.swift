@@ -201,13 +201,24 @@ func toneSamples(seconds: Double = 1, amplitude: Float = 0.3) -> [Float] {
 
 /// Yields until `condition` holds (for state that is not `@Observable`, such as a fake's call log). Never sleeps;
 /// fails after `maxYields`.
+/// Polls `condition` until it holds or `timeout` passes. Bounded by time, not by a yield count: under the full
+/// suite's parallel load, work on other executors can take far more yields than it does alone (a yield-count bound
+/// made `testPauseMuteAndInterruptionsReachTheRecorderAndDriveTheState` fail only in full runs).
 func spinUntil(
-    maxYields: Int = 100_000, file: StaticString = #filePath, line: UInt = #line,
+    timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line,
     _ condition: @Sendable () -> Bool
 ) async {
-    for _ in 0..<maxYields {
+    let deadline = Date().addingTimeInterval(timeout)
+    var spins = 0
+    while Date() < deadline {
         if condition() { return }
-        await Task.yield()
+        spins += 1
+        if spins % 1_000 == 0 {
+            try? await Task.sleep(for: .milliseconds(1))
+        } else {
+            await Task.yield()
+        }
     }
-    XCTFail("condition not met", file: file, line: line)
+    if condition() { return }
+    XCTFail("condition not met within \(timeout) s", file: file, line: line)
 }
