@@ -184,6 +184,21 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 
+## Voice output (plan 020, `Voice/`)
+
+- `Voice/VoicePlayer.swift`: the `@MainActor @Observable` reader behind Listen, spoken Ask answers and plan 015's
+  dictation "read back" (`speak(text:privacyClass:source:)`), ported from Readback's `SynthQueue`. States `idle`,
+  `preparing`, `needsConfirmation`, `speaking(chunk, of)`, `paused`, `failed` (with `retry()` from the failed
+  chunk). One synthesis at a time, exactly one chunk ahead of the one playing; transient errors retried twice.
+  **Routing:** `availability()` first (sends no text), then `PrivacyRoutingPolicy` before the first and every later
+  chunk; clinical text to a cloud voice or an untrusted Mac waits in `.needsConfirmation` (`VoiceConfirmationRequest`,
+  "Read this clinical text aloud with Grok voices?") until `confirmPendingSpeech()` (the dialog's Read aloud button
+  only) or `declinePendingSpeech()`; the confirmation covers that utterance's engine, locality and host only.
+  `VoiceSource` names what is read (logs carry its kind, engine id, class and counts, never text).
+- `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
+  later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
+- `Voice/VoiceProviderKind.swift`: the two voice providers (Mac companion, Grok voices) and their engine ids.
+
 ## Wiring (app composition root)
 
 ```swift
