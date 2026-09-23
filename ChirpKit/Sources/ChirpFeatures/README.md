@@ -273,7 +273,10 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   than N days; keep forever by default) and `MeetingAudioRetentionSweeper` (marks the row `audioRemovedAt` first,
   then deletes `meeting.caf`; the transcript and notes stay).
 - `TranscriptNotesViewModel.swift`: the Transcript's Notes tab (notes saved with `updateUserNotes`, blank clears;
-  speaker rename with `renameSpeaker`, blank names refused).
+  speaker rename with `renameSpeaker`, blank names refused). UX audit F59: the notes save as you type, one write
+  `autosaveDelay` (0.8 s) after the last keystroke; `flush()` writes at once (Done, the sheet going away); writes run
+  one after another with the text as it is when each runs, so the newest text always lands last;
+  `discardUnsavedNotes()` is the explicit "Close without saving" after a failed write.
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 
