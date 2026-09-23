@@ -43,7 +43,9 @@ let package = Package(
         .target(name: "ChirpIngest", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(
             name: "ChirpFeatures", dependencies: ["ChirpCore", "ChirpText", "ChirpExport", "ChirpIngest"],
-            exclude: ["README.md"]),
+            exclude: ["README.md"],
+            // M6: frozen structure-model tool catalogs (soap-meds.v1, dictation-commands.v1).
+            resources: [.copy("Resources/StructureCatalogs")]),
         .target(name: "ChirpUI", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .testTarget(name: "ChirpCoreTests", dependencies: ["ChirpCore"]),
         .testTarget(name: "ChirpTextTests", dependencies: ["ChirpText"]),

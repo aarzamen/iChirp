@@ -184,6 +184,17 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 
+## Structure models (M6, `Structure/`; plan 015, contract [structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md))
+
+- `Structure/StructureCatalog.swift`: `JSONValue`, `StructureTool`, `StructureCatalog` (frozen, versioned catalogs
+  loaded from `Resources/StructureCatalogs/`: `soap-meds.v1`, `dictation-commands.v1`; `toolsJSON` is what a model
+  reads, without the spoken `phrases`), `StructuredCall` (parse a call array; `problems(against:)` names unknown
+  tools, missing required arguments and values outside an enum). A test pins each catalog file's SHA-256: a change
+  ships as a new version file.
+- `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
+  pseudo-confidence; always available and always labelled STUB. `VoiceCommandText` (a command is a whole short
+  utterance that equals one of its phrases, optionally after "okay"/"please").
+
 ## Wiring (app composition root)
 
 ```swift
