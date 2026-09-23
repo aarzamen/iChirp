@@ -96,7 +96,7 @@ struct MeetingRecoverySheet: View {
                 systemImage: outcome?.succeeded == true ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
             )
             .chirpFont(15, .semibold)
-            .foregroundStyle(outcome?.succeeded == true ? Tokens.Color.success : AppColor.error)
+            .foregroundStyle(outcome?.succeeded == true ? Tokens.Color.successInk : AppColor.error)
             Text(outcome?.message ?? "")
                 .chirpFont(13)
                 .foregroundStyle(Tokens.Color.secondary)

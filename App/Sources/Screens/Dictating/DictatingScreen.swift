@@ -253,7 +253,7 @@ struct DictatingScreen: View {
                         .chirpFont(15, .bold)
                         .padding(.horizontal, 18)
                         .frame(minHeight: 44)
-                        .background(Capsule().fill(Tokens.Color.accent))
+                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
                 .buttonStyle(.plain)
             }
@@ -367,7 +367,7 @@ struct DictatingScreen: View {
                 Text(primary.0)
                     .chirpFont(17, .bold)
                     .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Capsule().fill(Tokens.Color.accent))
+                    .background(Capsule().fill(Tokens.Color.accentFill))
             }
             .buttonStyle(.plain)
             if let secondary {

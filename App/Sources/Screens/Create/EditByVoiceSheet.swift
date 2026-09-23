@@ -421,7 +421,7 @@ struct EditByVoiceSheet: View {
                 .chirpFont(16, .bold)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Capsule().fill(enabled ? Tokens.Color.accentInk : Tokens.Color.mutedText))
+                .background(Capsule().fill(enabled ? Tokens.Color.accentFill : Tokens.Color.mutedText))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

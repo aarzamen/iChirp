@@ -410,7 +410,7 @@ struct CreateSheet: View {
                 .chirpFont(16, .bold)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Capsule().fill(problem == nil ? Tokens.Color.accentInk : Tokens.Color.mutedText))
+                .background(Capsule().fill(problem == nil ? Tokens.Color.accentFill : Tokens.Color.mutedText))
             }
             .buttonStyle(.plain)
             .disabled(problem != nil)

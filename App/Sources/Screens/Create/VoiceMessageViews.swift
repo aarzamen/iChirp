@@ -206,7 +206,7 @@ struct VoiceMessageProgressCard: View {
                         .chirpFont(15, .semibold)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, minHeight: 46)
-                        .background(Capsule().fill(Tokens.Color.accentInk))
+                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
                 .buttonStyle(.plain)
             case .failed:

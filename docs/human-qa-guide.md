@@ -850,6 +850,40 @@ Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
 - [ ] Transforms tab with more than 50 documents: "Show older documents" adds the rest; none is out of reach.
 - [ ] A document or text item: the star and Paste a link's clear (x) are easy to tap; the privacy chip has its own row.
 
+## Dark palette checklist (plan 023 F6, wave-4 lane dark-palette)
+
+> Preconditions: a build at or after the wave4/dark-palette merge. Light and dark screenshots of every main screen,
+> with the contact sheet, are in `.superpowers/sdd/milestones/w4-dark-palette-screens/index.html`. Synthetic data only.
+> Switch schemes in Settings → Display & Brightness; Increase Contrast is Settings → Accessibility → Display & Text
+> Size.
+
+Dark mode, at night
+- [ ] Settings → Display & Brightness → Dark. Capture, Library, a transcript, Transforms, a document and Settings are
+      a warm near-black (not pure black) with soft off-white text; nothing glares.
+- [ ] Capture: the coral Create circle, the Record Meeting **Start** and every filled button (Done, Hide, Create,
+      Edit by voice) read clearly, white on a deep terracotta.
+- [ ] Create sheet: the green "Runs on this iPhone" pill and a Clinical chip are dark tinted pills, not light patches.
+- [ ] A transcript with three or four speakers: each speaker's name is easy to read and the four colors are easy to
+      tell apart, including on the highlighted (current) paragraph.
+- [ ] An error line (Paste a link with a bad link, a failed Create step) is a readable light red.
+- [ ] Library → swipe a row left: Delete is a red fill with a white label.
+- [ ] Ask on a transcript while it answers: the Stop button's square is visible.
+
+Dictating stays dark by design
+- [ ] In Light mode and again in Dark mode, press the Action Button (or Dictate): the Dictating screen looks the same
+      both times; Stop & copy, Resume and Close read clearly.
+
+Increase Contrast, both schemes
+- [ ] Turn Increase Contrast on: in Light mode borders and secondary text get darker and the favorite star and
+      chevrons stronger; in Dark mode text gets brighter and borders clearer. Nothing gets harder to read.
+
+Regression
+- [ ] Light mode looks exactly as before (the canvas colors did not change).
+- [ ] The launch screen matches the scheme (no white flash in Dark mode).
+
+Screenshots to attach
+- [ ] Capture and a transcript in Dark mode; the Dictating screen.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

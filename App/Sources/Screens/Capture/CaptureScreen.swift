@@ -197,7 +197,7 @@ struct CaptureScreen: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .frame(minHeight: 30)
-                            .background(Capsule().fill(Tokens.Color.accentInk))
+                            .background(Capsule().fill(Tokens.Color.accentFill))
                             .padding(.top, 3)
                     }
                 }
@@ -358,7 +358,7 @@ struct CaptureScreen: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 34)
-                    .background(Capsule().fill(Tokens.Color.accentInk))
+                    .background(Capsule().fill(Tokens.Color.accentFill))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

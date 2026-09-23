@@ -467,7 +467,7 @@ struct CreateRunView: View {
                         .chirpFont(15.5, .bold)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Capsule().fill(Tokens.Color.accentInk))
+                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Keeps going; Capture shows the progress")
@@ -490,7 +490,7 @@ struct CreateRunView: View {
                         .chirpFont(15.5, .bold)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Capsule().fill(Tokens.Color.accentInk))
+                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
                 .buttonStyle(.plain)
             }

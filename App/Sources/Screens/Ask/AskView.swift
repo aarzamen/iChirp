@@ -188,7 +188,7 @@ struct AskView: View {
                     } label: {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Tokens.Color.ground)
                             .frame(width: 40, height: 40)
                             .background(Circle().fill(Tokens.Color.ink))
                             .frame(width: 44, height: 44)  // F60

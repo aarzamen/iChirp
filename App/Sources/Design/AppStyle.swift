@@ -1,40 +1,27 @@
 import ChirpUI
 import SwiftUI
-import UIKit
 
-/// App-level colors derived from `Tokens` for the few surfaces the canvas defines in light mode only.
+/// App-level names for `Tokens` colors, kept so screens read by role ("accent text", "error").
 ///
-/// The canvas is light-only (spec/04-ui.md). `Tokens` already adapts ground, surface, border, ink and secondary; the
-/// tint and quiet fills below would put light fills under light (dark-mode) ink, so in dark mode they fall back to
-/// other token values instead of a new palette. No hex literals here: every value comes from `Tokens`.
+/// Every token now carries its own light, dark and Increase Contrast values (plan 023, F6: `Tokens.Palette`), so
+/// these are plain aliases: no opacity blends and no per-screen dark branches. No hex literals here.
 enum AppColor {
-    /// The tint fill (Dictate card, current paragraph, icon tiles).
-    static let tintFill = adaptive(light: Tokens.Color.tint, dark: Tokens.Color.accent.opacity(0.16))
-    /// The Dictate card's hairline.
-    static let tintStroke = adaptive(light: Tokens.Color.tintBorder, dark: Tokens.Color.accent.opacity(0.35))
+    /// The tint fill (Create card, current paragraph, icon tiles, selected chips). A deep warm tint in dark mode.
+    static let tintFill = Tokens.Color.tint
+    /// The tint card's hairline.
+    static let tintStroke = Tokens.Color.tintBorder
     /// A selected chip's hairline.
-    static let tintStrokeSelected = adaptive(
-        light: Tokens.Color.tintBorderSelected, dark: Tokens.Color.accent.opacity(0.5))
-    /// Tracks, inactive segments, row separators.
-    static let quietFill = adaptive(light: Tokens.Color.quietFill, dark: Tokens.Color.border)
-    /// Accent text: accent-ink on the light ground, the brighter accent on the dark ground (contrast).
-    static let accentText = adaptive(light: Tokens.Color.accentInk, dark: Tokens.Color.accent)
-    /// Accent text specifically on a tint fill — `CapsuleButtonLabel`'s `.tinted` kind (F8): `accentInk` on
-    /// `tintFill` measures 4.39:1 in light mode, below 4.5 for 13–13.5pt text. `accentInkPressed` gets about 7:1
-    /// without changing the tint fill itself. The dark branch is unchanged from `accentText` today (plan 023, F6
-    /// gives dark mode its own palette later).
-    static let accentTextOnTint = adaptive(light: Tokens.Color.accentInkPressed, dark: Tokens.Color.accent)
-    /// Error text and destructive actions.
-    static let error = Tokens.Color.stopRed
-
-    private static func adaptive(light: Color, dark: Color) -> Color {
-        let lightColor = UIColor(light)
-        let darkColor = UIColor(dark)
-        return Color(
-            UIColor { traits in
-                (traits.userInterfaceStyle == .dark ? darkColor : lightColor).resolvedColor(with: traits)
-            })
-    }
+    static let tintStrokeSelected = Tokens.Color.tintBorderSelected
+    /// Tracks, inactive segments, row separators, quiet chips.
+    static let quietFill = Tokens.Color.quietFill
+    /// Accent text and links: text-safe on ground and surface in every appearance.
+    static let accentText = Tokens.Color.accentInk
+    /// Accent text on a tint fill — `CapsuleButtonLabel`'s `.tinted` kind (F8): about 7:1 on `tintFill` in light
+    /// mode (plain `accentInk` is 4.39:1 there) and 7.5:1 in dark mode.
+    static let accentTextOnTint = Tokens.Color.accentInkPressed
+    /// Error text and glyphs. A destructive *fill* (swipe action, Stop & save) reads `Tokens.Color.stopRed`, since
+    /// dark mode's error text is a light red that a white label could not sit on.
+    static let error = Tokens.Color.errorInk
 }
 
 /// A canvas font size that still follows Dynamic Type: `size` is the canvas value at the default text size and
@@ -126,7 +113,7 @@ struct CardBackground: View {
 /// A small capsule action button ("Retry", "Download", "Delete", "Start").
 struct CapsuleButtonLabel: View {
     enum Kind {
-        /// Accent-ink fill, white text (canvas "Start").
+        /// Accent fill, white text (canvas "Start").
         case filled
         /// Tint fill, accent text.
         case tinted
@@ -153,7 +140,7 @@ struct CapsuleButtonLabel: View {
 
     private var foreground: Color {
         switch kind {
-        case .filled: .white
+        case .filled: Tokens.Color.onAccent
         // F8: `accentTextOnTint`, not `accentText` — `accentText` alone fails 4.5:1 on this button's tint
         // background in light mode.
         case .tinted: AppColor.accentTextOnTint
@@ -163,7 +150,7 @@ struct CapsuleButtonLabel: View {
 
     private var background: Color {
         switch kind {
-        case .filled: Tokens.Color.accentInk
+        case .filled: Tokens.Color.accentFill
         case .tinted: AppColor.tintFill
         case .destructive: AppColor.quietFill
         }

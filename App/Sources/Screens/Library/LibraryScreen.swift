@@ -235,7 +235,7 @@ struct LibraryScreen: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-            .tint(AppColor.error)
+            .tint(Tokens.Color.stopRed)
             Button {
                 Task { await toggleFavorite(item) }
             } label: {

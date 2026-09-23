@@ -33,3 +33,6 @@ mark.
    (tested against every template's output shape); PDF/Word unchanged.
 4. **Dark palette (F6):** tokens gain dark values; a contrast test over every text token × background in both schemes;
    screenshots of every main screen light and dark for the owner before merge.
+   *Status (wave4/dark-palette, not merged): built and waiting for the owner's approval of the light/dark contact
+   sheet. `Tokens.Palette` gives every token dark and Increase Contrast values; `ContrastTests` measures 78 pairs in
+   four appearances; the Dictating and Meeting covers render in an app-hosted test.*

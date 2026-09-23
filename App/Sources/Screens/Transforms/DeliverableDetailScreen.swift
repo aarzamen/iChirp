@@ -196,7 +196,7 @@ struct DeliverableDetailScreen: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16)
                 .frame(minHeight: 44)  // UX audit F36
-                .background(Capsule().fill(Tokens.Color.accentInk))
+                .background(Capsule().fill(Tokens.Color.accentFill))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
