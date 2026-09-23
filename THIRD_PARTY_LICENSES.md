@@ -41,6 +41,13 @@ record the result here before shipping an IPA to anyone else.
   the user's own key and server. No SDK is linked; the adapters are ports of MacParakeet's GPL-3.0 code. Model
   weights run on the provider's or the user's own machine under their own licenses.
 
+## Remote decision service (M6a)
+
+- **Jev** (TypeSafe AI, `https://api.typesafe.ai/v1/systemone`): a proprietary cloud API under TypeSafe's API terms,
+  reached over HTTPS by `ChirpEngineJev` with the user's own key. A network service only: no SDK or TypeSafe code is
+  linked, so there is no license interaction with GPL-3.0; the wire types are a port of MacParakeet's GPL-3.0
+  `JevDecisionClient.swift`. Opt-in, off by default, and never sent clinical items ([ADR-013](spec/adr/013-jev-decision-model.md)).
+
 ## Ingest (M5): methods, system frameworks and remote services
 
 M5 adds **no Swift package dependency**. DOCX files are unzipped by ChirpIngest's own Foundation-based
@@ -81,7 +88,6 @@ These are recorded so their license verdicts are not rediscovered each time. Eac
 |---|---|---|
 | Cactus engine | Custom source-available license with company-size limits | Not GPL-compatible for distribution: opt-in personal builds only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
 | Needle 3 (`libneedle.a` runtime) | Weights Apache-2.0; runtime binary-only | Personal builds only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
-| Jev | Proprietary cloud API | No linking issue; privacy router keeps clinical content away |
 | AnyLanguageModel | Apache-2.0 | Compatible, **evaluated and not linked** (ADR-011: 0.9.0 pulls 8 packages incl. swift-nio and swift-syntax; its Ollama adapter omits `num_ctx`) |
 | WhisperKit (`argmax-oss-swift`) | MIT | Compatible |
 | MLX Swift, llama.cpp | MIT | Compatible |
