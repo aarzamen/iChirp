@@ -7,6 +7,10 @@ import SwiftUI
 /// The Transcript screen's Ask tab (canvas `Ask.dc.html`): a locality chip that picks the model and says where it
 /// runs, questions and answers with timestamp chips that seek the player, suggestion chips, and the input bar.
 /// Every question is its own routed run; a clinical transcript bound for a cloud model asks first.
+///
+/// Polish (UX audit W): 44 pt targets for the suggestion and citation chips and Send / Stop (the visuals keep their
+/// canvas sizes), rows that stack at accessibility sizes, and an honest intro: answers cite moments when they can, and
+/// an answer without one says so.
 struct AskView: View {
     @Environment(AppEnvironment.self) private var environment
     let transcription: Transcription
@@ -23,7 +27,8 @@ struct AskView: View {
     static let suggestions: [(title: String, question: String)] = [
         ("Action items", "What are the action items, and who owns each one?"),
         ("Decisions", "What was decided?"),
-        ("Draft a summary", "Draft a short summary of this conversation."),
+        // F62: a question Transform does not already answer (and save) better.
+        ("What's the plan?", "What's the plan, and what happens next?"),
     ]
 
     init(
@@ -41,10 +46,16 @@ struct AskView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        HStack {
-                            ModelChoiceMenu(prefix: "Answering", choice: $choice)
-                            Spacer(minLength: 0)
-                            SpeakAnswersToggle()  // plan 020
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                ModelChoiceMenu(prefix: "Answering", choice: $choice)
+                                Spacer(minLength: 8)
+                                SpeakAnswersToggle()  // plan 020
+                            }
+                            VStack(alignment: .leading, spacing: 0) {
+                                ModelChoiceMenu(prefix: "Answering", choice: $choice)
+                                SpeakAnswersToggle()
+                            }
                         }
                         if let message = environment.unavailableMessage(for: choice) {
                             ModelUnavailableNote(message: message)
@@ -130,7 +141,7 @@ struct AskView: View {
     private var introText: String {
         let length = transcription.durationMs.map { " all \(Formatting.duration(ms: $0)) of" } ?? ""
         return "Ask about\(length) this transcript: decisions, commitments, or anything a speaker said. "
-            + "Answers cite the moments they come from."
+            + "Answers cite the moments they come from when they can."  // F61
     }
 
     private var inputArea: some View {
@@ -144,10 +155,14 @@ struct AskView: View {
                             Text(suggestion.title)
                                 .chirpFont(13, .semibold)
                                 .foregroundStyle(AppColor.accentText)
+                                .lineLimit(1)
+                                .fixedSize()
                                 .padding(.horizontal, 12)
                                 .frame(minHeight: 32)
                                 .background(Capsule().fill(AppColor.tintFill))
                                 .overlay(Capsule().strokeBorder(AppColor.tintStroke, lineWidth: 1))
+                                .frame(minHeight: 44)  // F60: a 32 pt chip in a 44 pt target
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(session.isBusy)
@@ -175,6 +190,8 @@ struct AskView: View {
                             .foregroundStyle(.white)
                             .frame(width: 40, height: 40)
                             .background(Circle().fill(Tokens.Color.ink))
+                            .frame(width: 44, height: 44)  // F60
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop answering")
@@ -187,6 +204,8 @@ struct AskView: View {
                             .foregroundStyle(.white)
                             .frame(width: 40, height: 40)
                             .background(Circle().fill(canSend ? Tokens.Color.accent : Tokens.Color.mutedText))
+                            .frame(width: 44, height: 44)  // F60
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSend)
@@ -261,24 +280,22 @@ private struct ExchangeView: View {
             }
             if case .answered(let answer) = run.phase {
                 citations(answer.citations)
-                HStack(spacing: 10) {
-                    Text("Answered \(ModelPlace.phrase(for: answer.route))")
+                if answer.citations.isEmpty {
+                    // F61: the intro promises citations "when they can"; say when this one has none.
+                    Text("No timestamp found for this answer.")
                         .chirpFont(11.5)
                         .foregroundStyle(Tokens.Color.secondary)
-                    Spacer(minLength: 0)
-                    Button(action: listen) {
-                        Label(listenState.title, systemImage: listenState.systemImage)
-                            .labelStyle(.titleAndIcon)
-                            .chirpFont(12.5, .semibold)
-                            .foregroundStyle(AppColor.accentText)
-                            .padding(.horizontal, 10)
-                            .frame(minHeight: 30)
-                            .background(Capsule().fill(AppColor.tintFill))
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        answeredLine(answer)
+                        Spacer(minLength: 0)
+                        listenButton
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(listenState == .listen ? "Listen to this answer" : "Stop reading this answer")
+                    VStack(alignment: .leading, spacing: 0) {
+                        answeredLine(answer)
+                        listenButton
+                    }
                 }
             } else if let line = RunStatus.text(run.phase) {
                 HStack(spacing: 8) {
@@ -300,6 +317,31 @@ private struct ExchangeView: View {
         }
     }
 
+    private func answeredLine(_ answer: AskAnswer) -> some View {
+        Text("Answered \(ModelPlace.phrase(for: answer.route))")
+            .chirpFont(11.5)
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var listenButton: some View {
+        Button(action: listen) {
+            Label(listenState.title, systemImage: listenState.systemImage)
+                .labelStyle(.titleAndIcon)
+                .chirpFont(12.5, .semibold)
+                .foregroundStyle(AppColor.accentText)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .frame(minHeight: 30)
+                .background(Capsule().fill(AppColor.tintFill))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(listenState == .listen ? "Listen to this answer" : "Stop reading this answer")
+    }
+
     @ViewBuilder private func citations(_ citations: [TranscriptCitation]) -> some View {
         if !citations.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -313,9 +355,13 @@ private struct ExchangeView: View {
                                 .chirpFont(12.5, .semibold)
                                 .monospacedDigit()
                                 .foregroundStyle(AppColor.accentText)
+                                .lineLimit(1)
+                                .fixedSize()
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 30)
                                 .background(Capsule().fill(AppColor.tintFill))
+                                .frame(minHeight: 44)  // F60: a 30 pt chip in a 44 pt target
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Play from \(citation.label)")
