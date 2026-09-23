@@ -48,13 +48,13 @@ struct NotBuiltYetSheet: View {
             Button {
                 dismiss()
             } label: {
+                // F94: a capsule, like every other primary button on the canvas — this one was the odd rounded
+                // rectangle out.
                 Text("Done")
                     .chirpFont(16, .semibold)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(
-                        RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous)
-                            .fill(Tokens.Color.accentInk))
+                    .background(Capsule().fill(Tokens.Color.accentInk))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)

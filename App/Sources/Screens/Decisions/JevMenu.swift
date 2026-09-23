@@ -33,9 +33,12 @@ struct JevMenu: View {
                 Section("Asks Jev, on TypeSafe's servers") { items(enabled: true) }
             }
         } label: {
+            // Accessibility floor: a bare toolbar word had no minimum hit area of its own.
             Text("Jev")
                 .chirpFont(15, .semibold)
                 .foregroundStyle(Tokens.Color.ink)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Jev")
         .accessibilityHint(
