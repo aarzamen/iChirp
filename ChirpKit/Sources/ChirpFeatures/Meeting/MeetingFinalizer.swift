@@ -95,21 +95,29 @@ public actor MeetingFinalizer {
         defer { try? FileManager.default.removeItem(at: normalizedURL) }
         // M7: the final route's engine as this pass is queued (Retry resolves again, so switching engines recovers).
         let speech = SpeechRouting.resolve(self.speech, for: .final)
+        let result: Transcription?
         do {
             let finished = try await run(row, speech: speech, normalizedURL: normalizedURL, progress: progress)
-            return try await saveAndSettle(finished)
+            result = try await saveAndSettle(finished)
         } catch {
             if Self.isCancellation(error) {
                 logger.notice("meeting_finalize_cancelled id=\(id, privacy: .public)")
-                return await markEnded(id, fallback: row, status: .cancelled, message: nil)
+                result = await markEnded(id, fallback: row, status: .cancelled, message: nil)
+            } else {
+                // Review I2: a missing model names the engine this pass resolved and what to do.
+                let message = Self.userMessage(
+                    for: SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
+                logger.error(
+                    "meeting_finalize_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)"
+                )
+                result = await markEnded(id, fallback: row, status: .failed, message: message)
             }
-            // Review I2: a missing model names the engine this pass resolved and what to do.
-            let message = Self.userMessage(
-                for: SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
-            logger.error(
-                "meeting_finalize_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
-            return await markEnded(id, fallback: row, status: .failed, message: message)
         }
+        // Review N4: a meeting normally holds the lease for its whole final pass, so a route change cannot race it —
+        // except `MeetingRecoveryService`, which runs this pass with no lease at all. Retry the release here too, in
+        // case a route change reached this engine while the pass held it (busy) and was refused.
+        await SpeechRouting.releaseUnroutedModels(on: self.speech)
+        return result
     }
 
     /// Moves a failed, cancelled or interrupted meeting back to `.processing` and runs the final pass again.

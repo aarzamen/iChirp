@@ -532,6 +532,7 @@ public struct DictationTextRules: Sendable {
         let speech = SpeechRouting.resolve(self.speech, for: .final)
         let routing = privacyRouting
         let store = self.store
+        let outcome: Result<FinalText, any Error>
         do {
             let privacyClass = try await store.fetch(id: row.id)?.privacyClass ?? row.privacyClass
             guard routing.allows(speech.descriptor, for: privacyClass) else {
@@ -589,13 +590,17 @@ public struct DictationTextRules: Sendable {
             }
             let finished = completed
             let saved = try await Self.detached { try await store.savePreservingUserMetadata(finished) }
-            return .success(FinalText(text: text, row: saved))
+            outcome = .success(FinalText(text: text, row: saved))
         } catch {
             logger.error("dictation_final_pass_failed error_type=\(error.logTypeName, privacy: .public)")
             // Review I2: a missing model names the engine this pass resolved and what to do.
-            return .failure(
+            outcome = .failure(
                 SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
         }
+        // Review N4: dictation holds no lease, so a route change can race this pass; its refusal (busy) is retried
+        // here now that the pass has released the engine, in case it is still on no route.
+        await SpeechRouting.releaseUnroutedModels(on: self.speech)
+        return outcome
     }
 
     /// Moves the row to `.failed` with a readable message; the audio stays for Retry.

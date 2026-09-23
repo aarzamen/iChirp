@@ -29,6 +29,8 @@ pipeline's `Task`s and publishes its progress to the UI.
     `media/<id>/normalized-16k.wav` → one scheduler
     `.fileTranscription` job (`prepare`, `transcribe`, then `diarize` if enabled and ready) → `SpeakerMerger` →
     `TextRefinement` → `TitleDeriver` / `SnippetDeriver` → `FileTranscriptSegments` → `savePreservingUserMetadata`.
+    Every run, success or not, ends with `SpeechRouting.releaseUnroutedModels(on:)` (review N4): a route change
+    could not unload the engine this job held (busy), so the release is retried once the job is done with it.
   - `retry(id:)` moves a `.failed` / `.cancelled` / `.interrupted` row back to `.processing` and runs `process`
     again from the stored source.
   - `sweepOrphanedTemporaryAudio()` deletes `normalized-16k.wav` files left by a killed process (call at launch).
@@ -148,7 +150,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   the text through `ClipboardWriting`. `failureKind` (`DictationFailureKind`: speech model missing, microphone
   denied, other) tells the Dictating screen which fix to offer, never by comparing sentences. M7: the start check
   and the final pass use the final route's engine and name it when its model is missing (`SpeechModelMissingError`).
-  Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
+  Dictation holds no lease, so a route change can reach the router while the final pass still holds its engine
+  (busy, refused); `runFinalPass` retries `SpeechRouting.releaseUnroutedModels(on:)` once it ends, success or not
+  (review N4). Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
@@ -243,7 +247,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the
   row (`.failed`, Retry), the lock and the audio. Privacy routing is checked before any audio is prepared and again
   inside the slot. Diarization shares the background slot with the final pass, so dictation's interactive slot is
-  never blocked; its cost is part of the finalize time.
+  never blocked; its cost is part of the finalize time. A meeting's own lease blocks a route change for its whole
+  final pass, but `MeetingRecoveryService` runs `finalize` with no lease at all, so `finalize` also retries
+  `SpeechRouting.releaseUnroutedModels(on:)` when it ends, success or not (review N4).
 - `MeetingRecoveryService.swift`: `discoverPendingRecoveries()` (orphans whose row is missing, processing or
   interrupted; a completed row only settles its leftover lock; failed rows are the Library's Retry), `recover`
   (claims the lock for this launch, removes `chunks/`, inserts or reuses the row with the lock's notes and

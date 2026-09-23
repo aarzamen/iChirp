@@ -55,7 +55,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
     model budget together (`SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes`); a Transcripts choice that
     does not fit moves live text to the same engine, a live choice that does not fit is refused, and a saved pair
     over the budget previews with the final engine. `releaseUnroutedModels()` unloads every engine on neither route
-    (`SpeechEngineUnloading`); Settings calls it after a change.
+    (`SpeechEngineUnloading`); Settings calls it after a change. It is a no-op for an engine a job still holds
+    (busy): `SpeechEngineRouting.releaseUnroutedModels()` and the static `SpeechRouting.releaseUnroutedModels(on:)`
+    (review N4) let the pipeline, the meeting finalizer and the dictation final pass retry it once their job ends,
+    in case that engine is still on no route.
   - `SpeechRouting.resolve(_:for:)` is how consumers take a route's engine once, when a job is queued.
 - `Engines/SpeechSynthesis.swift`: `SpeechSynthesizing` (text to speech: "Listen", spoken answers, read-back),
   `SynthesisRequest`, `SynthesisVoice`, `SynthesizedAudio`, `SpeechSynthesisError`. Engine kind `.speechSynthesis`.

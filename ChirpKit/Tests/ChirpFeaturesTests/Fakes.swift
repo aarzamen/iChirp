@@ -361,7 +361,7 @@ final class FakeTrackProbe: AudioTrackProbing {
 
 // MARK: - Speech engine
 
-actor FakeSpeech: SpeechEngine {
+actor FakeSpeech: SpeechEngine, SpeechEngineUnloading {
     static let helloText = "Hello there. General Kenobi."
     static let helloWords = [
         WordTimestamp(word: "Hello", startMs: 0, endMs: 400, confidence: 0.99),
@@ -385,6 +385,11 @@ actor FakeSpeech: SpeechEngine {
     private(set) var transcribedOptions: [SpeechTranscriptionOptions] = []
     /// Whether the normalized file existed when `transcribe` was called.
     private(set) var inputExistedAtTranscribe: [Bool] = []
+    /// True for the whole of `transcribe`, like a real engine's busy flag: `unloadModels()` refuses while it holds
+    /// (review N4/N5 tests).
+    private var busy = false
+    private(set) var unloadCalls = 0
+    private(set) var unloadRefusals = 0
 
     init(
         status: ModelAssetStatus = .ready(bytesOnDisk: 480_000_000), locality: EngineLocality = .onDevice,
@@ -478,6 +483,8 @@ actor FakeSpeech: SpeechEngine {
         options: SpeechTranscriptionOptions,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
+        busy = true
+        defer { busy = false }
         transcribedURLs.append(url)
         transcribedOptions.append(options)
         inputExistedAtTranscribe.append(FileManager.default.fileExists(atPath: url.path))
@@ -491,6 +498,15 @@ actor FakeSpeech: SpeechEngine {
         if let transcribeError { throw transcribeError }
         progress(1)
         return result
+    }
+
+    /// Like a real engine: refuses (counted, not thrown) while `transcribe` holds the model.
+    func unloadModels() async {
+        guard !busy else {
+            unloadRefusals += 1
+            return
+        }
+        unloadCalls += 1
     }
 }
 
