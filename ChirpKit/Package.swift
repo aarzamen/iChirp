@@ -6,6 +6,11 @@ import PackageDescription
 // vendor/NeedleC.xcframework. Linked only when it exists; without it ChirpEngineNeedle reports "not in this build".
 let needleRuntimePath = "../vendor/NeedleC.xcframework"
 let hasNeedleRuntime = FileManager.default.fileExists(atPath: Context.packageDirectory + "/" + needleRuntimePath)
+// M7 (ADR-015): llama.cpp, the on-device small-language-model runtime, built from source by scripts/build_llamacpp.sh
+// into the gitignored vendor/llama.xcframework. Linked only when it exists; without it ChirpEngineLlamaCpp reports
+// "not in this build".
+let llamaRuntimePath = "../vendor/llama.xcframework"
+let hasLlamaRuntime = FileManager.default.fileExists(atPath: Context.packageDirectory + "/" + llamaRuntimePath)
 
 let package = Package(
     name: "ChirpKit",
@@ -26,6 +31,7 @@ let package = Package(
         .library(name: "ChirpFeatures", targets: ["ChirpFeatures"]),
         .library(name: "ChirpUI", targets: ["ChirpUI"]),
         .library(name: "ChirpEngineNeedle", targets: ["ChirpEngineNeedle"]),
+        .library(name: "ChirpEngineLlamaCpp", targets: ["ChirpEngineLlamaCpp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio", exact: "0.16.1"),
@@ -74,6 +80,16 @@ let package = Package(
             exclude: ["README.md"]),
         // The opt-in real eval (NeedleEvalRealTests) runs ChirpFeatures' eval runner on the real model.
         .testTarget(name: "ChirpEngineNeedleTests", dependencies: ["ChirpEngineNeedle", "ChirpFeatures"]),
-    ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : []),
+        // M7 (ADR-015): small language models on the iPhone through llama.cpp; the `llama` binary target only when
+        // it has been built.
+        .target(
+            name: "ChirpEngineLlamaCpp", dependencies: ["ChirpCore"] + (hasLlamaRuntime ? ["llama"] : []),
+            exclude: ["README.md"]),
+        // The opt-in real-model test (CHIRP_ONDEVICE_LLM_TESTS=1) runs a SOAP note through the app's DeliverableService
+        // and a real database.
+        .testTarget(
+            name: "ChirpEngineLlamaCppTests", dependencies: ["ChirpEngineLlamaCpp", "ChirpFeatures", "ChirpStore"]),
+    ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : [])
+        + (hasLlamaRuntime ? [.binaryTarget(name: "llama", path: llamaRuntimePath)] : []),
     swiftLanguageModes: [.v6]
 )

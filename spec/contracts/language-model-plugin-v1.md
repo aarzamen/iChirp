@@ -21,6 +21,7 @@ text without anyone noticing.
   `LanguageModelProviderConfiguration`, `LocalNetworkHost`, `PrivacyRoutingPolicy(trustingLocalNetworkHostsOf:)`.
 - `ChirpKit/Sources/ChirpCore/Secrets/SecretStoring.swift`: `SecretValue`, `SecretStoring`.
 - Conformers: `ChirpEngineAppleFM.AppleFoundationLanguageModel`, `ChirpEngineHTTPLLM.HTTPLanguageModel`,
+  `ChirpEngineLlamaCpp.LlamaCppLanguageModel` (M7, [ADR-015](../adr/015-on-device-llm-llama-cpp.md)),
   `ChirpKeychain.KeychainSecretStore`.
 
 ## Consumers
@@ -34,8 +35,9 @@ text without anyone noticing.
 ## Stable fields and semantics
 
 **Engine ids** (persisted in deliverables and the run ledger; never rename or reuse):
-`apple.foundation-models`, `http.anthropic`, `http.openai-compatible`, `http.ollama`. `EngineDescriptor.kind` is
-`.language`; `license` is never empty.
+`apple.foundation-models`, `http.anthropic`, `http.openai-compatible`, `http.ollama`, `llamacpp.gguf` (M7; the model
+is recorded as `GenerationUsage.model`, a catalog id such as `qwen3.5-2b-q4_k_m`, also never renamed).
+`EngineDescriptor.kind` is `.language`; `license` is never empty.
 
 **`LanguageModel`**
 - `descriptor.locality` and `endpointHost` describe where content goes. For HTTP engines both derive from the
@@ -47,7 +49,10 @@ text without anyone noticing.
 - `availability()` never touches the network. `generate` of an unavailable engine sends nothing and throws
   `LanguageModelError.unavailable(reason)`.
 - `contextWindowTokens()` is the whole window (instructions + input + output). Apple reads `contextSize` at run
-  time; Ollama sends exactly this value as `num_ctx`. Callers budget against it and never truncate input.
+  time; Ollama sends exactly this value as `num_ctx`; llama.cpp returns the window it allocates for the model
+  (`LlamaCppModelSpec.contextTokens`, not the trained maximum). Callers budget against it and never truncate input.
+  An engine that tokenizes locally (llama.cpp) throws `contextTooLong` before decoding anything when the prompt plus
+  `maxOutputTokens` does not fit.
 - `generate` stream order: zero or more `.text` deltas, at most one `.usage` (metadata only), then `.finished`
   exactly once. Anything else (a throw, or an end without `.finished`) is not a document. EOF without a provider's
   completion marker (Anthropic `message_stop`; OpenAI and OpenRouter `[DONE]`) and a stream with no text are
@@ -56,6 +61,10 @@ text without anyone noticing.
   `CancellationError`.
 - Errors are `LanguageModelError`. `kindName` is the only error text that may be logged or stored; associated
   strings are scrubbed of API-key artifacts but may echo prompt text, so they are shown to the user only.
+- On-device engines that download weights (llama.cpp) report `unavailable` while the model is not downloaded, the
+  runtime is not in the build, the app is in the background (GPU work is refused there) or the system reports too
+  little free memory for the model; none of these checks touches the network. Content pieces (instructions,
+  transcript) are never tokenized with special tokens, so text cannot open a new chat turn.
 - Engines do **not** enforce privacy. Callers route first (`PrivacyRoutingPolicy.allows(descriptor, for:,
   host: endpointHost, userOverride:)`).
 
@@ -96,6 +105,12 @@ migrate every conformer and fake in the same change.
   `testModelDescriptionNeverShowsTheKey`, `testTestConnectionSendsNoUserContent`.
 - `AppleFoundationLanguageModelTests` (ChirpEngineAppleFMTests): descriptor, availability mapping, error mapping
   without framework text, snapshot deltas; opt-in real run with `CHIRP_LLM_TESTS=1`.
+- `LlamaCppLanguageModelTests`, `LlamaCppModelAssetsTests`, `LlamaCppModelCatalogTests` (ChirpEngineLlamaCppTests):
+  descriptor and routing, stream order, UTF-8 across tokens, think-block filter, `contextTooLong` before decoding,
+  `maxOutputTokens`, content never parsed as special tokens, cancellation, not downloaded / not in build / memory /
+  background refusals, unload on idle, memory warning, background, switch and delete; pinned files, Apache-2.0/MIT
+  only, SHA-256 and size before a file is kept; opt-in real models with `CHIRP_ONDEVICE_LLM_TESTS=1`
+  (`LlamaCppRealModelTests`: a synthetic SOAP note through `DeliverableService` and a real database).
 - `KeychainSecretStoreTests` (ChirpKeychainTests): service name; opt-in real round trip with
   `CHIRP_KEYCHAIN_TESTS=1`.
 - `LanguageModelProviderStoreTests` (ChirpFeaturesTests): keys never reach `UserDefaults`.

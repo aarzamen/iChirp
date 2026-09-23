@@ -131,7 +131,9 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `LanguageModelProviderStore.swift`: `LanguageModelProviderStoring` and `UserDefaultsLanguageModelProviderStore`
   (Settings → Models): provider metadata as a JSON blob under `ichirp.languageModelProviders`, each API key in the
   injected `SecretStoring` (the Keychain) under the provider's `secretAccount`, never in `UserDefaults`. The key is
-  written before the metadata; `routingPolicy()` trusts exactly the LAN hosts the user marked trusted.
+  written before the metadata; `routingPolicy()` trusts exactly the LAN hosts the user marked trusted. M7 adds
+  `defaultLocalModelID()` / `setDefaultLocalModelID(_:)` (the small on-device model picked as default; absent in
+  older saves).
 - `DeliverableService.swift`: **the only path from a transcript to a `LanguageModel`** (M4; contract
   `spec/contracts/deliverables-v1.md`). `route(transcriptionID:templateID:model:)` answers `.allowed` or
   `.needsOverride(PrivacyOverrideRequest)` without sending anything; `confirmOverride(_:)` mints a single-use
@@ -155,15 +157,23 @@ pipeline's `Task`s and publishes its progress to the UI.
   waits for `confirmOverride()` / `declineOverride()`, then streams into `text` and ends in `.completed`,
   `.answered` or `.failed(sentence)`.
 - `LanguageModelsViewModel.swift` (M4 UI): Settings → Models and the model a run uses.
-  - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM` and `ChirpEngineHTTPLLM`
-    (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`); tests use a fake.
-  - `LanguageModelChoice` is Apple's on-device model or one provider; `ModelPlace` words where it runs ("on this
-    iPhone", "on Mac Studio", "in the cloud (Claude)").
+  - `LanguageModelFactory` is the protocol the app implements over `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` and
+    (M7) `ChirpEngineLlamaCpp` (`App/Sources/LanguageModels/AppLanguageModelFactory.swift`,
+    `App/Sources/LanguageModels/AppLocalLanguageModels.swift`); tests use a fake. Its small-model requirements
+    (`localModelOptions`, `localModelRuntimeProblem`, `makeLocalModel(id:)`, `localModelAssets(id:)`) have empty
+    defaults.
+  - `LanguageModelChoice` is Apple's on-device model, a downloaded small model on this iPhone (`.localModel(id)`, on
+    device, trusted for clinical items) or one provider; `ModelPlace` words where it runs ("on this iPhone", "on Mac
+    Studio", "in the cloud (Claude)").
   - `LanguageModelProviderDraft` is the provider form: locality derived from the typed address, the trust switch only
     for a home-network host, `apiKeyChange` (a blank key keeps the stored one), and `problem` as a sentence.
   - `LanguageModelsViewModel` lists providers and Apple's availability, sets the default, saves and deletes through
     the provider store (key to the Keychain first), tests a connection and lists models (typed key, else the stored
-    one), and builds a run's engine with `makeModel(for:)`, reading the key just then.
+    one), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists the small models
+    (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`, downloads (only on a
+    Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one default at a time.
+- `LocalLanguageModels.swift` (M7, ADR-015): `LocalModelOption` (catalog id, name, tier, runtime, license, source,
+  download size, memory while loaded, window), the `LanguageModelFactory` defaults and `LanguageModelChoice(localModel:)`.
 - `DeliverableLibraryViewModel.swift` (M4 UI): `DeliverableLibraryViewModel` (the Transforms tab: templates by
   category and recent documents) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.

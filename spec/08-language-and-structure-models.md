@@ -50,8 +50,8 @@ Errors are `LanguageModelError` (content-free `kindName` for logs). Provider set
 | Apple Foundation Models | on device | `ChirpEngineAppleFM` (iOS 26 framework) | ~3B model, **4K-token context** shared by instructions, input and output, read at run time; "Apple Intelligence off / not eligible / not ready" is an explicit state |
 | Anthropic, OpenAI-compatible (OpenAI, OpenRouter, Gemini's OpenAI endpoint) | cloud | `ChirpEngineHTTPLLM`, HTTPS only | Bring your own key, stored in the **Keychain** (never `UserDefaults`) |
 | Ollama (native `/api/chat`), LM Studio / llama.cpp (OpenAI-compatible) on the owner's Mac | local network | `ChirpEngineHTTPLLM`, HTTP on the LAN | Can be marked **trusted** for clinical content; Ollama gets `num_ctx` equal to the planned window |
-| MLX Swift small models | on device, **foreground only** (GPU) | Swift package | Needs Xcode builds (Metal shaders) |
-| llama.cpp GGUF (Qwen3.5-2B, LFM2.5-1.2B, Qwen3-4B-Instruct-2507) | on device | XCFramework, one actor | Widest model choice |
+| llama.cpp GGUF: **Qwen3.5 2B** (default), **Qwen3 4B Instruct 2507** (quality) | on device, **foreground only** (GPU; CPU in the Simulator) | `ChirpEngineLlamaCpp` (engine id `llamacpp.gguf`) over `vendor/llama.xcframework` built from pinned source by `scripts/build_llamacpp.sh` ([ADR-015](adr/015-on-device-llm-llama-cpp.md)) | **Built (M7).** Explicit download (1.28 / 2.50 GB, SHA-256), 32K / 8K window, one model in memory, unloaded when idle, on a memory warning or in the background; Apache-2.0 weights only (LFM2.5 excluded) |
+| MLX Swift small models | on device, foreground only (GPU) | Swift package | **Evaluated, not adopted** (ADR-015): SwiftPM-built binaries cannot load its Metal shaders |
 | Core AI, LiteRT-LM, ExecuTorch, Private Cloud Compute | later | iOS 27 / Xcode 27 or entitlements | Adopt behind `#available` so iOS 26 devices keep working |
 
 **AnyLanguageModel was evaluated and not adopted** ([ADR-011](adr/011-language-model-providers-direct-ports.md)):
@@ -153,12 +153,18 @@ Details: [`12-privacy.md`](12-privacy.md).
   `GRDBDeliverableStore` and the one `DeliverableService` (routing policy read from the provider store at every
   check), installs the built-in templates at launch, and owns `LanguageModelsViewModel` and
   `DeliverableLibraryViewModel`. `App/Sources/LanguageModels/AppLanguageModelFactory.swift` is the only app code that
-  imports `ChirpEngineAppleFM` / `ChirpEngineHTTPLLM`; engines are built right before a run or a test, with the key
-  read from the Keychain just then.
+  imports `ChirpEngineAppleFM` / `ChirpEngineHTTPLLM`, and `AppLocalLanguageModels.swift` the only one that imports
+  `ChirpEngineLlamaCpp` (M7; it also forwards memory warnings and backgrounding to the runtime); engines are built
+  right before a run or a test, with the key read from the Keychain just then.
 - **Settings → Models** (`ModelsSettingsScreen`, `ProviderEditorSheet`): the default model for Transform and Ask
   (Apple's on-device model unless a provider is picked), Apple's availability as a sentence, providers with locality
   derived from the address, the trusted switch only for a home-network host, key to the Keychain (a blank field keeps
   the stored key; the key is never shown), model list from the server, context window, Test connection, Delete.
+- **Settings → Models → Small models on this iPhone** (M7, `OnDeviceModelsSection`): Qwen3.5 2B (default) and Qwen3 4B
+  Instruct (quality) with an "On device" badge, download size, memory in use, window, license and source; Download
+  (explicit, SHA-256 checked, continued-processing progress) and Delete (asks first; a deleted default falls back to
+  Apple's model). A downloaded model joins "Use for Transform and Ask" as an on-device choice, so clinical items use it
+  with no confirmation.
 - **Transcript**: the privacy-class chip (through `DeliverableService.setPrivacyClass`), the Ask tab
   (`AskSessionViewModel`, one routed run per question) and the Transform sheet (`TransformRunHost` over
   `DeliverableRunViewModel`); **Transforms tab**: recent documents and templates.

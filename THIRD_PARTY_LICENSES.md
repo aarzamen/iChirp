@@ -86,6 +86,17 @@ M5 adds **no Swift package dependency**. DOCX files are unzipped by ChirpIngest'
   `ChirpEngineNeedle` ([ADR-012](spec/adr/012-needle-from-needle-rs-source.md)). Its Rust crate dependencies (rayon,
   crossbeam, either, libm; MIT or Apache-2.0) come from its `Cargo.lock`.
 
+### llama.cpp (on-device small language models, M7)
+
+- License: MIT. Copyright (c) 2023-2026 The ggml authors (see the clone's `LICENSE`). Its vendored parts compiled into
+  the framework are MIT (nlohmann/json, rotate-bits), BSD-2-Clause (xxHash), public domain (sha1, sha256, stb_image)
+  and MIT-0 or public domain (miniaudio).
+- Source: <https://github.com/ggml-org/llama.cpp>, pinned release `b11118`, commit
+  `e6ab7c1a41054a888ada952eab4c886444c2f5ad`, cloned into the gitignored `vendor/llama.cpp` by
+  `scripts/build_llamacpp.sh`, which runs llama.cpp's own `build-xcframework.sh`.
+- Used for: `vendor/llama.xcframework` (a `llama.framework` for the iPhone, the Simulator and the Mac), linked by
+  `ChirpEngineLlamaCpp` and embedded in the app ([ADR-015](spec/adr/015-on-device-llm-llama-cpp.md)).
+
 ## Models downloaded at run time (not in the repo or the app bundle)
 
 The app downloads these from Hugging Face the first time the user asks for them in Settings. They are stored in the
@@ -107,6 +118,25 @@ app's container and excluded from device backups.
   structured result).
 - Used for: structured fields from clinical dictation and dictation voice commands (M6, `ChirpEngineNeedle`). The
   same repo's binary `libneedle.a` is never downloaded or linked.
+
+### Qwen3.5 2B (Alibaba Qwen), GGUF Q4_K_M
+
+- License: Apache-2.0 (model card and `LICENSE` of `Qwen/Qwen3.5-2B`; the GGUF repository declares the same).
+  Attribution: Qwen team, Alibaba Cloud; GGUF conversion by Unsloth.
+- Source: <https://huggingface.co/unsloth/Qwen3.5-2B-GGUF>, file `Qwen3.5-2B-Q4_K_M.gguf` (1,280,835,840 bytes) at
+  revision `f6d5376be1edb4d416d56da11e5397a961aca8ae`, SHA-256
+  `aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223` (checked after download).
+- Used for: the default on-device model for Transform and Ask (M7, `ChirpEngineLlamaCpp`), downloaded only when the
+  user taps Download in Settings → Models.
+
+### Qwen3 4B Instruct 2507 (Alibaba Qwen), GGUF Q4_K_M
+
+- License: Apache-2.0 (model card and `LICENSE` of `Qwen/Qwen3-4B-Instruct-2507`; the GGUF repository declares the
+  same). Attribution: Qwen team, Alibaba Cloud; GGUF conversion by Unsloth.
+- Source: <https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF>, file `Qwen3-4B-Instruct-2507-Q4_K_M.gguf`
+  (2,497,281,120 bytes) at revision `a06e946bb6b655725eafa393f4a9745d460374c9`, SHA-256
+  `3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597` (checked after download).
+- Used for: the quality tier of the on-device model (M7, `ChirpEngineLlamaCpp`), downloaded only on request.
 
 ### Speaker diarization models (pyannote segmentation, WeSpeaker embeddings, VBx clustering)
 
@@ -148,4 +178,6 @@ These are recorded so their license verdicts are not rediscovered each time. Eac
 | Needle 3 (`libneedle.a` runtime) | Weights Apache-2.0; runtime binary-only | Not used: Needle runs on needle-rs source instead ([ADR-012](spec/adr/012-needle-from-needle-rs-source.md)); `libneedle.a` stays personal-builds-only ([ADR-010](spec/adr/010-plugin-license-gate.md)) |
 | AnyLanguageModel | Apache-2.0 | Compatible, **evaluated and not linked** (ADR-011: 0.9.0 pulls 8 packages incl. swift-nio and swift-syntax; its Ollama adapter omits `num_ctx`) |
 | WhisperKit (`argmax-oss-swift`) | MIT | Compatible |
-| MLX Swift, llama.cpp | MIT | Compatible |
+| MLX Swift | MIT | Compatible, **evaluated and not linked** (ADR-015: SwiftPM-built binaries cannot load its Metal shaders, so package tests could never run a real model; sample apps rely on the increased-memory entitlement) |
+| llama.cpp | MIT | Linked since M7 (see "Built from source by a script" above; ADR-015) |
+| LFM2.5 models (Liquid AI) | LFM Open License (revenue-capped) | Not offered as on-device models: only Apache-2.0 or MIT weights (ADR-015) |

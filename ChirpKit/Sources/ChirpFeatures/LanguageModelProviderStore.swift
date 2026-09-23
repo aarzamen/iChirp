@@ -23,6 +23,9 @@ public protocol LanguageModelProviderStoring: Sendable {
     /// The provider Transform and Ask use when none is picked, if it still exists.
     func defaultProviderID() -> UUID?
     func setDefaultProviderID(_ id: UUID?) throws
+    /// M7: the small on-device model (`LocalModelOption.id`) Transform and Ask use when no provider is the default.
+    func defaultLocalModelID() -> String?
+    func setDefaultLocalModelID(_ id: String?) throws
     /// Validates, then creates or replaces the provider (by `id`) and applies `apiKey`.
     func saveProvider(_ provider: LanguageModelProviderConfiguration, apiKey: APIKeyChange) throws
     /// Removes the provider and its key.
@@ -47,6 +50,8 @@ public final class UserDefaultsLanguageModelProviderStore: LanguageModelProvider
     struct Stored: Codable, Equatable {
         var providers: [LanguageModelProviderConfiguration] = []
         var defaultProviderID: UUID?
+        /// M7; absent in older saves (decodes as nil).
+        var defaultLocalModelID: String?
     }
 
     private let defaults: UserDefaults
@@ -77,6 +82,18 @@ public final class UserDefaultsLanguageModelProviderStore: LanguageModelProvider
         try lock.withLock {
             var stored = load()
             stored.defaultProviderID = id
+            try save(stored)
+        }
+    }
+
+    public func defaultLocalModelID() -> String? {
+        lock.withLock { load().defaultLocalModelID }
+    }
+
+    public func setDefaultLocalModelID(_ id: String?) throws {
+        try lock.withLock {
+            var stored = load()
+            stored.defaultLocalModelID = id
             try save(stored)
         }
     }

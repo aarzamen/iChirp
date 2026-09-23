@@ -101,6 +101,7 @@ section; never delete its history.
 | [ADR-010](adr/010-plugin-license-gate.md) | License gate for plug-ins that conflict with GPL-3.0 |
 | [ADR-011](adr/011-language-model-providers-direct-ports.md) | Language models via direct ports (`ChirpEngineHTTPLLM`, `ChirpEngineAppleFM`), not AnyLanguageModel |
 | [ADR-013](adr/013-jev-decision-model.md) | Jev as an opt-in cloud decision model (`ChirpEngineJev`, `DecisionModel` contract); clinical items never sent |
+| [ADR-015](adr/015-on-device-llm-llama-cpp.md) | Small language models on the iPhone through llama.cpp built from source (`ChirpEngineLlamaCpp`); Qwen3.5 2B default, Qwen3 4B Instruct quality tier; MLX Swift not adopted |
 
 ## Milestones
 
@@ -116,7 +117,7 @@ Each later milestone has an executor-ready plan; the [plans board](../docs/plans
 | M4 | Language models and deliverables: providers, Keychain keys, templates (summary, meeting notes, agenda, SOAP, action items, Transforms), Ask with citations, privacy router | In progress: core (Steps 1–5) merged; screens (Step 6) on `m4/language-models-ui`, simulator-verified; owner device QA pending | [013](../docs/plans/2026-09-22-013-m4-language-models-and-deliverables.md) |
 | M5 | Ingest breadth: podcasts, direct media links, YouTube strategy, PDF (text plus OCR), TXT/MD/RTF/DOCX import | IN PROGRESS (built; open items finished by plan 019 on `lane/companion`: YouTube audio via the Mac companion; device checks pending) | [014](../docs/plans/2026-09-22-014-m5-ingest.md) |
 | M6 | Structure models: Needle 3 (from needle-rs source, ADR-012), Jev (opt-in, non-clinical), Laya research; confidence gating | IN PROGRESS — merged on `ichirp/foundation`: Needle slice (SOAP fields and medications, voice commands, gate + evidence ledger, Eval; Needle experimental at 44.6% argument accuracy) and the Jev trial (021; live eval waits on the owner's Jev key); Laya not started | [015](../docs/plans/2026-09-22-015-m6-structure-models.md), [021](../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md) |
-| M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | NOT STARTED | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
+| M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | IN PROGRESS — Step 5 built on `lane/on-device-llm`: small language models on the iPhone through llama.cpp (ADR-015; Qwen3.5 2B default, Qwen3 4B Instruct quality; MLX not adopted), Mac-measured, phone measurements pending; other steps in their own lanes | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
 | M8 | Polish: PDF/DOCX export, keyboard extension, Transforms share extension, widgets, accessibility, iPad, localization | NOT STARTED | [017](../docs/plans/2026-09-22-017-m8-polish.md) |
 
 Status words match the plans board. When a milestone lands, update this row, the board and the root `README.md` status table in the same commit, with

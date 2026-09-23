@@ -34,6 +34,11 @@ targets:
       # build". No entitlement or capability.
       - package: ChirpKit
         products: [ChirpEngineNeedle]
+      # M7 (ADR-015): small language models on this iPhone through llama.cpp; without vendor/llama.xcframework they say
+      # "not in this build". The dynamic llama.framework is embedded and signed with the app. No entitlement or
+      # capability.
+      - package: ChirpKit
+        products: [ChirpEngineLlamaCpp]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
     info:
