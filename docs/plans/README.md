@@ -42,6 +42,7 @@ commands, steps, done criteria and STOP conditions.
 | [019](2026-09-22-019-mac-companion-and-m5-finish.md) | Parakeet companion on the Mac (speech + YouTube audio) and finishing plan 014 | **EXECUTOR-READY** | Lane L1 |
 | [020](2026-09-22-020-voice-output.md) | Voice output: Listen, spoken answers, read-back (companion voices, Grok voices) | **EXECUTOR-READY** | Lane L2 |
 | [021](2026-09-22-021-m6a-jev-decision-trial.md) | M6a: Jev decision-model trial (owner's plan) | **EXECUTOR-READY** | Lane L4; Step 7 needs the owner's Jev key |
+| [022](2026-09-22-022-create-anything-in-anything-out.md) | Create: anything in, anything out (text items, Create sheet, edit by voice, voice messages, PDF/DOCX) | **READY after wave 1** (owner direction 2026-09-22) | Wave 2 |
 
 ## Recommended order and dependencies
 
