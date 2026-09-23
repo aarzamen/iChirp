@@ -234,6 +234,73 @@ final class ASRBenchmarkTests: XCTestCase {
         XCTAssertEqual(files.map(\.pathExtension), ["csv", "json"])
         XCTAssertTrue(FileManager.default.fileExists(atPath: files[0].path))
     }
+
+    // MARK: - Review M6: a person's files leave no name and no copy behind
+
+    private func makeScreenModel() -> (ASRBenchmarkViewModel, imports: URL, runs: URL) {
+        let engine = UnloadingSpeech(id: SpeechEngineCapabilityRegistry.parakeetEngineID, text: "hello")
+        let key = SpeechEngineVariantKey(engineID: SpeechEngineCapabilityRegistry.parakeetEngineID, variant: "v3")
+        let router = SpeechEngineRouter(engines: [.init(key: key, engine: engine)])
+        let imports = folder.appendingPathComponent("imports", isDirectory: true)
+        let runs = folder.appendingPathComponent("runs.json")
+        let model = ASRBenchmarkViewModel(
+            router: router, runner: runner(), store: ASRBenchmarkStore(fileURL: runs), referenceFolder: nil,
+            importFolder: imports, device: "Test", appBuild: "1.0 (1)")
+        return (model, imports, runs)
+    }
+
+    func testAPersonsFileGetsANeutralLabelAndItsCopyIsDeletedAfterTheRun() async throws {
+        let (model, imports, runs) = makeScreenModel()
+        await model.refresh()
+        let picked = folder.appendingPathComponent("Synthetic Patient Name visit.m4a")
+        try Data(repeating: 7, count: 64).write(to: picked)
+
+        model.addFiles([picked])
+        XCTAssertEqual(model.userItems.map(\.title), ["Your file 1"])
+        let copies = try FileManager.default.contentsOfDirectory(atPath: imports.path)
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertFalse(copies[0].contains("Patient"), "the copy's name is neutral too")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: picked.path), "the person's file is never touched")
+
+        model.includeReferenceSet = false
+        model.run()
+        await model.waitForRun()
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(model.latest?.results.map(\.itemTitle), ["Your file 1"])
+        XCTAssertEqual(model.userItems, [], "the copies are gone once the run ends")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: imports.path))
+        let saved = try String(contentsOf: runs, encoding: .utf8)
+        XCTAssertFalse(saved.contains("Patient"), "no file name in the results file")
+        let exported = try model.exportFiles(to: folder.appendingPathComponent("export"))
+        for file in exported {
+            XCTAssertFalse(try String(contentsOf: file, encoding: .utf8).contains("Patient"), file.lastPathComponent)
+        }
+    }
+
+    func testCopiesLeftByAnEarlierLaunchAreRemoved() throws {
+        let (model, imports, _) = makeScreenModel()
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 8).write(to: imports.appendingPathComponent("leftover.m4a"))
+        model.removeLeftoverImports()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: imports.path))
+    }
+
+    func testAFileNameSavedByAnEarlierBuildIsReplacedWhenRead() async throws {
+        let store = ASRBenchmarkStore(fileURL: folder.appendingPathComponent("runs.json"))
+        let personal = UUID().uuidString
+        let legacy = ASRBenchmarkRun(
+            startedAt: Date(), device: "d", appBuild: "b",
+            results: [
+                ASRBenchmarkResult(
+                    engineKey: "e", engineName: "E", itemID: personal, itemTitle: "Synthetic Patient.m4a",
+                    audioSeconds: 1),
+                ASRBenchmarkResult(
+                    engineKey: "e", engineName: "E", itemID: "fox", itemTitle: "fox (Samantha)", audioSeconds: 1),
+            ])
+        try ASRBenchmarkExport.json([legacy]).write(to: folder.appendingPathComponent("runs.json"))
+        let runs = await store.load()
+        XCTAssertEqual(runs.first?.results.map(\.itemTitle), ["Your file", "fox (Samantha)"])
+    }
 }
 
 /// Thread-safe append-only log for values sampled from `@Sendable` closures.

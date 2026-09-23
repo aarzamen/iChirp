@@ -206,9 +206,19 @@ public protocol SpeechEngineAvailabilityReporting: Sendable {
     func unavailableReason() async -> String?
 }
 
+/// Optional for engines that need a system permission before they run (Apple Speech: Speech Recognition). Additive to
+/// the plug-in contract. Such an engine asks only from `downloadAssets` (a person's tap), reads as not downloaded until
+/// then, and never asks from `prepare` or `transcribe`. Headless callers (the DEBUG device benchmark) check this first
+/// and skip the engine instead of waiting on a prompt nobody can tap.
+public protocol SpeechEnginePermissionReporting: Sendable {
+    /// True when `downloadAssets` would first show a system permission prompt.
+    func needsPermissionPrompt() async -> Bool
+}
+
 /// Optional for engines that hold a model in the app's memory: drops it (the next `prepare` loads it again from
-/// disk). The benchmark unloads between engines so each one's load time and peak memory are its own. Refused
-/// silently while a job is using the model. Additive to the plug-in contract.
+/// disk). The benchmark unloads between engines so each one's load time and peak memory are its own, and
+/// `SpeechEngineRouter.releaseUnroutedModels()` unloads an engine once a route change leaves it on no route (review
+/// I3). Refused silently while a job is using the model. Additive to the plug-in contract.
 public protocol SpeechEngineUnloading: Sendable {
     func unloadModels() async
 }
@@ -238,6 +248,19 @@ public enum SpeechEngineCapabilityRegistry {
         if let row = table[key] { return row }
         guard key.variant == nil else { return nil }
         return all.first { $0.key.engineID == key.engineID }
+    }
+
+    /// The runtime-memory estimates of the distinct engine builds in `keys`, added up (a row without one counts 0: it
+    /// runs in a system process). Review I3: two different engines on the live and final routes are loaded together
+    /// while a dictation or a meeting runs, so the pair must fit the budget, not only each engine.
+    public static func combinedRuntimeMemoryBytes(for keys: [SpeechEngineVariantKey]) -> Int64 {
+        var seen: Set<SpeechEngineVariantKey> = []
+        var total: Int64 = 0
+        for key in keys {
+            guard let row = capabilitiesIfPresent(for: key), seen.insert(row.key).inserted else { continue }
+            total += row.modelLifecycle.approximateRuntimeMemoryBytes ?? 0
+        }
+        return total
     }
 
     public static func memoryRequirementStatus(

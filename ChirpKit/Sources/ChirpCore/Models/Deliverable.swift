@@ -198,6 +198,9 @@ public struct LanguageModelRun: Codable, Sendable, Equatable, Identifiable {
         case deliverable, ask
         /// M6a: one typed-decision call (`DecisionService`, spec/contracts/decision-model-plugin-v1.md).
         case decision
+        /// Plan 022: one edit of a document from an instruction (`DeliverableService.edit`); the instruction is never
+        /// stored here.
+        case edit
     }
 
     public enum Status: String, Codable, Sendable, CaseIterable {

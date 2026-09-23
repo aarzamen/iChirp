@@ -54,6 +54,8 @@ import Observation
     /// a new launch) waits here for "Send this link to your Mac?" (review L1 M2; `CompanionRetryConfirmation`).
     var pendingCompanionRetry: PendingCompanionRetry?
     let jobCenter: TranscriptionJobCenter
+    /// Plan 022: the Create sheet and its chain (App/Sources/Create).
+    let create = CreateHost()
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
     let capture: CaptureViewModel
@@ -137,7 +139,8 @@ import Observation
             modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true),
             store: UserDefaultsSpeechRouteStore())
         self.speechRouter = speechRouter
-        self.speechEngines = SpeechEnginesViewModel(router: speechRouter)
+        let speechEngines = SpeechEnginesViewModel(router: speechRouter)
+        self.speechEngines = speechEngines
         let scheduler = SpeechJobScheduler()
         self.benchmark = AppSpeechEngines.makeBenchmark(router: speechRouter, scheduler: scheduler, paths: paths)
         let continuedProcessing = SystemContinuedProcessingScheduler()
@@ -246,8 +249,11 @@ import Observation
         self.meetingSettings = MeetingSettingsViewModel(voiceActivity: voiceActivity, settings: settings)
         let meetingLiveActivity = MeetingLiveActivity()
         self.meetingLiveActivity = meetingLiveActivity
-        let liveActivity = DictationLiveActivity(
-            modelName: settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2")
+        // Review M4: the engine the final route uses when the activity starts (the Dictating screen shows the same).
+        let parakeetName = settingsValue.parakeetVariant == .v3 ? "Parakeet v3" : "Parakeet v2"
+        let liveActivity = DictationLiveActivity(modelName: { [weak speechEngines] in
+            speechEngines?.row(for: .final)?.capabilities.displayName ?? parakeetName
+        })
         self.liveActivity = liveActivity
         self.library = LibraryViewModel(store: store, paths: paths)
         self.capture = CaptureViewModel(store: store)
@@ -389,11 +395,14 @@ import Observation
             .sweep()
         await refreshMeetingRecoveries(presentIfAny: true)
         ExportTempFiles.sweepStale()
+        VoiceMessageExporter.sweepStaleWork()  // plan 022: chunks a killed voice message left in tmp
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
         await capture.start()
         await speechSettings.refresh()
         await speechEngines.refresh()
+        // Review M6: copies of the person's files a benchmark left behind (possibly clinical audio) go at launch.
+        benchmark.removeLeftoverImports()
         await launchLanguageModels()
         isLaunched = true
     }
@@ -624,9 +633,6 @@ import Observation
         }
     }
 
-    /// Runs a Settings Download tap under its own continued-processing request, so the download keeps going with the
-    /// phone locked and shows in the system's progress UI; Cancel there cancels it. When the system refuses the request
-    /// (the Simulator always does) it falls back to the M1 keep-alive (`DownloadKeepAlive`).
     /// M7: Settings → Speech engines' Download for one engine build.
     func downloadSpeechEngine(_ key: SpeechEngineVariantKey, title: String) {
         let engines = speechEngines
@@ -635,6 +641,9 @@ import Observation
         }
     }
 
+    /// Runs a Settings Download tap under its own continued-processing request, so the download keeps going with the
+    /// phone locked and shows in the system's progress UI; Cancel there cancels it. When the system refuses the request
+    /// (the Simulator always does) it falls back to the M1 keep-alive (`DownloadKeepAlive`).
     private func downloadModel(
         title: String,
         _ download: @escaping @MainActor (_ onProgress: @escaping @MainActor (Double) -> Void) async -> Bool
@@ -670,6 +679,15 @@ import Observation
     /// M4: one generated document (Transforms tab, or a finished Transform run).
     func makeDocumentViewModel(id: UUID) -> DeliverableDocumentViewModel {
         DeliverableDocumentViewModel(id: id, store: deliverableStore)
+    }
+
+    /// The Capture banner's facts about the final route's engine: its name, its model state (Parakeet's from
+    /// Settings → Speech, which tracks a download live) and whether it is Parakeet (review I2).
+    var finalSpeechModel: (name: String, status: ModelAssetStatus, isParakeet: Bool) {
+        if let row = speechEngines.row(for: .final), row.id.engineID != ParakeetEngine.engineID {
+            return (row.capabilities.displayName, row.status, false)
+        }
+        return ("Parakeet", speechSettings.speechStatus, true)
     }
 
     /// Whether the final route's speech model is on disk (the Capture banner shows when it is not).

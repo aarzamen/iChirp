@@ -1,7 +1,7 @@
 ---
-title: Needle 3 on the synthetic eval set (first real numbers, re-run after the review fixes)
+title: Needle 3 on the synthetic eval set (first real numbers, re-run after both review fix rounds)
 date: 2026-09-22
-status: MEASURED (plan 015 Step 8, lane L3; re-run on branch fix/needle-safety after review L3) — re-run on every needle-rs or weights bump
+status: MEASURED (plan 015 Step 8, lane L3; re-run on branch fix/needle-safety after review L3, and on fix/needle-safety-2 after the re-review) — re-run on every needle-rs or weights bump
 ---
 
 # Needle 3 vs the STUB on invented cases
@@ -31,13 +31,21 @@ ADR-012 fallback (FunctionGemma or a 7B extractor).
   sentences that reuse command words).
 - Gate: act 0.85, provisional 0.60. Machine: the owner's M4 Max MacBook Pro.
 - Command: `CHIRP_NEEDLE_TESTS=1 swift test --package-path ChirpKit --filter NeedleEvalRealTests` (reports in the
-  gitignored `vendor/eval/`); in the app: Settings → Structure models → Eval.
+  gitignored `vendor/eval/`); in the app: Settings → Structure models → Eval. In a worktree whose `vendor/` links to
+  the main checkout (read-only), add `CHIRP_NEEDLE_MODEL_FILE=<a local needle3.cact>` (still SHA-256 checked) and
+  `CHIRP_NEEDLE_WORK_DIR=<a writable folder>` for the model cache and the reports.
 
 ## Results
 
 Re-run on 2026-09-22 after the review L3 fixes (`fix/needle-safety`): the independent re-parse, neighbour, drug
 adjacency, sentence-wide correction and free-text checks, the per-unit ranges, and the STUB's cap below act. First-run
 numbers (lane L3) in brackets where they differ.
+
+Re-run again on 2026-09-22 after the re-review fixes (`fix/needle-safety-2`, run took 862 s): "and" inside spoken
+numbers, ranges, tablet counts near a strength, combination strengths vs blood pressure, dose-to-drug ownership, a
+correction in the next sentence (also applied by the eval runner), "scratch that" through abbreviations, and the
+minors. **Every accuracy number, call count and verdict is identical to the round-1 re-run**; only latency moved (the
+second figure in each latency cell is round 2).
 
 | | STUB (rules) | Needle 3, normalizer on | Needle 3, normalizer off |
 |---|---|---|---|
@@ -48,11 +56,11 @@ numbers (lane L3) in brackets where they differ.
 | All calls / `none` calls / field calls | 59 / 13 / 46 | 57 / 5 / 52 | 60 / 5 / 55 |
 | Field calls: act (solid) / provisional (dashed) / Needs review | **0** / 46 / 0 [most were act] | 0 / 1 / 51 | 0 / 0 / 55 |
 | Needs review with every check passed (low confidence only) | 0 | 25 | 22 |
-| Seconds per sentence (Mac) | < 0.01 | 6.97 [6.70] | 6.92 [6.80] |
+| Seconds per sentence (Mac), round 1 / round 2 | < 0.01 | 6.97 / 6.97 [6.70] | 6.92 / 7.94 [6.80] |
 | Commands: engine accuracy (gated) | 100% | 53.3% | 53.3% |
 | Commands: feature accuracy (phrase + engine) | 100% | 56.7% | 56.7% |
 | Dictation eaten as a command | 0 | 0 | 0 |
-| Seconds per utterance (Mac) | < 0.01 | 3.01 [2.36] | 3.17 [2.77] |
+| Seconds per utterance (Mac), round 1 / round 2 | < 0.01 | 3.01 / 2.45 [2.36] | 3.17 / 2.43 [2.77] |
 
 What moved and why:
 
@@ -65,6 +73,13 @@ What moved and why:
   the set does not contain (spoken hundreds, per-kg and per-hour doses, unit-only and bare-number corrections, a dose
   next to another drug), which are now covered by unit tests instead.
 - **Latency** is a little higher on this run (same machine, same build type); treat ±0.5 s per call as noise.
+- **Round 2 (re-review): the same answers, the same verdicts again.** The set has no range, tablet count,
+  combination strength, "a hundred and …" dose, two-drug sentence or correction in a following sentence, so none of
+  the new checks fired on it; the one passing Needle call is still the correct provisional BP 128/76 (it has "BP"
+  before it, so the new blood-pressure-word rule leaves it clean). Those phrasings are covered by unit tests
+  (`NumericNormalizerTests`, `StructuredResultGateTests`, `StructuredExtractionServiceTests`,
+  `VoiceCommandResolverTests`). The normalizer-off latency rose by about 1 s per sentence on this run; nothing in the
+  prompt or runtime changed, so read it as run-to-run variation on a busy laptop.
 Read the STUB column with care: its rules and the synthetic cases were written by the same agent in the same lane, so
 the STUB's numbers are an upper bound for rules on tidy text, not a prediction for real dictation. It exists so the app
 always works and so Needle has a baseline; it is labelled STUB everywhere.

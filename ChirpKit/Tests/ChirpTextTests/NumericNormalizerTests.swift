@@ -158,6 +158,172 @@ final class NumericNormalizerTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review C1-R: "and" inside a spoken number
+
+    func testAndInsideASpokenNumberIsReadAsTheWholeNumber() throws {
+        let cases: [(String, Double, String, String)] = [
+            (
+                "Takes levothyroxine a hundred and twenty-five micrograms daily.", 125, "mcg",
+                "a hundred and twenty-five micrograms"
+            ),
+            ("Levothyroxine a hundred and twelve micrograms.", 112, "mcg", "a hundred and twelve micrograms"),
+            ("Amoxicillin a hundred and fifty milligrams.", 150, "mg", "a hundred and fifty milligrams"),
+            ("Amoxicillin two hundred and fifty mg three times a day.", 250, "mg", "two hundred and fifty mg"),
+            ("Heparin one thousand and fifty units.", 1050, "units", "one thousand and fifty units"),
+            ("Heparin a thousand units.", 1000, "units", "a thousand units"),
+        ]
+        for (text, value, unit, source) in cases {
+            let doses = NumericNormalizer.normalize(text).tags.filter { $0.kind == .dose }
+            XCTAssertEqual(doses.count, 1, text)
+            let dose = try XCTUnwrap(doses.first, text)
+            XCTAssertEqual(dose.value, value, text)
+            XCTAssertEqual(dose.unit, unit, text)
+            XCTAssertEqual(dose.sourceText, source, "the whole spoken number is the evidence: \(text)")
+            XCTAssertFalse(dose.needsReview, "a fully spoken number is certain: \(text)")
+        }
+    }
+
+    func testHundredWithNoNumberBeforeItIsReadWholeAndFlagged() throws {
+        let dose = try XCTUnwrap(
+            NumericNormalizer.normalize("Levothyroxine hundred and twelve micrograms.").tags.first { $0.kind == .dose })
+        XCTAssertEqual(dose.value, 112)
+        XCTAssertEqual(dose.sourceText, "hundred and twelve micrograms")
+        XCTAssertTrue(dose.needsReview, "“hundred” with no number before it may have lost a word")
+    }
+
+    func testNumbersJoinedByAndThatAreNotOneNumberAreFlaggedNeverCollapsed() throws {
+        for text in ["Give fifty and a hundred milligrams.", "Give 50 and 100 mg."] {
+            let doses = NumericNormalizer.normalize(text).tags.filter { $0.kind == .dose }
+            XCTAssertEqual(doses.count, 1, text)
+            let dose = try XCTUnwrap(doses.first, text)
+            XCTAssertTrue(dose.needsReview, text)
+            XCTAssertTrue(dose.sourceText.lowercased().hasPrefix("fifty") || dose.sourceText.hasPrefix("50"), text)
+            XCTAssertNotEqual(dose.value, 150, text)
+        }
+    }
+
+    func testHyphenatedSpokenHundredsBeforeADoseIsTheWholeNumber() throws {
+        let dose = try XCTUnwrap(
+            NumericNormalizer.normalize("Amoxicillin one-fifty milligrams.").tags.first { $0.kind == .dose })
+        XCTAssertEqual(dose.value, 150, "re-review minor 2: never 50")
+        XCTAssertEqual(dose.sourceText, "one-fifty milligrams")
+        XCTAssertTrue(dose.needsReview)
+    }
+
+    // MARK: - Re-review N2: a range is never one value
+
+    func testARangeKeepsBothEndsHasNoSingleValueAndIsFlagged() throws {
+        let cases: [(String, NumericTag.Kind, String, String)] = [
+            ("Ondansetron 4 to 8 mg IV every 8 hours as needed.", .dose, "4–8 mg", "4 to 8 mg"),
+            ("Ondansetron 4-8 mg IV.", .dose, "4–8 mg", "4-8 mg"),
+            ("Acetaminophen 650 to 1000 mg every 6 hours.", .dose, "650–1000 mg", "650 to 1000 mg"),
+            ("Tylenol 500 or 1000 mg.", .dose, "500–1000 mg", "500 or 1000 mg"),
+            ("Ondansetron 4 mg to 8 mg IV.", .dose, "4–8 mg", "4 mg to 8 mg"),
+            ("Give fifty and a hundred milligrams.", .dose, "50–100 mg", "fifty and a hundred milligrams"),
+            ("Heart rate 100 to 120.", .rate, "100–120/min", "100 to 120"),
+            ("Heart rate 100-120 overnight.", .rate, "100–120/min", "100-120"),
+            ("Sats 92 to 94 percent on room air.", .oxygenSaturation, "92–94%", "92 to 94 percent"),
+            ("Metformin two to three times a day.", .frequency, "2–3 times daily", "two to three times a day"),
+            ("Antibiotics for 5 to 7 days.", .duration, "5–7 days", "5 to 7 days"),
+        ]
+        for (text, kind, display, source) in cases {
+            let tags = NumericNormalizer.normalize(text).tags.filter { $0.kind == kind }
+            XCTAssertEqual(tags.count, 1, "\(text): \(tags.map(\.display))")
+            let tag = try XCTUnwrap(tags.first, text)
+            XCTAssertEqual(tag.display, display, text)
+            XCTAssertEqual(tag.sourceText, source, text)
+            XCTAssertNil(tag.value, "a range has no single value: \(text)")
+            XCTAssertTrue(tag.needsReview, text)
+            XCTAssertTrue(tag.reviewReason?.hasPrefix("Range:") ?? false, "\(text): \(tag.reviewReason ?? "nil")")
+        }
+    }
+
+    func testTwoValuesOfOneVitalJoinedByToAreBothFlagged() {
+        let temps = NumericNormalizer.normalize("Temp 38 to 39 degrees.").tags.filter { $0.kind == .temperature }
+        XCTAssertFalse(temps.isEmpty)
+        XCTAssertTrue(temps.allSatisfy(\.needsReview), "\(temps.map(\.display))")
+    }
+
+    func testWordsThatAreNotRangesStayClean() throws {
+        for text in [
+            "Titrate lisinopril to 20 mg daily.", "Pulse 72 and irregular.", "Metformin 500 mg and lisinopril 10 mg.",
+            "A 45-year-old man on metoprolol 25 mg.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy { !$0.needsReview }, "\(text): \(tags.compactMap(\.reviewReason))")
+        }
+    }
+
+    // MARK: - Re-review N3: a tablet count or fraction after a strength
+
+    func testATabletCountOrFractionNearAStrengthIsFlagged() throws {
+        let cases: [(String, Double)] = [
+            ("Metoprolol 25 mg, half a tablet twice daily.", 25),
+            ("Metoprolol 25 mg 1/2 tab BID.", 25),
+            ("Metoprolol 25 mg two tablets twice daily.", 25),
+            ("Metoprolol 25 mg, one and a half tablets daily.", 25),
+            ("Metoprolol 25 mg, 1.5 tabs daily.", 25),
+            ("Half a tablet of metoprolol 25 mg daily.", 25),
+            ("Two tablets of metoprolol 25 mg daily.", 25),
+            ("Albuterol 90 mcg, two puffs every 4 hours.", 90),
+        ]
+        for (text, strength) in cases {
+            let tags = NumericNormalizer.normalize(text).tags
+            let dose = try XCTUnwrap(tags.first { $0.kind == .dose && $0.value == strength }, text)
+            XCTAssertTrue(dose.needsReview, text)
+            XCTAssertTrue(
+                dose.reviewReason?.contains("count differs from strength") ?? false,
+                "\(text): \(dose.reviewReason ?? "nil")")
+            for count in tags where count.kind == .dose && ["tablet", "puff"].contains(count.unit ?? "") {
+                XCTAssertTrue(count.needsReview, "the count is flagged too: \(text)")
+            }
+        }
+    }
+
+    func testAStrengthWithOneTabletOrNoCountStaysClean() {
+        for text in [
+            "Metoprolol 25 mg, one tablet twice daily.", "Metoprolol 25 mg twice daily.",
+            "Uses albuterol two puffs every 4 hours as needed.", "Metoprolol 25 mg daily and aspirin 81 mg daily.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy { !$0.needsReview }, "\(text): \(tags.compactMap(\.reviewReason))")
+        }
+    }
+
+    // MARK: - Re-review N4: a combination strength is never a blood pressure
+
+    func testASlashPairBeforeADoseUnitIsACombinationStrengthNeverABloodPressure() throws {
+        for (text, display) in [
+            ("Valsartan-HCTZ 160/25 mg daily.", "160/25 mg"),
+            ("Advair 250/50 mcg one puff twice daily.", "250/50 mcg"),
+            ("Norco 5/325 mg every 6 hours as needed.", "5/325 mg"),
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.contains { $0.kind == .bloodPressure }, "\(text): \(tags.map(\.display))")
+            let dose = try XCTUnwrap(tags.first { $0.kind == .dose }, text)
+            XCTAssertEqual(dose.display, display, text)
+            XCTAssertNil(dose.value, "two strengths are not one dose: \(text)")
+            XCTAssertTrue(dose.needsReview, text)
+            XCTAssertTrue(dose.reviewReason?.hasPrefix("Combination strength") ?? false, dose.reviewReason ?? "nil")
+        }
+    }
+
+    func testASlashPairNeedsABloodPressureWordToBeClean() throws {
+        for text in [
+            "BP 142/88.", "Blood pressure 128/76 today.", "Vitals 142/88, pulse 76.", "Pressure was 150/90 on recheck.",
+            "Recheck showed 142/88 mmHg.", "Blood pressure one forty two over eighty eight.",
+        ] {
+            let bp = try XCTUnwrap(NumericNormalizer.normalize(text).tags.first { $0.kind == .bloodPressure }, text)
+            XCTAssertFalse(bp.needsReview, "\(text): \(bp.reviewReason ?? "")")
+        }
+        for text in ["Advair 250/50 one puff twice daily.", "Insulin 70/30, 20 units twice daily."] {
+            let bp = try XCTUnwrap(NumericNormalizer.normalize(text).tags.first { $0.kind == .bloodPressure }, text)
+            XCTAssertTrue(bp.needsReview, "no blood-pressure word: \(text)")
+        }
+    }
+
     func testANumberRightBeforeADoseIsCarriedIntoTheTagAndFlagged() throws {
         let result = NumericNormalizer.normalize("Take one 25 microgram tablet.")
         let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose })
@@ -234,6 +400,42 @@ final class NumericNormalizerTests: XCTestCase {
             XCTAssertFalse(tags.isEmpty, text)
             XCTAssertTrue(tags.allSatisfy(\.needsReview), text)
         }
+    }
+
+    // MARK: - Re-review minors 3, 6, 7
+
+    func testANoThatStartsAFindingDoesNotFlagTheValueBeforeIt() {
+        for text in ["Temp 37, no fever.", "Lisinopril 10 mg, no cough.", "Pulse 76, no palpitations."] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy { !$0.needsReview }, "\(text): \(tags.compactMap(\.reviewReason))")
+        }
+        for text in [
+            "Pulse 76, no, 86.", "Ketorolac fifty milligrams, no, five.", "Give 50 mg, no wait, 5 mg.",
+            "Fentanyl 50 micrograms, no, milligrams.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy(\.needsReview), "a correction is still a correction: \(text)")
+        }
+    }
+
+    func testQFollowedByANumberAndHoursIsAFrequencyNeverADuration() throws {
+        for (text, display) in [
+            ("Ondansetron 4 mg q4 hours as needed.", "every 4 hours as needed"), ("Morphine 2 mg q 6 hours.", "every 6 hours"),
+            ("Ibuprofen 400 mg q6hr.", "every 6 hours"),
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.contains { $0.kind == .duration }, "\(text): \(tags.map(\.display))")
+            XCTAssertEqual(tags.first { $0.kind == .frequency }?.display, display, text)
+        }
+    }
+
+    func testASecondStrengthUnitWithNoNumberIsFlagged() throws {
+        let dose = try XCTUnwrap(NumericNormalizer.normalize("Fentanyl 50 micrograms, milligrams.").tags.first)
+        XCTAssertTrue(dose.needsReview, "a unit-only restart with no correction word")
+        let form = try XCTUnwrap(NumericNormalizer.normalize("Metformin 500 mg tablets twice daily.").tags.first)
+        XCTAssertFalse(form.needsReview, "a tablet after a strength is its form, not a restart")
     }
 
     // MARK: - Review L3 I3: a vital's name does not reach across a clause

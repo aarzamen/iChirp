@@ -388,7 +388,7 @@ public struct StructureEvalRunner: Sendable {
         var soapScores: [SOAPSentenceScore] = []
         let catalog = StructureCatalog.soapMeds
         for evalCase in soap.cases {
-            for sentence in evalCase.sentences {
+            for (position, sentence) in evalCase.sentences.enumerated() {
                 let normalized = NumericNormalizer.normalize(sentence.text)
                 let input = normalizer ? normalized.tagged : sentence.text
                 let started = Date()
@@ -417,6 +417,18 @@ public struct StructureEvalRunner: Sendable {
                     }
                 } catch {
                     failure = (error as? any LocalizedError)?.errorDescription ?? "\(error)"
+                }
+                // Re-review N1: the same cross-sentence correction rule as the Extract fields screen.
+                if position > 0,
+                    let correction = CrossSentenceCorrection.check(normalized, tools: predicted.map(\.name))
+                {
+                    let previous = soapScores.count - 1
+                    for index in soapScores[previous].predicted.indices
+                    where soapScores[previous].predicted[index].name != "none" {
+                        soapScores[previous].predicted[index].problems += correction.reasons(
+                            forTool: soapScores[previous].predicted[index].name)
+                        soapScores[previous].predicted[index].verdict = .needsReview
+                    }
                 }
                 soapScores.append(
                     StructureEvalScorer.score(

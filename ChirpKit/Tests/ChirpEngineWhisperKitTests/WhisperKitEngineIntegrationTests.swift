@@ -27,7 +27,12 @@ final class WhisperKitEngineIntegrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: wav.deletingLastPathComponent()) }
 
         try await engine.prepare()
-        let result = try await engine.transcribe(fileAt: wav, options: .init(), progress: { _ in })
+        let progress = LockedValues()
+        let result = try await engine.transcribe(fileAt: wav, options: .init(), progress: { progress.append($0) })
+        // Review M1: real progress (the share of the file decoded) before the final 1, never a fixed value.
+        XCTAssertEqual(progress.all.last, 1)
+        XCTAssertTrue(progress.all.contains { $0 > 0 && $0 < 1 }, "\(progress.all)")
+        XCTAssertEqual(progress.all, progress.all.sorted(), "never decreases")
         let lowered = result.text.lowercased()
         for word in ["quick", "brown", "fox", "lazy", "dog"] {
             XCTAssertTrue(lowered.contains(word), "\(word) missing from \(result.text)")

@@ -631,7 +631,9 @@ Speech engines and routes
       v3**. The Engines list shows Parakeet v3, Apple Speech, Whisper Base, Whisper Large v3 Turbo, and Whisper Large v3
       marked "needs about 3.6 GB … more than this build's 2.5 GB model budget", with no Download button.
 - [ ] Apple Speech → Download: iOS asks once for Speech Recognition; the row ends "Ready · managed by iOS". Delete asks
-      first and says iOS may remove the model later.
+      first and says iOS may remove the model later. Before that Download the row says "Not downloaded" even when
+      another app installed the language, and no Speech Recognition prompt ever appears while importing, dictating or
+      recording a meeting.
 - [ ] Whisper Base → Download: progress, then "On device · about 150 MB". Only downloaded engines appear in the Live
       text and Transcripts menus.
 - [ ] Transcripts → Whisper Base, then import a `say` file: the transcript is Whisper's; the Library row still works;
@@ -640,6 +642,20 @@ Speech engines and routes
       **Transcripts** engine's text.
 - [ ] Start a meeting, then open Speech engines and pick another engine: the alert says it can't change during a
       meeting. After Stop & save it can.
+- [ ] During a meeting whose Transcripts is Whisper Base, Delete Whisper Base: the alert says it is in use by a
+      meeting; nothing is deleted. An engine on no route can still be deleted.
+- [ ] With Transcripts on Whisper Base and no meeting, Delete Whisper Base: the dialog first says Transcripts will use
+      Parakeet instead; after Delete the alert says "Whisper Base was deleted, so Transcripts uses Parakeet v3 now",
+      and the Use group shows Parakeet.
+- [ ] Missing model, not a dead end (restore-from-backup case; to reproduce, pick Whisper Base for Transcripts, then
+      delete `Application Support/Models/WhisperKit` through Xcode's container download/replace, or ask the
+      controller for a build that does it): importing a file fails with "Whisper Base isn’t downloaded on this iPhone.
+      Download it in Settings → Speech engines, or switch Transcripts to Parakeet"; Dictate says the same and offers
+      Open Settings; Capture's banner says "Download Whisper Base to transcribe". It never says to download Parakeet.
+      Switch Transcripts to Parakeet, then Retry: it transcribes.
+- [ ] Switch Transcripts from Whisper Large v3 Turbo back to Parakeet (with Live text on Parakeet): Xcode's memory
+      gauge (or Settings → About → memory) drops by about the Turbo model; nothing stays loaded for an engine on no
+      route.
 - [ ] Airplane mode: every downloaded engine still transcribes (all on-device); Download says it needs a connection.
 
 Benchmark
@@ -648,15 +664,82 @@ Benchmark
 - [ ] Run: the progress line names the engine and the recording; the phone stays usable; Stop ends it at once.
 - [ ] Latest results: one line per engine with WER, "× real time", load and peak memory; Export CSV and JSON opens the
       share sheet with two files.
-- [ ] Add files… → pick a Voice Memo: its rows show speed and memory but no WER, and the exported JSON has no text for
-      it.
+- [ ] Add files… → pick a Voice Memo: it is listed as "Your file 1" (never its name); its rows show speed and memory
+      but no WER, and the exported JSON has neither its text nor its name. After the run it is no longer listed (the
+      copy is deleted); add it again to rerun.
 
 Screenshots to attach
 - [ ] Speech engines (routes and engine list); the Benchmark screen with results.
 
 Device-only numbers (controller): Apple Speech works only on the phone (the Simulator lists it as unavailable);
 record Whisper Large v3 Turbo's peak memory and every engine's WER, speed and load time into
-`docs/research/2026-09-22-asr-engine-benchmarks.md`.
+`docs/research/2026-09-22-asr-engine-benchmarks.md`. `scripts/device_benchmark.sh` does this headless (DEBUG build:
+downloads missing models, runs the synthetic set, prints the table and keeps the JSON in `.build/device-benchmarks/`).
+Apple Speech shows "permission-needed" there until Speech Recognition was allowed once through its Download button.
+`scripts/device_smoke.sh` always transcribes with Parakeet, whatever Transcripts is set to, and prints `engine:`.
+
+## Create checklist (plan 022: text items, Create, Edit by voice, voice messages, PDF and Word)
+
+> Preconditions: the test iPhone runs a build at or after the Create merge on `ichirp/foundation` (Settings → About shows its commit); the speech model is
+> downloaded. Use only synthetic text and `say` audio. For Summary, Document and Edit by voice a model is set up in
+> Settings → Models; for voice messages a voice in Settings → Voices.
+
+Type or paste (Step 1)
+- [ ] Capture → Type or paste → type three lines → Save: the item opens as **Typed text** with the first line as its
+      title; it is in Capture's Recent and the Library (Local filter).
+- [ ] Save stays disabled for an empty or whitespace-only text; Cancel stores nothing.
+- [ ] Switch on "Clinical (patient information)" before saving: the item opens with the green Clinical badge, and a
+      Transform with a cloud model asks "Send this clinical transcript to …?" before anything is sent.
+- [ ] On the text item: Transform, Listen, Extract fields and Share (Text, Markdown, JSON) work as on a document;
+      Delete asks "Delete this text?".
+
+Create (Step 3)
+- [ ] Capture shows the **Create** card on top and four shortcuts (Dictate, Type or paste, Paste a link, Import
+      audio); Dictate still starts a dictation, and the Action Button still works while Create is open (the sheet steps
+      aside).
+- [ ] Create → Speak → Summary → Start speaking: the Dictating screen shows "Then: Summary"; say a few synthetic
+      sentences, Stop & copy, Done: the Create sheet comes back, Summary runs, the result opens in Transforms.
+- [ ] Type or paste → Transcript, → Summary, → Document ▸ SOAP note, → Voice message: each finishes; the text item and
+      the document are in the Library and Transforms.
+- [ ] Link (a podcast episode or a direct audio link) → Transcript: "Transcribe · NN%" moves for real; Hide, the Create
+      card shows the same percent, tap returns. A YouTube link without captions says so and points to Paste a link.
+- [ ] File (a Voice Memo from Files; a PDF) → Summary: the audio is transcribed, the PDF read, then summarised.
+- [ ] Clinical on + a cloud model: "Send this clinical transcript to …?" before anything is sent; Cancel says "Not
+      sent. Nothing left this iPhone." and Retry asks again.
+- [ ] No model, no voice, no speech model: the sheet says which, Create stays disabled; nothing is created.
+- [ ] Close Create and reopen: the last choices are selected again (never the text or link).
+- [ ] Stop during a summary: "Stopped. What was already made stays in your Library." and no document is saved.
+
+Edit by voice (Step 4)
+- [ ] Open a Summary → Edit by voice → hold the button and say "make it shorter" → let go: the instruction appears
+      ("Heard on this iPhone"); Apply edit: "Saved as a new version" and the document shows the shorter text.
+- [ ] Versions: Version 2 (Current, "Edited by voice", the instruction) and Version 1 (Original); Restore version 1
+      adds Version 3 and the original text is back; nothing disappeared.
+- [ ] Type in the editor, then Edit by voice again: Versions shows your typed text as "Your edit" before the new one.
+- [ ] A SOAP note with a cloud model: "Send this clinical transcript to …?" before anything is sent; Cancel changes
+      nothing.
+- [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
+      with a small model: "too long for this model to rewrite in one pass", nothing changed.
+
+PDF and Word (Step 6)
+- [ ] A long meeting → Share → PDF: open it in Files or Books: every page has "title · Page k of N", speaker names
+      and times, and the last words of the meeting are on the last page (nothing cut).
+- [ ] Share → Word on the same meeting and on a generated document: it opens in Word or Pages with the title, the
+      headings, real bullet points and the paragraphs; nothing is plain text pretending to be Word.
+- [ ] A clinical item's PDF and Word files say "Privacy: Clinical" under the title.
+- [ ] Text, Markdown, SRT, VTT and JSON exports are unchanged.
+
+Voice messages (Step 5; Settings → Voices has a voice)
+- [ ] A transcript → Share → Voice message…: "Speaking · Part 1 of N" counts up, then "Voice message saved" and the
+      share sheet offers `<title>.m4a`; AirDrop or save it to Files and play it: the whole text, in order, with a short
+      pause between paragraphs.
+- [ ] The same on a document, a text item, and a generated document (More → Save as voice message, which speaks the
+      text as edited).
+- [ ] A clinical item with Grok voices (or an untrusted Mac): "Make a voice message of this clinical text with …?";
+      Cancel says nothing was sent; Send makes it.
+- [ ] No voice set up: the sheet says what is missing (Settings → Voices) and sends nothing. Turn off Wi-Fi mid-way:
+      a sentence and Retry, which continues from the part that failed.
+- [ ] Saving twice keeps both (`voice-1.m4a`, `voice-2.m4a` in the item's folder); deleting the item deletes them.
 
 ## Writing a checklist (for agents)
 

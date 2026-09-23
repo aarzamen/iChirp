@@ -67,6 +67,24 @@ database and every screen that lists or edits documents.
   combined partial results are reduced again in groups rather than cut. When the input cannot fit even so, the run
   fails with `transcriptTooLong` and nothing is stored.
 
+### Versions (plan 022, migration `v8-text-items`)
+
+- `deliverable_versions` (`DeliverableVersion`): `id`, `deliverableId` (cascade on the document's delete),
+  `versionNumber` (1, 2, … per document, unique), `text`, `origin` (`original` · `handEdit` · `spokenEdit` ·
+  `typedEdit` · `restore`), `instruction` (an edit's instruction), `restoredFrom`, `engineId`, `provider`, `model`,
+  `locality`, `privacyClass`, `createdAt`.
+- **Append-only.** SQLite triggers abort every `UPDATE` and every `DELETE` while the document exists; only deleting
+  the document (or its transcript) removes its versions. `appendDeliverableVersion` runs in one transaction: when the
+  document's current text is not the newest version it is kept first (`original` the first time, `handEdit` after the
+  person typed in the editor), then the new version is appended and its text becomes `deliverables.text`
+  (`updatedAt` moves; `editedAt` stays the person's own edits); the document's class is raised, never lowered.
+- **Edit by voice** (`DeliverableService.edit`, feature `edit` in `llm_runs`): one model call with the document in
+  `<document>` tags and the person's instruction; routed on the transcript's effective class raised by the document's
+  class, with the same override token rules, re-checked before the call. A document that does not fit one call (in
+  and back out) fails with `documentTooLongToEdit` before anything is sent. The instruction is stored only in the
+  version row on the phone; it is never logged and never in the ledger. Restore appends the chosen text as a
+  `restore` version (no model).
+
 ## Non-stable fields
 
 - Template wording (bump `revision`), `sortOrder`, titles, the prompt preamble and map/reduce instructions, the
@@ -86,6 +104,10 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
   first; `testGeneratedTextNeverTouchesTheTranscript`; raising never lowers; unknown class reads clinical;
   transcript delete cascades deliverables and keeps the ledger; `updatePrivacyClass` is field-level.
 - `PromptTemplateRendererTests` (ChirpTextTests), `BuiltInTemplatesTests` (ChirpFeaturesTests).
+- `DeliverableVersionStoreTests` (ChirpStoreTests): original kept as version 1, hand edits kept, restore appends,
+  class only rises, the database refuses to change or delete a version, cascades remove them with the document.
+- `EditByVoiceTests` (ChirpFeaturesTests): edits append versions, routing for clinical documents (override only by the
+  token), the instruction never in the ledger, too-long documents refused before sending, failed edits change nothing.
 - `DeliverableServiceRoutingTests` (ChirpFeaturesTests): the full privacy matrix with a recording fake model.
 - `DeliverableServiceTests`, `MapReduceGeneratorTests`, `DeliverableRunViewModelTests` and
   `SingleGenerationPathTests` (ChirpFeaturesTests): deliverable stored with the version, engine and class; the

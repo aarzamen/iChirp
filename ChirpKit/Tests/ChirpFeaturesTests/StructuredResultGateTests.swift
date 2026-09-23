@@ -208,6 +208,177 @@ final class StructuredResultGateTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review C1-R: the independent check reads "and" inside a spoken number
+
+    func testTheIndependentReaderReadsWholeSpokenNumbers() {
+        let cases: [(String, [Double])] = [
+            ("a hundred and twenty-five micrograms", [125]),
+            ("two hundred and fifty mg", [250]),
+            ("one thousand and fifty units", [1050]),
+            ("hundred and twelve micrograms", [112]),
+            ("one-fifty milligrams", [150]),
+            ("fifty and a hundred milligrams", [50, 100]),
+            ("five, no, fifty milligrams", [5, 50]),
+        ]
+        for (text, numbers) in cases {
+            XCTAssertEqual(IndependentNumberReader.read(text).numbers, numbers, text)
+        }
+    }
+
+    func testTheIndependentCheckSeesAcrossAndInsideASpokenNumber() {
+        // The old normalizer's side tables: each tag holds only the tail of the spoken number.
+        let cases: [(String, String, Double, String, String, String)] = [
+            (
+                "Takes levothyroxine a hundred and twenty-five micrograms daily.", "twenty-five micrograms", 25, "mcg",
+                "levothyroxine", "125"
+            ),
+            ("Levothyroxine hundred and twelve micrograms.", "twelve micrograms", 12, "mcg", "levothyroxine", "112"),
+            ("Amoxicillin a hundred and fifty milligrams.", "fifty milligrams", 50, "mg", "amoxicillin", "150"),
+            ("Amoxicillin two hundred and fifty mg.", "fifty mg", 50, "mg", "amoxicillin", "250"),
+            ("Heparin one thousand and fifty units.", "fifty units", 50, "units", "heparin", "1050"),
+            ("Amoxicillin one-fifty milligrams.", "fifty milligrams", 50, "mg", "amoxicillin", "150"),
+        ]
+        for (text, source, value, unit, drug, whole) in cases {
+            let sentence = handTagged(text, [(source, "dose_1", .dose, value, unit)])
+            let result = StructuredCallValidator.validate(medication(drug), sentence: sentence, catalog: .soapMeds)
+            XCTAssertTrue(result.problems.contains { $0.contains(whole) }, "\(text): \(result.problems)")
+            XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: result.problems), .needsReview)
+        }
+        // A near miss: two numbers joined by "and" are not one number.
+        let nearMiss = handTagged(
+            "Give amoxicillin fifty and a hundred milligrams.", [("a hundred milligrams", "dose_1", .dose, 100, "mg")])
+        XCTAssertFalse(
+            StructuredCallValidator.validate(medication("amoxicillin"), sentence: nearMiss, catalog: .soapMeds)
+                .problems.isEmpty)
+    }
+
+    func testAWholeSpokenNumberFromTheNormalizerPassesTheIndependentCheck() throws {
+        for (text, drug, value) in [
+            ("Takes levothyroxine a hundred and twenty-five micrograms daily.", "levothyroxine", 125.0),
+            ("Heparin one thousand and fifty units.", "heparin", 1050),
+            ("Amoxicillin two hundred and fifty mg.", "amoxicillin", 250),
+        ] {
+            let result = try validate(
+                text,
+                #"[{"name":"add_medication","arguments":{"drug":"\#(drug)","dose_tag":"dose_1","status":"taking"}}]"#)
+            XCTAssertEqual(result.problems, [], text)
+            XCTAssertEqual(result.arguments["dose"]?["value"], .number(value), text)
+        }
+    }
+
+    // MARK: - Re-review N2: the independent check knows about ranges
+
+    func testTheIndependentCheckFlagsARangeHeldAsOneValue() {
+        // As the old normalizer tagged them: one end of the range, clean.
+        let cases: [(String, String, NumericTag.Kind, Double, String, StructuredCall)] = [
+            ("Ondansetron 4 to 8 mg IV.", "8 mg", .dose, 8, "mg", medication("ondansetron")),
+            ("Acetaminophen 650 to 1000 mg.", "1000 mg", .dose, 1000, "mg", medication("acetaminophen")),
+            ("Ondansetron 4 mg to 8 mg IV.", "4 mg", .dose, 4, "mg", medication("ondansetron")),
+            (
+                "Heart rate 100 to 120.", "100", .rate, 100, "/min",
+                StructuredCall(
+                    name: "record_vital", arguments: ["kind": .string("HR"), "value_tag": .string("dose_1")])
+            ),
+        ]
+        for (text, source, kind, value, unit, call) in cases {
+            let sentence = handTagged(text, [(source, "dose_1", kind, value, unit)])
+            let result = StructuredCallValidator.validate(call, sentence: sentence, catalog: .soapMeds)
+            XCTAssertTrue(result.problems.contains { $0.contains("range") }, "\(text): \(result.problems)")
+        }
+        // A side table that holds the whole range words but one value.
+        let whole = handTagged("Ondansetron 4 to 8 mg IV.", [("4 to 8 mg", "dose_1", .dose, 8, "mg")])
+        let result = StructuredCallValidator.validate(medication("ondansetron"), sentence: whole, catalog: .soapMeds)
+        XCTAssertTrue(result.problems.contains { $0.contains("range") }, "\(result.problems)")
+    }
+
+    func testARangeFromTheNormalizerReachesReviewWithItsReason() throws {
+        let result = try validate(
+            "Ondansetron 4 to 8 mg IV every 8 hours as needed.",
+            #"[{"name":"add_medication","arguments":{"drug":"ondansetron","dose_tag":"dose_1","frequency_tag":"freq_1","status":"started"}}]"#
+        )
+        XCTAssertEqual(result.arguments["dose"]?["display"], .string("4–8 mg"))
+        XCTAssertNil(result.arguments["dose"]?["value"], "no single value was said")
+        XCTAssertTrue(result.problems.contains { $0.hasPrefix("Range:") }, "\(result.problems)")
+        XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: result.problems), .needsReview)
+    }
+
+    // MARK: - Re-review N3: a tablet count near a strength
+
+    func testTheIndependentCheckFlagsATabletCountNearAStrength() {
+        for text in [
+            "Metoprolol 25 mg, half a tablet twice daily.", "Metoprolol 25 mg 1/2 tab BID.",
+            "Metoprolol 25 mg two tablets twice daily.", "Half a tablet of metoprolol 25 mg daily.",
+            "Metoprolol 25 mg, 1.5 tabs daily.",
+        ] {
+            // As the old normalizer tagged it: the strength alone, clean.
+            let sentence = handTagged(text, [("25 mg", "dose_1", .dose, 25, "mg")])
+            let result = StructuredCallValidator.validate(
+                medication("metoprolol"), sentence: sentence, catalog: .soapMeds)
+            XCTAssertTrue(
+                result.problems.contains { $0.contains("count differs from strength") }, "\(text): \(result.problems)")
+        }
+        let one = handTagged("Metoprolol 25 mg, one tablet twice daily.", [("25 mg", "dose_1", .dose, 25, "mg")])
+        XCTAssertEqual(
+            StructuredCallValidator.validate(medication("metoprolol"), sentence: one, catalog: .soapMeds).problems, [])
+    }
+
+    // MARK: - Re-review minor 7: a unit-only restart with no correction word
+
+    func testTheIndependentCheckFlagsASecondStrengthUnitRightAfterADose() {
+        let sentence = handTagged("Fentanyl 50 micrograms, milligrams.", [("50 micrograms", "dose_1", .dose, 50, "mcg")])
+        let result = StructuredCallValidator.validate(medication("fentanyl"), sentence: sentence, catalog: .soapMeds)
+        XCTAssertTrue(result.problems.contains { $0.contains("milligrams") }, "\(result.problems)")
+        let form = handTagged("Metformin 500 mg tablets twice daily.", [("500 mg", "dose_1", .dose, 500, "mg")])
+        XCTAssertEqual(
+            StructuredCallValidator.validate(medication("metformin"), sentence: form, catalog: .soapMeds).problems, [])
+    }
+
+    // MARK: - Re-review N4: a combination strength is never a blood pressure
+
+    private func bloodPressure(_ text: String, _ source: String, _ systolic: Double, _ diastolic: Double)
+        -> NormalizedText
+    {
+        let range = (text as NSString).range(of: source)
+        let tag = NumericTag(
+            tag: "bp_1", kind: .bloodPressure, value: systolic, secondValue: diastolic, unit: "mmHg",
+            display: "\(Int(systolic))/\(Int(diastolic)) mmHg", sourceRange: range.location..<NSMaxRange(range),
+            sourceText: source)
+        return NormalizedText(
+            original: text, tagged: (text as NSString).replacingCharacters(in: range, with: "bp_1"), tags: [tag])
+    }
+
+    func testACombinationStrengthGivesNoBloodPressureAndItsDoseNeedsReview() throws {
+        let text = "Valsartan-HCTZ 160/25 mg daily."
+        XCTAssertFalse(NumericNormalizer.normalize(text).tags.contains { $0.kind == .bloodPressure })
+        let medication = try validate(
+            text,
+            #"[{"name":"add_medication","arguments":{"drug":"valsartan-hctz","dose_tag":"dose_1","frequency_tag":"freq_1","status":"taking"}}]"#
+        )
+        XCTAssertEqual(medication.arguments["dose"]?["display"], .string("160/25 mg"))
+        XCTAssertTrue(medication.problems.contains { $0.hasPrefix("Combination strength") }, "\(medication.problems)")
+        XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: medication.problems), .needsReview)
+        let vital = try validate(text, #"[{"name":"record_vital","arguments":{"kind":"BP","value_tag":"160/25"}}]"#)
+        XCTAssertFalse(vital.problems.isEmpty, "no BP tag exists, so a BP answer cannot pass")
+    }
+
+    func testTheIndependentCheckKnowsABloodPressureFromADrugStrength() {
+        let vital = StructuredCall(
+            name: "record_vital", arguments: ["kind": .string("BP"), "value_tag": .string("bp_1")])
+        // As the old normalizer tagged them: the slash pair as a clean BP.
+        let combination = bloodPressure("Valsartan-HCTZ 160/25 mg daily.", "160/25", 160, 25)
+        XCTAssertTrue(
+            StructuredCallValidator.validate(vital, sentence: combination, catalog: .soapMeds).problems.contains {
+                $0.contains("combination")
+            })
+        let inhaler = bloodPressure("Advair 250/50 one puff twice daily.", "250/50", 250, 50)
+        XCTAssertTrue(
+            StructuredCallValidator.validate(vital, sentence: inhaler, catalog: .soapMeds).problems.contains {
+                $0.contains("blood-pressure word")
+            })
+        let real = bloodPressure("BP 142/88 today.", "142/88", 142, 88)
+        XCTAssertEqual(StructuredCallValidator.validate(vital, sentence: real, catalog: .soapMeds).problems, [])
+    }
+
     // MARK: - Review L3 I2 and I3: a value must sit next to what it belongs to
 
     func testADoseMustSitNextToItsOwnDrug() throws {
@@ -229,6 +400,44 @@ final class StructuredResultGateTests: XCTestCase {
             "Gave 4 mg of ondansetron.",
             #"[{"name":"add_medication","arguments":{"drug":"ondansetron","dose_tag":"dose_1","status":"started"}}]"#)
         XCTAssertEqual(before.problems, [])
+    }
+
+    // MARK: - Re-review I2-R: a dose belongs only to the drug it is next to
+
+    private func medicationJSON(_ drug: String, dose: String) -> String {
+        #"[{"name":"add_medication","arguments":{"drug":"\#(drug)","dose_tag":"\#(dose)","status":"taking"}}]"#
+    }
+
+    func testADoseBelongsOnlyToTheDrugItIsNextTo() throws {
+        let sentence = "Levothyroxine 50 mcg and lisinopril 10 mg."
+        let wrong = try validate(sentence, medicationJSON("lisinopril", dose: "dose_1"))
+        XCTAssertTrue(wrong.problems.contains { $0.contains("Levothyroxine") }, "\(wrong.problems)")
+        XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: wrong.problems), .needsReview)
+        XCTAssertFalse(try validate(sentence, medicationJSON("levothyroxine", dose: "dose_2")).problems.isEmpty)
+        XCTAssertEqual(try validate(sentence, medicationJSON("lisinopril", dose: "dose_2")).problems, [])
+        XCTAssertEqual(try validate(sentence, medicationJSON("levothyroxine", dose: "dose_1")).problems, [])
+    }
+
+    func testADoseBeforeADrugThatHasItsOwnDoseOrAcrossAListBreakNeedsReview() throws {
+        // "Valsartan" is not a drug the checks know, so only the words around the dose can tell.
+        let listed = try validate("Valsartan 160 mg and lisinopril 10 mg.", medicationJSON("lisinopril", dose: "dose_1"))
+        XCTAssertFalse(listed.problems.isEmpty, "a dose before “and lisinopril” is not lisinopril's")
+        let run = try validate("Valsartan 160 mg lisinopril 10 mg.", medicationJSON("lisinopril", dose: "dose_1"))
+        XCTAssertFalse(run.problems.isEmpty, "lisinopril has its own dose right after it")
+        let other = try validate(
+            "Gave 4 mg of ondansetron and 2 mg of morphine.", medicationJSON("ondansetron", dose: "dose_2"))
+        XCTAssertTrue(other.problems.contains { $0.contains("of morphine") }, "\(other.problems)")
+    }
+
+    func testADoseRightBeforeItsOwnDrugStillPasses() throws {
+        for (sentence, drug, dose) in [
+            ("Gave 4 mg of ondansetron.", "ondansetron", "dose_1"),
+            ("Gave 2 mg of morphine and 4 mg of ondansetron.", "ondansetron", "dose_2"),
+            ("Lisinopril 10 mg, then 4 mg of ondansetron.", "ondansetron", "dose_2"),
+            ("Gave 10 units of insulin.", "insulin", "dose_1"),
+        ] {
+            XCTAssertEqual(try validate(sentence, medicationJSON(drug, dose: dose)).problems, [], sentence)
+        }
     }
 
     func testAVitalRightAfterADrugNameNeedsReview() {
@@ -281,6 +490,15 @@ final class StructuredResultGateTests: XCTestCase {
             "Plan is to recheck in three months.",
             #"[{"name":"add_plan_item","arguments":{"text":"recheck in 3 months"}}]"#)
         XCTAssertEqual(said.problems, [])
+    }
+
+    func testAPlanItemFromATitrationSentenceCannotPassClean() throws {
+        // Re-review minor 5: the free-text check tests presence only, but "from 10 to 20 mg" is now a flagged range,
+        // so every call from the sentence goes to review.
+        let result = try validate(
+            "Increase lisinopril from 10 to 20 mg.",
+            #"[{"name":"add_plan_item","arguments":{"text":"increase lisinopril to 10 mg"}}]"#)
+        XCTAssertTrue(result.problems.contains { $0.hasPrefix("Range:") }, "\(result.problems)")
     }
 
     func testUnknownArgumentsAndNonTextValuesAreDroppedAndFlagged() throws {

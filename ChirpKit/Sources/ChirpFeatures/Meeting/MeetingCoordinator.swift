@@ -2,7 +2,8 @@
 // Changes: `startRecording` (~L628) and `stopRecording` (~L867) for one microphone on the iPhone, as an `@Observable`
 // view model: folder + `recording.lock` before any audio, recorder into `meeting.caf`, VAD or fixed live chunks,
 // pause / mute / notes (notes saved into the lock), stop → lock `awaitingTranscription` → row → `MeetingFinalizer`.
-// No ScreenCaptureKit system stream, echo cancellation, calendar context, engine lease or FFmpeg playback mix.
+// M7 adds upstream's engine-session lease (`SpeechRouting.beginLease`: routes are pinned from start until finished).
+// No ScreenCaptureKit system stream, echo cancellation, calendar context or FFmpeg playback mix.
 
 import ChirpCore
 import Foundation
@@ -326,8 +327,9 @@ public enum MeetingFlowState: Equatable, Sendable {
         }
     }
 
-    /// Live text when the speech model is on disk and routing allows it; VAD chunks when the voice-activity model
-    /// is on disk too, else fixed 5 s chunks. The model loads now, so the final pass does not pay for it.
+    /// Live text when the live route's model is on disk and routing allows it; VAD chunks when the voice-activity
+    /// model is on disk too, else fixed 5 s chunks. The live engine loads now; when Live text and Transcripts are the
+    /// same engine the final pass does not pay for the load either, otherwise the final engine loads at stop.
     private func startLivePreview(folder: URL) async {
         // M7: the live route's engine (it may differ from the final route's).
         let speech = SpeechRouting.resolve(self.speech, for: .live)

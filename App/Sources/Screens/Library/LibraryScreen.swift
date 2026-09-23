@@ -229,7 +229,8 @@ struct LibraryScreen: View {
             .tint(Tokens.Color.favorite)
         }
         .confirmationDialog(
-            item.isDocument ? "Delete this document?" : "Delete transcript and its audio?",
+            item.isTextItem
+                ? "Delete this text?" : item.isDocument ? "Delete this document?" : "Delete transcript and its audio?",
             isPresented: Binding(
                 get: { pendingDelete?.id == item.id },
                 set: { if !$0 { pendingDelete = nil } }),
@@ -241,9 +242,12 @@ struct LibraryScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                item.isDocument
-                    ? "“\(item.displayTitle)” and its copy of the file will be removed from this iPhone. This can’t be undone."
-                    : "“\(item.displayTitle)” and its audio will be removed from this iPhone. This can’t be undone.")
+                item.isTextItem
+                    ? "“\(item.displayTitle)” and anything saved with it will be removed from this iPhone. This can’t be undone."
+                    : item.isDocument
+                        ? "“\(item.displayTitle)” and its copy of the file will be removed from this iPhone. This can’t be undone."
+                        : "“\(item.displayTitle)” and its audio will be removed from this iPhone. This can’t be undone."
+            )
         }
         .contextMenu {
             Button {

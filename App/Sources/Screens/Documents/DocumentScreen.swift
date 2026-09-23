@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 
 /// One document (M5): its cover and facts, then the text (page by page for a PDF, with OCR pages marked). No player
 /// and no SRT/VTT, because a document has no audio or timings. Copy, Share (Text, Markdown, JSON) and Transform work
-/// on the text exactly as they do on a transcript, so M4 templates can use it.
+/// on the text exactly as they do on a transcript, so M4 templates can use it. Plan 022: a typed or pasted text item
+/// opens here too, and the summary card carries the privacy class control (as the Transcript's tab row does).
 struct DocumentScreen: View {
     @Environment(AppEnvironment.self) private var environment
     let id: UUID
@@ -24,6 +25,8 @@ struct DocumentScreen: View {
     @State private var isTransforming = false
     /// M6: Extract fields from a typed or pasted note (no audio, so a field cannot seek).
     @State private var isExtractingFields = false
+    /// Plan 022: Share → Voice message.
+    @State private var voiceMessage: VoiceMessageJob?
 
     /// Formats that make sense without timings.
     static let exportFormats: [ExportFormat] = [.txt, .markdown, .json]
@@ -35,7 +38,7 @@ struct DocumentScreen: View {
 
     var body: some View {
         content
-            .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming) {
+            .voiceReading(environment.voicePlayer, confirmationEnabled: !isTransforming && voiceMessage == nil) {
                 $0 == .document(id: id)  // plan 020
             }
             .background(Tokens.Color.ground)
@@ -77,6 +80,7 @@ struct DocumentScreen: View {
                         onSeek: { _ in })
                 }
             }
+            .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
             .sheet(item: $shareItem) { item in
                 ActivityView(items: [item.url])
                     .presentationDetents([.medium, .large])
@@ -225,25 +229,40 @@ struct DocumentScreen: View {
     }
 
     private func summaryCard(_ item: Transcription) -> some View {
-        HStack(spacing: 14) {
-            DocumentCover(format: item.documentFormat, size: 56)
+        HStack(alignment: .top, spacing: 14) {
+            DocumentCover(format: item.documentFormat, size: 56, badge: DocumentRow.coverBadge(for: item))
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.documentFormat.map { "\($0.displayName) document" } ?? "Document")
+                Text(Self.kindTitle(for: item))
                     .chirpFont(14.5, .semibold)
                     .foregroundStyle(Tokens.Color.ink)
                 Text(DocumentRow.meta(for: item))
                     .chirpFont(12.5)
                     .monospacedDigit()
                     .foregroundStyle(Tokens.Color.secondary)
-                Text("Read on this iPhone. Only you can see it.")
-                    .chirpFont(12)
-                    .foregroundStyle(Tokens.Color.secondary)
+                Text(
+                    item.isTextItem
+                        ? "Saved on this iPhone. Only you can see it." : "Read on this iPhone. Only you can see it."
+                )
+                .chirpFont(12)
+                .foregroundStyle(Tokens.Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
+            .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
+            PrivacyClassControl(current: item.privacyClass) { newClass in
+                // Through the service, so documents made from this item are raised with it (never lowered).
+                try await environment.deliverables.setPrivacyClass(newClass, transcriptionID: id)
+                await model.load()
+            }
         }
         .padding(14)
         .background(CardBackground(radius: Tokens.Radius.s))
-        .accessibilityElement(children: .combine)
+    }
+
+    /// "PDF document", "Typed text".
+    static func kindTitle(for item: Transcription) -> String {
+        if item.isTextItem { return "Typed text" }
+        return item.documentFormat.map { "\($0.displayName) document" } ?? "Document"
     }
 
     private func pageView(_ page: DocumentPage, total: Int) -> some View {
@@ -327,6 +346,16 @@ struct DocumentScreen: View {
                 ForEach(Self.exportFormats, id: \.self) { format in
                     Button(format.displayName) { share(format) }
                 }
+                // Plan 022 Step 6: page formats.
+                ForEach(DocumentExportFormat.allCases, id: \.self) { format in
+                    Button(format.displayName) { shareDocument(format) }
+                }
+                Divider()
+                Button {
+                    voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+                } label: {
+                    Label("Voice message…", systemImage: "waveform.badge.plus")
+                }
             } label: {
                 barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
             }
@@ -378,6 +407,17 @@ struct DocumentScreen: View {
         Task {
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
+        }
+    }
+
+    /// Plan 022 Step 6: a PDF or Word copy for the share sheet (rendered off the main actor).
+    private func shareDocument(_ format: DocumentExportFormat) {
+        Task {
+            do {
+                shareItem = ShareItem(url: try await model.exportDocument(format))
+            } catch {
+                actionError = Formatting.message(for: error)
+            }
         }
     }
 

@@ -75,6 +75,12 @@ extension Transcription {
     /// Whether this item is a document (text only: no player, no word timings, no SRT/VTT).
     public var isDocument: Bool { sourceType == .document }
 
+    /// Whether this item is typed or pasted text (plan 022). Shown like a document: text only.
+    public var isTextItem: Bool { sourceType == .text }
+
+    /// Whether this item is text without audio or timings (a document or a text item): the document screen, no player.
+    public var isTextOnly: Bool { isDocument || isTextItem }
+
     /// How many PDF pages were read with OCR (0 for other items).
     public var ocrPageCount: Int {
         documentPages?.filter { $0.method == .ocr }.count ?? 0

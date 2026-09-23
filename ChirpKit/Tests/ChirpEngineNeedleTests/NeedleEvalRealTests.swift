@@ -12,7 +12,8 @@ import XCTest
 /// CHIRP_NEEDLE_TESTS=1 swift test --package-path ChirpKit --filter NeedleEvalRealTests
 /// ```
 ///
-/// Writes each report as JSON and "Copy for LLM" Markdown to the gitignored `vendor/eval/`.
+/// Writes each report as JSON and "Copy for LLM" Markdown to the gitignored `vendor/eval/` (or `eval/` under
+/// `CHIRP_NEEDLE_WORK_DIR`; see `NeedleRealModelTests`).
 final class NeedleEvalRealTests: XCTestCase {
     override func setUp() async throws {
         guard ProcessInfo.processInfo.environment["CHIRP_NEEDLE_TESTS"] == "1" else {
@@ -28,7 +29,7 @@ final class NeedleEvalRealTests: XCTestCase {
         let needle = try await NeedleRealModelTests.makeRealModel()
         let soap = try SOAPEvalSet.bundled()
         let commands = try CommandEvalSet.bundled()
-        let out = NeedleRealModelTests.repoRoot.appendingPathComponent("vendor/eval", isDirectory: true)
+        let out = NeedleRealModelTests.workRoot.appendingPathComponent("eval", isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let runs: [(String, any StructureModel, Bool)] = [
             ("stub", StubStructureModel(), true),

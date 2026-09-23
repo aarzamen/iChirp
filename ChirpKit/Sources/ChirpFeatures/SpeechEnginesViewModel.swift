@@ -8,6 +8,13 @@ import Observation
 /// Only engines whose model is on disk can be chosen; a downloadable one shows Download. An engine that cannot run
 /// here (not in this build, not on this device, or above the memory budget) is listed with the reason and cannot be
 /// chosen or downloaded. Route changes go through `SpeechEngineRouter.select`, which refuses them during a meeting.
+///
+/// Review fixes (fix/asr-review):
+/// - **Delete of a routed engine (I2).** Refused while a meeting holds the routes. Otherwise every route that used it
+///   goes back to Parakeet first, and `lastNotice` says so (the delete dialog says it beforehand, `routesUsing`).
+/// - **Memory (I3).** After a route change, the engine that is on no route any more is unloaded
+///   (`SpeechEngineRouter.releaseUnroutedModels`); a Transcripts choice too big to share memory with the live engine
+///   moves live text to it as well, and `lastNotice` says so.
 @MainActor @Observable public final class SpeechEnginesViewModel {
     /// What a row can do right now.
     public enum Availability: Equatable, Sendable {
@@ -37,6 +44,9 @@ import Observation
     public private(set) var selection: SpeechRouteSelection
     /// The last refused route change or failed model action; cleared by the next action.
     public private(set) var lastError: String?
+    /// Something the app changed for the person as a result of their action (a route moved back to Parakeet);
+    /// cleared by the next action.
+    public private(set) var lastNotice: String?
 
     @ObservationIgnored private let router: SpeechEngineRouter
     @ObservationIgnored private let physicalMemoryBytes: UInt64
@@ -88,23 +98,46 @@ import Observation
 
     public func dismissError() {
         lastError = nil
+        lastNotice = nil
+    }
+
+    /// The routes that use `key` now, in Settings order (live text, then transcripts): what a delete would change.
+    public func routesUsing(_ key: SpeechEngineVariantKey) -> [SpeechRoute] {
+        guard let registered = router.registeredKey(for: key) else { return [] }
+        return SpeechRoute.allCases.filter { router.registeredKey(for: router.selection[$0]) == registered }
+    }
+
+    /// "Live text", "Transcripts" or "Live text and Transcripts".
+    public static func routeNames(_ routes: [SpeechRoute]) -> String {
+        routes.map { $0 == .live ? "Live text" : "Transcripts" }.joined(separator: " and ")
     }
 
     // MARK: - Choosing
 
-    /// Chooses `key` for `route`; a refusal (a meeting is running, not ready, cannot preview) lands in `lastError`.
-    public func select(_ key: SpeechEngineVariantKey, for route: SpeechRoute) {
+    /// Chooses `key` for `route`; a refusal (a meeting is running, not ready, cannot preview, too much memory with the
+    /// other route's engine) lands in `lastError`. Then releases the model of the engine that left both routes.
+    public func select(_ key: SpeechEngineVariantKey, for route: SpeechRoute) async {
         lastError = nil
+        lastNotice = nil
         guard let row = rows.first(where: { $0.id == key }), row.isReady else {
             lastError = "Download this engine’s model before choosing it."
             return
         }
+        let changed: Set<SpeechRoute>
         do {
-            try router.select(key, for: route)
+            changed = try router.select(key, for: route)
         } catch {
             lastError = error.localizedDescription
+            return
         }
         selection = router.selection
+        if route == .final, changed.contains(.live) {
+            lastNotice =
+                "Live text uses \(row.capabilities.displayName) too: a second engine beside it would need more "
+                + "memory than this iPhone’s model budget."
+        }
+        guard !changed.isEmpty else { return }
+        await router.releaseUnroutedModels()
     }
 
     // MARK: - Models
@@ -137,11 +170,44 @@ import Observation
     }
 
     /// Deletes `key`'s model files (the screen asks first). For a system-managed model this releases the app's claim.
+    ///
+    /// Review I2: an engine a route uses is never deleted while a meeting holds the routes. Otherwise each route that
+    /// used it goes back to Parakeet before the files go, and `lastNotice` says so, so no route is left pointing at a
+    /// missing model. (Deleting Parakeet itself leaves the routes: it is the fallback, and a job then says to download
+    /// it.)
     public func delete(_ key: SpeechEngineVariantKey) async {
         guard let entry = Self.catalog(router: router).first(where: { $0.capabilities.key == key }),
             let engine = entry.engine
         else { return }
         lastError = nil
+        lastNotice = nil
+        let name = entry.capabilities.displayName
+        let routes = routesUsing(key)
+        if !routes.isEmpty {
+            // Checked and changed before any suspension: a meeting cannot start in between (both on the main actor).
+            guard router.activeLeaseCount == 0 else {
+                lastError = "\(name) is in use by a meeting. Delete it after the meeting finishes."
+                return
+            }
+            let fallback = SpeechEngineCapabilityRegistry.defaultKey
+            if router.registeredKey(for: fallback) != router.registeredKey(for: key) {
+                do {
+                    // Transcripts first: a final choice may move live text along with it (memory), never the reverse.
+                    for route in [SpeechRoute.final, .live] where routes.contains(route) {
+                        try router.select(fallback, for: route)
+                    }
+                } catch {
+                    lastError = error.localizedDescription
+                    selection = router.selection
+                    return
+                }
+                selection = router.selection
+                let parakeetName = row(for: .final)?.capabilities.displayName ?? "Parakeet"
+                lastNotice =
+                    "\(name) was deleted, so \(Self.routeNames(routes)) use\(routes.count == 1 ? "s" : "") "
+                    + "\(parakeetName) now."
+            }
+        }
         do {
             try await engine.deleteAssets()
         } catch {

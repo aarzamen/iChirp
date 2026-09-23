@@ -147,6 +147,9 @@ public struct StubStructureModel: StructureModel {
             let window = String(lower[item.range.lowerBound..<end])
             let previousEnd = index > 0 ? found[index - 1].range.upperBound : lower.startIndex
             let before = String(lower[previousEnd..<item.range.lowerBound])
+            // Re-review minor 4: "denies taking aspirin", "not taking metformin", "never took ibuprofen", "no aspirin"
+            // record no medication.
+            if before.range(of: Self.negationBeforeDrug, options: .regularExpression) != nil { continue }
             var arguments: [String: JSONValue] = ["drug": .string(item.drug)]
             var confidence = 0.9
             if let dose = tags(in: window, prefixes: ["dose"]).first { arguments["dose_tag"] = .string(dose.tag) }
@@ -194,9 +197,15 @@ public struct StubStructureModel: StructureModel {
         }
         // A hedge before the drug wins over a later verb: "considering starting metoprolol" is not "started".
         if matches(before).contains(where: { $0.status == "considering" }) { return "considering" }
+        // Re-review minor 4: "no longer taking lisinopril" is stopped, not taking.
+        if before.range(of: #"\bno longer\b"#, options: .regularExpression) != nil { return "stopped" }
         if let last = matches(before).max(by: { $0.location < $1.location }) { return last.status }
         return matches(window).min(by: { $0.location < $1.location })?.status
     }
+
+    /// A negation in the words right before a drug (re-review minor 4). "No longer" is not one: it means stopped.
+    static let negationBeforeDrug =
+        #"\b(denies|denied|never|not|no)\b(?! longer)(\s+(taking|takes|took|using|uses|on|any|the))*\s*$"#
 
     static func allergy(in lower: String) -> (StructuredCall, Double)? {
         guard let range = lower.range(of: #"allerg(ic|y|ies) to "#, options: .regularExpression) else { return nil }

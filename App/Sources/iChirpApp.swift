@@ -25,6 +25,8 @@ struct iChirpApp: App {
                             LLMSmokeRunner.shared.start(
                                 environment: environment, requested: model, runID: LLMSmokeRunner.runID(in: arguments))
                         }
+                        // `-ChirpBenchmarkDevice …` (scripts/device_benchmark.sh).
+                        DeviceBenchmarkLaunch.startIfRequested(environment: environment, arguments: arguments)
                         #endif
                     }
             case .failed(let message):

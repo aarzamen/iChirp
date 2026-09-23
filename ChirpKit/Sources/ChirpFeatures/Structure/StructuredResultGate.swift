@@ -252,25 +252,119 @@ public enum StructuredCallValidator {
             .sorted()
     }
 
-    /// Review L3 I2: a dose or frequency belongs to the drug it sits next to. Another drug or another value of the same
-    /// kind between them, or more than eight words, forces review.
+    /// Words that may sit between a dose and the drug it comes before ("4 mg *of* ondansetron", "2 mg *IV* morphine").
+    static let doseBeforeDrugWords: Set<String> = [
+        "of", "the", "iv", "im", "po", "sc", "sl", "subq", "oral", "intravenous", "intramuscular", "subcutaneous",
+    ]
+
+    /// The drug mention a dose or frequency belongs to (re-review I2-R).
+    enum Owner: Equatable {
+        /// A drug mention: the call's own drug (`name` nil) or another known drug.
+        case mention(name: String?, range: Range<Int>)
+        /// Right before a drug that has its own value of the same kind ("valsartan 160 mg lisinopril 10 mg").
+        case ambiguous(String)
+        /// No known drug next to it.
+        case unknown
+    }
+
+    /// Re-review I2-R: a dose or frequency belongs to the drug right before it, with no other drug between ("levothyroxine
+    /// 50 mcg and lisinopril 10 mg": 50 mcg is levothyroxine's). It belongs to the drug right after it only when only
+    /// "of" or a route lies between ("4 mg of ondansetron"), that drug has no value of the same kind of its own, and the
+    /// drug before (if any) already has one ("lisinopril 10 mg, then 4 mg of ondansetron").
+    static func owner(
+        of tag: NumericTag, mentions: [(name: String?, range: Range<Int>)], sentence: NormalizedText
+    ) -> Owner {
+        let original = sentence.original
+        let before = mentions.filter { $0.range.upperBound <= tag.sourceRange.lowerBound }
+        let after = mentions.filter { $0.range.lowerBound >= tag.sourceRange.upperBound }
+        func ownValue(from start: Int, to end: Int) -> Bool {
+            sentence.tags.contains {
+                $0.kind == tag.kind && $0.tag != tag.tag && $0.sourceRange.lowerBound >= start
+                    && $0.sourceRange.upperBound <= end
+            }
+        }
+        var forward: (name: String?, range: Range<Int>)?
+        var ambiguous: String?
+        if let next = after.first {
+            let between = SentenceNeighbours.wordsBetween(tag.sourceRange, next.range, in: original)
+            let gap = (original as NSString).substring(
+                with: NSRange(
+                    location: tag.sourceRange.upperBound, length: next.range.lowerBound - tag.sourceRange.upperBound))
+            if between.allSatisfy({ doseBeforeDrugWords.contains($0.text) }),
+                !gap.contains(where: { ",;".contains($0) })
+            {
+                let following = after.dropFirst().first?.range.lowerBound ?? (original as NSString).length
+                if ownValue(from: next.range.upperBound, to: following) {
+                    ambiguous = (original as NSString).substring(
+                        with: NSRange(location: next.range.lowerBound, length: next.range.count))
+                } else {
+                    forward = next
+                }
+            }
+        }
+        let backward = before.last
+        let backwardHasValue = backward.map { ownValue(from: $0.range.upperBound, to: tag.sourceRange.lowerBound) }
+        if let forward, backward == nil || backwardHasValue == true {
+            return .mention(name: forward.name, range: forward.range)
+        }
+        if let backward { return .mention(name: backward.name, range: backward.range) }
+        if let ambiguous { return .ambiguous(ambiguous) }
+        return .unknown
+    }
+
+    /// Review L3 I2, re-review I2-R: a dose or frequency belongs to the drug it sits next to (`owner(of:)`). Another
+    /// drug next to it, another value of the same kind between them, more than eight words, or a dose followed by "of"
+    /// and a different word ("2 mg of morphine") forces review.
     static func adjacencyProblems(
         drug: String, used: [(key: String, tag: NumericTag)], sentence: NormalizedText, siblings: [StructuredCall]
     ) -> [String] {
         let original = sentence.original
         let mentions = SentenceNeighbours.mentions(of: drug, in: original)
         guard !mentions.isEmpty else { return [] }
-        let others = otherDrugs(than: drug, siblings: siblings).flatMap {
-            SentenceNeighbours.mentions(of: $0, in: original)
+        let named = otherDrugs(than: drug, siblings: siblings).flatMap { name in
+            SentenceNeighbours.mentions(of: name, in: original).map { (name: Optional(name), range: $0) }
         }
-        .filter { other in !mentions.contains { $0.overlaps(other) } }
+        .filter { other in !mentions.contains { $0.overlaps(other.range) } }
+        let others = named.map(\.range)
+        let all = (mentions.map { (name: String?.none, range: $0) } + named).sorted {
+            $0.range.lowerBound < $1.range.lowerBound
+        }
         func distance(_ a: Range<Int>, _ b: Range<Int>) -> Int {
             a.upperBound <= b.lowerBound ? b.lowerBound - a.upperBound : max(0, a.lowerBound - b.upperBound)
         }
         var problems: [String] = []
         for (key, tag) in used where key == "dose" || key == "frequency" {
-            guard let nearest = mentions.min(by: { distance($0, tag.sourceRange) < distance($1, tag.sourceRange) })
-            else { continue }
+            if key == "dose", let other = ofOtherWord(after: tag, own: mentions, in: original) {
+                problems.append(
+                    "\(tag.display) is followed by “of \(other)”, not \(drug): check which drug it belongs to.")
+                continue
+            }
+            let nearestOwn: Range<Int>
+            switch owner(of: tag, mentions: all, sentence: sentence) {
+            case .mention(.some, let range):
+                let said = (original as NSString).substring(
+                    with: NSRange(location: range.lowerBound, length: range.count))
+                problems.append("\(tag.display) is next to “\(said)”, not \(drug): check which drug it belongs to.")
+                continue
+            case .ambiguous(let other):
+                problems.append(
+                    "\(tag.display) comes right before “\(other)”, which has its own \(key): check which drug it "
+                        + "belongs to.")
+                continue
+            case .mention(nil, let range):
+                nearestOwn = range
+            case .unknown:
+                guard let nearest = mentions.min(by: { distance($0, tag.sourceRange) < distance($1, tag.sourceRange) })
+                else { continue }
+                // Before its drug, but not right before it ("valsartan 160 mg and lisinopril": the "and" is a break).
+                if nearest.lowerBound >= tag.sourceRange.upperBound {
+                    problems.append(
+                        "\(tag.display) comes before \(drug) with other words between: check which drug it belongs to.")
+                    continue
+                }
+                nearestOwn = nearest
+            }
+            let nearest = nearestOwn
             let low = min(nearest.upperBound, tag.sourceRange.upperBound)
             let high = max(nearest.lowerBound, tag.sourceRange.lowerBound)
             let between = low..<max(low, high)
@@ -297,6 +391,20 @@ public enum StructuredCallValidator {
             }
         }
         return problems
+    }
+
+    /// Re-review I2-R: the word after "of" when a dose is followed by "of <word>" that is not the call's own drug
+    /// ("2 mg of morphine" claimed for ondansetron). Route words and "the" after "of" are skipped.
+    static func ofOtherWord(after tag: NumericTag, own: [Range<Int>], in original: String) -> String? {
+        let after = SentenceNeighbours.words(original).filter { $0.range.lowerBound >= tag.sourceRange.upperBound }
+        guard let of = after.first, of.text == "of",
+            (original as NSString).substring(
+                with: NSRange(
+                    location: tag.sourceRange.upperBound, length: of.range.lowerBound - tag.sourceRange.upperBound)
+            ).trimmingCharacters(in: .whitespaces).isEmpty,
+            let word = after.dropFirst().first(where: { !doseBeforeDrugWords.contains($0.text) })
+        else { return nil }
+        return own.contains { $0.lowerBound == word.range.lowerBound } ? nil : word.text
     }
 
     /// Review L3 I3: a vital-sign number right after a drug name is more likely that drug's strength.

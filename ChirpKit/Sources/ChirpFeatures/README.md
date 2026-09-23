@@ -112,8 +112,21 @@ pipeline's `Task`s and publishes its progress to the UI.
     with its model state, or a row this build or device cannot run, listed with the reason: not in this build, over
     the memory budget, or `SpeechEngineAvailabilityReporting`.
   - `choices(for:)` returns only ready engines (for live, also able to preview) plus the current choice.
-  - `select` goes through `SpeechEngineRouter.select`, which refuses during a meeting. `download` and `delete` go
-    through the engine.
+  - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting and refuses a live
+    engine too big to share memory with the final one; a Transcripts choice too big for the live engine moves live
+    text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()` unloads the engine that left both
+    routes (review I3).
+  - `download` goes through the engine. `delete` (review I2) refuses an engine a route uses while a meeting holds the
+    lease; otherwise each route that used it goes back to Parakeet first (Transcripts first), `lastNotice` says so,
+    and then the model is deleted. `routesUsing(_:)` lets the delete dialog say it beforehand. Deleting Parakeet
+    itself leaves the routes (it is the fallback).
+- `SpeechModelMissing.swift` (review I2): `SpeechModelMissingError`, built from the engine a job resolved. For
+  Parakeet, or when the consumer was given one engine instead of a router, it keeps
+  `FileTranscriptionPipeline.modelMissingMessage`. For another routed engine it names it: "Whisper Base isn’t
+  downloaded on this iPhone. Download it in Settings → Speech engines, or switch Transcripts to Parakeet".
+  `mapping(_:engine:configured:)` turns an engine's own `modelNotDownloaded` into it. The file pipeline, the dictation
+  (start check and final pass) and `MeetingFinalizer` all use it, so a route pointing at a deleted or never-restored
+  model is never a dead end; Retry resolves the route again.
 - `SpeechRouteStore.swift` (M7): `SpeechRouteStoring` and `UserDefaultsSpeechRouteStore`. The live and final routes
   are saved as JSON under `ichirp.speechRoutes`. A missing or unreadable value means Parakeet on both.
 - `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
@@ -129,7 +142,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   the recording, **finishes (cancels and drains) the live session**, inserts a `.processing` `dictation` row, runs
   the final pass (`scheduler.run(.dictation)`, purpose `.dictation`), refines with `TextRefinement` (Clean when
   "Polish after" is on, else the saved clean-up mode; custom words and snippets from `textRules`), saves, and copies
-  the text through `ClipboardWriting`. Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
+  the text through `ClipboardWriting`. `failureKind` (`DictationFailureKind`: speech model missing, microphone
+  denied, other) tells the Dictating screen which fix to offer, never by comparing sentences. M7: the start check
+  and the final pass use the final route's engine and name it when its model is missing (`SpeechModelMissingError`).
+  Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
@@ -258,6 +274,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   cannot be read). `VoicePlayer.routingPolicy(companion:)` is the voices' policy: only the companion's own trust
   counts, never a host trusted in Settings → Models. `companionTokenRejected` is the one sentence for a companion
   401, in the player and in Settings → Voices.
+- `Voice/VoiceMessageExporter.swift` (plan 022 Step 5): the `VoiceMessageProducing` behind Share → Voice message and
+  a Create chain's voice message. Same chunks, voice and routing as `VoicePlayer` (before every chunk and retry, on
+  `currentPrivacyClass`, raised never lowered); chunks are synthesized **in order, one at a time**, into
+  `tmp/voice-message-<uuid>/chunk-<i>.<ext>`, then `VoiceMessageWriting` joins them (350 ms after a paragraph) and
+  the file moves to `media/<itemID>/voice-<n>.m4a` (`nextNumber(in:)`; never overwrites). `phase`: `preparing`,
+  `needsConfirmation`, `synthesizing(done:total:)` (real chunk counts), `assembling`, `finished(VoiceMessageFile)`,
+  `failed(sentence)`; `retry()` resumes at the failed chunk (or re-joins), `cancel()` keeps nothing. **Only the
+  app's dialog calls `confirmPendingSynthesis(requestID:)`**; `declinePendingSynthesis()` sends nothing; both fire
+  `onAnswered`. `sweepStaleWork()` runs at launch. Tests: `VoiceMessageExporterTests`.
 - `Voice/SpeechChunker.swift`: port of Readback's `Chunker` (NLTokenizer sentences; first chunk ≤ 500 characters,
   later ≤ 2 500, never above the engine's `maxCharactersPerRequest`; paragraph ends tagged).
 - `Voice/SpeakableText.swift`: what Listen hands to `VoicePlayer`: citation timestamps, Markdown markers and link
@@ -282,7 +307,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   ships as a new version file.
 - `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
   pseudo-confidence (at most 0.84 on `soap-meds`, and `StructuredResultGate.verdict(…engineID:)` never gives a STUB
-  field `act`; a hedge like "considering" before a drug wins over a later "starting"); always available and always
+  field `act`; a hedge like "considering" before a drug wins over a later "starting"; "no longer taking" is stopped,
+  and "denies taking", "not taking", "never took" or "no" right before a drug record no medication); always
+  available and always
   labelled STUB. `VoiceCommandText` (a command is a whole short
   utterance that equals one of its phrases, optionally after "okay"/"please").
 
@@ -291,10 +318,21 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   else needs review; any problem forces needs review); `StructuredCallValidator` (per sentence: maps tags back to the
   normalizer's values, traces digits a model copied, **re-reads every number independently of the normalizer**
   (`IndependentNumberCheck.swift`: regex digits, spell-out `NumberFormatter`, its own unit list, plus the words right
-  around the tag), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug and a
+  around the tag; a spoken number is re-read whole across "and" / "a", so "a hundred and" before a "twenty-five
+  micrograms" tag reads as 125 and disagrees; a range in or around a tag's words, "4 to" before it or "to 120"
+  after it, is never one value; a tablet or puff count other than one, or a fraction, near a strength forces
+  review; a slash pair right before a dose unit is a combination strength, and a pressure needs a pressure word), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug (`owner(of:)`: the drug
+  right before it, or right after it across only "of" or a route; a dose followed by "of <other word>" or right before
+  a drug with its own dose goes to review; re-review I2-R) and a
   vital is not a drug's strength, carries any flagged tag or spoken correction to every call from the sentence, checks
   numbers in free text against the sentence, drops unknown or non-text arguments, flags drug or substance names
   missing from the sentence and schema problems; a number that traces to nothing is a numeric hard fail).
+- `Structure/CrossSentenceCorrection.swift` (re-review N1): a correction said in the **next** sentence ("Gave fentanyl
+  50 micrograms IV. Sorry, 25 micrograms."). `cues` is the named cue list (every in-sentence cue plus "no wait", "i
+  misspoke", "let me correct"; a sentence starting "No," before a number or unit also counts). A sentence with a cue
+  sends every field of the sentence before it to needs review ("Corrected in the next sentence …"); a dose it restates
+  without a drug is named in the previous medication fields ("… restates a dose without a drug (25 mcg) …") and never
+  applied. The extraction service and the eval runner apply the same rule.
 - `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
   text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
   milliseconds).
@@ -302,7 +340,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
   availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
-  gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
+  gate → a correction in the next sentence (`CrossSentenceCorrection`) → one run with its fields saved to the
+  ledger. **Clinical items only reach `.onDevice` engines**
   (`mayRun`); engine failures become needs-review items, never silent gaps.
 - `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
   editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
@@ -315,9 +354,12 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   surface shows until argument accuracy reaches 0.9).
 
 - `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
-  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows)
+  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows,
+  and a capitalized dosing acronym after one, "p.o. TID.", never does; "No." ends a sentence unless a digit follows)
   equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
-  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
+  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize). A sentence split
+  from the one before only after an abbreviation in `continuingAbbreviations` ("500 mg. Three times daily.") is part
+  of the same order, so "scratch that" removes back through it and "undo" restores it whole (re-review I9-R); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
 - `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects
@@ -359,9 +401,23 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `ASRBenchmarkStore.swift`: an actor holding one JSON file (`<library>/benchmarks/asr-benchmark-runs.json`) with the
   newest 20 runs. Before saving, it strips text from results without a reference. There is no database table and no
   migration.
+- `ASRDeviceBenchmark.swift` (fix/asr-review, DEBUG use): the controller's on-device run.
+  - `ASRDeviceBenchmarkRequest.parse` reads `-ChirpBenchmarkDevice parakeet,whisper-base,whisper-turbo,apple-speech`
+    (or `all`; order kept, repeats dropped, an unknown name is a readable failure).
+  - `ASRDeviceBenchmark.run` skips an engine not in the build, over the memory budget, unavailable here, or waiting
+    on a system permission prompt (`SpeechEnginePermissionReporting`: `permission-needed`, never waits on UI);
+    downloads a missing model (the one download without a tap, asked for by the launch argument); then runs
+    `ASRBenchmarkRunner` over the synthetic set. It never reads or changes the saved routes.
+  - `ASRDeviceBenchmarkReport` (`ichirp.asr-device-benchmark/v1`): status, device model, build and commit, one line
+    per engine (outcome, reason, WER, × real time, load, peak memory, download time) and the full run. The app writes
+    it to `Documents/asr-device-benchmark.json` (`App/Sources/Debug/DeviceBenchmarkLaunch.swift`) and
+    `scripts/device_benchmark.sh` reads it.
 - `ASRBenchmarkViewModel.swift`: the Benchmark screen.
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
-  - The reference-set toggle, and added files copied from the importer.
+  - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your
+    file n" and copied under a neutral name (a file name can hold a patient's name); the copies are deleted when a
+    run ends and at launch (`removeLeftoverImports`). `ASRBenchmarkStore` also replaces a file name an earlier build
+    saved (items with a UUID id) when it reads the file.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
 
 ## Number fidelity (on-device language models, review I2, `Benchmark/NumberFidelity.swift`)
@@ -416,8 +472,10 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   - `.final`: `FileTranscriptionPipeline.run`, the dictation final pass and `MeetingFinalizer.run`.
   - `.live`: the dictation preview (through the router's `makeLiveSession`) and `MeetingCoordinator`'s live text.
   - A meeting holds the router's lease from `start()` until its state is finished (saved, failed or idle).
-  - `MeetingCoordinator` sends pause, resume and mute through one chain of tasks (`sendToRecorder`), so they reach
-    the recorder in order.
+  - A missing model on the resolved engine fails the job with `SpeechModelMissingError`, which names that engine and
+    says what to do (review I2). Retry resolves the route again, so switching Transcripts recovers.
+  - `MeetingCoordinator` sends pause, resume, mute and the microphone restart through one chain of tasks
+    (`sendToRecorder`), so they reach the recorder in order; stop and discard wait for the chain first.
 
 - **Privacy routing runs before any engine gets audio** (ADR-002, `spec/12-privacy.md`). `run` asks
   `PrivacyRoutingPolicy` (injected, default: no trusted LAN hosts) whether the speech engine's locality may process
@@ -428,8 +486,10 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   locality and class, never content. M1 has no per-run cloud override. Copy this pattern at every new engine call
   site (M4 language models, M6 structure models).
 - **The pipeline never downloads.** If `speech.assetStatus()` is not `.ready`, or `prepare`/`transcribe` throws
-  `SpeechEngineError.modelNotDownloaded`, the row fails with `FileTranscriptionPipeline.modelMissingMessage`
-  ("Download the Parakeet speech model in Settings → Speech model"). A diarizer that is not ready is skipped and
+  `SpeechEngineError.modelNotDownloaded`, the row fails with `SpeechModelMissingError`'s sentence: for Parakeet
+  `FileTranscriptionPipeline.modelMissingMessage` ("Download the Parakeet speech model in Settings → Speech model"),
+  for another engine a route chose its name and "Download it in Settings → Speech engines, or switch Transcripts to
+  Parakeet". A diarizer that is not ready is skipped and
   logged; a diarization error is logged and the job still completes without speakers (upstream: non-fatal).
 - **Diarization runs inside the same scheduler job as transcription.** Upstream diarizes after releasing its STT
   slot; here both models run in one background slot, so two files never hold Parakeet and the diarizer in memory at
@@ -545,6 +605,44 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `blocked` / `failed` with Retry; `cancel()` when the sheet closes); `failedAfterSending` tells the sheet whether an
   excerpt may have left the phone before the error. `DecisionReport.suggestsMarkingClinical` offers the raise whenever
   "clinical encounter" is Jev's top choice, at any confidence. App tests: `AppTests/DecisionModelAppTests`.
+
+## Create: anything in, anything out (plan 022, `Create/`)
+
+Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
+
+- `Create/TextItemService.swift` (Step 1): typed or pasted text as a Library item. `save(_:privacyClass:)` trims the
+  surrounding blank space, refuses empty text (`TextItemError.empty`, nothing stored) and text over
+  `maxCharacters`, and inserts a `.completed` `.text` row (`rawTranscript` = the text, `derivedTitle` = the first
+  line via `title(from:)`, no media, no engine). Contract: `spec/contracts/document-items-v1.md` (Text item). The row
+  routes like any other through `EffectivePrivacyClass`; tests: `TextItemServiceTests`, `TextItemStoreTests`.
+- `Create/CreateFlow.swift` (Step 2): the chain **input** (speak, type, link, file) → **transcribe** (the existing
+  jobs) → **operation** (none, Summary or a template) → **output** (the item, the document, a voice message).
+  `CreateRequest` = `CreateInput` + `CreateOutput` + the new item's class; `CreateFlowDependencies` are the existing
+  services as closures (dictation, `TextItemService`, link and file jobs, `waitForItem`, `retryItem`) plus
+  `DeliverableService` and a `VoiceMessageProducing` factory, so tests run every input × output with fakes. Stages
+  report `pending/running/done/skipped/failed`; `phase` is `running`, `waitingForAnswer(stage)`, `finished`,
+  `failed(stage, sentence)` or `cancelled`; `retry()` restarts at the failed stage and reuses an item already made.
+  **The chain never confirms a clinical question:** the operation's `DeliverableRunViewModel` and the voice message
+  ask through their own dialogs, and `onAnswered` resumes the chain. A new item is raised to the chosen class
+  (`DeliverableService.setPrivacyClass`) before any later step. Logs carry the chain id, item ids, kinds and stage
+  names only.
+- `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
+  `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
+- `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,
+  `ichirp.create.choices`; choices only, never text); `validated(templateIDs:)` drops a removed template.
+- Step 4, Edit by voice: `DeliverableService.routeEdit(deliverableID:model:)` and `edit(deliverableID:instruction:spoken:
+  model:override:)` (in `DeliverableService.swift`, the "Edits" section): routes like every run (the transcript's
+  effective class raised by the document's), one model call with `Create/DocumentEditPrompt.swift`'s request (the
+  document in `<document>` tags, the instruction after it), refuses a document that cannot go in and back out in one
+  call (`documentTooLongToEdit`, nothing sent), and stores the result through `DeliverableVersionStoring` (the store
+  must implement it, `versionsUnavailable` otherwise) as the next version. Ledger feature `edit`; the instruction is
+  never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.
+  `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
+  purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines
+  only; `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
+- Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
+  `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
+  `CreateSupportTests`.
 
 ## How to verify
 

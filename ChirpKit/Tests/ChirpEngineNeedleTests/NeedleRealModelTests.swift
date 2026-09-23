@@ -12,7 +12,10 @@ import XCTest
 /// ```
 ///
 /// Uses `vendor/models/needle3.cact` when it is there (copied through the same SHA-256 check); otherwise downloads the
-/// pinned file (35 MB) from Hugging Face into `vendor/models-cache/`. Both are gitignored.
+/// pinned file (35 MB) from Hugging Face into `vendor/models-cache/`. Both are gitignored. When `vendor/` is shared
+/// and read-only (a worktree whose `vendor` links to the main checkout), `CHIRP_NEEDLE_MODEL_FILE` names a local
+/// `.cact` to copy (still SHA-256 checked) and `CHIRP_NEEDLE_WORK_DIR` a writable folder for `models-cache/` and
+/// `eval/`.
 final class NeedleRealModelTests: XCTestCase {
     static let medicationTool = #"""
         [{"name":"add_medication","description":"Record a medication: drug name, dose, route, frequency and whether the patient is taking, started, stopped or considering it","parameters":{"type":"object","properties":{"drug":{"type":"string","description":"Drug name as spoken"},"dose_tag":{"type":"string","description":"The dose tag, e.g. dose_1"},"route":{"type":"string","enum":["PO","IV","IM","SC","SL","topical","inhaled","unknown"]},"frequency_tag":{"type":"string","description":"The frequency tag, e.g. freq_1"},"status":{"type":"string","enum":["taking","started","stopped","considering"]}},"required":["drug","status"]}}]
@@ -23,13 +26,21 @@ final class NeedleRealModelTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent()
     }
 
+    /// Where the harness writes (`models-cache/`, `eval/`): `CHIRP_NEEDLE_WORK_DIR`, else `vendor/`.
+    static var workRoot: URL {
+        ProcessInfo.processInfo.environment["CHIRP_NEEDLE_WORK_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? repoRoot.appendingPathComponent("vendor", isDirectory: true)
+    }
+
     static func makeRealModel() async throws -> NeedleStructureModel {
-        let local = repoRoot.appendingPathComponent("vendor/models/needle3.cact")
+        let local =
+            ProcessInfo.processInfo.environment["CHIRP_NEEDLE_MODEL_FILE"].map { URL(fileURLWithPath: $0) }
+            ?? repoRoot.appendingPathComponent("vendor/models/needle3.cact")
         let fetcher: any NeedleFileFetching =
             FileManager.default.fileExists(atPath: local.path)
             ? LocalCopyFetcher(source: local) : URLSessionNeedleFetcher()
         let assets = NeedleModelAssets(
-            modelsDirectory: repoRoot.appendingPathComponent("vendor/models-cache"), fetcher: fetcher)
+            modelsDirectory: workRoot.appendingPathComponent("models-cache"), fetcher: fetcher)
         let model = NeedleStructureModel(assets: assets)
         try await model.downloadAssets { _ in }
         return model

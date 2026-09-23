@@ -2,6 +2,8 @@
 // Changes: a ChirpCore `SpeechEngine` per variant; local-folder detection by a completion marker instead of a
 // folder-name search; the language fallback (retry without a forced language when the result is empty) and the
 // word mapping kept, with non-decreasing starts; progress never decreases; no optimized-variant flag in defaults.
+// Review fixes (fix/asr-review): a cancelled call leaves the permit queue and the shared load at once (I1); one load at
+// a time, and a delete waits for a load in flight and discards its model (M3); the tokenizer config is part of "ready".
 
 import ChirpCore
 import Foundation
@@ -11,25 +13,47 @@ import Foundation
 ///
 /// - **Explicit downloads only.** `downloadAssets` fetches the Core ML model and its tokenizer into
 ///   `<modelsDirectory>/models/…` and then writes a completion marker. `assetStatus`, `prepare` and `transcribe`
-///   read local files only, and `transcribe` throws `modelNotDownloaded` while the marker or the tokenizer is missing.
-/// - **One call at a time** on the loaded pipeline (WhisperKit is not thread-safe): a FIFO permit inside the actor.
-/// - `unloadModels()` frees the model (the benchmark does this between engines).
+///   read local files only, and `transcribe` throws `modelNotDownloaded` while the marker or a tokenizer file is
+///   missing (WhisperKit would otherwise fetch the tokenizer from Hugging Face at load).
+/// - **One call at a time** on the loaded pipeline (WhisperKit is not thread-safe): a FIFO permit. A call cancelled
+///   while it waits for the permit, or for the shared load (a first-time Core ML compile can take minutes), stops
+///   waiting at once with `CancellationError`; the running call and the load go on (contract: cancellation is honored
+///   promptly).
+/// - **One load at a time.** Concurrent callers share it; `unloadModels()` is refused while it runs. `deleteAssets`
+///   waits for a load in flight, releases what it loaded and only then removes the files.
+/// - `unloadModels()` frees the model (the benchmark between engines, a route change away from this engine).
 public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     public static let engineID = SpeechEngineCapabilityRegistry.whisperKitEngineID
     static let completionMarker = ".chirp-download-complete"
+    /// Every tokenizer file a local load reads (`tokenizer_config.json` too: without it the local load throws and
+    /// WhisperKit falls back to a Hugging Face download).
+    static let tokenizerFiles = ["tokenizer.json", "tokenizer_config.json"]
 
     public nonisolated let variant: WhisperKitVariant
     public nonisolated let modelsDirectory: URL
     public nonisolated let descriptor: EngineDescriptor
 
+    private struct LoadJob {
+        let id: UUID
+        let task: Task<any WhisperKitTranscribing, any Error>
+    }
+
+    /// A load that finished for files a delete has removed meanwhile.
+    private struct StaleLoad: Error {}
+
     private let backend: any WhisperKitBackend
+    /// One call at a time on the pipeline; a cancelled waiter gives up its place at once.
+    private let permit = AsyncPermit(value: 1)
     private var pipeline: (any WhisperKitTranscribing)?
-    private var loading: Task<any WhisperKitTranscribing, any Error>?
+    private var loadJob: LoadJob?
+    /// Bumped by `deleteAssets`: a load that finishes for an older generation is released, never kept.
+    private var generation = 0
+    private var deletion: Task<Void, any Error>?
     private var downloading: Task<Void, any Error>?
     private var downloadFraction: Double?
     private var lastFailure: String?
+    /// A call holds the permit.
     private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     public init(variant: WhisperKitVariant, modelsDirectory: URL) {
         self.init(variant: variant, modelsDirectory: modelsDirectory, backend: LiveWhisperKitBackend())
@@ -73,20 +97,26 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     nonisolated var filesPresent: Bool {
         let manager = FileManager.default
         return manager.fileExists(atPath: modelFolder.appendingPathComponent(Self.completionMarker).path)
-            && manager.fileExists(atPath: tokenizerFolder.appendingPathComponent("tokenizer.json").path)
+            && Self.tokenizerFiles.allSatisfy {
+                manager.fileExists(atPath: tokenizerFolder.appendingPathComponent($0).path)
+            }
     }
 
     // MARK: - ModelAssetManaging
 
     public func assetStatus() async -> ModelAssetStatus {
         if let downloadFraction { return .downloading(fraction: downloadFraction) }
-        if filesPresent {
+        if deletion == nil, filesPresent {
             return .ready(bytesOnDisk: Self.size(of: modelFolder) + Self.size(of: tokenizerFolder))
         }
         return lastFailure.map { .failed(message: $0) } ?? .notDownloaded
     }
 
     public func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {
+        // A download asked for during a delete starts once the delete has finished.
+        while let deletion {
+            _ = await deletion.result
+        }
         if let downloading { return try await downloading.value }
         if filesPresent {
             progress(1)
@@ -125,17 +155,37 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
         reported.report(1)
     }
 
+    /// Refused while a call runs. Otherwise new loads are refused at once, a load or download in flight is waited
+    /// for (its model is released), and only then are this variant's folders removed. Concurrent deletes join.
     public func deleteAssets() async throws {
+        if let deletion { return try await deletion.value }
         guard !busy else {
             throw SpeechEngineError.underlying(
                 "\(variant.displayName) is in use by a running job. Delete it after the job finishes.")
         }
-        await unloadModels()
-        let manager = FileManager.default
-        for folder in [modelFolder, tokenizerFolder] where manager.fileExists(atPath: folder.path) {
-            try manager.removeItem(at: folder)
+        // Everything below up to the task runs before any suspension, so no call or load can slip in between.
+        generation += 1
+        let loaded = pipeline
+        pipeline = nil
+        let pendingLoad = loadJob?.task
+        loadJob = nil
+        let pendingDownload = downloading
+        pendingDownload?.cancel()
+        let folders = [modelFolder, tokenizerFolder]
+        let task = Task {
+            defer { self.deletion = nil }
+            // The load may be reading the model and the download writing it: both end before anything is removed.
+            _ = await pendingLoad?.result
+            _ = await pendingDownload?.result
+            await loaded?.unload()
+            let manager = FileManager.default
+            for folder in folders where manager.fileExists(atPath: folder.path) {
+                try manager.removeItem(at: folder)
+            }
+            self.lastFailure = nil
         }
-        lastFailure = nil
+        deletion = task
+        try await task.value
     }
 
     // MARK: - SpeechEngine
@@ -149,8 +199,13 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
         options: SpeechTranscriptionOptions,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
-        await acquire()
-        defer { release() }
+        // Cancellable while queued: a cancelled call leaves the line at once (review I1).
+        try await permit.wait()
+        busy = true
+        defer {
+            busy = false
+            permit.signal()
+        }
         let pipeline = try await loadedPipeline()
         try Task.checkCancellation()
         let reported = MonotonicFraction(progress)
@@ -175,65 +230,62 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
 
     // MARK: - SpeechEngineUnloading
 
+    /// Frees the loaded model. Refused (silently) while a call holds it, while a load or a delete runs.
     public func unloadModels() async {
-        guard !busy else { return }
-        let loaded = pipeline
+        guard !busy, loadJob == nil, deletion == nil, let loaded = pipeline else { return }
         pipeline = nil
-        loading = nil
-        await loaded?.unload()
+        await loaded.unload()
     }
 
     // MARK: - Loading
 
+    /// The loaded pipeline, loading it from local files once. Concurrent callers share one load; a caller cancelled
+    /// while it waits stops waiting at once (`CancellationError`) and the load goes on for the others and the next
+    /// call. Never downloads.
     private func loadedPipeline() async throws -> any WhisperKitTranscribing {
         if let pipeline { return pipeline }
-        guard downloading == nil, filesPresent else { throw SpeechEngineError.modelNotDownloaded(Self.engineID) }
-        let task: Task<any WhisperKitTranscribing, any Error>
-        if let loading {
-            task = loading
+        guard deletion == nil, downloading == nil, filesPresent else {
+            throw SpeechEngineError.modelNotDownloaded(Self.engineID)
+        }
+        let job: LoadJob
+        if let loadJob {
+            job = loadJob
         } else {
-            task = Task { [backend, variant, modelFolder, modelsDirectory] in
-                try await backend.load(variant, modelFolder: modelFolder, tokenizerBase: modelsDirectory)
+            let id = UUID()
+            let startGeneration = generation
+            let task = Task {
+                [backend, variant, modelFolder, modelsDirectory] () async throws -> any WhisperKitTranscribing in
+                defer { self.clearLoadJob(id) }
+                let loaded = try await backend.load(variant, modelFolder: modelFolder, tokenizerBase: modelsDirectory)
+                // A delete ran while the model loaded: it belongs to removed files. Release it, never keep it.
+                guard self.generation == startGeneration else {
+                    await loaded.unload()
+                    throw StaleLoad()
+                }
+                self.pipeline = loaded
+                return loaded
             }
-            loading = task
+            job = LoadJob(id: id, task: task)
+            loadJob = job
         }
         do {
-            let loaded = try await task.value
-            if loading != nil {
-                pipeline = loaded
-                loading = nil
-            }
-            return loaded
+            return try await awaitSharedTask(job.task)
         } catch {
-            loading = nil
             if error is CancellationError { throw error }
+            if error is StaleLoad { throw SpeechEngineError.modelNotDownloaded(Self.engineID) }
             throw SpeechEngineError.underlying(
                 "\(variant.displayName) could not be loaded. Delete it and download it again. Details: "
                     + error.localizedDescription)
         }
     }
 
+    private func clearLoadJob(_ id: UUID) {
+        if loadJob?.id == id { loadJob = nil }
+    }
+
     private func setDownloadFraction(_ fraction: Double) {
         guard downloading != nil else { return }
         downloadFraction = max(downloadFraction ?? 0, min(max(fraction, 0), 1))
-    }
-
-    // MARK: - Permit (one call at a time)
-
-    private func acquire() async {
-        if !busy {
-            busy = true
-            return
-        }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    private func release() {
-        if waiters.isEmpty {
-            busy = false
-        } else {
-            waiters.removeFirst().resume()
-        }
     }
 
     // MARK: - Result mapping

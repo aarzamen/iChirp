@@ -93,15 +93,19 @@ public actor MeetingFinalizer {
 
         let normalizedURL = paths.mediaDirectory(for: id).appendingPathComponent(Self.normalizedFileName)
         defer { try? FileManager.default.removeItem(at: normalizedURL) }
+        // M7: the final route's engine as this pass is queued (Retry resolves again, so switching engines recovers).
+        let speech = SpeechRouting.resolve(self.speech, for: .final)
         do {
-            let finished = try await run(row, normalizedURL: normalizedURL, progress: progress)
+            let finished = try await run(row, speech: speech, normalizedURL: normalizedURL, progress: progress)
             return try await saveAndSettle(finished)
         } catch {
             if Self.isCancellation(error) {
                 logger.notice("meeting_finalize_cancelled id=\(id, privacy: .public)")
                 return await markEnded(id, fallback: row, status: .cancelled, message: nil)
             }
-            let message = Self.userMessage(for: error)
+            // Review I2: a missing model names the engine this pass resolved and what to do.
+            let message = Self.userMessage(
+                for: SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
             logger.error(
                 "meeting_finalize_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
             return await markEnded(id, fallback: row, status: .failed, message: message)
@@ -128,7 +132,8 @@ public actor MeetingFinalizer {
     }
 
     private func run(
-        _ row: Transcription, normalizedURL: URL, progress: (@Sendable (JobProgress) -> Void)?
+        _ row: Transcription, speech: any SpeechEngine, normalizedURL: URL,
+        progress: (@Sendable (JobProgress) -> Void)?
     ) async throws -> Transcription {
         let id = row.id
         let shared = self.onProgress
@@ -137,8 +142,6 @@ public actor MeetingFinalizer {
             progress?(value)
         }
         let settingsValue = settings.load()
-        // M7: the final route's engine as this pass is queued.
-        let speech = SpeechRouting.resolve(self.speech, for: .final)
         try Task.checkCancellation()
         try checkSpeechRouting(speech.descriptor, privacyClass: row.privacyClass, id: id)
         guard case .ready = await speech.assetStatus() else {
@@ -331,6 +334,9 @@ public actor MeetingFinalizer {
     }
 
     static func userMessage(for error: any Error) -> String {
+        if let missing = error as? SpeechModelMissingError {
+            return "The recording is saved. " + missing.message + ", then tap Retry."
+        }
         if case .modelNotDownloaded = error as? SpeechEngineError {
             return "The recording is saved. " + FileTranscriptionPipeline.modelMissingMessage + ", then tap Retry."
         }

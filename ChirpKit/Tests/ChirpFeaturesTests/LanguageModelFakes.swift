@@ -82,7 +82,8 @@ final class RecordingLanguageModel: LanguageModel {
                         let middle = text.index(text.startIndex, offsetBy: text.count / 2)
                         continuation.yield(.text(String(text[..<middle])))
                         continuation.yield(.text(String(text[middle...])))
-                        continuation.yield(.usage(GenerationUsage(promptTokens: 10, completionTokens: 5, model: "fake-1")))
+                        continuation.yield(
+                            .usage(GenerationUsage(promptTokens: 10, completionTokens: 5, model: "fake-1")))
                         continuation.yield(.finished)
                         continuation.finish()
                     case .error(let error):
@@ -113,7 +114,8 @@ actor FakeDeliverableStore: DeliverableStoring {
 
     func installBuiltInTemplates(_ builtIns: [BuiltInPromptTemplate]) async throws {
         for builtIn in builtIns where !templates.values.contains(where: { $0.canonicalKey == builtIn.canonicalKey }) {
-            let version = PromptVersion(promptID: builtIn.id, versionNumber: 1, content: builtIn.content, origin: .builtIn)
+            let version = PromptVersion(
+                promptID: builtIn.id, versionNumber: 1, content: builtIn.content, origin: .builtIn)
             versions[version.id] = version
             templates[builtIn.id] = PromptTemplate(
                 id: builtIn.id, name: builtIn.name, category: builtIn.category, isBuiltIn: true,
@@ -201,7 +203,46 @@ actor FakeDeliverableStore: DeliverableStoring {
     }
 
     func fetchRuns(limit: Int) async throws -> [LanguageModelRun] { Array(runs.reversed().prefix(limit)) }
+
+    // MARK: Plan 022 versions (the rules of `GRDBDeliverableStore.appendDeliverableVersion`)
+
+    private(set) var documentVersions: [UUID: [DeliverableVersion]] = [:]
+
+    func fetchDeliverableVersions(deliverableID: UUID) async throws -> [DeliverableVersion] {
+        documentVersions[deliverableID] ?? []
+    }
+
+    func appendDeliverableVersion(_ draft: DeliverableVersionDraft, deliverableID: UUID) async throws
+        -> DeliverableVersionAppend?
+    {
+        try Task.checkCancellation()
+        guard var document = deliverables[deliverableID] else { return nil }
+        var list = documentVersions[deliverableID] ?? []
+        var next = (list.last?.versionNumber ?? 0) + 1
+        if list.last?.text != document.text {
+            list.append(
+                DeliverableVersion(
+                    deliverableID: deliverableID, versionNumber: next, text: document.text,
+                    origin: list.isEmpty ? .original : .handEdit, privacyClass: document.privacyClass))
+            next += 1
+        }
+        let raised = document.privacyClass.stricter(draft.privacyClass)
+        list.append(
+            DeliverableVersion(
+                deliverableID: deliverableID, versionNumber: next, text: draft.text, origin: draft.origin,
+                instruction: draft.instruction, restoredFrom: draft.restoredFrom, engineID: draft.engineID,
+                provider: draft.provider, model: draft.model, locality: draft.locality, privacyClass: raised,
+                createdAt: draft.createdAt))
+        documentVersions[deliverableID] = list
+        document.text = draft.text
+        document.privacyClass = raised
+        document.updatedAt = draft.createdAt
+        deliverables[deliverableID] = document
+        return DeliverableVersionAppend(deliverable: document, versions: list)
+    }
 }
+
+extension FakeDeliverableStore: DeliverableVersionStoring {}
 
 /// A settable clock for override expiry.
 final class TestClock: Sendable {

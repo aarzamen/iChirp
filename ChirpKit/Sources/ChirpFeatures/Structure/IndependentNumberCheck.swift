@@ -39,7 +39,16 @@ enum IndependentNumberReader {
                 if let value = Double(token.replacingOccurrences(of: ",", with: "")) { reading.numbers.append(value) }
                 continue
             }
-            if isNumberWord(token) || (token == "and" && !group.isEmpty)
+            // Re-review C1-R: "a hundred" is one hundred, and "and" belongs to a number only after "hundred" or
+            // "thousand" ("a hundred and twenty-five" is 125; "fifty and a hundred" is 50, then 100).
+            if token == "a" || token == "an", index + 1 < tokens.count,
+                ["hundred", "thousand"].contains(tokens[index + 1])
+            {
+                flush()
+                group.append("one")
+                continue
+            }
+            if isNumberWord(token) || (token == "and" && ["hundred", "thousand"].contains(group.last ?? ""))
                 || ((token == "oh" || token == "point") && (!group.isEmpty || token == "point"))
             {
                 group.append(token)
@@ -64,6 +73,7 @@ enum IndependentNumberReader {
         while words.last == "and" || words.last == "point" || words.last == "oh" { words.removeLast() }
         guard !words.isEmpty else { return [] }
         if words.first == "point" { words.insert("zero", at: 0) }
+        if words.first == "hundred" || words.first == "thousand" { words.insert("one", at: 0) }
         let formatter = NumberFormatter()
         formatter.numberStyle = .spellOut
         formatter.locale = Locale(identifier: "en_US")
@@ -89,6 +99,33 @@ enum IndependentNumberReader {
     static func isNumberWord(_ word: String) -> Bool {
         numberWords.contains(word)
     }
+
+    static func isDoseUnit(_ word: String) -> Bool {
+        doseUnits[word] != nil
+    }
+
+    static func doseUnit(_ word: String) -> String? {
+        doseUnits[word]
+    }
+
+    /// The first range in the words, or nil (re-review N2): "4 to 8", "4-8", "500 or 1000", "fifty and a hundred".
+    /// "a hundred and twenty" is one number, not a range.
+    static func range(in text: String) -> String? {
+        let ns = text as NSString
+        let match = rangePattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length))
+        return match.map { ns.substring(with: $0.range) }
+    }
+
+    private static let rangePattern: NSRegularExpression = {
+        let smallWords = numberWords.subtracting(["hundred", "thousand"]).sorted().joined(separator: "|")
+        let small = "(?:\\d+(?:\\.\\d+)?|\(smallWords))"
+        let any = "(?:\\d+(?:\\.\\d+)?|\(numberWords.sorted().joined(separator: "|")))"
+        let pattern =
+            "\\d+(?:\\.\\d+)?\\s*[-–—]\\s*\\d"
+            + "|\\b\(any)\\s+(?:to|or|through)\\s+(?:a\\s+)?\(any)\\b"
+            + "|\\b\(small)\\s+and\\s+(?:a\\s+)?\(any)\\b"
+        return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    }()
 
     static func same(_ a: Double, _ b: Double) -> Bool {
         abs(a - b) <= max(1e-6, abs(b) * 1e-9)
@@ -171,6 +208,12 @@ enum IndependentNumberCheck {
         case .time, .duration, .laterality:
             break
         }
+        // Re-review N2: a range in the tag's own words is never one value.
+        if [.dose, .rate, .oxygenSaturation, .temperature].contains(tag.kind), tag.value != nil,
+            let range = IndependentNumberReader.range(in: tag.sourceText)
+        {
+            problems.append("“\(range)” is a range, but the field holds one value (\(tag.display)). Check it.")
+        }
         problems += SentenceNeighbours.problems(for: tag, in: sentence)
         return problems
     }
@@ -195,6 +238,23 @@ enum SentenceNeighbours {
 
     /// Words that correct what was just said. Plain "no" counts only between commas or dashes (see `correction(in:)`).
     static let correctionWords: Set<String> = ["sorry", "correction", "rather", "actually", "wait", "oops"]
+    /// Words that can sit inside a spoken number or between two numbers said together ("a hundred *and* twelve",
+    /// "fifty *and a* hundred").
+    static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
+    /// Re-review N3: the units of a strength, the words that count what holds it, and fractions of one.
+    static let strengthUnits: Set<String> = ["mg", "mcg", "g", "units", "mEq"]
+    static let strengthUnitWords: Set<String> = [
+        "mg", "mgs", "milligram", "milligrams", "mcg", "ug", "microgram", "micrograms", "g", "gm", "gram", "grams",
+        "unit", "units", "meq",
+    ]
+    static let countWords: Set<String> = [
+        "tablet", "tablets", "tab", "tabs", "pill", "pills", "capsule", "capsules", "cap", "caps", "puff", "puffs",
+    ]
+    static let fractionWords: Set<String> = ["half", "halves", "quarter", "quarters", "third", "thirds"]
+    /// Re-review N4: words that make a slash pair a blood pressure.
+    static let pressureWords: Set<String> = ["bp", "pressure", "pressures", "vitals", "vital", "systolic", "diastolic"]
+    /// Words that join the two ends of a range ("4 *to* 8", "500 *or* 1000").
+    static let rangeWords: Set<String> = ["to", "or", "through"]
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
     static let timeOrWeight = ["kg", "kilo", "kilogram", "hour", "minute", "day", "week"]
     static let correctionPairs: Set<String> = [
@@ -211,12 +271,45 @@ enum SentenceNeighbours {
         func gap(_ from: Int, _ to: Int) -> String {
             ns.substring(with: NSRange(location: from, length: max(0, to - from)))
         }
-        if let previous = before.last,
-            gap(previous.range.upperBound, tag.sourceRange.lowerBound).allSatisfy({ $0 == " " || $0 == "-" }),
-            isNumber(previous.text)
-        {
-            problems.append(
-                "“\(previous.text)” was said right before “\(tag.sourceText)”: check which amount was meant.")
+        // Re-review C1-R: the words right before the tag, across "and" / "a" inside a spoken number. The whole spoken
+        // number is re-read, so "a hundred and" before "twenty-five micrograms" reads as 125, not 25.
+        var run: [Word] = []
+        var edge = tag.sourceRange.lowerBound
+        for word in before.reversed() {
+            guard gap(word.range.upperBound, edge).allSatisfy({ $0 == " " || $0 == "-" || $0 == "–" }),
+                isNumber(word.text) || spokenNumberJoiners.contains(word.text) || rangeWords.contains(word.text)
+            else { break }
+            run.insert(word, at: 0)
+            edge = word.range.lowerBound
+        }
+        if let firstNumber = run.firstIndex(where: { isNumber($0.text) }) {
+            let start = run[run.first?.text == "a" || run.first?.text == "an" ? 0 : firstNumber].range.lowerBound
+            let spoken = gap(start, tag.sourceRange.upperBound)
+            let said = gap(start, tag.sourceRange.lowerBound).trimmingCharacters(in: .whitespaces)
+            let whole = IndependentNumberReader.read(spoken).numbers
+            if let range = IndependentNumberReader.range(in: spoken) {
+                // Re-review N2: "4 to" before "8 mg" makes it a range.
+                problems.append(
+                    "“\(said)” was said right before “\(tag.sourceText)”: “\(range)” is a range, not one value. Check it."
+                )
+            } else if whole.count == 1, let value = tag.value, !IndependentNumberReader.same(whole[0], value) {
+                problems.append(
+                    "The spoken number “\(spoken)” reads as \(NumericNormalizer.format(whole[0])), not \(tag.display).")
+            } else {
+                problems.append("“\(said)” was said right before “\(tag.sourceText)”: check which amount was meant.")
+            }
+        }
+        // Re-review N2: "100" followed by "to 120" (or "-120") is a range, not one value. Never across "and".
+        if let next = after.first {
+            let between = gap(tag.sourceRange.upperBound, next.range.lowerBound).trimmingCharacters(in: .whitespaces)
+            let byWord =
+                after.count >= 2 && between.isEmpty && rangeWords.contains(next.text) && isNumber(after[1].text)
+            let byDash = ["-", "–", "—"].contains(between) && isNumber(next.text)
+            if byWord || byDash {
+                let phrase = byWord ? "\(next.text) \(after[1].text)" : "\(between)\(next.text)"
+                problems.append(
+                    "“\(tag.sourceText)” is followed by “\(phrase)”: a range, not one value. Check it.")
+            }
         }
         if tag.kind == .dose, after.count >= 2,
             gap(tag.sourceRange.upperBound, after[0].range.lowerBound).trimmingCharacters(in: .whitespaces).isEmpty
@@ -232,10 +325,76 @@ enum SentenceNeighbours {
                 )
             }
         }
+        // Re-review N4: a slash pair before a dose unit is a combination strength; a pressure needs a pressure word.
+        if tag.kind == .bloodPressure {
+            if let next = after.first, IndependentNumberReader.isDoseUnit(next.text),
+                gap(tag.sourceRange.upperBound, next.range.lowerBound).allSatisfy({ $0 == " " || $0 == "-" })
+            {
+                problems.append(
+                    "“\(tag.sourceText)” is followed by “\(next.text)”: a combination drug strength, not a blood "
+                        + "pressure.")
+            } else if !before.suffix(5).contains(where: { pressureWords.contains($0.text) }),
+                after.first?.text != "mmhg", !tag.sourceText.lowercased().contains("over")
+            {
+                problems.append(
+                    "No blood-pressure word before “\(tag.sourceText)”: it may be a drug's strength. Check it.")
+            }
+        }
+        // Re-review minor 7: another strength unit right after a dose, with no number ("50 micrograms, milligrams").
+        if tag.kind == .dose, let next = after.first,
+            let unit = IndependentNumberReader.read(tag.sourceText).units.last,
+            let other = IndependentNumberReader.doseUnit(next.text), strengthUnits.contains(unit),
+            strengthUnits.contains(other), other != unit,
+            gap(tag.sourceRange.upperBound, next.range.lowerBound).allSatisfy({ $0 == " " || $0 == "," })
+        {
+            problems.append("“\(next.text)” follows “\(tag.sourceText)” with no number: check the unit.")
+        }
+        if tag.kind == .dose, let unit = IndependentNumberReader.read(tag.sourceText).units.last,
+            strengthUnits.contains(unit),
+            let phrase = countNearStrength(after, in: sentence, forward: true)
+                ?? countNearStrength(before, in: sentence, forward: false)
+        {
+            problems.append(
+                "Tablet count differs from strength: “\(phrase)” is said near “\(tag.sourceText)”. The dose given may "
+                    + "be a fraction or a multiple of it; check it.")
+        }
         if let marker = correction(before.suffix(2)) ?? correction(Array(after.prefix(2)), leading: true) {
             problems.append("“\(marker)” was said next to “\(tag.sourceText)”: check this value.")
         }
         return problems
+    }
+
+    /// Re-review N3: a count other than one ("two tablets", "1.5 tabs"), or a fraction ("half", "1/2"), among the
+    /// words next to a strength: at most 8 words after it or 6 before it, cut at another strength or a sentence break.
+    /// Returns the words that were said.
+    static func countNearStrength(_ words: [Word], in sentence: String, forward: Bool) -> String? {
+        let ns = sentence as NSString
+        var window: [Word] = []
+        for word in forward ? words : words.reversed() {
+            guard window.count < (forward ? 8 : 6), !strengthUnitWords.contains(word.text) else { break }
+            if let last = window.last {
+                let low = min(last.range.upperBound, word.range.upperBound)
+                let high = max(last.range.lowerBound, word.range.lowerBound)
+                let between = ns.substring(with: NSRange(location: low, length: max(0, high - low)))
+                if between.contains(where: { ";!?".contains($0) }) { break }
+            }
+            window.append(word)
+        }
+        if !forward { window.reverse() }
+        for (index, word) in window.enumerated() {
+            if fractionWords.contains(word.text) { return word.text }
+            if word.text == "/", index > 0, index + 1 < window.count, isNumber(window[index - 1].text),
+                isNumber(window[index + 1].text)
+            {
+                return "\(window[index - 1].text)/\(window[index + 1].text)"
+            }
+            if countWords.contains(word.text), index > 0, isNumber(window[index - 1].text),
+                IndependentNumberReader.read(window[index - 1].text).numbers.first != 1
+            {
+                return "\(window[index - 1].text) \(word.text)"
+            }
+        }
+        return nil
     }
 
     /// A correction phrase among two neighbouring words.

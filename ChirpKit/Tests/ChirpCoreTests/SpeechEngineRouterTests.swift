@@ -208,6 +208,98 @@ final class SpeechEngineRouterTests: XCTestCase {
         XCTAssertEqual(downloads, 0, "never downloads")
     }
 
+    // MARK: - Review I3: memory across routes
+
+    /// An engine that holds a model in memory and counts unloads.
+    actor UnloadingEngine: SpeechEngine, SpeechEngineUnloading {
+        nonisolated let descriptor: EngineDescriptor
+        private(set) var unloads = 0
+
+        init(id: String) {
+            descriptor = EngineDescriptor(
+                id: id, kind: .speech, provider: "Test", displayName: id, locality: .onDevice, license: "MIT")
+        }
+
+        func unloadModels() async { unloads += 1 }
+        func assetStatus() async -> ModelAssetStatus { .ready(bytesOnDisk: 1) }
+        func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {}
+        func deleteAssets() async throws {}
+        func prepare() async throws {}
+        func transcribe(
+            fileAt url: URL, options: SpeechTranscriptionOptions, progress: @escaping @Sendable (Double) -> Void
+        ) async throws -> SpeechResult {
+            SpeechResult(text: "x", words: [], language: nil, engineID: descriptor.id, engineVariant: nil)
+        }
+    }
+
+    private let turboKey = SpeechEngineVariantKey(
+        engineID: SpeechEngineCapabilityRegistry.whisperKitEngineID, variant: "large-v3-turbo")
+
+    func testAnEngineIsUnloadedOnceItIsOnNoRouteAndNotBefore() async throws {
+        let parakeet = UnloadingEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)
+        let whisper = UnloadingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)
+        let router = makeRouter(parakeet: parakeet, whisper: whisper)
+
+        try router.select(whisperKey, for: .final)
+        await router.releaseUnroutedModels()
+        var parakeetUnloads = await parakeet.unloads
+        XCTAssertEqual(parakeetUnloads, 0, "Parakeet still serves live text")
+
+        try router.select(whisperKey, for: .live)
+        await router.releaseUnroutedModels()
+        parakeetUnloads = await parakeet.unloads
+        let whisperUnloads = await whisper.unloads
+        XCTAssertEqual(parakeetUnloads, 1, "on no route now: its model is released")
+        XCTAssertEqual(whisperUnloads, 0, "the engine in use stays loaded")
+    }
+
+    func testAPairOverTheMemoryBudgetKeepsOneModelResident() throws {
+        let router = SpeechEngineRouter(
+            engines: [
+                .init(key: parakeetKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)),
+                .init(key: turboKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)),
+            ],
+            memoryBudgetBytes: 2_000_000_000)
+        // Transcripts first: live text follows it (the final engine's tail preview), and the result says so.
+        let changed = try router.select(turboKey, for: .final)
+        XCTAssertEqual(changed, [.final, .live])
+        XCTAssertEqual(router.selection, SpeechRouteSelection(live: turboKey, final: turboKey))
+        // A live choice that does not fit with the final engine is refused, with the numbers.
+        XCTAssertThrowsError(try router.select(parakeetKey, for: .live)) { error in
+            guard case .combinedMemoryOverBudget = error as? SpeechRouteError else {
+                return XCTFail("expected combinedMemoryOverBudget, got \(error)")
+            }
+            XCTAssertTrue(
+                error.localizedDescription.contains("Parakeet v3") && error.localizedDescription.contains("2.0 GB"),
+                error.localizedDescription)
+        }
+        XCTAssertEqual(router.selection.live, turboKey, "nothing changed")
+        let back = try router.select(parakeetKey, for: .final)
+        XCTAssertEqual(back, [.final, .live])
+        XCTAssertEqual(router.selection, SpeechRouteSelection(live: parakeetKey, final: parakeetKey))
+    }
+
+    func testTheDefaultBudgetAllowsEveryPairThisBuildOffers() throws {
+        let router = SpeechEngineRouter(engines: [
+            .init(key: parakeetKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)),
+            .init(key: whisperKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)),
+            .init(key: turboKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)),
+        ])
+        XCTAssertNoThrow(try router.select(turboKey, for: .final), "Parakeet 0.8 + Turbo 1.5 GB fit 2.5 GB")
+        XCTAssertNoThrow(try router.select(whisperKey, for: .live), "Base 0.3 + Turbo 1.5 GB fit 2.5 GB")
+    }
+
+    func testASavedPairOverTheBudgetPreviewsWithTheFinalEngine() {
+        let router = SpeechEngineRouter(
+            engines: [
+                .init(key: parakeetKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID)),
+                .init(key: turboKey, engine: RecordingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID)),
+            ],
+            selection: SpeechRouteSelection(live: parakeetKey, final: turboKey), memoryBudgetBytes: 2_000_000_000)
+        XCTAssertEqual(router.selection.final, turboKey)
+        XCTAssertEqual(router.selection.live, turboKey, "one model resident: the final engine's tail preview")
+    }
+
     func testSelectionDecodingIsForgiving() throws {
         let data = Data(#"{"final":{"engineID":"argmax.whisperkit","variant":"base"},"live":42}"#.utf8)
         let decoded = try JSONDecoder().decode(SpeechRouteSelection.self, from: data)

@@ -22,6 +22,10 @@ struct DictatingScreen: View {
             statusRow
             DictationVoiceCommandBar()  // M6: voice-command chip (display only) and what the final pass applied
                 .padding(.top, 12)
+            if let next = environment.create.speechOutputTitle {  // plan 022: this dictation feeds a Create chain
+                CreateNextChip(title: next)
+                    .padding(.top, 10)
+            }
             Spacer(minLength: 16)
             VStack(spacing: 30) {
                 centerContent
@@ -283,8 +287,10 @@ struct DictatingScreen: View {
             + " lands on your clipboard. Audio and transcript never leave this iPhone."
     }
 
+    /// The fix for this failure, chosen by its kind (review I2), never by comparing sentences.
     private func failureSecondary(_ message: String) -> (String, () -> Void)? {
-        if message == FileTranscriptionPipeline.modelMissingMessage {
+        switch dictation.failureKind {
+        case .speechModelMissing:
             return (
                 "Open Settings",
                 {
@@ -292,8 +298,7 @@ struct DictatingScreen: View {
                     openTab(.settings)
                 }
             )
-        }
-        if message == AudioCaptureError.microphonePermissionDenied.errorDescription {
+        case .microphoneDenied:
             return (
                 "Allow microphone",
                 {
@@ -303,8 +308,9 @@ struct DictatingScreen: View {
                     }
                 }
             )
+        case .other, nil:
+            return dictation.canRetry ? ("Close", { dictation.dismiss() }) : nil
         }
-        return dictation.canRetry ? ("Close", { dictation.dismiss() }) : nil
     }
 
     private func outcomeButtons(primary: (String, () -> Void), secondary: (String, () -> Void)?) -> some View {

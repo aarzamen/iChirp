@@ -15,6 +15,16 @@ import Observation
     func copy(_ text: String)
 }
 
+/// What kind of failure the Dictating screen shows, so it can offer the fix (review I2: by kind, never by comparing
+/// sentences).
+public enum DictationFailureKind: Equatable, Sendable {
+    /// The final route's engine has no model on this iPhone: Settings fixes it.
+    case speechModelMissing
+    /// The microphone is not allowed: the system Settings app fixes it.
+    case microphoneDenied
+    case other
+}
+
 /// The person's custom words and snippets, read once per final pass (only when Clean runs).
 public struct DictationTextRules: Sendable {
     public var customWords: [CustomWord]
@@ -61,6 +71,8 @@ public struct DictationTextRules: Sendable {
     public private(set) var isBusyNoticeVisible = false
     /// A Resume that failed, in words.
     public private(set) var resumeError: String?
+    /// Why the last dictation failed, for the screen's second button; nil unless the flow failed.
+    public private(set) var failureKind: DictationFailureKind?
     /// "Polish after": run Clean on this dictation's copied text. Remembered in settings.
     public var polishAfter: Bool {
         didSet {
@@ -252,6 +264,7 @@ public struct DictationTextRules: Sendable {
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
+        failureKind = nil
         voiceCommands?.reset()
     }
 
@@ -262,11 +275,16 @@ public struct DictationTextRules: Sendable {
         recording = nil
         rowInserted = false
         transcriptionID = nil
-        guard case .ready = await speech.assetStatus() else {
-            send(.startFailed(generation: generation, message: FileTranscriptionPipeline.modelMissingMessage))
+        // M7 (review I2): the final route's engine must have its model; the sentence names that engine.
+        let finalEngine = SpeechRouting.resolve(self.speech, for: .final)
+        guard case .ready = await finalEngine.assetStatus() else {
+            failureKind = .speechModelMissing
+            let missing = SpeechModelMissingError(engine: finalEngine.descriptor, configured: self.speech)
+            send(.startFailed(generation: generation, message: missing.message))
             return
         }
         guard await microphoneAllowed() else {
+            failureKind = .microphoneDenied
             send(.startFailed(generation: generation, message: AudioCaptureError.microphonePermissionDenied.message))
             return
         }
@@ -282,6 +300,7 @@ public struct DictationTextRules: Sendable {
         } catch {
             try? FileManager.default.removeItem(at: directory)
             logger.error("dictation_start_failed error_type=\(error.logTypeName, privacy: .public)")
+            failureKind = Self.failureKind(for: error)
             send(.startFailed(generation: generation, message: Self.message(for: error)))
             return
         }
@@ -289,9 +308,8 @@ public struct DictationTextRules: Sendable {
         transcriptionID = id
         updatesTask = Task { await self.consume(updates, generation: generation) }
 
-        // The model loads while the person speaks, so the final pass does not pay for it.
-        let speech = SpeechRouting.resolve(self.speech, for: .final)
-        Task.detached(priority: .utility) { try? await speech.prepare() }
+        // The final engine loads while the person speaks, so the final pass does not pay for it.
+        Task.detached(priority: .utility) { try? await finalEngine.prepare() }
 
         // M7: the live route may be a different engine from the final one; routing checks the one that gets audio.
         if privacyRouting.allows(SpeechRouting.resolve(self.speech, for: .live).descriptor, for: .personal),
@@ -385,6 +403,7 @@ public struct DictationTextRules: Sendable {
                 removeFolder(of: recording.url)
                 self.recording = nil
             }
+            failureKind = Self.failureKind(for: error)
             send(.transcriptionFailed(generation: generation, message: Self.message(for: error)))
             return
         }
@@ -406,6 +425,7 @@ public struct DictationTextRules: Sendable {
             rowInserted = true
         } catch {
             logger.error("dictation_row_insert_failed error_type=\(error.logTypeName, privacy: .public)")
+            failureKind = Self.failureKind(for: error)
             send(.transcriptionFailed(generation: generation, message: Self.message(for: error)))
             return
         }
@@ -413,7 +433,9 @@ public struct DictationTextRules: Sendable {
     }
 
     private func retryFinalPass(generation: Int) async {
+        failureKind = nil
         guard let recording else {
+            failureKind = .other
             send(.transcriptionFailed(generation: generation, message: "There is no recording to retry."))
             return
         }
@@ -428,6 +450,7 @@ public struct DictationTextRules: Sendable {
             row = nil
         }
         guard let row else {
+            failureKind = .other
             send(.transcriptionFailed(generation: generation, message: "This dictation can no longer be retried."))
             return
         }
@@ -486,6 +509,7 @@ public struct DictationTextRules: Sendable {
                 return
             }
             _ = await markFailed(row.id, error: error)
+            failureKind = Self.failureKind(for: error)
             if (error as? SpeechEngineError) == .emptyTranscript {
                 send(.transcriptionFailedNoSpeech(generation: generation))
             } else {
@@ -568,7 +592,9 @@ public struct DictationTextRules: Sendable {
             return .success(FinalText(text: text, row: saved))
         } catch {
             logger.error("dictation_final_pass_failed error_type=\(error.logTypeName, privacy: .public)")
-            return .failure(error)
+            // Review I2: a missing model names the engine this pass resolved and what to do.
+            return .failure(
+                SpeechModelMissingError.mapping(error, engine: speech.descriptor, configured: self.speech))
         }
     }
 
@@ -665,6 +691,13 @@ public struct DictationTextRules: Sendable {
 
     private static func isCancellation(_ error: any Error) -> Bool {
         error is CancellationError || (error as? SpeechEngineError) == .cancelled
+    }
+
+    static func failureKind(for error: any Error) -> DictationFailureKind {
+        if error is SpeechModelMissingError { return .speechModelMissing }
+        if case .modelNotDownloaded = error as? SpeechEngineError { return .speechModelMissing }
+        if (error as? AudioCaptureError) == .microphonePermissionDenied { return .microphoneDenied }
+        return .other
     }
 
     static func message(for error: any Error) -> String {

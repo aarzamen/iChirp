@@ -7,6 +7,8 @@ import Foundation
 public struct Transcription: Codable, Identifiable, Sendable, Equatable {
     public enum SourceType: String, Codable, Sendable, CaseIterable {
         case file, dictation, meeting, url, podcast, document
+        /// Plan 022: text the person typed or pasted (`rawTranscript` holds it as saved; no media, no timings).
+        case text
     }
 
     public enum Status: String, Codable, Sendable {

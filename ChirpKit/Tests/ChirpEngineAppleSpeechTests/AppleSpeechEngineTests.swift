@@ -220,6 +220,50 @@ final class AppleSpeechEngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Review M10: the permission prompt comes from Download, never from a job
+
+    func testAnInstalledModelWithoutPermissionIsNotReadyAndAJobNeverAsks() async throws {
+        let backend = FakeBackend(state: .installed, authorization: .notDetermined, segments: Self.twoSegments)
+        let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
+        let status = await engine.assetStatus()
+        XCTAssertEqual(status, .notDownloaded, "another app installed it, but Download is where iOS asks")
+        let prompts = await engine.needsPermissionPrompt()
+        XCTAssertTrue(prompts)
+        for operation in ["prepare", "transcribe"] {
+            do {
+                if operation == "prepare" {
+                    try await engine.prepare()
+                } else {
+                    _ = try await engine.transcribe(fileAt: file, options: .init(), progress: { _ in })
+                }
+                XCTFail("\(operation) should refuse")
+            } catch {
+                XCTAssertEqual(error as? SpeechEngineError, .modelNotDownloaded("apple.speech-transcriber"))
+            }
+        }
+        XCTAssertEqual(backend.authorizationRequestCount, 0, "no prompt from a file job, a dictation or a preview")
+
+        try await engine.downloadAssets { _ in }
+        XCTAssertEqual(backend.authorizationRequestCount, 1, "Download asks")
+        let ready = await engine.assetStatus()
+        XCTAssertEqual(ready, .ready(bytesOnDisk: 0))
+        let stillPrompts = await engine.needsPermissionPrompt()
+        XCTAssertFalse(stillPrompts)
+    }
+
+    func testARefusedPermissionShowsInTheStatusAndDownloadSaysWhereToAllowIt() async {
+        let backend = FakeBackend(state: .installed, authorization: .denied)
+        let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
+        let status = await engine.assetStatus()
+        XCTAssertEqual(status, .failed(message: AppleSpeechEngine.permissionMessage))
+        do {
+            try await engine.downloadAssets { _ in }
+            XCTFail("expected the permission sentence")
+        } catch {
+            XCTAssertEqual(error as? SpeechEngineError, .underlying(AppleSpeechEngine.permissionMessage))
+        }
+    }
+
     func testCancellationStopsTheJobPromptly() async {
         let backend = FakeBackend(segments: Self.twoSegments)
         backend.holdTranscription = true

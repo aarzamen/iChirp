@@ -70,7 +70,8 @@ public enum DecisionInputWindow {
     public static func source(of transcription: Transcription) -> String {
         switch transcription.sourceType {
         case .file, .dictation, .meeting: "audio"
-        case .document: "document"
+        // Plan 022: typed or pasted text is sent to Jev under the same label as a document (the contract's values).
+        case .document, .text: "document"
         case .url, .podcast: "link"
         }
     }
