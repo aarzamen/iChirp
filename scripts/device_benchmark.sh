@@ -4,9 +4,10 @@
 # time, peak memory, the memory iOS let the app use right before the model load, and the peak during the load alone).
 # Exits non-zero when the run failed or any requested engine failed.
 #
-# Memory (fix/speech-memory-fit): "avail MB" is os_proc_available_memory() right before the engine's model load and
-# "load pk MB" the app's peak footprint during that load (on a first load, the Core ML compile). They replace the
-# registry's first-load peak placeholders (ChirpCore SpeechEngineCapabilities.swift, approximateFirstLoadPeakMemoryBytes).
+# Memory (fix/speech-memory-fit): "avail MB" is os_proc_available_memory() right before the engine's model load,
+# "load pk MB" the app's peak footprint during that load (on a first load, the Core ML compile) and "rise MB" that peak
+# minus the footprint right before the load. "rise MB" (plus a margin) replaces the registry's first-load peak
+# placeholder (ChirpCore SpeechEngineCapabilities.swift, approximateFirstLoadPeakMemoryBytes).
 # An engine whose load would not fit is refused by the app with a sentence naming both numbers (outcome failed). If iOS
 # closes the app during a load anyway, the file stays "running" and names the engine (runningEngine) with its
 # "avail MB": this script then times out and prints that last file.
@@ -66,9 +67,15 @@ print("")
 def megabytes(value):
     return number(value / 1048576 if isinstance(value, (int, float)) else None, '.0f')
 
+def rise(engine):
+    peak, before = engine.get("loadPeakMemoryBytes"), engine.get("footprintBeforeLoadBytes")
+    if isinstance(peak, (int, float)) and isinstance(before, (int, float)):
+        return peak - before
+    return None
+
 header = (
     f"{'engine':<15}{'outcome':<10}{'WER':>8}{'x RT':>9}{'load ms':>10}{'peak MB':>10}"
-    f"{'avail MB':>10}{'load pk MB':>12}{'dl ms':>9}  reason"
+    f"{'avail MB':>10}{'load pk MB':>12}{'rise MB':>9}{'dl ms':>9}  reason"
 )
 print(header)
 print("-" * len(header))
@@ -86,6 +93,7 @@ for engine in data.get("engines", []):
         f"{megabytes(engine.get('peakMemoryBytes')):>10}"
         f"{megabytes(engine.get('availableMemoryBeforeLoadBytes')):>10}"
         f"{megabytes(engine.get('loadPeakMemoryBytes')):>12}"
+        f"{megabytes(rise(engine)):>9}"
         f"{number(engine.get('downloadMs'), 'd'):>9}"
         f"  {engine.get('reason') or ''}"
     )
@@ -95,7 +103,8 @@ print("")
 print("WER: word error rate over the synthetic set (lower is better). x RT: audio length / transcription time")
 print("(higher is faster). load: model load after an unload. peak: the app's peak memory while the engine ran.")
 print("avail: memory iOS let the app use right before the model load (os_proc_available_memory). load pk: the app's")
-print("peak memory during the load alone (a first load includes the Core ML compile).")
+print("peak memory during the load alone (a first load includes the Core ML compile). rise: load pk minus the app's")
+print("memory right before the load, the number for the registry's first-load peak.")
 if data.get("status") != "completed":
     print(f"BENCH FAIL: {data.get('error') or 'status ' + str(data.get('status'))}", file=sys.stderr)
     sys.exit(1)

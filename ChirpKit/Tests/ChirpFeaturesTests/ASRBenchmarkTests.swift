@@ -183,12 +183,14 @@ final class ASRBenchmarkTests: XCTestCase {
 
         XCTAssertEqual(results[0].availableMemoryBeforeLoadBytes, 5_000_000_000)
         XCTAssertEqual(results[0].loadPeakMemoryBytes, 900, "the compile's peak, sampled during the load alone")
+        XCTAssertEqual(results[0].footprintBeforeLoadBytes, 100, "the rise the registry's peak stands for: 800")
         XCTAssertNil(results[1].availableMemoryBeforeLoadBytes, "no load on the second pass")
         XCTAssertNil(results[1].loadPeakMemoryBytes)
         let run = ASRBenchmarkRun(startedAt: Date(), device: "d", appBuild: "b", results: results)
         let summary = try XCTUnwrap(run.summaries.first)
         XCTAssertEqual(summary.availableMemoryBeforeLoadBytes, 5_000_000_000)
         XCTAssertEqual(summary.loadPeakMemoryBytes, 900)
+        XCTAssertEqual(summary.footprintBeforeLoadBytes, 100)
     }
 
     func testALoadTheEngineRefusesAsNotFittingIsReportedWithTheReadingBeforeIt() async throws {

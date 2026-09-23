@@ -81,8 +81,11 @@ public struct ASRBenchmarkResult: Sendable, Equatable, Codable, Identifiable {
     /// load, inside the job's slot; nil without a load attempt or where the system does not say (Mac, Simulator).
     public var availableMemoryBeforeLoadBytes: UInt64?
     /// fix/speech-memory-fit: the app's peak physical footprint during the load alone (on a first load, the Core ML
-    /// compile), the number that replaces a registry row's first-load peak placeholder; nil without a load attempt.
+    /// compile); nil without a load attempt. Minus `footprintBeforeLoadBytes`, it is how much the load raised the
+    /// app's memory: the number that replaces a registry row's first-load peak placeholder.
     public var loadPeakMemoryBytes: UInt64?
+    /// fix/speech-memory-fit: the app's physical footprint right before the load.
+    public var footprintBeforeLoadBytes: UInt64?
     public var hypothesis: String?
     public var error: String?
 }
@@ -113,9 +116,10 @@ public struct ASRBenchmarkRun: Sendable, Equatable, Codable, Identifiable {
         public var realTimeFactor: Double?
         public var loadMs: Int?
         public var peakMemoryBytes: UInt64?
-        /// The first load attempt's reading and load-only peak (fix/speech-memory-fit).
+        /// The first load attempt's reading, load-only peak and footprint before it (fix/speech-memory-fit).
         public var availableMemoryBeforeLoadBytes: UInt64?
         public var loadPeakMemoryBytes: UInt64?
+        public var footprintBeforeLoadBytes: UInt64?
         public var failures: Int
     }
 
@@ -140,6 +144,7 @@ public struct ASRBenchmarkRun: Sendable, Equatable, Codable, Identifiable {
                 peakMemoryBytes: rows.compactMap(\.peakMemoryBytes).max(),
                 availableMemoryBeforeLoadBytes: rows.compactMap(\.availableMemoryBeforeLoadBytes).first,
                 loadPeakMemoryBytes: rows.compactMap(\.loadPeakMemoryBytes).first,
+                footprintBeforeLoadBytes: rows.compactMap(\.footprintBeforeLoadBytes).first,
                 failures: rows.filter { $0.error != nil }.count)
         }
     }
@@ -273,6 +278,7 @@ public struct ASRBenchmarkRunner: Sendable {
                 if load {
                     // Inside the slot, right before the load: nothing else of the app's speech work runs now.
                     let before = availableMemory()
+                    let footprintBefore = memory()
                     let loadSampler = Self.samplePeak(memory, every: interval)
                     let start = clock.now
                     let outcome: Result<Void, any Error>
@@ -284,7 +290,8 @@ public struct ASRBenchmarkRunner: Sendable {
                     }
                     let elapsed = clock.now - start
                     loadSampler.cancel()
-                    loadMemory.set(availableBefore: before, loadPeak: await loadSampler.value)
+                    loadMemory.set(
+                        availableBefore: before, loadPeak: await loadSampler.value, footprintBefore: footprintBefore)
                     try outcome.get()
                     loadDuration = elapsed
                 }
@@ -310,7 +317,8 @@ public struct ASRBenchmarkRunner: Sendable {
         }
         sampler.cancel()
         result.peakMemoryBytes = await sampler.value
-        (result.availableMemoryBeforeLoadBytes, result.loadPeakMemoryBytes) = loadMemory.values
+        (result.availableMemoryBeforeLoadBytes, result.loadPeakMemoryBytes, result.footprintBeforeLoadBytes) =
+            loadMemory.values
     }
 
     /// Samples `memory` every `interval` until cancelled and returns the highest value (nil if it never read one).
@@ -336,13 +344,13 @@ public struct ASRBenchmarkRunner: Sendable {
 private final class LoadMemoryReading: @unchecked Sendable {
     // @unchecked Sendable: `stored` is only touched while `lock` is held.
     private let lock = NSLock()
-    private var stored: (availableBefore: UInt64?, loadPeak: UInt64?) = (nil, nil)
+    private var stored: (availableBefore: UInt64?, loadPeak: UInt64?, footprintBefore: UInt64?) = (nil, nil, nil)
 
-    func set(availableBefore: UInt64?, loadPeak: UInt64?) {
-        lock.withLock { stored = (availableBefore, loadPeak) }
+    func set(availableBefore: UInt64?, loadPeak: UInt64?, footprintBefore: UInt64?) {
+        lock.withLock { stored = (availableBefore, loadPeak, footprintBefore) }
     }
 
-    var values: (UInt64?, UInt64?) { lock.withLock { stored } }
+    var values: (UInt64?, UInt64?, UInt64?) { lock.withLock { stored } }
 }
 
 // MARK: - Export

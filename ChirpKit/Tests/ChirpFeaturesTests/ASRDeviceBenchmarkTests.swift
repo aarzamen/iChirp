@@ -109,7 +109,7 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
                     name: "parakeet", key: "fluidaudio.parakeet-tdt:v3", displayName: "Parakeet v3",
                     outcome: .measured, wordErrorRate: 0.05, realTimeFactor: 0.02, timesRealTime: 50, loadMs: 800,
                     peakMemoryBytes: 600_000_000, availableMemoryBeforeLoadBytes: 5_800_000_000,
-                    loadPeakMemoryBytes: 550_000_000)
+                    loadPeakMemoryBytes: 550_000_000, footprintBeforeLoadBytes: 150_000_000)
             ])
         let data = try report.encoded()
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -121,7 +121,7 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
         let engine = try XCTUnwrap((json["engines"] as? [[String: Any]])?.first)
         for key in [
             "name", "outcome", "wordErrorRate", "timesRealTime", "loadMs", "peakMemoryBytes",
-            "availableMemoryBeforeLoadBytes", "loadPeakMemoryBytes",
+            "availableMemoryBeforeLoadBytes", "loadPeakMemoryBytes", "footprintBeforeLoadBytes",
         ] {
             XCTAssertNotNil(engine[key], key)
         }
@@ -253,6 +253,7 @@ final class ASRDeviceBenchmarkTests: XCTestCase {
         for engine in report.engines {
             XCTAssertEqual(engine.availableMemoryBeforeLoadBytes, 5_800_000_000, engine.name)
             XCTAssertEqual(engine.loadPeakMemoryBytes, 500_000_000, engine.name)
+            XCTAssertEqual(engine.footprintBeforeLoadBytes, 500_000_000, engine.name)
         }
         // Before each engine: running, that engine named, its reading already in place (a file left by iOS ending
         // the app mid-load still says which engine and how much memory). After each: its numbers, nothing running.

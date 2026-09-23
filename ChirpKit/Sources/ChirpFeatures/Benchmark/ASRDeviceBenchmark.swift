@@ -122,8 +122,10 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
         /// by the runner's reading inside the job, right before the load.
         public var availableMemoryBeforeLoadBytes: UInt64?
         /// fix/speech-memory-fit: the app's peak footprint during the load alone (on a first load, the Core ML
-        /// compile): the device number for the registry's first-load peak.
+        /// compile). Minus `footprintBeforeLoadBytes` it is the rise the registry's first-load peak stands for.
         public var loadPeakMemoryBytes: UInt64?
+        /// fix/speech-memory-fit: the app's footprint right before the load.
+        public var footprintBeforeLoadBytes: UInt64?
         /// Recordings that failed.
         public var failures: Int
 
@@ -132,7 +134,7 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
             downloaded: Bool = false, downloadMs: Int? = nil, wordErrorRate: Double? = nil,
             realTimeFactor: Double? = nil, timesRealTime: Double? = nil, loadMs: Int? = nil,
             peakMemoryBytes: UInt64? = nil, availableMemoryBeforeLoadBytes: UInt64? = nil,
-            loadPeakMemoryBytes: UInt64? = nil, failures: Int = 0
+            loadPeakMemoryBytes: UInt64? = nil, footprintBeforeLoadBytes: UInt64? = nil, failures: Int = 0
         ) {
             self.name = name
             self.key = key
@@ -148,6 +150,7 @@ public struct ASRDeviceBenchmarkReport: Codable, Sendable, Equatable {
             self.peakMemoryBytes = peakMemoryBytes
             self.availableMemoryBeforeLoadBytes = availableMemoryBeforeLoadBytes
             self.loadPeakMemoryBytes = loadPeakMemoryBytes
+            self.footprintBeforeLoadBytes = footprintBeforeLoadBytes
             self.failures = failures
         }
     }
@@ -399,6 +402,7 @@ public struct ASRDeviceBenchmark: Sendable {
         merged.availableMemoryBeforeLoadBytes =
             summary.availableMemoryBeforeLoadBytes ?? entry.availableMemoryBeforeLoadBytes
         merged.loadPeakMemoryBytes = summary.loadPeakMemoryBytes
+        merged.footprintBeforeLoadBytes = summary.footprintBeforeLoadBytes
         merged.failures = summary.failures
         if !own.isEmpty, summary.failures == own.count {
             merged.outcome = .failed

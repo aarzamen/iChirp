@@ -99,8 +99,9 @@ state. An engine can be chosen for a route only when its model is on disk.
     owner adds.
   - It reports word error rate (upstream's simple normalizer, corpus aggregate), real-time factor, load time after an
     unload, and the app's peak physical footprint. fix/speech-memory-fit: also the memory iOS let the app use right
-    before each load and the peak during the load alone; the DEBUG device run (`scripts/device_benchmark.sh`) prints
-    both, and they replace the first-load peak placeholders.
+    before each load, the peak during the load alone and the footprint before it; the DEBUG device run
+    (`scripts/device_benchmark.sh`) prints them (`avail MB`, `load pk MB`, `rise MB`), and the rise replaces the
+    first-load peak placeholders.
   - Results go to one local JSON file and export as CSV and JSON. The Mac run is `CHIRP_BENCHMARK=1 swift test
     --filter ASRBenchmarkMacRunTests`. Numbers are in
     [`docs/research/2026-09-22-asr-engine-benchmarks.md`](../docs/research/2026-09-22-asr-engine-benchmarks.md).
