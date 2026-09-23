@@ -6,7 +6,7 @@
 > [`spec/README.md#milestones`](../../spec/README.md#milestones).
 >
 > **Drift check (run first):** `git diff --stat <planned-at>..HEAD -- ChirpKit/Sources/ChirpCore/Engines
-> ChirpKit/Sources/ChirpFeatures/DictationCoordinator.swift ChirpKit/Sources/ChirpFeatures/DeliverableService.swift
+> ChirpKit/Sources/ChirpFeatures/Dictation/DictationCoordinator.swift ChirpKit/Sources/ChirpFeatures/DeliverableService.swift
 > ChirpKit/Package.swift project.yml .github/workflows`. Refine this plan against the live code and commit before
 > coding; STOP if the approach changes.
 >
@@ -24,6 +24,43 @@ model; frozen tool catalogs; a gate + evidence ledger in `ChirpFeatures`; a STUB
 **Tech stack:** Rust 1.87+ (cargo, rustup targets `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`),
 Swift 6, GRDB (migration `v7-structured-results`), SwiftUI.
 **Spec:** design 018 §3, ADR-012, [spec/08](../../spec/08-language-and-structure-models.md), [spec/12](../../spec/12-privacy.md).
+
+## Drift check and refinement (lane L3, 2026-09-22)
+
+Drift check run at `dd7fd56f` (= planned-at): **no drift** in any listed path. Refinements against the live code and
+the live upstreams; the approach is unchanged:
+
+- The drift-check path is `ChirpKit/Sources/ChirpFeatures/Dictation/DictationCoordinator.swift` (the file moved into
+  `Dictation/` in M2).
+- **needle-rs pin:** `4de50494fd60f417b24c37e4d972f95d128f8a0f` (tag v0.3.1 plus four docs/CI commits). Its
+  `include/needle.h` matches `docs/c-ffi.md` (plus `needle_v3_load_with_depth` and `needle_v3_num_layers`). `needle-c`
+  already declares `crate-type = ["cdylib", "staticlib", "rlib"]`, so no patch is needed; the static library needs only
+  `-lSystem -lc -lm`. A probe build for `aarch64-apple-ios` succeeded before any code was written.
+- **Weights pin:** Hugging Face `Cactus-Compute/needle3` revision `b274efcb211a9eef48c9a88da4b43bd569696a39`,
+  `needle3.cact` = 35,335,380 bytes, SHA-256 `c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38`.
+  The same repo ships Cactus's binary `libneedle.a`; it is never used.
+- **Package shape:** the `ChirpEngineNeedle` target always exists (so `project.yml` names its product
+  unconditionally); only the `NeedleC` binary target and the dependency on it are added when
+  `vendor/NeedleC.xcframework` exists. The wrapper compiles the runtime under `#if canImport(NeedleC)`; without it
+  the engine reports "Needle is not in this build — run scripts/build_needle.sh". SwiftPM caches the evaluated
+  manifest keyed by its text and the environment, so after building or deleting the XCFramework a stale cache can
+  keep the old answer: `scripts/build_needle.sh` re-evaluates with `--manifest-cache none`, and a new shell (a new
+  environment) re-evaluates too.
+- **No embeddings:** needle-rs's Needle 3 exports a confidence head only (no contrastive head), so
+  `NeedleStructureModel.embed` throws `StructureModelError.unsupported`.
+- **Confidence:** one `needle_v3_generate(constrain: true)` call, the `<tool_call>` payload extracted in Swift, then
+  `needle_v3_confidence_for(query, tools, completion)` (the head scores the completion, never the bare query).
+  needle-rs exposes the head only, not upstream's min(head, decode probability).
+- **Contract:** `StructureModel.extract(jsonSchema:from:privacyClass:)` is kept; for a tool catalog `jsonSchema` is
+  the catalog's tool array and `json` the call array (`"[]"` = a deliberate abstention). Written down in the new
+  `spec/contracts/structure-model-plugin-v1.md`.
+- **Settings:** the Needle settings (voice commands, gate thresholds) live in their own `StructureSettings` value
+  under their own UserDefaults key, so `TranscriptionSettings` (shared with other lanes) is untouched.
+- **SOAP extraction** runs Needle once per sentence (it is an utterance-level tool caller that reasons first within
+  256 new tokens); each field's span is its sentence's character range in a text built from the word timestamps, so
+  a tap seeks the player.
+- **Escalation** of a below-provisional clinical field goes to the user (the "Needs review" bin). A re-ask on the
+  Apple on-device model is not built in this lane; nothing escalates off the phone.
 
 ## Global constraints
 
