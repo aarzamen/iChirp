@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "ChirpEngineFluidAudio", targets: ["ChirpEngineFluidAudio"]),
         .library(name: "ChirpEngineAppleFM", targets: ["ChirpEngineAppleFM"]),
         .library(name: "ChirpEngineHTTPLLM", targets: ["ChirpEngineHTTPLLM"]),
+        .library(name: "ChirpEngineVoiceHTTP", targets: ["ChirpEngineVoiceHTTP"]),
         .library(name: "ChirpKeychain", targets: ["ChirpKeychain"]),
         .library(name: "ChirpIngest", targets: ["ChirpIngest"]),
         .library(name: "ChirpFeatures", targets: ["ChirpFeatures"]),
@@ -31,6 +32,8 @@ let package = Package(
         .target(name: "ChirpEngineFluidAudio", dependencies: ["ChirpCore", .product(name: "FluidAudio", package: "FluidAudio")], exclude: ["README.md"]),
         .target(name: "ChirpEngineAppleFM", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpEngineHTTPLLM", dependencies: ["ChirpCore"], exclude: ["README.md"]),
+        // Plan 020: text to speech over HTTP (Grok voices on xAI, the owner's voices on the Mac companion).
+        .target(name: "ChirpEngineVoiceHTTP", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         .target(name: "ChirpKeychain", dependencies: ["ChirpCore"], exclude: ["README.md"]),
         // M5: links, podcasts, downloads, YouTube captions and document text. Apple frameworks only, no new dependency.
         .target(name: "ChirpIngest", dependencies: ["ChirpCore"], exclude: ["README.md"]),
@@ -46,6 +49,7 @@ let package = Package(
         .testTarget(name: "ChirpEngineFluidAudioTests", dependencies: ["ChirpEngineFluidAudio"], resources: [.copy("Fixtures")]),
         .testTarget(name: "ChirpEngineAppleFMTests", dependencies: ["ChirpEngineAppleFM"]),
         .testTarget(name: "ChirpEngineHTTPLLMTests", dependencies: ["ChirpEngineHTTPLLM"]),
+        .testTarget(name: "ChirpEngineVoiceHTTPTests", dependencies: ["ChirpEngineVoiceHTTP"]),
         .testTarget(name: "ChirpKeychainTests", dependencies: ["ChirpKeychain"]),
         .testTarget(name: "ChirpIngestTests", dependencies: ["ChirpIngest"]),
         .testTarget(name: "ChirpFeaturesTests", dependencies: ["ChirpFeatures"]),
