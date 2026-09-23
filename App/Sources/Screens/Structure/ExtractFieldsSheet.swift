@@ -204,10 +204,15 @@ struct ExtractFieldsSheet: View {
         }
     }
 
+    /// Re-review minor 8: the STUB is never "confident", so its legend does not offer a solid style.
     private var legend: some View {
         HStack(spacing: 14) {
-            Label("Solid: confident", systemImage: "square")
-            Label("Dashed: provisional", systemImage: "square.dashed")
+            if model.draft?.isStub == true {
+                Label("Dashed: provisional (STUB fields are never solid)", systemImage: "square.dashed")
+            } else {
+                Label("Solid: confident", systemImage: "square")
+                Label("Dashed: provisional", systemImage: "square.dashed")
+            }
         }
         .chirpFont(11.5)
         .foregroundStyle(Tokens.Color.secondary)

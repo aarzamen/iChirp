@@ -64,15 +64,16 @@ public struct VoiceCommandResolver: Sendable {
         var applied: [VoiceCommandMatch] = []
         var ignored: [VoiceCommandMatch] = []
         var actions: [VoiceCommandAction] = []
-        for sentence in Self.sentences(in: text) {
+        for segment in Self.segments(in: text) {
+            let sentence = segment.text
             guard let candidate = candidate(for: sentence) else {
-                ops.append(.text(sentence))
+                ops.append(.text(sentence, continues: segment.continuesPrevious))
                 continue
             }
             let match = await confirm(sentence, as: candidate, privacyClass: privacyClass)
             guard let match, gate.verdict(confidence: match.confidence) == .act else {
                 if let match { ignored.append(match) }
-                ops.append(.text(sentence))
+                ops.append(.text(sentence, continues: segment.continuesPrevious))
                 continue
             }
             applied.append(match)
@@ -84,9 +85,17 @@ public struct VoiceCommandResolver: Sendable {
             case "undo":
                 if let index = ops.lastIndex(where: \.isUndoable) { ops.remove(at: index) }
             case "scratch_that":
-                let scratched = Set(ops.compactMap(\.scratchedIndex))
-                if let index = ops.indices.last(where: { ops[$0].isText && !scratched.contains($0) }) {
-                    ops.append(.scratch(index))
+                // Re-review I9-R: the whole order, back through sentences split only after an abbreviation ("500 mg.
+                // Three times daily." is one order).
+                let scratched = Set(ops.flatMap(\.scratchedIndices))
+                if var index = ops.indices.last(where: { ops[$0].isText && !scratched.contains($0) }) {
+                    var removed = [index]
+                    while ops[index].continuesPrevious, index > 0, ops[index - 1].isText, !scratched.contains(index - 1)
+                    {
+                        index -= 1
+                        removed.append(index)
+                    }
+                    ops.append(.scratch(removed))
                 }
             default:
                 ops.append(.edit(candidate))
@@ -143,76 +152,119 @@ public struct VoiceCommandResolver: Sendable {
 
     /// Sentences of the final text: split after . ! ? followed by whitespace, and at line breaks. A period that ends
     /// an abbreviation (review L3 I9) ends the sentence only when a capital letter follows ("p.o. t.i.d." stays one
-    /// order; "t.i.d. Scratch that." splits), and never after a title or "vs.", "approx.", "e.g." ("Dr. Lee").
+    /// order; "t.i.d. Scratch that." splits), never before a capitalized dosing acronym ("p.o. TID."), and never
+    /// after a title or "vs.", "approx.", "e.g." ("Dr. Lee"). "No." ends a sentence unless a digit follows ("No. 5").
     public static func sentences(in text: String) -> [String] {
-        var result: [String] = []
+        segments(in: text).map(\.text)
+    }
+
+    /// One sentence of the final text, and whether it was split from the one before only after an abbreviation.
+    public struct Segment: Sendable, Equatable {
+        public var text: String
+        /// Split from the previous sentence after an abbreviation followed by a capital ("500 mg. Three times
+        /// daily."): "scratch that" removes both (re-review I9-R).
+        public var continuesPrevious: Bool
+    }
+
+    /// `sentences(in:)` with each sentence's `continuesPrevious`.
+    public static func segments(in text: String) -> [Segment] {
+        var result: [Segment] = []
         var current = ""
+        var continues = false
         let characters = Array(text)
+        func close(nextContinues: Bool) {
+            let trimmed = current.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { result.append(Segment(text: trimmed, continuesPrevious: continues)) }
+            current = ""
+            continues = nextContinues
+        }
         for (index, character) in characters.enumerated() {
             if character == "\n" {
-                if !current.trimmingCharacters(in: .whitespaces).isEmpty { result.append(current) }
-                current = ""
+                close(nextContinues: false)
                 continue
             }
             current.append(character)
             let next = index + 1 < characters.count ? characters[index + 1] : nil
             guard ".!?".contains(character), next == nil || next!.isWhitespace else { continue }
             if character == "." {
-                let following = characters[(index + 1)...].first { !$0.isWhitespace }
-                guard endsSentence(current, following: following) else { continue }
+                let rest = characters[(index + 1)...].drop { $0.isWhitespace && $0 != "\n" }
+                let following = rest.first == "\n" ? nil : String(rest.prefix { !$0.isWhitespace })
+                switch boundary(after: current, following: following) {
+                case .none: continue
+                case .soft: close(nextContinues: true)
+                case .hard: close(nextContinues: false)
+                }
+                continue
             }
-            result.append(current)
-            current = ""
+            close(nextContinues: false)
         }
-        if !current.trimmingCharacters(in: .whitespaces).isEmpty { result.append(current) }
-        return result.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        close(nextContinues: false)
+        return result
     }
 
-    /// Whether the period at the end of `current` ends a sentence, given the next non-space character.
-    static func endsSentence(_ current: String, following: Character?) -> Bool {
-        guard let following, following != "\n" else { return true }
+    enum Boundary { case none, soft, hard }
+
+    /// Whether the period at the end of `current` ends a sentence, given the next word (nil at the end of the text or
+    /// a line). `.soft` is an end after an abbreviation: a new sentence that may still be part of the same order.
+    static func boundary(after current: String, following: String?) -> Boundary {
+        guard let following, let first = following.first else { return .hard }
         let word =
             current.split(whereSeparator: \.isWhitespace).last.map {
                 String($0).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "(\"'“‘["))
             } ?? ""
         let bare = String(word.dropLast())
-        if neverEnding.contains(bare) { return false }
+        // Re-review minor 1: "No." is an answer and ends its sentence; "No. 5" is a number.
+        if bare == "no" { return first.isNumber ? .none : .hard }
+        if neverEnding.contains(bare) { return .none }
         let dotted = bare.range(of: #"^([a-z]\.)+[a-z]$"#, options: .regularExpression) != nil
-        if dotted || abbreviations.contains(bare) { return following.isUppercase }
-        return true
+        guard dotted || continuingAbbreviations.contains(bare) else { return .hard }
+        guard first.isUppercase else { return .none }
+        // Re-review I9-R: speech recognition writes TID, BID, PO, IV in capitals; they continue the order.
+        let acronym = following.trimmingCharacters(in: .punctuationCharacters)
+        if acronym == acronym.uppercased(), dosingAcronyms.contains(acronym.lowercased()) { return .none }
+        return .soft
     }
 
     /// Abbreviations that are followed by more of the same sentence (a name, a comparison, an example).
     static let neverEnding: Set<String> = [
-        "dr", "mr", "mrs", "ms", "prof", "st", "vs", "approx", "e.g", "i.e", "cf", "no",
+        "dr", "mr", "mrs", "ms", "prof", "st", "vs", "approx", "e.g", "i.e", "cf",
     ]
-    /// Abbreviations that may end a sentence: a capital letter after them starts the next one.
-    static let abbreviations: Set<String> = [
-        "mg", "mcg", "ml", "g", "kg", "tab", "tabs", "cap", "caps", "hr", "hrs", "min", "mins", "sec", "wk", "wks",
-        "mo",
-        "yr", "yrs", "pt", "pts", "dx", "hx", "rx", "sx", "tx", "etc", "qty", "prn", "po", "bid", "tid", "qid",
-        "qd", "qhs", "od", "os", "ou",
+    /// Clinical and unit abbreviations (without their last period) that do not end an order: a lowercase word after
+    /// them continues the sentence, a capitalized dosing acronym ("TID") too, and any other capital starts a sentence
+    /// that "scratch that" still treats as part of the same order (re-review I9-R).
+    public static let continuingAbbreviations: Set<String> = [
+        "p.o", "b.i.d", "t.i.d", "q.i.d", "q.d", "q.h.s", "p.r.n", "i.v", "i.m", "s.c", "s.l", "o.d", "o.s", "o.u",
+        "e.g", "i.e", "mg", "mcg", "ml", "g", "kg", "tab", "tabs", "cap", "caps", "hr", "hrs", "min", "mins", "sec",
+        "wk", "wks", "mo", "yr", "yrs", "pt", "pts", "dx", "hx", "rx", "sx", "tx", "etc", "qty", "prn", "po", "bid",
+        "tid", "qid", "qd", "qhs", "od", "os", "ou", "iv", "im", "sc", "sl",
+    ]
+    /// Dosing acronyms that continue an order when written in capitals after an abbreviation ("p.o. TID").
+    static let dosingAcronyms: Set<String> = [
+        "tid", "bid", "qid", "qd", "qhs", "qam", "qpm", "prn", "po", "iv", "im", "sc", "sq", "sl", "pr", "od", "os",
+        "ou", "ac", "pc", "hs", "stat",
     ]
 
     // MARK: - Rendering
 
     enum Op: Equatable {
-        case text(String)
+        /// A dictated sentence; `continues` when it was split from the one before only after an abbreviation.
+        case text(String, continues: Bool)
         case edit(String)
-        /// Removes the text op at this index.
-        case scratch(Int)
+        /// Removes the text ops at these indices (one order, re-review I9-R).
+        case scratch([Int])
 
         var isText: Bool { if case .text = self { true } else { false } }
         var isUndoable: Bool { if case .text = self { false } else { true } }
-        var scratchedIndex: Int? { if case .scratch(let index) = self { index } else { nil } }
+        var continuesPrevious: Bool { if case .text(_, let continues) = self { continues } else { false } }
+        var scratchedIndices: [Int] { if case .scratch(let indices) = self { indices } else { [] } }
     }
 
     static func render(_ ops: [Op]) -> String {
-        let scratched = Set(ops.compactMap(\.scratchedIndex))
+        let scratched = Set(ops.flatMap(\.scratchedIndices))
         var output = ""
         for (index, op) in ops.enumerated() {
             switch op {
-            case .text(let sentence):
+            case .text(let sentence, _):
                 guard !scratched.contains(index) else { continue }
                 if output.isEmpty || output.hasSuffix("\n") {
                     output += sentence

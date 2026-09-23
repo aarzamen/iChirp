@@ -35,13 +35,32 @@ pipeline directly.
   review flag. The model copies tags; code maps them back. A unit is never guessed, "25 minute timer" stays minutes,
   mg/mcg stay distinct, ages are not durations, and a spoken self-correction keeps the corrected value flagged for
   review. The vital-sign hundreds shorthand ("one forty two over eighty eight") applies only in vital-sign context;
-  before a dose unit it is read whole ("one twenty-five micrograms" = 125 mcg, never 25) and flagged. A dose keeps a
+  before a dose unit it is read whole ("one twenty-five micrograms" or "one-twenty-five" = 125 mcg, never 25) and
+  flagged. "And" inside a spoken number is part of it ("a hundred and twenty-five micrograms" = 125 mcg, "one thousand
+  and fifty units" = 1050, both unflagged because they are certain); a bare "hundred and twelve" is read as 112 and
+  flagged; numbers said together but not one number ("fifty and a hundred milligrams") are carried into the tag and
+  flagged (re-review C1-R). A dose keeps a
   following "per kg", "/kg/min", "an hour" or "/5 mL" in its unit and tag (`mg/kg`, `g/h`), flagged; a number said
   right before a dose is carried into its tag and flagged. Every correction word next to a quantity ("no", "sorry",
   "I mean", "scratch that", "wait", "not" before one) flags it; a unit-only correction rebuilds the quantity, and a
   bare-number correction of a dose, pressure or time keeps **no** amount (value nil, display "? (said …)"), since
   neither value was fully stated. A vital's name reaches back only within its clause (not across ",", "on", "and",
-  "with", … or another number), so "heart rate 110 on metoprolol 25" has one rate (review L3 C1, C2, I3).
+  "with", … or another number), so "heart rate 110 on metoprolol 25" has one rate (review L3 C1, C2, I3). A range is
+  never one value (re-review N2): "4 to 8 mg", "4-8 mg", "500 or 1000 mg", "4 mg to 8 mg", "fifty and a hundred
+  milligrams", "heart rate 100 to 120", "two to three times a day" and "5 to 7 days" become one tag covering both
+  ends, displayed "4–8 mg" / "100–120/min", with **no** `value` and a review reason starting "Range:" (`markRanges`,
+  `rangeJoiners`, `rangeKinds`). Never across "and" after a value ("pulse 72 and irregular" stays clean). A tablet or
+  puff count other than one, or a fraction ("half", "1/2", "quarter"), said near a strength ("metoprolol 25 mg, half a
+  tablet"; "two tablets of metoprolol 25 mg"; "albuterol 90 mcg, two puffs") flags both the strength and the count
+  with a reason starting "Tablet count differs from strength:"; the strength keeps its value and the code never
+  multiplies (`markCounts`, re-review N3). A slash pair followed by a dose unit ("valsartan-HCTZ 160/25 mg",
+  "Norco 5/325 mg") is a combination strength: a dose tag with no `value`, displayed as said, flagged "Combination
+  strength", never a blood pressure. A unit-less slash pair is a blood pressure only with a pressure word before it in
+  its clause ("BP", "pressure", "vitals", …) or "mmHg" after it; otherwise it is still tagged but flagged ("Advair
+  250/50", "insulin 70/30") (`combinationStrength`, `pressureWords`, re-review N4). "No" corrects only before a
+  number, a dose unit or another correction word ("76, no, 86"); "temp 37, no fever" and "10 mg, no cough" stay
+  clean (re-review minor 3). "q4 hours", "q 6 hours" and "q6hr" are frequencies, not durations (minor 6). Another
+  strength unit right after a dose with no number ("50 micrograms, milligrams") flags it (minor 7).
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.

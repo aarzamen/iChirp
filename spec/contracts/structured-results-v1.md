@@ -38,14 +38,29 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
 - **Numbers:** a model only copies normalizer tags. Every number is mapped back through the side table, then
   re-read **independently of the normalizer** (`IndependentNumberCheck`: digits by regex, spelled numbers by
   Foundation's spell-out `NumberFormatter`, its own unit list) from its source words, and the words right around it
-  are checked (a number said just before a dose, "per kg", "/min", "an hour" just after one, a correction word next to
-  any value); any disagreement forces review. Then it is range-checked (BP 50–260 / 20–160 and systolic above
+  are checked (a number said just before a dose, also across "and" / "a" inside a spoken number, which is re-read
+  whole: "a hundred and twenty-five micrograms" is 125, never 25; "per kg", "/min", "an hour" just after one, a
+  correction word next to any value, a range such as "4 to" before a dose or "to 120" after a rate); any
+  disagreement forces review. A range ("4 to 8 mg", "heart rate 100 to 120") is one tag with **no** `value`, a
+  display such as "4–8 mg" and a review reason starting "Range:" (the same shape as a correction without a full
+  value). A tablet or puff count other than one, or a fraction ("half", "1/2"), near a strength ("25 mg, half a
+  tablet") keeps the strength's value and forces review with a reason starting "Tablet count differs from strength:";
+  code never computes the dose given. A slash pair followed by a dose unit ("160/25 mg") is a combination strength:
+  a dose tag with no `value`, a display as said and a reason starting "Combination strength"; it is never a blood
+  pressure. A unit-less slash pair without a pressure word ("BP", "pressure", "vitals", …) before it or "mmHg" after
+  it is a blood pressure that needs review. Then it is range-checked (BP 50–260 / 20–160 and systolic above
   diastolic, HR 20–250, RR 4–60, SpO₂ 50–100, temperature 90–110 °F or 32–43.5 °C; a dose > 0 with a unit and at most
   5000 mg, 2000 mcg, 10 g, 50,000 units, 5000 mL, 10 tablets, 12 puffs, 20 drops or 200 mEq; a frequency at most 24 a
-  day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review.
+  day). A number that traces to nothing is a numeric hard fail. A spoken self-correction always needs review,
+  including one said in the next sentence: a sentence that starts with or contains a correction cue
+  (`CrossSentenceCorrection.cues`: "sorry", "I mean", "correction", "no wait", "actually", "rather", "make that",
+  "scratch that", …) sends every field of the sentence before it to needs review with a reason starting "Corrected in
+  the next sentence"; a dose it restates without a drug is named in the previous medication fields, never applied.
 - **Every call from a sentence** (review L3 I2–I5): a flagged tag (number or side) or a spoken correction anywhere in
-  the sentence forces review on every call from it; a dose or frequency must sit next to its own drug (no other drug
-  or same-kind value between, at most eight words apart); a vital right after a drug name, or two values for one vital
+  the sentence forces review on every call from it; a dose or frequency must sit next to its own drug: it belongs to
+  the drug right before it, or to the drug right after it when only "of" or a route lies between and that drug has no
+  value of its own ("levothyroxine 50 mcg and lisinopril 10 mg": 50 mcg is levothyroxine's; "2 mg of morphine" is
+  not ondansetron's), with no same-kind value between and at most eight words apart (re-review I2-R); a vital right after a drug name, or two values for one vital
   in a sentence, needs review; numbers in free text (plan items, problems, names) must be numbers the sentence said;
   an argument the tool does not define, or a non-text value for a text argument, is dropped and flagged.
 - **Review state:** `reviewed` is false when saved. Screens show every field as a draft until the person reviews
@@ -80,7 +95,10 @@ value; old runs keep theirs.
   corrections, free-text numbers, unknown arguments, per-unit ranges, hard fails, spans to words and milliseconds).
 - `ChirpFeaturesTests.StructuredExtractionServiceTests` (clinical never reaches a non-on-device engine; runs saved
   with spans; the evidence sentence; the STUB never `act`; only reviewed fields in the SOAP hand-off; a failed check
-  needs the review sheet, keeps its reasons and saves edits).
+  needs the review sheet, keeps its reasons and saves edits; a correction in the next sentence, in the service and
+  the eval).
+- `ChirpTextTests.NumericNormalizerTests` (spoken numbers across "and", ranges, tablet counts near a strength,
+  combination strengths and the blood-pressure word).
 
 ## When this changes
 

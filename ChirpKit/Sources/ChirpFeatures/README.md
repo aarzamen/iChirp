@@ -307,7 +307,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   ships as a new version file.
 - `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
   pseudo-confidence (at most 0.84 on `soap-meds`, and `StructuredResultGate.verdict(…engineID:)` never gives a STUB
-  field `act`; a hedge like "considering" before a drug wins over a later "starting"); always available and always
+  field `act`; a hedge like "considering" before a drug wins over a later "starting"; "no longer taking" is stopped,
+  and "denies taking", "not taking", "never took" or "no" right before a drug record no medication); always
+  available and always
   labelled STUB. `VoiceCommandText` (a command is a whole short
   utterance that equals one of its phrases, optionally after "okay"/"please").
 
@@ -316,10 +318,21 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   else needs review; any problem forces needs review); `StructuredCallValidator` (per sentence: maps tags back to the
   normalizer's values, traces digits a model copied, **re-reads every number independently of the normalizer**
   (`IndependentNumberCheck.swift`: regex digits, spell-out `NumberFormatter`, its own unit list, plus the words right
-  around the tag), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug and a
+  around the tag; a spoken number is re-read whole across "and" / "a", so "a hundred and" before a "twenty-five
+  micrograms" tag reads as 125 and disagrees; a range in or around a tag's words, "4 to" before it or "to 120"
+  after it, is never one value; a tablet or puff count other than one, or a fraction, near a strength forces
+  review; a slash pair right before a dose unit is a combination strength, and a pressure needs a pressure word), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug (`owner(of:)`: the drug
+  right before it, or right after it across only "of" or a route; a dose followed by "of <other word>" or right before
+  a drug with its own dose goes to review; re-review I2-R) and a
   vital is not a drug's strength, carries any flagged tag or spoken correction to every call from the sentence, checks
   numbers in free text against the sentence, drops unknown or non-text arguments, flags drug or substance names
   missing from the sentence and schema problems; a number that traces to nothing is a numeric hard fail).
+- `Structure/CrossSentenceCorrection.swift` (re-review N1): a correction said in the **next** sentence ("Gave fentanyl
+  50 micrograms IV. Sorry, 25 micrograms."). `cues` is the named cue list (every in-sentence cue plus "no wait", "i
+  misspoke", "let me correct"; a sentence starting "No," before a number or unit also counts). A sentence with a cue
+  sends every field of the sentence before it to needs review ("Corrected in the next sentence …"); a dose it restates
+  without a drug is named in the previous medication fields ("… restates a dose without a drug (25 mcg) …") and never
+  applied. The extraction service and the eval runner apply the same rule.
 - `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
   text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
   milliseconds).
@@ -327,7 +340,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
   availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
-  gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
+  gate → a correction in the next sentence (`CrossSentenceCorrection`) → one run with its fields saved to the
+  ledger. **Clinical items only reach `.onDevice` engines**
   (`mayRun`); engine failures become needs-review items, never silent gaps.
 - `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
   editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
@@ -340,9 +354,12 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   surface shows until argument accuracy reaches 0.9).
 
 - `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
-  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows)
+  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows,
+  and a capitalized dosing acronym after one, "p.o. TID.", never does; "No." ends a sentence unless a digit follows)
   equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
-  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
+  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize). A sentence split
+  from the one before only after an abbreviation in `continuingAbbreviations` ("500 mg. Three times daily.") is part
+  of the same order, so "scratch that" removes back through it and "undo" restores it whole (re-review I9-R); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
 - `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects

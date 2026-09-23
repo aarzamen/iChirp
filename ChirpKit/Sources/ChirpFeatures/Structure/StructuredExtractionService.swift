@@ -156,6 +156,7 @@ public actor StructuredExtractionService {
             transcriptionID: transcriptionID, catalogVersion: catalog.versionedID, engineID: engine.descriptor.id,
             modelSHA256: nil, actThreshold: gate.act, provisionalThreshold: gate.provisional)
         var fields: [StructuredField] = []
+        var previousFields: Range<Int>?
         for (index, sentenceRange) in sentences.enumerated() {
             try Task.checkCancellation()
             let sentence = NumericNormalizer.normalize(source.substring(sentenceRange))
@@ -163,6 +164,16 @@ public actor StructuredExtractionService {
             let outcome = await Self.extract(
                 sentence: sentence, engine: engine, catalog: catalog, privacy: transcription.privacyClass)
             if let hash = outcome.modelSHA256 { run.modelSHA256 = hash }
+            // Re-review N1: a correction in this sentence sends every field of the one before it to review.
+            if let previous = previousFields,
+                let correction = CrossSentenceCorrection.check(sentence, tools: outcome.items.map(\.tool))
+            {
+                for field in previous where fields[field].tool != "none" {
+                    fields[field].reviewReasons += correction.reasons(forTool: fields[field].tool)
+                    fields[field].verdict = .needsReview
+                }
+            }
+            let firstField = fields.count
             for item in outcome.items {
                 let local =
                     item.tagRanges.isEmpty
@@ -177,6 +188,7 @@ public actor StructuredExtractionService {
                             confidence: outcome.confidence, problems: item.problems, engineID: engine.descriptor.id),
                         reviewReasons: item.problems, ordinal: fields.count))
             }
+            previousFields = firstField..<fields.count
             progress(index + 1, sentences.count)
         }
         try await results.save(run, fields: fields)
