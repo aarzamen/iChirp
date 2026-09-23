@@ -1,6 +1,7 @@
 import ChirpCore
 import ChirpExport
 import ChirpFeatures
+import ChirpText
 import ChirpUI
 import SwiftUI
 
@@ -93,7 +94,8 @@ struct DeliverableDetailScreen: View {
                     source: .deliverable(id: id), privacyClass: document.deliverable?.privacyClass ?? .clinical
                 ) { document.draft }
                 Button {
-                    LocalPasteboard.copy(document.draft)
+                    // UX audit F23: clean plain text on the clipboard, not raw `**`/`##` (PlainTextFlattener).
+                    LocalPasteboard.copy(PlainTextFlattener.flatten(document.draft))
                     copied = true
                     Task {
                         try? await Task.sleep(for: .seconds(1.5))

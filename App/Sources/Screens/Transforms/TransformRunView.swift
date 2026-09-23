@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpFeatures
+import ChirpText
 import ChirpUI
 import SwiftUI
 
@@ -283,7 +284,8 @@ struct TransformRunView: View {
                 host.document(for: deliverable).draft
             }
             Button {
-                LocalPasteboard.copy(text)
+                // UX audit F23: clean plain text on the clipboard, not raw `**`/`##`. Share (below) is unchanged.
+                LocalPasteboard.copy(PlainTextFlattener.flatten(text))
                 copied = true
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))

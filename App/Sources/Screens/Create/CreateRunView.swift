@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpFeatures
+import ChirpText
 import ChirpUI
 import SwiftUI
 
@@ -397,7 +398,12 @@ struct CreateRunView: View {
     }
 
     private func documentCard(_ document: Deliverable) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // UX audit F23: this preview (and its Copy) shows clean plain text, not raw `**`/`##`. The full formatted
+        // rendering — headings, bulleted and numbered lists, bold, italics — is what "Open document" leads to
+        // (`DeliverableDetailScreen`'s `DocumentEditor`); a fixed-height card preview has no good way to truncate a
+        // multi-block rendering to N lines the way `.lineLimit` truncates plain text.
+        let plainText = PlainTextFlattener.flatten(document.text)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(document.title)
                     .chirpFont(16, .semibold)
@@ -405,7 +411,7 @@ struct CreateRunView: View {
                 Spacer(minLength: 8)
                 PrivacyClassBadge(privacyClass: document.privacyClass)
             }
-            Text(document.text)
+            Text(plainText)
                 .chirpFont(14.5)
                 .lineSpacing(4)
                 .foregroundStyle(Tokens.Color.ink)
@@ -414,7 +420,7 @@ struct CreateRunView: View {
             if document.privacyClass == .clinical {
                 ClinicalDraftNote()
             }
-            resultActions(openLabel: "Open document", destination: .document(document.id), text: document.text)
+            resultActions(openLabel: "Open document", destination: .document(document.id), text: plainText)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

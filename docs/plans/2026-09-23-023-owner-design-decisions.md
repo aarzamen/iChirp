@@ -29,7 +29,14 @@ mark.
    documents; Transforms tab keeps "start" + recent with "Show all"; tests for reachability of every document.
 2. **Capture recipes (F14):** a `CreateRecipe` value (input, output, template, clinical) saved from Create's choices;
    Capture shows Create + up to four recipes + Recent above the fold; editing and deleting recipes; tests.
-3. **Formatted view, plain copy (F23):** Markdown rendering on the document screens; a plain-text flattener for Copy
-   (tested against every template's output shape); PDF/Word unchanged.
+3. **Formatted view, plain copy (F23) — DONE (wave4/formatted-docs):** `ChirpText.MarkdownBlockParser` /
+   `MarkdownInline` / `MarkdownDocument` (SwiftUI renderer, Dynamic Type, text selection, VoiceOver headings) and
+   `PlainTextFlattener` (Copy; bullets are `"- "`, numbers keep their own value, headings get a blank line after,
+   words never lost — a property test, not just fixed examples). `DocumentEditor` (shared by
+   `DeliverableDetailScreen` and `TransformRunView`) is a **Formatted / Edit** segmented toggle, Formatted by
+   default; both write the same Markdown source, so autosave and Versions are unchanged. Copy on
+   `DeliverableDetailScreen`, `TransformRunView` and Create's result card now flattens; Share (PDF, Word) is
+   unchanged. Tested against every built-in template's shape (SOAP, summary, meeting notes with action items,
+   agenda) plus the edge cases (nested lists, a vital sign, `2*3` multiplication, plain text).
 4. **Dark palette (F6):** tokens gain dark values; a contrast test over every text token × background in both schemes;
    screenshots of every main screen light and dark for the owner before merge.
