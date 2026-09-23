@@ -19,7 +19,8 @@
   the same." Treated as the approved design direction for this plan.
 - **Effort:** L (integration and UX on top of existing engines; little new engine code)
 - **Risk:** MEDIUM (UX coherence; privacy routing across chained steps)
-- **Status:** IN PROGRESS on `lane/create` (wave 2). Drift check passed 2026-09-22 (below).
+- **Status:** IMPLEMENTED on `lane/create` (wave 2, steps in the order 1, 2, 5, 3, 4, 6). Device checks open: the
+  owner's iPhone run of the Create checklist in `docs/human-qa-guide.md` (Speak and Edit by voice on a real microphone).
 
 ## Why this matters
 
@@ -110,11 +111,11 @@ paragraphs.
 
 ## Done criteria
 
-- [ ] Every input (speak, type, link, file) can reach every output (transcript, summary, document, voice message) from
-      the Create sheet (tests + simulator screenshots)
-- [ ] Edit by voice produces versions; nothing is overwritten
-- [ ] Voice messages export as `.m4a`; PDF and DOCX exports are real
-- [ ] Privacy routing proven across chains; lint clean; focused tests green; docs and QA checklist updated
+- [x] Every input (speak, type, link, file) can reach every output (transcript, summary, document, voice message) from
+      the Create sheet (`CreateFlowTests` every input × output; simulator tour `UITests/CreateTourUITests.swift`)
+- [x] Edit by voice produces versions; nothing is overwritten (`v8-text-items`, append-only triggers, tests)
+- [x] Voice messages export as `.m4a`; PDF and DOCX exports are real (writer and exporter tests, Quick Look renders)
+- [x] Privacy routing proven across chains; lint clean; focused tests green; docs and QA checklist updated
 
 ## STOP conditions
 
