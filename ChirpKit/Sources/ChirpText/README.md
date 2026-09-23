@@ -30,7 +30,14 @@ pipeline directly.
   model reads the text (`dose_1`, `bp_1`, …), with a side table tag → value, unit, display, UTF-16 source range and a
   review flag. The model copies tags; code maps them back. A unit is never guessed, "25 minute timer" stays minutes,
   mg/mcg stay distinct, ages are not durations, and a spoken self-correction keeps the corrected value flagged for
-  review. The vital-sign hundreds shorthand ("one forty two over eighty eight") applies only in vital-sign context.
+  review. The vital-sign hundreds shorthand ("one forty two over eighty eight") applies only in vital-sign context;
+  before a dose unit it is read whole ("one twenty-five micrograms" = 125 mcg, never 25) and flagged. A dose keeps a
+  following "per kg", "/kg/min", "an hour" or "/5 mL" in its unit and tag (`mg/kg`, `g/h`), flagged; a number said
+  right before a dose is carried into its tag and flagged. Every correction word next to a quantity ("no", "sorry",
+  "I mean", "scratch that", "wait", "not" before one) flags it; a unit-only correction rebuilds the quantity, and a
+  bare-number correction of a dose, pressure or time keeps **no** amount (value nil, display "? (said …)"), since
+  neither value was fully stated. A vital's name reaches back only within its clause (not across ",", "on", "and",
+  "with", … or another number), so "heart rate 110 on metoprolol 25" has one rate (review L3 C1, C2, I3).
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.

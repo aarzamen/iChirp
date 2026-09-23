@@ -183,13 +183,27 @@ private struct NumericScanner {
         while index < tokens.count {
             let first = recognize(at: index)
             let bareEnd = first?.nextToken ?? cardinal(at: index)?.next
-            if let bareEnd, let afterMarker = correctionMarker(at: bareEnd), var second = recognize(at: afterMarker) {
-                let spoken = text.utf16Substring(tokens[index].start, tokens[bareEnd - 1].end)
-                second.reviewReason = "Self-correction: “\(spoken)” was corrected to “\(second.display)”."
-                second.start = tokens[index].start
-                result.append(second)
-                index = second.nextToken
-                continue
+            if let bareEnd, let afterMarker = correctionMarker(at: bareEnd) {
+                let said = text.utf16Substring(tokens[index].start, tokens[bareEnd - 1].end)
+                if var second = recognize(at: afterMarker) {
+                    second.reviewReason = "Self-correction: “\(said)” was corrected to “\(second.display)”."
+                    second.start = tokens[index].start
+                    result.append(second)
+                    index = second.nextToken
+                    continue
+                }
+                if let first, let corrected = partialCorrection(of: first, startToken: index, at: afterMarker) {
+                    result.append(corrected)
+                    index = corrected.nextToken
+                    continue
+                }
+                if var first {
+                    // Review L3 C2: a correction word after a value always needs review, even with nothing after it.
+                    first.reviewReason = "A correction word follows “\(said)”: check this value."
+                    result.append(first)
+                    index = first.nextToken
+                    continue
+                }
             }
             if let first {
                 result.append(first)
@@ -198,7 +212,84 @@ private struct NumericScanner {
             }
             index += 1
         }
+        return annotateNeighbours(result)
+    }
+
+    /// A correction that is not a whole second quantity (review L3 C2): a unit only ("five hundred micrograms, sorry,
+    /// milligrams" → 500 mg) or a bare number ("pulse 76, no, 86" → 86/min). A bare number after a dose, a pressure, a
+    /// time, a frequency or a duration is not a full value, so the tag keeps no amount at all. Always flagged.
+    func partialCorrection(of first: Quantity, startToken: Int, at afterMarker: Int) -> Quantity? {
+        let start = tokens[startToken].start
+        if first.kind == .dose, let value = first.value, let word = peek(afterMarker), let unit = Self.doseUnits[word] {
+            var corrected = doseQuantity(value: value, baseUnit: unit, start: start, unitIndex: afterMarker)
+            let said = text.utf16Substring(start, corrected.end)
+            corrected.reviewReason =
+                (["Self-correction: “\(said)” was corrected to “\(corrected.display)”."]
+                + [corrected.reviewReason].compactMap { $0 }).joined(separator: " ")
+            return corrected
+        }
+        guard let bare = hundredsShorthand(at: afterMarker) ?? cardinal(at: afterMarker) else { return nil }
+        var corrected = first
+        corrected.start = start
+        corrected.end = tokens[bare.next - 1].end
+        corrected.nextToken = bare.next
+        let said = text.utf16Substring(start, corrected.end)
+        let value = NumericNormalizer.format(bare.value)
+        switch first.kind {
+        case .rate, .oxygenSaturation, .temperature:
+            corrected.value = bare.value
+            corrected.display =
+                switch first.kind {
+                case .rate: "\(value)/min"
+                case .oxygenSaturation: "\(value)%"
+                default: "\(value) \(first.unit ?? "")"
+                }
+            corrected.reviewReason = "Self-correction: “\(said)” was corrected to “\(corrected.display)”."
+        default:
+            corrected.value = nil
+            corrected.second = nil
+            corrected.display = "? (said “\(said)”)"
+            corrected.reviewReason = "Self-correction without a full value: “\(said)”. Enter the intended value."
+        }
+        return corrected
+    }
+
+    /// Words next to a quantity that change what it means (review L3 C1/C2): a number said right before a dose is
+    /// carried into its tag, and a correction word right before any quantity (or right after one that has no reason
+    /// yet) flags it.
+    func annotateNeighbours(_ quantities: [Quantity]) -> [Quantity] {
+        var result = quantities
+        for index in result.indices {
+            guard let first = tokens.firstIndex(where: { $0.start == result[index].start }) else { continue }
+            let floor = index > 0 ? result[index - 1].nextToken : 0
+            var reasons: [String] = []
+            if result[index].kind == .dose, first - 1 >= floor, isNumberWord(first - 1) {
+                var start = first - 1
+                while start - 1 >= floor, isNumberWord(start - 1) { start -= 1 }
+                let words = text.utf16Substring(tokens[start].start, tokens[first - 1].end)
+                result[index].start = tokens[start].start
+                reasons.append(
+                    "“\(words)” was said right before \(result[index].display): check which amount was meant.")
+            }
+            if let marker = correctionMarker(before: first, floor: floor) {
+                reasons.append("“\(marker)” was said right before \(result[index].display): check this value.")
+            }
+            if result[index].reviewReason == nil, correctionMarker(at: result[index].nextToken) != nil {
+                reasons.append("A correction word follows \(result[index].display): check this value.")
+            }
+            guard !reasons.isEmpty else { continue }
+            result[index].reviewReason = ([result[index].reviewReason].compactMap { $0 } + reasons)
+                .joined(separator: " ")
+        }
         return result
+    }
+
+    func isNumberWord(_ index: Int) -> Bool {
+        guard index >= 0, index < tokens.count else { return false }
+        let token = tokens[index]
+        if token.isDigits { return !token.text.contains(":") && !token.text.contains("/") }
+        return Self.units[token.text] != nil || Self.tens[token.text] != nil || token.text == "hundred"
+            || token.text == "thousand"
     }
 
     // MARK: Recognizers
@@ -209,21 +300,48 @@ private struct NumericScanner {
             ?? laterality(at: index)
     }
 
-    /// "no", "sorry", "correction", "I mean", "rather", "make that", "actually", with optional punctuation around it.
+    /// "no", "sorry", "correction", "I mean", "rather", "make that", "actually", "scratch that", "wait", … with optional
+    /// punctuation around it (several in a row count as one: "no, wait,"). Returns the token after the marker.
     func correctionMarker(at index: Int) -> Int? {
-        var cursor = index
-        cursor = skipPunctuation(cursor)
-        guard cursor < tokens.count else { return nil }
-        let word = tokens[cursor].text
-        var next: Int?
-        switch word {
-        case "no", "sorry", "correction", "rather", "actually": next = cursor + 1
-        case "i" where peek(cursor + 1) == "mean": next = cursor + 2
-        case "make" where peek(cursor + 1) == "that": next = cursor + 2
-        default: next = nil
+        var cursor = skipPunctuation(index)
+        guard var next = markerEnd(at: cursor) else { return nil }
+        while true {
+            cursor = skipPunctuation(next)
+            guard let again = markerEnd(at: cursor) else { break }
+            next = again
         }
-        guard let next else { return nil }
         return skipPunctuation(next)
+    }
+
+    /// The token after a correction phrase starting at `index`, or nil.
+    func markerEnd(at index: Int) -> Int? {
+        guard let word = peek(index) else { return nil }
+        let following = peek(index + 1)
+        switch word {
+        case "no", "sorry", "correction", "rather", "actually", "wait", "oops": return index + 1
+        case "i" where following == "mean" || following == "meant": return index + 2
+        case "make" where following == "that" || following == "it": return index + 2
+        case "scratch" where following == "that": return index + 2
+        case "strike" where following == "that": return index + 2
+        default: return nil
+        }
+    }
+
+    /// A correction phrase that ends right before `index` (punctuation between is fine), at or after `floor`. Plain
+    /// "no" is not counted here ("no fever, 98.6"); "not" is ("5 mg, not 50 mg").
+    func correctionMarker(before index: Int, floor: Int) -> String? {
+        var cursor = index - 1
+        while cursor >= floor, cursor < tokens.count, Self.punctuation.contains(tokens[cursor].text) { cursor -= 1 }
+        guard cursor >= floor, cursor < tokens.count else { return nil }
+        let word = tokens[cursor].text
+        let previous = cursor - 1 >= floor ? tokens[cursor - 1].text : nil
+        switch word {
+        case "sorry", "correction", "rather", "actually", "wait", "oops", "not": return tokens[cursor].original
+        case "mean" where previous == "i", "meant" where previous == "i": return "I \(word)"
+        case "that" where ["make", "scratch", "strike"].contains(previous ?? ""): return "\(previous!) that"
+        case "it" where previous == "make": return "make it"
+        default: return nil
+        }
     }
 
     func frequency(at index: Int) -> Quantity? {
@@ -396,6 +514,7 @@ private struct NumericScanner {
 
     /// A number followed by a unit, or preceded by a vital sign's name.
     func measured(at index: Int) -> Quantity? {
+        if let dose = spokenHundredsDose(at: index) { return dose }
         guard let number = vitalNumber(at: index) ?? cardinal(at: index) else { return nil }
         let start = tokens[index].start
         let unitIndex = indexSkippingHyphen(number.next)
@@ -408,7 +527,7 @@ private struct NumericScanner {
         let value = NumericNormalizer.format(number.value)
 
         if let unitWord, let dose = Self.doseUnits[unitWord] {
-            return make(.dose, dose, "\(value) \(dose)", unitIndex)
+            return doseQuantity(value: number.value, baseUnit: dose, start: start, unitIndex: unitIndex)
         }
         if unitWord == "percent" || unitWord == "%" {
             guard hasContext(before: index, Self.saturationWords) || nextIs(unitIndex + 1, ["on"]) else { return nil }
@@ -450,6 +569,64 @@ private struct NumericScanner {
             return make(.duration, unit, "\(value) \(Self.spelledUnit(unit, number.value))", unitIndex)
         }
         return nil
+    }
+
+    /// "one twenty-five micrograms" = 125 mcg, never 25 (review L3 C1). Always flagged: it could also mean one 25 mcg
+    /// tablet.
+    func spokenHundredsDose(at index: Int) -> Quantity? {
+        guard let number = hundredsShorthand(at: index) else { return nil }
+        let unitIndex = indexSkippingHyphen(number.next)
+        guard let word = peek(unitIndex), let unit = Self.doseUnits[word] else { return nil }
+        let said = text.utf16Substring(tokens[index].start, tokens[unitIndex].end)
+        return doseQuantity(
+            value: number.value, baseUnit: unit, start: tokens[index].start, unitIndex: unitIndex,
+            reason:
+                "“\(said)” was read as \(NumericNormalizer.format(number.value)) \(unit) (hundreds said without "
+                + "“hundred”): check the amount.")
+    }
+
+    /// A dose ending at the unit word at `unitIndex`, extended over a following "per kg", "/kg/min", "an hour" or
+    /// "/5 mL" (review L3 C1): the unit becomes "mg/kg", "mcg/kg/min", "g/h", and the tag always needs review. Unknown
+    /// words after "per" or "/" are carried into the tag and flagged; a route after "per" ("per mouth") is not.
+    func doseQuantity(value: Double, baseUnit: String, start: Int, unitIndex: Int, reason: String? = nil) -> Quantity {
+        var denominators: [String] = []
+        var last = unitIndex
+        var cursor = unitIndex + 1
+        var unknown = false
+        while let separator = peek(cursor), ["per", "/", "a", "an"].contains(separator) {
+            let word = peek(cursor + 1)
+            if let word, let denominator = Self.denominatorUnits[word] {
+                denominators.append(denominator)
+                last = cursor + 1
+                cursor += 2
+                continue
+            }
+            if separator == "/" || separator == "per", let amount = cardinal(at: cursor + 1),
+                let unit = peek(amount.next).flatMap({ Self.doseUnits[$0] })
+            {
+                denominators.append("\(NumericNormalizer.format(amount.value)) \(unit)")
+                last = amount.next
+                cursor = amount.next + 1
+                continue
+            }
+            if separator == "per", let word, Self.routeWords.contains(word) { break }
+            if separator == "per" || separator == "/", word != nil {
+                unknown = true
+                last = cursor + 1
+            }
+            break
+        }
+        let unit = ([baseUnit] + denominators).joined(separator: "/")
+        let said = text.utf16Substring(start, tokens[last].end)
+        var reasons = [reason].compactMap { $0 }
+        if !denominators.isEmpty {
+            reasons.append("“\(said)” is a weight- or time-based dose (\(unit)): check the amount and the unit.")
+        }
+        if unknown { reasons.append("“\(said)”: the words after the unit may change the dose. Check it.") }
+        return Quantity(
+            kind: .dose, value: value, second: nil, unit: unit, display: "\(NumericNormalizer.format(value)) \(unit)",
+            start: start, end: tokens[last].end, nextToken: last + 1,
+            reviewReason: reasons.isEmpty ? nil : reasons.joined(separator: " "))
     }
 
     func laterality(at index: Int) -> Quantity? {
@@ -556,32 +733,38 @@ private struct NumericScanner {
         return (value, cursor)
     }
 
+    /// The spoken hundreds shorthand with no context check: "one twenty-five" = 125, "two fifty" = 250, "one oh one
+    /// point two" = 101.2. Nil for anything else ("one hundred" is an ordinary cardinal).
+    func hundredsShorthand(at index: Int) -> (value: Double, next: Int)? {
+        guard index < tokens.count, !tokens[index].isDigits, let hundreds = Self.units[tokens[index].text],
+            (1...9).contains(hundreds), let next = peek(index + 1)
+        else { return nil }
+        if next == "oh", let digit = peek(index + 2).flatMap({ Self.units[$0] }), digit < 10 {
+            var value = Double(hundreds * 100 + digit)
+            var cursor = index + 3
+            if peek(cursor) == "point", let decimals = decimalDigits(at: cursor + 1) {
+                value += decimals.value
+                cursor = decimals.next
+            }
+            return (value, cursor)
+        }
+        if Self.tens[next] != nil || (Self.units[next] ?? 0) >= 10, let rest = cardinal(at: index + 1), rest.value < 100
+        {
+            return (Double(hundreds * 100) + rest.value, rest.next)
+        }
+        return nil
+    }
+
     /// A vital-sign number, which allows the spoken hundreds shorthand: "one twenty" = 120, "one forty two" = 142,
     /// "one oh one point two" = 101.2. Used only for pressures, rates and temperatures.
     func vitalNumber(at index: Int, afterOver: Bool = false) -> (value: Double, next: Int)? {
         guard index < tokens.count else { return nil }
-        let token = tokens[index]
         func inVitalContext(_ next: Int) -> Bool {
             afterOver || peek(next) == "over" || nextIs(next, ["degrees", "fahrenheit", "bpm"])
                 || hasContext(before: index, Self.rateWords + Self.temperatureWords + ["pressure", "bp"])
         }
-        if !token.isDigits, let hundreds = Self.units[token.text], (1...2).contains(hundreds),
-            let next = peek(index + 1)
-        {
-            if next == "oh", let digit = peek(index + 2).flatMap({ Self.units[$0] }), digit < 10 {
-                var value = Double(hundreds * 100 + digit)
-                var cursor = index + 3
-                if peek(cursor) == "point", let decimals = decimalDigits(at: cursor + 1) {
-                    value += decimals.value
-                    cursor = decimals.next
-                }
-                if inVitalContext(cursor) { return (value, cursor) }
-            }
-            if Self.tens[next] != nil || (Self.units[next] ?? 0) >= 10,
-                let rest = cardinal(at: index + 1), rest.value < 100, inVitalContext(rest.next)
-            {
-                return (Double(hundreds * 100) + rest.value, rest.next)
-            }
+        if let shorthand = hundredsShorthand(at: index), shorthand.value < 300, inVitalContext(shorthand.next) {
+            return shorthand
         }
         guard let plain = cardinal(at: index) else { return nil }
         return inVitalContext(plain.next) ? plain : nil
@@ -595,7 +778,7 @@ private struct NumericScanner {
 
     func skipPunctuation(_ index: Int) -> Int {
         var cursor = index
-        while cursor < tokens.count, [",", ".", ";", "-", "—", "–", "…"].contains(tokens[cursor].text) {
+        while cursor < tokens.count, Self.punctuation.contains(tokens[cursor].text) {
             cursor += 1
         }
         return cursor
@@ -613,14 +796,17 @@ private struct NumericScanner {
         peek(index).map(words.contains) ?? false
     }
 
-    /// One of `words` within the four tokens before `index` (same sentence).
+    /// One of `words` within the four tokens before `index`, in the same clause (review L3 I3): the look-back stops at a
+    /// sentence or clause break (". ; ," and "on", "and", "with", …) and at another number, so "heart rate 110 on
+    /// metoprolol 25" gives one rate, not two.
     func hasContext(before index: Int, _ words: [String]) -> Bool {
         var cursor = index - 1
         var seen = 0
         while cursor >= 0, seen < 4 {
-            let word = tokens[cursor].text
-            if word == "." || word == ";" { return false }
-            if words.contains(word) { return true }
+            let token = tokens[cursor]
+            if Self.clauseBreaks.contains(token.text) { return false }
+            if words.contains(token.text) { return true }
+            if token.isDigits || Self.units[token.text] != nil || Self.tens[token.text] != nil { return false }
             cursor -= 1
             seen += 1
         }
@@ -672,6 +858,20 @@ private struct NumericScanner {
         "hour": "h", "hours": "h", "hr": "h", "hrs": "h",
         "day": "d", "days": "d", "week": "wk", "weeks": "wk", "wk": "wk", "wks": "wk",
         "month": "mo", "months": "mo", "year": "yr", "years": "yr",
+    ]
+    /// After "per" or "/" (or "a"/"an") following a dose unit.
+    static let denominatorUnits: [String: String] = [
+        "kg": "kg", "kgs": "kg", "kilogram": "kg", "kilograms": "kg", "kilo": "kg", "kilos": "kg",
+        "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb",
+        "hour": "h", "hours": "h", "hr": "h", "hrs": "h", "h": "h",
+        "minute": "min", "minutes": "min", "min": "min", "mins": "min",
+        "day": "day", "days": "day", "week": "wk", "weeks": "wk", "dose": "dose",
+    ]
+    /// "per mouth" is a route, not part of the dose.
+    static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
+    static let punctuation: Set<String> = [",", ".", ";", ":", "-", "—", "–", "…"]
+    static let clauseBreaks: Set<String> = [
+        ".", ";", ",", "on", "and", "with", "after", "but", "for", "while", "then", "plus", "also",
     ]
     static let saturationWords = ["sat", "sats", "saturation", "saturating", "spo2", "o2", "oxygen", "ox", "pulse-ox"]
     static let temperatureWords = ["temp", "temperature", "febrile", "tmax"]
