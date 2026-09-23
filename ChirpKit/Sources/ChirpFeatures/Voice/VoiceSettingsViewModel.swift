@@ -81,9 +81,8 @@ import Observation
         }
     }
 
-    /// Why Listen cannot read yet (nil when it can try): shown in Settings → Voices' Test voice row, and also in
-    /// Create's voice-message note (`CreateSheet.swift`) where "Settings → Voices" is real navigation guidance —
-    /// so this stays a standalone sentence naming where to go, rather than assuming a caller-specific "above".
+    /// Why Listen cannot read yet (nil when it can try): Create's voice-message note (`CreateSheet.swift`), where
+    /// "Settings → Voices" is real navigation guidance to a screen Create is not on.
     public var setupProblem: String? {
         switch settings.provider {
         case nil:
@@ -96,6 +95,27 @@ import Observation
             return nil
         case .xai?:
             if keyState == .missing { return "Add your xAI API key in Settings → Voices." }
+            if case .invalid(let sentence) = keyState { return sentence }
+            return nil
+        }
+    }
+
+    /// The same problem, worded for Settings → Voices' own Test voice row (F83): the provider picker, the Mac
+    /// companion voice list and the xAI key field this points to are already on this screen, so "above" replaces
+    /// telling the person to go to the screen they are already reading. A companion setup problem still names
+    /// Settings → Mac companion — that really is a different screen.
+    public var setupProblemOnThisScreen: String? {
+        switch settings.provider {
+        case nil:
+            return "Choose a voice above."
+        case .companion?:
+            if case .unavailable(let sentence) = companionState { return sentence }
+            if settings.companionVoiceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Choose a Mac companion voice above."
+            }
+            return nil
+        case .xai?:
+            if keyState == .missing { return "Add your xAI API key above." }
             if case .invalid(let sentence) = keyState { return sentence }
             return nil
         }

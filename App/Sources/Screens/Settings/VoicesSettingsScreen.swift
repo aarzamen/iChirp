@@ -308,7 +308,8 @@ struct VoicesSettingsScreen: View {
         ) {
             SettingsRow(
                 title: "Test voice",
-                caption: testing ? VoiceStatus.text(player.state) : model.setupProblem,
+                // F83: worded for this screen ("above"), not a redirect to the screen already open.
+                caption: testing ? VoiceStatus.text(player.state) : model.setupProblemOnThisScreen,
                 captionColor: testing && !VoiceStatus.isFailure(player.state)
                     ? Tokens.Color.secondary : AppColor.error
             ) {
