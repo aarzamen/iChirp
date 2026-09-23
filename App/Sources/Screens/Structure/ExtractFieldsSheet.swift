@@ -192,15 +192,16 @@ struct ExtractFieldsSheet: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         if sections.skippedCount > 0 {
+            // F89: `mutedText` measures 2.75:1; `secondary` is the text-safe token for this weight of caption.
             Text("\(sections.skippedCount) sentence\(sections.skippedCount == 1 ? "" : "s") held nothing to record.")
                 .chirpFont(12.5)
-                .foregroundStyle(Tokens.Color.mutedText)
+                .foregroundStyle(Tokens.Color.secondary)
         }
         if let seconds = model.draft?.seconds {
             Text(String(format: "Read in %.1f s", seconds))
                 .chirpFont(12)
                 .monospacedDigit()
-                .foregroundStyle(Tokens.Color.mutedText)
+                .foregroundStyle(Tokens.Color.secondary)
         }
     }
 
@@ -273,6 +274,7 @@ struct ExtractFieldsSheet: View {
                     .font(.system(size: 22))
                     .foregroundStyle(item.field.reviewed ? Tokens.Color.success : Tokens.Color.mutedText)
                     .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())  // F87: the 44pt frame alone is transparent and untappable
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
@@ -317,33 +319,48 @@ struct ExtractFieldsSheet: View {
             case .provisional: "Provisional"
             case .needsReview: "Needs review"
             }
-        let confidence = "\(Int((item.field.confidence * 100).rounded()))%"
         let review = item.field.reviewed ? (item.isEdited ? "Reviewed, edited" : "Reviewed") : "Draft"
-        let stub = model.draft?.isStub == true ? " (STUB pseudo-confidence)" : ""
-        return "\(verdict) · \(confidence)\(stub) · \(review)"
+        // F88: the STUB's confidence number is made up ("pseudo-confidence"); a physician reading "84% (STUB
+        // pseudo-confidence)" has no way to weigh that number, so say plainly what produced the field instead.
+        guard model.draft?.isStub != true else { return "\(verdict) · rule match · \(review)" }
+        let confidence = "\(Int((item.field.confidence * 100).rounded()))%"
+        return "\(verdict) · \(confidence) · \(review)"
     }
 
     // MARK: - Actions
 
     private var actions: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task { await model.extract() }
-            } label: {
-                CapsuleButtonLabel(title: model.draft == nil ? "Extract fields" : "Extract again", kind: .tinted)
+        VStack(alignment: .leading, spacing: 6) {
+            // F88: names why "Use in SOAP note" is disabled once there is a draft to review, instead of leaving
+            // the reason to be found by scrolling back up.
+            if model.draft != nil, !isRunning, model.soapNotes == nil {
+                Text("Review at least one field (tap its circle).")
+                    .chirpFont(12, .semibold)
+                    .foregroundStyle(Tokens.Color.secondary)
             }
-            .buttonStyle(.plain)
-            .disabled(isRunning)
-            Spacer(minLength: 0)
-            Button {
-                if let text = model.soapNotes { soapNotes = SOAPNotes(text: text) }
-            } label: {
-                CapsuleButtonLabel(title: "Use in SOAP note", kind: .filled)
+            HStack(spacing: 10) {
+                Button {
+                    Task { await model.extract() }
+                } label: {
+                    // F88: filled while there is nothing extracted yet, so the one thing to tap looks primary;
+                    // tinted once a draft exists and "Use in SOAP note" takes over as the primary action.
+                    CapsuleButtonLabel(
+                        title: model.draft == nil ? "Extract fields" : "Extract again",
+                        kind: model.draft == nil ? .filled : .tinted)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRunning)
+                Spacer(minLength: 0)
+                Button {
+                    if let text = model.soapNotes { soapNotes = SOAPNotes(text: text) }
+                } label: {
+                    CapsuleButtonLabel(title: "Use in SOAP note", kind: .filled)
+                }
+                .buttonStyle(.plain)
+                .disabled(model.soapNotes == nil || isRunning)
+                .opacity(model.soapNotes == nil ? 0.5 : 1)
+                .accessibilityHint("Drafts a SOAP note with the on-device model; nothing leaves this iPhone")
             }
-            .buttonStyle(.plain)
-            .disabled(model.soapNotes == nil || isRunning)
-            .opacity(model.soapNotes == nil ? 0.5 : 1)
-            .accessibilityHint("Drafts a SOAP note with the on-device model; nothing leaves this iPhone")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
