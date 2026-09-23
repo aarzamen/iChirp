@@ -409,6 +409,29 @@ final class DeliverableServiceRoutingTests: XCTestCase {
         XCTAssertTrue(stored.isEmpty)
     }
 
+    /// Review N2: on device, a class raised mid-run stays allowed (unlike the cloud case above), so the run keeps
+    /// going — but every remaining call must be sent with the raised class, or a clinical continuation would sample
+    /// at the personal profile (temperature 0.7) instead of the clinical one (greedy).
+    func testClassRaisedMidRunReachesEveryRemainingCall() async throws {
+        // Long enough for several parts on a 4K window, so the run makes several calls.
+        let lines = (1...400).map { "[\(String(format: "%02d", $0 / 60)):\(String(format: "%02d", $0 % 60))] "
+            + "Speaker 1: synthetic line \($0) about the heron survey." }
+        let harness = try await DeliverableHarness(privacy: .personal, text: lines.joined(separator: "\n"))
+        let onDevice = Destination.onDevice.makeModel(contextTokens: 4_096)
+        let transcripts = harness.transcripts
+        let id = harness.transcript.id
+        onDevice.onEachCall { call in
+            if call == 1 { await transcripts.setPrivacyClass(.clinical, for: id) }
+        }
+        let events = try await harness.run(model: onDevice)
+        guard case .completed = events.last else { return XCTFail("on device stays allowed, so the run must finish") }
+        XCTAssertGreaterThan(onDevice.requests.count, 1, "the source must take more than one call to prove this")
+        XCTAssertEqual(onDevice.requests.first?.privacyClass, .personal, "the class had not risen yet for call 1")
+        XCTAssertTrue(
+            onDevice.requests.dropFirst().allSatisfy { $0.privacyClass == .clinical },
+            "every call after the class rose must carry the clinical class, so sampling on it is greedy")
+    }
+
     func testUntrustingAHostMidRunStopsBeforeTheNextCall() async throws {
         let lines = (1...400).map { "Speaker 1: synthetic clinical line \($0) about the heron ward round." }
         let harness = try await DeliverableHarness(privacy: .clinical, text: lines.joined(separator: "\n"))

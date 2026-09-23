@@ -25,7 +25,8 @@ import UIKit
         var runID: String?
         /// The catalog id it resolved to (empty when it resolved to nothing).
         var modelID: String
-        /// `BuildIdentity.summary`; contains `ChirpBuildDateUTC`, which the script uses to reject stale files.
+        /// `BuildIdentity.summary`, printed with the other rows; the script tells this run's file from an older one
+        /// by `runID`, below, not by this.
         var build: String
         /// The hardware model, e.g. "iPhone16,1" (not a unique device identifier).
         var device: String

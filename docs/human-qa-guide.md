@@ -592,7 +592,7 @@ Measurement first (the controller, from the Mac; one model at a time; the phone 
       "Parakeet can use about X GB" figure), or a JetsamEvent in the device logs (the 4B does not fit: owner decision).
 
 Settings → Models
-- [ ] "Small models on this iPhone" lists **Qwen3.5 2B** (Default) and **Qwen3 4B Instruct** (Quality), each with an
+- [ ] "Small models on this iPhone" lists **Qwen3.5 2B** (Standard) and **Qwen3 4B Instruct** (Quality), each with an
       "On device" badge, "Not downloaded · about 1.3 GB / 2.5 GB", memory in use, window (32K / 8K), Apache-2.0 and
       the source line. Nothing downloads until you tap Download.
 - [ ] Download Qwen3.5 2B: the row and the system progress show the percentage, then "On device · 1.3 GB · GPU".

@@ -50,6 +50,10 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/format.sh` | swift-format in place; review the diff afterwards |
 | `scripts/companion.sh [--download <model>]` | Runs the Parakeet companion on the Mac (local voices, YouTube audio; `companion/README.md`); prints the URL and pairing token |
 
+Plain `run_device.sh` falls back to the one reachable iPhone when neither `DEVICE_ID` nor `Config/Device.local`
+names one; the three `device_*` scripts above write real data to the phone, so they use `run_device.sh
+--print-pinned-device` / `PINNED_DEVICE_ONLY=1` instead, which refuses rather than guessing.
+
 Direct commands: `swift test --package-path ChirpKit --filter <Name>`; the real-model test runs only with
 `CHIRP_MODEL_TESTS=1 swift test --package-path ChirpKit --filter ParakeetEngineIntegrationTests` (downloads ~0.5 GB).
 M7 opt-ins: `CHIRP_APPLE_SPEECH_TESTS=1`, `CHIRP_WHISPER_TESTS=1` (engine integration tests) and `CHIRP_BENCHMARK=1`

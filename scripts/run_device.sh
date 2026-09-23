@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # Builds the Debug app for the owner's iPhone, installs it with devicectl and launches it.
 #
-# Usage: scripts/run_device.sh [--dry-run | --print-device] [launch arguments passed to the app]
+# Usage: scripts/run_device.sh [--dry-run | --print-device | --print-pinned-device] [launch arguments passed to the app]
 #   scripts/run_device.sh                          # build Debug, install, launch
 #   scripts/run_device.sh -SomeLaunchArgument      # extra arguments reach the app at launch
 #   scripts/run_device.sh -- -ChirpSmoke transcribe-sample   # a leading "--" is accepted and dropped
 #   scripts/run_device.sh --dry-run                # show the chosen device, team and build command; build nothing
 #   scripts/run_device.sh --print-device           # print only the chosen device identifier (used by device_smoke.sh)
+#   scripts/run_device.sh --print-pinned-device    # like --print-device, but refuses (exit 1, clear message)
+#                                                   # instead of ever falling back to "the one reachable iPhone" —
+#                                                   # for a caller that writes real data to the phone and must never
+#                                                   # guess which one (device_smoke.sh, device_llm_smoke.sh,
+#                                                   # device_benchmark.sh)
+#   PINNED_DEVICE_ONLY=1 scripts/run_device.sh     # the same refusal, for the build+install path: fails before
+#                                                   # building rather than installing to a guessed phone
 #   DEVELOPMENT_TEAM=<team> scripts/run_device.sh  # otherwise Config/Signing.local.xcconfig; neither = stop
 #   SMOKE_CONSOLE=1 scripts/run_device.sh          # launch with `devicectl ... --console` instead, backgrounded,
 #                                                   # streaming the app's stdout/stderr to .build/device-logs/
@@ -15,7 +22,8 @@
 #   1. DEVICE_ID=<identifier> in the environment;
 #   2. otherwise Config/Device.local (gitignored), one line DEVICE_ID=<identifier>
 #      (copy Config/Device.local.example);
-#   3. otherwise the one iPhone that devicectl lists as "available (paired)" or "connected";
+#   3. otherwise, unless --print-pinned-device or PINNED_DEVICE_ONLY=1 asked for the stricter rule above, the one
+#      iPhone that devicectl lists as "available (paired)" or "connected";
 #   4. more than one reachable iPhone and no DEVICE_ID: stop and list them.
 #
 # Signing uses the provisioning profiles that already exist on this Mac (the team's wildcard
@@ -34,9 +42,18 @@ MODE="run"
 case "${1:-}" in
   --dry-run) MODE="dry-run"; shift ;;
   --print-device) MODE="print-device"; shift ;;
+  --print-pinned-device) MODE="print-pinned-device"; shift ;;
 esac
 if [ "${1:-}" = "--" ]; then
   shift
+fi
+
+# Some callers write real data (gigabytes, a synthetic clinical row) to the phone and must never guess it: they ask
+# for step 3 in the header above to be skipped, so an unreachable-phone or Config/Device.local miss is a refusal,
+# not a fallback to "the one reachable iPhone".
+PINNED_ONLY=0
+if [ "$MODE" = "print-pinned-device" ] || [ "${PINNED_DEVICE_ONLY:-0}" = "1" ]; then
+  PINNED_ONLY=1
 fi
 
 signing_failed() {
@@ -76,6 +93,11 @@ elif [ -f Config/Device.local ]; then
     exit 1
   fi
   DEVICE_SOURCE="Config/Device.local"
+elif [ "$PINNED_ONLY" = "1" ]; then
+  echo "error: no DEVICE_ID and no Config/Device.local, and this caller never guesses the phone (it does not fall" >&2
+  echo "back to \"the one reachable iPhone\"). Set DEVICE_ID=<identifier>, or add DEVICE_ID=<identifier> to" >&2
+  echo "Config/Device.local (copy Config/Device.local.example), then rerun." >&2
+  exit 1
 else
   DEVICES_JSON="$LOG_DIR/devices.json"
   rm -f "$DEVICES_JSON"
@@ -119,7 +141,7 @@ PY
   DEVICE_SOURCE="the only reachable iPhone"
 fi
 
-if [ "$MODE" = "print-device" ]; then
+if [ "$MODE" = "print-device" ] || [ "$MODE" = "print-pinned-device" ]; then
   echo "$DEVICE_ID"
   exit 0
 fi

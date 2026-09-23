@@ -501,7 +501,12 @@ public actor DeliverableService {
                 let text = try await generator.run(
                     source: source,
                     call: { request, phase in
-                        try await self.recheckRoute(route, model: model, overrideUsed: overrideUsed)
+                        // The effective class can rise between calls of the same run (review N2); use the class this
+                        // call is actually allowed under, not the one the run started with, so a request sent after
+                        // a rise still samples at the clinical (greedy) profile.
+                        let currentClass = try await self.recheckRoute(route, model: model, overrideUsed: overrideUsed)
+                        var request = request
+                        request.privacyClass = currentClass
                         return try await Self.send(
                             request, to: model, streamTo: phase.isFinal ? emit : nil, metrics: &callMetrics)
                     },
@@ -532,8 +537,13 @@ public actor DeliverableService {
     }
 
     /// Before every model call: the effective class as stored now (a deliverable made meanwhile counts), the policy as
-    /// configured now, the same override.
-    private func recheckRoute(_ route: ModelRoute, model: any LanguageModel, overrideUsed: Bool) async throws {
+    /// configured now, the same override. Returns the class this call must be sent with (review N2): when the route
+    /// stays allowed after a class rises — an on-device or trusted-LAN route accepts clinical without a
+    /// confirmation — the caller still needs the raised class, or a clinical continuation would sample at the
+    /// personal profile instead of the clinical (greedy) one.
+    private func recheckRoute(
+        _ route: ModelRoute, model: any LanguageModel, overrideUsed: Bool
+    ) async throws -> PrivacyClass {
         guard
             let current = try await EffectivePrivacyClass.current(
                 transcriptionID: route.transcriptionID, transcripts: transcripts, deliverables: deliverables)
@@ -550,6 +560,7 @@ public actor DeliverableService {
             )
             throw DeliverableError.privacyOverrideRequired(issueRequest(for: now))
         }
+        return now.privacyClass
     }
 
     /// Sends one request and collects its text; only a completed stream (`.finished`) counts.

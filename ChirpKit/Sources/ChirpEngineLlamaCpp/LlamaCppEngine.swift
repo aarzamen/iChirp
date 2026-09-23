@@ -105,6 +105,10 @@ public actor LlamaCppEngine {
     /// The model in memory now, if any.
     public nonisolated var loadedModelID: String? { signals.withLock { $0.loadedModelID } }
 
+    /// Whether the engine currently believes the app is on screen (`setForeground`); read by `AppLocalLanguageModels`
+    /// for diagnostics and by its tests (review N1).
+    public nonisolated var isForeground: Bool { signals.withLock { $0.isForeground } }
+
     /// Whether the app is on screen. Going to the background stops a running generation and unloads the model.
     public nonisolated func setForeground(_ isForeground: Bool) {
         signals.withLock { $0.isForeground = isForeground }
@@ -214,6 +218,9 @@ public actor LlamaCppEngine {
         var firstToken: ContinuousClock.Instant?
         var producedText = false
         var stopReason = "stop"
+        // The last few hundred characters of the draft, kept only to tell a real sampling loop from an answer that
+        // is simply as long as its length limit (review N3); never logged, never returned.
+        var recentText = ""
         while true {
             try checkStop()
             let token = session.sample()
@@ -225,6 +232,7 @@ public actor LlamaCppEngine {
             if !text.isEmpty {
                 producedText = true
                 onText(text)
+                recentText = Self.appendToTail(recentText, text)
             }
             if generated >= maxOutput || prompt.count + generated >= window {
                 stopReason = "length"
@@ -240,6 +248,7 @@ public actor LlamaCppEngine {
         if !tail.isEmpty {
             producedText = true
             onText(tail)
+            recentText = Self.appendToTail(recentText, tail)
         }
         let finished = clock.now
         lastRunMetrics = RunMetrics(
@@ -253,18 +262,66 @@ public actor LlamaCppEngine {
             "run_finished model=\(spec.id, privacy: .public) prompt_tokens=\(prompt.count, privacy: .public) completion_tokens=\(generated, privacy: .public) stop=\(stopReason, privacy: .public) sampling=\(sampling == .faithful ? "faithful" : "general", privacy: .public)"
         )
         guard producedText else { throw LanguageModelError.streamingError("the on-device model returned no text") }
-        // A clinical draft cut off at the length limit is not a finished note (review minor 8): with greedy sampling
-        // this almost always means the model was repeating itself. Fail the run so nothing is saved as complete.
+        // A clinical draft cut off at the length limit is not a finished note (review minor 8), whether it stopped
+        // because it was genuinely looping or simply because the answer is as long as the limit allows — a rewrite
+        // template asked of a long dictation reaches this honestly, with nothing to repeat (review N3). Say which
+        // one happened instead of always blaming a loop, and fail the run either way so nothing half-finished is
+        // saved as complete.
         if stopReason == "length", request.privacyClass == .clinical {
-            throw LanguageModelError.providerError(Self.clinicalLengthLimitMessage)
+            let message =
+                Self.looksRepetitive(recentText)
+                ? Self.clinicalLengthLimitRepeatingMessage : Self.clinicalLengthLimitMessage
+            throw LanguageModelError.providerError(message)
         }
         return GenerationUsage(
             promptTokens: prompt.count, completionTokens: generated, model: spec.id, stopReason: stopReason)
     }
 
+    /// Characters of the draft's tail kept only to check for a repeating pattern (review N3): comfortably more than
+    /// `looksRepetitive`'s widest window (`maxPeriod * minRepeats`).
+    static let repetitionTailCharacters = 600
+
+    static func appendToTail(_ tail: String, _ text: String) -> String {
+        var tail = tail + text
+        if tail.count > repetitionTailCharacters {
+            tail.removeFirst(tail.count - repetitionTailCharacters)
+        }
+        return tail
+    }
+
+    /// Whether `tail` (the end of a draft) is dominated by a short unit repeated at least `minRepeats` times in a
+    /// row — a real sampling loop, not just a long answer. Any window whose length is a whole multiple of a true
+    /// period is itself periodic with that period, so checking only the suffix of each candidate length is enough;
+    /// it does not need to be aligned to where the repetition began.
+    static func looksRepetitive(_ tail: String, minRepeats: Int = 3, minPeriod: Int = 2, maxPeriod: Int = 60) -> Bool {
+        let characters = Array(tail)
+        let widestUsablePeriod = min(maxPeriod, characters.count / minRepeats)
+        guard widestUsablePeriod >= minPeriod else { return false }
+        for period in minPeriod...widestUsablePeriod {
+            let window = Array(characters.suffix(period * minRepeats))
+            let unit = Array(window.prefix(period))
+            var index = period
+            var matches = true
+            while index < window.count {
+                let end = min(index + period, window.count)
+                if Array(window[index..<end]) != Array(unit.prefix(end - index)) {
+                    matches = false
+                    break
+                }
+                index += period
+            }
+            if matches { return true }
+        }
+        return false
+    }
+
     static let clinicalLengthLimitMessage =
-        "the on-device model reached its length limit before it finished (it may have been repeating itself), so this "
-        + "clinical draft was not saved. Try the other small model or a shorter transcript."
+        "This clinical draft stopped at the model's length limit before it finished. Use a model with a larger "
+        + "context window, or shorten the source text."
+
+    static let clinicalLengthLimitRepeatingMessage =
+        "This clinical draft stopped at the model's length limit before it finished, and the end of it was "
+        + "repeating itself. Use a model with a larger context window, or shorten the source text."
 
     /// Frees `modelID` if it is loaded (before its file is deleted). A running request finishes first.
     public func release(modelID: String) {

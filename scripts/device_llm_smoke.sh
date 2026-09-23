@@ -6,9 +6,12 @@
 # completed and every number survived verbatim.
 #
 # Usage: scripts/device_llm_smoke.sh [model]            # model: qwen3.5-2b (default) or qwen3-4b, or a full catalog id
-#   DEVICE_ID=<identifier> scripts/device_llm_smoke.sh  # same device choice as scripts/run_device.sh:
-#                                                       # DEVICE_ID, else Config/Device.local, else the one reachable
-#                                                       # iPhone; never a hard-coded phone
+#   DEVICE_ID=<identifier> scripts/device_llm_smoke.sh  # the device: DEVICE_ID, else Config/Device.local — nothing
+#                                                       # else. This script downloads 1.3-2.5 GB to the phone and
+#                                                       # writes a synthetic clinical row to its Library, so it uses
+#                                                       # run_device.sh's --print-pinned-device / PINNED_DEVICE_ONLY,
+#                                                       # which never falls back to "the one reachable iPhone"
+#                                                       # (review N4). Neither set: refuses, exit 1.
 #   LLM_SMOKE_TIMEOUT_S=3600 scripts/device_llm_smoke.sh qwen3-4b   # wait longer than the default 1800 s
 #   SMOKE_CONSOLE=1 scripts/device_llm_smoke.sh         # also stream the app's stdout/stderr to .build/device-logs/
 #
@@ -29,9 +32,12 @@ POLL_S=10
 RUN_ID="$(uuidgen)"
 mkdir -p .build/device-logs
 
-# Same device rules as run_device.sh (DEVICE_ID, Config/Device.local, or the single reachable iPhone).
-DEVICE_ID="$(scripts/run_device.sh --print-device)"
+# This script downloads 1.3-2.5 GB to the phone and writes a synthetic clinical row to its Library, so it never
+# guesses the device (review N4): --print-pinned-device refuses, with a clear message, instead of falling back to
+# "the one reachable iPhone" the way plain --print-device would.
+DEVICE_ID="$(scripts/run_device.sh --print-pinned-device)"
 export DEVICE_ID
+export PINNED_DEVICE_ONLY=1
 echo "Device: $DEVICE_ID   model: $MODEL   run: $RUN_ID"
 
 scripts/run_device.sh -- -ChirpLLMSmoke "$MODEL" -ChirpLLMSmokeRun "$RUN_ID"

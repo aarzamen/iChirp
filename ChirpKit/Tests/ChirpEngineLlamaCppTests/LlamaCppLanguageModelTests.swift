@@ -116,15 +116,43 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         XCTAssertTrue(result.finished)
     }
 
-    /// Review minor 8: a clinical draft cut off at the length limit (a loop, with greedy sampling) is not a document.
-    func testAClinicalRunCutOffAtTheLengthLimitIsNotADocument() async throws {
+    /// Review minor 8, N3: a clinical draft cut off at the length limit is not a document. Here the cutoff is a real
+    /// loop (the same six characters, greedy sampling would repeat verbatim), so the message may name it.
+    func testAClinicalRunCutOffAtTheLengthLimitWhileRepeatingNamesTheLoop() async throws {
         let (model, engine, loader) = try await make()
         loader.script(.forever("Plan: "))
         let result = await LlamaTestSupport.collect(model.generate(request(maxOutputTokens: 5)))
         XCTAssertEqual(
-            result.error as? LanguageModelError, .providerError(LlamaCppEngine.clinicalLengthLimitMessage))
+            result.error as? LanguageModelError, .providerError(LlamaCppEngine.clinicalLengthLimitRepeatingMessage))
         XCTAssertFalse(result.finished)
         XCTAssertEqual(engine.loadedModelID, "test-model", "the model is fine; only this draft is refused")
+    }
+
+    /// Review N3: a rewrite-style template on a long clinical dictation can reach the length limit honestly, with
+    /// nothing to repeat. The message must say it hit the limit, not blame a loop that did not happen.
+    func testAClinicalRunCutOffAtTheLengthLimitWithoutRepeatingSaysSoWithoutBlamingALoop() async throws {
+        let (model, engine, loader) = try await make()
+        let words = (1...8).map { "word\($0) " }
+        loader.script(.text(words))
+        let result = await LlamaTestSupport.collect(model.generate(request(maxOutputTokens: words.count - 1)))
+        XCTAssertEqual(
+            result.error as? LanguageModelError, .providerError(LlamaCppEngine.clinicalLengthLimitMessage))
+        let message = LlamaCppEngine.clinicalLengthLimitMessage
+        XCTAssertFalse(message.contains("repeat"), "a genuinely long answer must not be told it was looping")
+        XCTAssertTrue(message.contains("length limit"))
+        XCTAssertFalse(result.finished)
+        XCTAssertEqual(engine.loadedModelID, "test-model", "the model is fine; only this draft is refused")
+    }
+
+    func testLooksRepetitiveFindsAShortUnitRepeatedButNotAGenuinelyLongAnswer() {
+        XCTAssertTrue(LlamaCppEngine.looksRepetitive("Plan: Plan: Plan: Plan: Plan: "))
+        XCTAssertTrue(LlamaCppEngine.looksRepetitive(String(repeating: "ab", count: 30)))
+        XCTAssertFalse(LlamaCppEngine.looksRepetitive(""))
+        XCTAssertFalse(
+            LlamaCppEngine.looksRepetitive(
+                "Subjective: the patient reports gradual onset of exertional dyspnea over three weeks, denies chest "
+                    + "pain, denies fever, reports mild bilateral ankle swelling worse in the evening, no known "
+                    + "cardiac history, takes no regular medications."))
     }
 
     // MARK: - Budget

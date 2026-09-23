@@ -41,7 +41,10 @@ and without the runtime the models say "not in this build".
   llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
   generation, `maxOutputTokens` or a full window (`stopReason` "length"; for a **clinical** request that is an error,
-  not a document: with greedy sampling it almost always means a loop, review minor 8); run metrics for the tests.
+  not a document, review minor 8: `looksRepetitive` checks the last ~600 characters for a short repeated unit and
+  names the loop only when it finds one, otherwise it says plainly that the draft hit the model's length limit — a
+  rewrite-style template on a long dictation can reach that honestly, with nothing to repeat, review N3); run
+  metrics for the tests.
 - `LlamaTextStream.swift`: `UTF8StreamDecoder` (a character split across tokens waits for its second half) and
   `LeadingThinkBlockFilter` (a `<think>…</think>` block before the answer is not part of the document).
 - `LlamaCppModelAssets.swift`: `ModelAssetManaging` for one GGUF file: explicit download with progress, free-space
@@ -60,6 +63,10 @@ and without the runtime the models say "not in this build".
 - **Never truncate.** A prompt that does not fit throws `contextTooLong` so `DeliverableService` re-plans; the window
   reported by `contextWindowTokens()` is the one allocated (`spec.contextTokens`).
 - **Foreground only.** iOS refuses GPU work in the background; the run stops with a sentence and the model unloads.
+  The engine itself starts `isForeground` true (`Signals()`'s default) since it has no opinion at construction time;
+  `AppLocalLanguageModels.observeLifecycle` is what tells it the real state and must seed `setForeground(false)`, not
+  read `UIApplication.shared.applicationState`, which cannot tell a background launch from a foreground one that
+  early (review N1, see that module's own notes).
 - The pin lives in two places, `scripts/build_llamacpp.sh` and `LlamaCppRuntimeInfo.pinnedCommit`; a test keeps them
   equal. Bumping it means re-running the opt-in real-model test and updating ADR-015.
 - New weights must be Apache-2.0 or MIT (a test checks the catalog), pinned to a revision, with SHA-256 and size.
