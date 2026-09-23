@@ -93,3 +93,13 @@ normalization): 15 words, 2 speakers, transcribe 408 ms, peak 273 MB, **modelLoa
 re-downloaded (every Parakeet file on the phone still dates from the 20:55Z download), so the slower load is Core ML
 re-specializing the models for the Neural Engine after the app was reinstalled — expect ~15 s for the first load
 after an install, ~1.5 s once warm.
+
+## 2026-09-22 — All milestones merged, `5cf6aa86` — SMOKE PASS on both phones
+
+| Phone | transcribe | modelLoadMs | peak | words / speakers |
+|---|---|---|---|---|
+| iPhone 17 Pro | 2771 ms | 1148 (warm) | 275 MB | 15 / 2 |
+| iPhone 15 Pro | 5159 ms | 15947 (first load after install) | 2276 MB | 15 / 2 |
+
+Same synthetic two-voice sample; the file path is unchanged in behavior after M1.5 (bounded normalization, background
+continuation), M2, M3, M4 and M5 merged.
