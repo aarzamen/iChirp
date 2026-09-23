@@ -96,12 +96,16 @@ final class SpeechEnginesViewModelTests: XCTestCase {
 
     // MARK: - Review I2(a): deleting the engine a route uses
 
-    /// A ready engine that holds a model and counts unloads and deletes.
+    /// A ready engine that holds a model and counts unloads and deletes. `failDelete` simulates an engine refusing
+    /// while a job holds it (review N3), like `WhisperKitEngine.deleteAssets()` while `busy`: the attempt is
+    /// counted, but the files (and status) do not change.
     actor ModelEngine: SpeechEngine, SpeechEngineUnloading {
         nonisolated let descriptor: EngineDescriptor
         private var status: ModelAssetStatus = .ready(bytesOnDisk: 1)
+        private var deleteError: (any Error)?
         private(set) var unloads = 0
         private(set) var deletes = 0
+        private(set) var refusedDeletes = 0
 
         init(id: String, name: String) {
             descriptor = EngineDescriptor(
@@ -113,7 +117,14 @@ final class SpeechEnginesViewModelTests: XCTestCase {
         func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {
             status = .ready(bytesOnDisk: 1)
         }
+        func failDelete(with error: (any Error)?) {
+            deleteError = error
+        }
         func deleteAssets() async throws {
+            if let deleteError {
+                refusedDeletes += 1
+                throw deleteError
+            }
             deletes += 1
             status = .notDownloaded
         }
@@ -162,6 +173,65 @@ final class SpeechEnginesViewModelTests: XCTestCase {
         let deletes = await whisper.deletes
         XCTAssertEqual(deletes, 1)
         XCTAssertEqual(model.row(for: .final)?.id, parakeet)
+    }
+
+    // MARK: - Review N2: the delete notice names the fallback's own engine
+
+    func testDeletingAnEngineOnlyLiveTextUsesNamesTheFallbackNotTheUntouchedFinalEngine() async {
+        let parakeetEngine = ModelEngine(id: SpeechEngineCapabilityRegistry.parakeetEngineID, name: "Parakeet")
+        let whisperBase = ModelEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, name: "Whisper Base")
+        let whisperTurbo = ModelEngine(
+            id: SpeechEngineCapabilityRegistry.whisperKitEngineID, name: "Whisper Large v3 Turbo")
+        let router = SpeechEngineRouter(
+            engines: [
+                .init(key: parakeet, engine: parakeetEngine),
+                .init(key: base, engine: whisperBase),
+                .init(key: turbo, engine: whisperTurbo),
+            ],
+            selection: SpeechRouteSelection(live: base, final: turbo))
+        let model = SpeechEnginesViewModel(router: router, physicalMemoryBytes: 12_000_000_000)
+        await model.refresh()
+        XCTAssertEqual(model.routesUsing(base), [.live], "only Live text uses Whisper Base")
+
+        await model.delete(base)
+
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(
+            model.lastNotice, "Whisper Base was deleted, so Live text uses Parakeet v3 now.",
+            "the fallback's own name, never Transcripts' untouched engine (Whisper Large v3 Turbo)")
+        XCTAssertEqual(
+            router.selection, SpeechRouteSelection(live: parakeet, final: turbo), "Transcripts is untouched")
+    }
+
+    // MARK: - Review N3: a delete the engine refuses must not move the routes
+
+    func testDeletingAnEngineAJobIsUsingIsRefusedWithoutMovingTheRoutesOrTouchingTheFiles() async {
+        let (model, router, _, whisper) = makeReadyModel(selection: SpeechRouteSelection(live: parakeet, final: base))
+        await model.refresh()
+        await whisper.failDelete(
+            with: SpeechEngineError.underlying(
+                "Whisper Base is in use by a running job. Delete it after the job finishes."))
+
+        await model.delete(base)
+
+        XCTAssertEqual(
+            model.lastError, "Whisper Base is in use by a running job. Delete it after the job finishes.",
+            "the alert must say the model is in use, never contradict itself with a route-moved notice")
+        XCTAssertNil(model.lastNotice, "nothing changed: no notice")
+        XCTAssertEqual(router.selection.final, base, "the route must not have moved while the delete was refused")
+        XCTAssertEqual(model.selection, router.selection)
+        let refused = await whisper.refusedDeletes
+        XCTAssertEqual(refused, 1)
+        let deletes = await whisper.deletes
+        XCTAssertEqual(deletes, 0, "the files were never touched")
+        XCTAssertEqual(model.row(for: .final)?.id, base, "still lists the model as present")
+
+        // Once the job ends (the engine stops refusing), the same delete succeeds and moves the route.
+        await whisper.failDelete(with: nil)
+        await model.delete(base)
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(model.lastNotice, "Whisper Base was deleted, so Transcripts uses Parakeet v3 now.")
+        XCTAssertEqual(router.selection.final, parakeet)
     }
 
     func testDeletingAnEngineOnNoRouteChangesNoRouteEvenDuringAMeeting() async {

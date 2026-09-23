@@ -116,10 +116,13 @@ pipeline's `Task`s and publishes its progress to the UI.
     engine too big to share memory with the final one; a Transcripts choice too big for the live engine moves live
     text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()` unloads the engine that left both
     routes (review I3).
-  - `download` goes through the engine. `delete` (review I2) refuses an engine a route uses while a meeting holds the
-    lease; otherwise each route that used it goes back to Parakeet first (Transcripts first), `lastNotice` says so,
-    and then the model is deleted. `routesUsing(_:)` lets the delete dialog say it beforehand. Deleting Parakeet
-    itself leaves the routes (it is the fallback).
+  - `download` goes through the engine. `delete` (review I2, N3) refuses an engine a route uses while a meeting
+    holds the lease; otherwise the delete is asked for first, and only once the engine agrees do its routes move
+    back to Parakeet (Transcripts first), `lastNotice` names the fallback's own row (review N2, never
+    `row(for: .final)`, which is wrong when the delete only moved Live text). An engine that refuses the delete
+    itself (a running job holds it, review N3) leaves the routes untouched and reports that in `lastError`, never
+    moving them first and then contradicting itself. `routesUsing(_:)` lets the delete dialog say what will change
+    beforehand. Deleting Parakeet itself leaves the routes (it is the fallback).
 - `SpeechModelMissing.swift` (review I2): `SpeechModelMissingError`, built from the engine a job resolved. For
   Parakeet, or when the consumer was given one engine instead of a router, it keeps
   `FileTranscriptionPipeline.modelMissingMessage`. For another routed engine it names it: "Whisper Base isn’t
