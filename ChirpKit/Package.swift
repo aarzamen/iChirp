@@ -62,7 +62,8 @@ let package = Package(
         .target(
             name: "ChirpEngineNeedle", dependencies: ["ChirpCore"] + (hasNeedleRuntime ? ["NeedleC"] : []),
             exclude: ["README.md"]),
-        .testTarget(name: "ChirpEngineNeedleTests", dependencies: ["ChirpEngineNeedle"]),
+        // The opt-in real eval (NeedleEvalRealTests) runs ChirpFeatures' eval runner on the real model.
+        .testTarget(name: "ChirpEngineNeedleTests", dependencies: ["ChirpEngineNeedle", "ChirpFeatures"]),
     ] + (hasNeedleRuntime ? [.binaryTarget(name: "NeedleC", path: needleRuntimePath)] : []),
     swiftLanguageModes: [.v6]
 )

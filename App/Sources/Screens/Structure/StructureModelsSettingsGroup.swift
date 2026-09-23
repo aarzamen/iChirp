@@ -61,6 +61,17 @@ struct StructureModelsSettingsGroup: View {
             }
             .buttonStyle(.plain)
             NavigationLink {
+                StructureEvalScreen()
+            } label: {
+                SettingsRow(title: "Eval", caption: "STUB vs Needle on invented cases; export the report") {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Tokens.Color.mutedText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            NavigationLink {
                 StructureGateScreen()
             } label: {
                 SettingsRow(title: "Confidence gate") {

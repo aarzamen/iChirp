@@ -1,0 +1,128 @@
+{
+ "id": "eval-dictation-commands",
+ "version": 1,
+ "catalog": "dictation-commands.v1",
+ "note": "Invented utterances. expected null = dictated text, no command.",
+ "utterances": [
+  {
+   "text": "New paragraph.",
+   "expected": "new_paragraph"
+  },
+  {
+   "text": "Okay, new paragraph.",
+   "expected": "new_paragraph"
+  },
+  {
+   "text": "New line.",
+   "expected": "new_line"
+  },
+  {
+   "text": "Next line.",
+   "expected": "new_line"
+  },
+  {
+   "text": "Bullet list.",
+   "expected": "bullet_list"
+  },
+  {
+   "text": "Make that a list.",
+   "expected": "bullet_list"
+  },
+  {
+   "text": "Scratch that.",
+   "expected": "scratch_that"
+  },
+  {
+   "text": "Delete that.",
+   "expected": "scratch_that"
+  },
+  {
+   "text": "Undo.",
+   "expected": "undo"
+  },
+  {
+   "text": "Undo that.",
+   "expected": "undo"
+  },
+  {
+   "text": "Capitalize that.",
+   "expected": "capitalize"
+  },
+  {
+   "text": "Cap that.",
+   "expected": "capitalize"
+  },
+  {
+   "text": "Read it back.",
+   "expected": "read_back"
+  },
+  {
+   "text": "Read that back.",
+   "expected": "read_back"
+  },
+  {
+   "text": "Send this to SOAP.",
+   "expected": "send_to_soap"
+  },
+  {
+   "text": "Make this a SOAP note.",
+   "expected": "send_to_soap"
+  },
+  {
+   "text": "Send to Transform.",
+   "expected": "send_to_transform"
+  },
+  {
+   "text": "Transform this.",
+   "expected": "send_to_transform"
+  },
+  {
+   "text": "Stop dictation.",
+   "expected": "stop"
+  },
+  {
+   "text": "Stop recording.",
+   "expected": "stop"
+  },
+  {
+   "text": "The patient should stop smoking.",
+   "expected": null
+  },
+  {
+   "text": "Start a new paragraph of her treatment plan.",
+   "expected": null
+  },
+  {
+   "text": "She read the leaflet back at home.",
+   "expected": null
+  },
+  {
+   "text": "Undo the bandage before bathing.",
+   "expected": null
+  },
+  {
+   "text": "Blood pressure is well controlled.",
+   "expected": null
+  },
+  {
+   "text": "We will transform the care plan next month.",
+   "expected": null
+  },
+  {
+   "text": "Scratch that itch less often.",
+   "expected": null
+  },
+  {
+   "text": "Line up the next appointment.",
+   "expected": null
+  },
+  {
+   "text": "Send the referral to orthopedics.",
+   "expected": null
+  },
+  {
+   "text": "Capitalize on the progress she made.",
+   "expected": null
+  }
+ ]
+}

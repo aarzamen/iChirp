@@ -103,6 +103,12 @@ public struct StructureCatalog: Codable, Sendable, Equatable {
     public var version: Int
     public var description: String
     public var tools: [StructureTool]
+    /// The model-facing tool array in the file's own key order (set when loaded from a file).
+    var orderedToolsJSON: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, version, description, tools
+    }
 
     /// "soap-meds.v1"
     public var versionedID: String { "\(id).v\(version)" }
@@ -111,9 +117,11 @@ public struct StructureCatalog: Codable, Sendable, Equatable {
         tools.first { $0.name == name }
     }
 
-    /// The tool array a model reads: name, description, parameters (no trigger phrases), compact and key-sorted.
+    /// The tool array a model reads: name, description, parameters (no trigger phrases), compact, **in the catalog
+    /// file's key order** (Needle is sensitive to key order; see `OrderedJSON`).
     public var toolsJSON: String {
-        JSONValue.array(
+        if let orderedToolsJSON { return orderedToolsJSON }
+        return JSONValue.array(
             tools.map { tool in
                 .object([
                     "name": .string(tool.name), "description": .string(tool.description), "parameters": tool.parameters,
@@ -134,7 +142,12 @@ public struct StructureCatalog: Codable, Sendable, Equatable {
     /// Loads `<name>.json` from the bundled catalogs.
     public static func bundled(_ name: String) throws -> StructureCatalog {
         guard let url = bundledURL(name) else { throw LoadError.missing(name) }
-        return try JSONDecoder().decode(StructureCatalog.self, from: Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        var catalog = try JSONDecoder().decode(StructureCatalog.self, from: data)
+        if case .array(let tools)? = try OrderedJSON.parse(data)["tools"] {
+            catalog.orderedToolsJSON = OrderedJSON.array(tools.map { $0.removing(["phrases"]) }).compact
+        }
+        return catalog
     }
 
     /// `soap-meds.v1`: vitals, medications, allergies, problems, plan items (clinical, on device only).

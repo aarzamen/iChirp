@@ -83,6 +83,8 @@ import Observation
     let dictationVoiceCommands: DictationVoiceCommands
     /// Needle (when it can run) and the STUB, shared by extraction, voice commands and the Eval view.
     let structureEngines: StructureEngines
+    /// Settings → Structure models → Eval (reports kept for the session, runs saved to the ledger).
+    let structureEval: StructureEvalViewModel
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
     /// the "download the model" banner before it knows).
     private(set) var isLaunched = false
@@ -150,6 +152,9 @@ import Observation
                 return .unavailable("Download Needle 3 in Settings → Structure models.")
             })
         self.structureEngines = structureEngines
+        self.structureEval = StructureEvalViewModel(
+            engines: structureEngines, settings: structureStore, store: structuredResults,
+            appBuild: BuildIdentity.current.summary, runtime: "needle-rs \(NeedleRuntimeInfo.pinnedCommit.prefix(8))")
         self.structuredExtraction = StructuredExtractionService(
             transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines)
         // "Read back" speaks through plan 020's voice player once it lands; until then the no-op default says so.

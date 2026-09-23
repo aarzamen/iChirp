@@ -23,7 +23,7 @@ Every spec starts with a `> Status:` line. **ACTIVE** means it governs code that
 | 05 | [Audio pipeline](05-audio-pipeline.md) | Decoding, storage, later capture and background audio | ACTIVE (M1 decode); later sections PROPOSAL |
 | 06 | [Speech engines](06-speech-engines.md) | Engine plug-ins, Parakeet via FluidAudio, scheduler, diarization, pin discipline | ACTIVE |
 | 07 | [Text processing](07-text-processing.md) | Deterministic clean-up, words, segments, paragraphs, cues, titles | ACTIVE |
-| 08 | [Language and structure models](08-language-and-structure-models.md) | LLM/SLM providers, deliverable templates, Needle/Jev/Laya | ACTIVE for language models (M4 core and screens); PROPOSAL for structure models (M6) |
+| 08 | [Language and structure models](08-language-and-structure-models.md) | LLM/SLM providers, deliverable templates, Needle/Jev/Laya | ACTIVE for language models (M4 core and screens) and the M6 Needle slice; Jev/Laya PROPOSAL |
 | 09 | [Testing](09-testing.md) | Test layers, fixtures, gated tests, device smoke, agent test loop | ACTIVE |
 | 10 | [Agent working method](10-ai-coding-method.md) | Source-of-truth precedence, context zone, plans, review, definition of done | ACTIVE |
 | 11 | [Ingest](11-ingest.md) | Share sheet, Voice Memos, podcasts, links, YouTube, PDFs and text documents | ACTIVE (M1.5, M5; share extension and YouTube audio still proposals) |

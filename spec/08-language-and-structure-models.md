@@ -1,9 +1,10 @@
 # 08 - Language and Structure Models
 
 > Status: ACTIVE for language models (M4: plan 013 Steps 1–5 in the core lane: engines, keys, routing, templates,
-> deliverables, map-reduce; Step 6 in the M4-UI lane: the screens, see "Screens (M4)"). PROPOSAL for structure models
-> (M6).
-> Contracts: [language-model-plugin-v1](contracts/language-model-plugin-v1.md), [deliverables-v1](contracts/deliverables-v1.md).
+> deliverables, map-reduce; Step 6 in the M4-UI lane: the screens, see "Screens (M4)"). ACTIVE for structure models
+> in the M6 Needle slice (plan 015); Jev and Laya remain PROPOSAL (plan 021).
+> Contracts: [language-model-plugin-v1](contracts/language-model-plugin-v1.md), [deliverables-v1](contracts/deliverables-v1.md),
+> [structure-model-plugin-v1](contracts/structure-model-plugin-v1.md), [structured-results-v1](contracts/structured-results-v1.md).
 > Decision on providers: [ADR-011](adr/011-language-model-providers-direct-ports.md).
 
 Two engine kinds turn transcripts into documents:
@@ -103,7 +104,7 @@ Rules ([deliverables-v1](contracts/deliverables-v1.md)):
 
 | Model | What it is | Where it runs | Use in iChirp | Rule |
 |---|---|---|---|---|
-| **Needle 3** | 8–35 MB model for tool calls, grammar-constrained JSON extraction and embeddings, each with a calibrated confidence | On device, CPU, through its own `libneedle.a` runtime (Cactus not needed) | Extract SOAP sections, meds, doses, dates, action items; route dictation voice commands; lightweight embeddings | **Personal builds only** (binary-only runtime, [ADR-010](adr/010-plugin-license-gate.md)); one model per process and not thread-safe, so one actor |
+| **Needle 3** | 35 MB model for tool calls with grammar-constrained decoding and a confidence head (no embedding head in needle-rs) | On device, CPU, through **needle-rs** (MIT) compiled from source by `scripts/build_needle.sh` ([ADR-012](adr/012-needle-from-needle-rs-source.md)) | **Built (plan 015):** SOAP fields and medications (Extract fields), dictation voice commands, the Eval view | No build gate (MIT source + Apache-2.0 weights); one model per process and not thread-safe, so one actor; **experimental**: the base model scored far below the 90% bar on the synthetic eval (`docs/research/2026-09-22-needle-eval.md`) |
 | **Jev** | Typed-decision model: choice, score, yes/no with confidence in one pass | **Cloud API only** | Pick a template, classify a recording | Opt-in; **never receives clinical content by default** |
 | **Laya** | Open alternative to Jev (ModernBERT-large plus a decision head, Apache-2.0) | Needs Core ML or ONNX conversion | Local classification if conversion works | Research spike in M6 |
 | FluidAudio CUA-S1-FORMS | Tiny Core ML decision model | On device | Candidate for choosing between options | Evaluate only |
@@ -113,6 +114,15 @@ Rules ([deliverables-v1](contracts/deliverables-v1.md)):
 synthetic test set, never guessed. Needle's base model fails on indirect phrasing (a "25 minute timer" became 25
 seconds), so: fine-tune it, keep schemas small, gate on confidence, and **re-parse and validate every number in
 code** (doses, dates, durations) before showing it.
+
+**Built in M6 (plan 015; contracts [structure-model-plugin-v1](contracts/structure-model-plugin-v1.md) and
+[structured-results-v1](contracts/structured-results-v1.md)).** A deterministic numeric normalizer (`ChirpText`) tags
+numbers before the model reads a sentence; the model copies tags from frozen catalogs (`soap-meds.v1`,
+`dictation-commands.v1`); code maps tags back, re-parses and range-checks every number, and the gate (act ≥ 0.85,
+provisional ≥ 0.60, settings) plus a review state decide what shows; every field is saved with its source span, engine,
+model hash, confidence and verdict (`v7-structured-results`). A rule-based STUB implements the same catalogs, is
+always available and is always labelled STUB. Escalation of a low-confidence clinical field goes to the person (the
+Needs review bin); nothing escalates off the phone.
 
 ## Cactus
 

@@ -91,7 +91,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
   done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
   cancels nothing, Retry from `failed`.
-- `Dictation/DictationCoordinator.swift` (M2; M6 voice-command hooks): the `@MainActor @Observable` dictation coordinator and view model.
+- `Dictation/DictationCoordinator.swift` (M2; M6 voice-command hooks): the `@MainActor @Observable` dictation
+  coordinator and view model.
   Start checks the model and the microphone permission, records into `media/<id>/dictation.wav` through
   `ChirpCore.AudioCapturing`, warms the model, and shows display-only live text from a `LiveSpeechSession` through
   `LiveTranscriptStabilizer` (`committedText` / `tentativeText`), plus real levels and recorded seconds. Stop finishes
@@ -226,6 +227,18 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   default `SilentReadBack` does nothing and the screen says so), `DictationVoiceCommanding` (the coordinator's hooks)
   and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, the final-pass resolution, the
   pending Transform). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+
+- `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
+  order (Needle answered differently, and worse, when the schema keys were sorted).
+- `Structure/StructureEval.swift` (Step 8, the Needle Bench Eval): the bundled synthetic sets
+  (`Resources/StructureCatalogs/eval-soap-meds.v1.json`: 8 invented encounters, 48 sentences;
+  `eval-dictation-commands.v1.json`: 30 utterances, 10 of them dictated text), `StructureEvalScorer` (tool-shape
+  accuracy, argument accuracy, field exact match and the numeric hard-fail count, kept separate; commands: gated and
+  ungated engine accuracy, feature accuracy, dictation eaten as a command), `StructureEvalRunner` (the same
+  normalizer, validator and gate as the screens; normalizer on/off) and `StructureEvalReport`
+  (`ichirp.structure-eval/v1` JSON and the "Copy for LLM" Markdown).
+- `Structure/StructureEvalViewModel.swift`: Settings → Structure models → Eval (run the STUB or Needle, save each run
+  to `structured_eval_runs`, export).
 
 ## Wiring (app composition root)
 

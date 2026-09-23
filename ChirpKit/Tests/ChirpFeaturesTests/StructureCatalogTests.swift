@@ -66,6 +66,25 @@ final class StructureCatalogTests: XCTestCase {
         XCTAssertEqual(tools.first?["name"], .string("new_paragraph"))
     }
 
+    func testToolsJSONKeepsTheCatalogFilesKeyOrder() throws {
+        let json = StructureCatalog.soapMeds.toolsJSON
+        XCTAssertTrue(
+            json.hasPrefix(#"[{"name":"record_vital","description":"#),
+            "name, then description, then parameters, as the model was trained: \(json.prefix(80))")
+        XCTAssertTrue(json.contains(#""parameters":{"type":"object","properties":{"kind":{"type":"string","enum":"#))
+        // Same content as the key-sorted form.
+        let ordered = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        var sorted = StructureCatalog.soapMeds
+        sorted.orderedToolsJSON = nil
+        XCTAssertEqual(ordered, try JSONDecoder().decode(JSONValue.self, from: Data(sorted.toolsJSON.utf8)))
+    }
+
+    func testOrderedJSONRoundTrip() throws {
+        let text = #"{"b":1,"a":[true,null,"x\"y",-2.5e3],"c":{"z":{},"y":[]}}"#
+        XCTAssertEqual(try OrderedJSON.parse(Data(text.utf8)).compact, text)
+        XCTAssertThrowsError(try OrderedJSON.parse(Data("{\"a\":}".utf8)))
+    }
+
     func testCallParsingAndValidation() throws {
         let calls = try XCTUnwrap(
             StructuredCall.parseArray(

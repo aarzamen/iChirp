@@ -8,17 +8,21 @@ import SwiftUI
 /// - `-ChirpExtractFields`: once launch housekeeping is done, opens Extract fields on the newest Library item and
 ///   runs it (pair with `-ChirpImportDocument <path>` to import a synthetic note first).
 /// - `-ChirpVoiceCommands`: opens Settings → Structure models → Try voice commands (the chip and the copied text).
+/// - `-ChirpStructureEval <engines>`: opens the Eval view and runs the listed engines ("stub", "needle", "stub,needle").
 enum StructurePreviewLaunch {
     static let engineArgument = "-ChirpStructureEngine"
     static let extractFieldsArgument = "-ChirpExtractFields"
     static let voiceCommandsArgument = "-ChirpVoiceCommands"
+    static let evalArgument = "-ChirpStructureEval"
 
     enum Screen: Identifiable {
         case extract(id: UUID, title: String)
         case voiceCommands
+        case eval([String])
 
         var id: String {
             switch self {
+            case .eval: "eval"
             case .extract(let id, _): "extract-\(id)"
             case .voiceCommands: "voice-commands"
             }
@@ -52,6 +56,8 @@ private struct StructurePreviewLaunchModifier: ViewModifier {
                         onSeek: { _ in })
                 case .voiceCommands:
                     NavigationStack { VoiceCommandTesterScreen() }
+                case .eval(let engines):
+                    NavigationStack { StructureEvalScreen(autoRun: engines) }
                 }
             }
             .task { await apply() }
@@ -63,6 +69,11 @@ private struct StructurePreviewLaunchModifier: ViewModifier {
             let choice = StructureEngineChoice(rawValue: engine)
         {
             environment.structureSettings.settingsValue.engine = choice
+        }
+        if let engines = IngestPreviewLaunch.value(after: StructurePreviewLaunch.evalArgument) {
+            await environment.launch()
+            screen = .eval(engines.split(separator: ",").map(String.init))
+            return
         }
         if arguments.contains(StructurePreviewLaunch.voiceCommandsArgument) {
             await environment.launch()

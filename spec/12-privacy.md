@@ -58,6 +58,8 @@ Before any engine processes an item, the caller asks
 | Home-network providers (Ollama, LM Studio) | Same, with a LAN provider | Same, over the local network | M4 |
 | Provider "Test connection" and model list (Settings → Models) | User taps Test or refreshes models | The API key in a header, a one-token "Hi" request, a model-list request; **no user content** | M4 |
 | Apple Foundation Models | User runs a template or Ask with the on-device model | Nothing leaves the iPhone | M4 |
+| Needle 3 model download from Hugging Face | User taps Download in Settings → Structure models | A GET of the pinned `needle3.cact` (35 MB, SHA-256 checked); no user content | M6 (built) |
+| Needle 3 and the STUB (structure models) | Extract fields, dictation voice commands, Eval | **Nothing leaves the iPhone**: both run on device; clinical items may only reach an `.onDevice` structure engine, and "Use in SOAP note" runs the SOAP template on the Apple on-device model | M6 (built) |
 | Jev | User opts in | Short text for a decision; never clinical by default | M6 |
 
 There is no telemetry and no crash reporting service. If one is ever proposed, it needs an ADR, an opt-in, and a

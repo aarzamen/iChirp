@@ -26,7 +26,8 @@ final class NeedleRealModelTests: XCTestCase {
     static func makeRealModel() async throws -> NeedleStructureModel {
         let local = repoRoot.appendingPathComponent("vendor/models/needle3.cact")
         let fetcher: any NeedleFileFetching =
-            FileManager.default.fileExists(atPath: local.path) ? LocalCopyFetcher(source: local) : URLSessionNeedleFetcher()
+            FileManager.default.fileExists(atPath: local.path)
+            ? LocalCopyFetcher(source: local) : URLSessionNeedleFetcher()
         let assets = NeedleModelAssets(
             modelsDirectory: repoRoot.appendingPathComponent("vendor/models-cache"), fetcher: fetcher)
         let model = NeedleStructureModel(assets: assets)

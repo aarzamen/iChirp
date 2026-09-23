@@ -47,7 +47,8 @@ final class NeedleStructureModelTests: XCTestCase {
     }
 
     func testPinnedWeightsAreTheReviewedFile() {
-        XCTAssertEqual(NeedleModelAssets.needle3.sha256, "c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38")
+        XCTAssertEqual(
+            NeedleModelAssets.needle3.sha256, "c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38")
         XCTAssertEqual(NeedleModelAssets.needle3.byteCount, 35_335_380)
         XCTAssertTrue(NeedleModelAssets.needle3.remoteURL.absoluteString.contains(NeedleModelAssets.needle3.revision))
     }
@@ -61,8 +62,9 @@ final class NeedleStructureModelTests: XCTestCase {
     func testWithoutTheRuntimeItSaysNotInThisBuild() async throws {
         let assets = NeedleModelAssets(modelsDirectory: root)
         let model = NeedleStructureModel(assets: assets, runtime: FakeRuntime(), runtimeInBuild: false)
-        await XCTAssertThrowsAsync(try await model.extract(jsonSchema: Self.tools, from: "x", privacyClass: .general))
-        { XCTAssertEqual($0 as? StructureModelError, .notInThisBuild(NeedleRuntimeInfo.notInBuildMessage)) }
+        await XCTAssertThrowsAsync(try await model.extract(jsonSchema: Self.tools, from: "x", privacyClass: .general)) {
+            XCTAssertEqual($0 as? StructureModelError, .notInThisBuild(NeedleRuntimeInfo.notInBuildMessage))
+        }
     }
 
     func testDownloadVerifiesTheHashThenExtractReturnsThePayloadConfidenceAndHash() async throws {
@@ -103,8 +105,9 @@ final class NeedleStructureModelTests: XCTestCase {
         await runtime.answer("<think>…</think> I am not sure.", confidence: 0.4)
         let model = makeModel(runtime: runtime)
         try await model.downloadAssets { _ in }
-        await XCTAssertThrowsAsync(try await model.extract(jsonSchema: Self.tools, from: "x", privacyClass: .general))
-        { XCTAssertEqual($0 as? StructureModelError, .noToolCall) }
+        await XCTAssertThrowsAsync(try await model.extract(jsonSchema: Self.tools, from: "x", privacyClass: .general)) {
+            XCTAssertEqual($0 as? StructureModelError, .noToolCall)
+        }
     }
 
     func testAHashMismatchKeepsNothingAndReportsFailed() async throws {
