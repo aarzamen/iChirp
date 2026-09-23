@@ -747,8 +747,8 @@ Voice messages (Step 5; Settings → Voices has a voice)
 - [ ] A transcript → Share → Voice message…: "Speaking · Part 1 of N" counts up, then "Voice message saved" and the
       share sheet offers `<title>.m4a`; AirDrop or save it to Files and play it: the whole text, in order, with a short
       pause between paragraphs.
-- [ ] The same on a document, a text item, and a generated document (More → Save as voice message, which speaks the
-      text as edited).
+- [ ] The same on a document, a text item, and a generated document (Share → Voice message… there too, which speaks
+      the text as edited).
 - [ ] A clinical item with Grok voices (or an untrusted Mac): "Make a voice message of this clinical text with …?";
       Cancel says nothing was sent; Send makes it.
 - [ ] No voice set up: the sheet says what is missing (Settings → Voices) and sends nothing. Turn off Wi-Fi mid-way:
@@ -758,6 +758,49 @@ Voice messages (Step 5; Settings → Voices has a voice)
       the document keeps it).
 - [ ] Create → Link (a YouTube video with captions) → Transcript: the Transcribe step says "Captions saved from
       YouTube; nothing was transcribed".
+
+## Create and Transforms polish checklist (polish lane u2, UX audit 2b9ad612)
+
+> Preconditions: a build at or after the polish/u2-create merge (Settings → About shows its commit). Synthetic text
+> only. Screenshots from the simulator run are in `.superpowers/sdd/milestones/polish-u2-create-screens/`.
+
+Nothing typed is lost (F19, F24, F38)
+- [ ] Type or paste → type a line → swipe the sheet down: it stays. Cancel asks "Discard this text?"; tap outside the
+      question to keep editing; Discard closes and saves nothing.
+- [ ] Create → Type or paste (or Link) → type → swipe down: it stays; Cancel asks "Discard what you typed?". With text
+      typed, press the Action Button (the sheet steps aside for the dictation), finish or cancel it, reopen Create: the
+      text is still there.
+- [ ] Transform → SOAP note → while it is writing tap Done: "Stop writing this document?" (Stop and Close / tap
+      outside keeps writing); swipe-down does nothing while it writes; after it finishes Done closes at once.
+- [ ] Edit by voice: type an instruction, Cancel asks; Apply edit, Cancel while it rewrites asks "Stop the rewrite?".
+- [ ] A voice message being made cannot be swiped away; Cancel stops it.
+
+Honest privacy words (F13, F51, F33)
+- [ ] Capture's header chip reads **On device** with no cloud model, no voice and Jev off; tap it: "Where things run"
+      lists speech, the default model, voices and Jev. Pick a cloud model as the default (or Grok voices, or turn Jev on):
+      the chip reads **Cloud on** and the sheet says which. A Mac (Ollama or the companion) only: **Home network**.
+- [ ] A Personal text item → Transform → SOAP note (on this iPhone) → back: its privacy chip reads
+      **Clinical (it has a SOAP note)**; the menu says why, and still marks it Personal.
+- [ ] With a cloud model, Transform → Summary on that item: "Send this clinical text to …?" whose message begins
+      "Marked Personal, but it counts as clinical because a SOAP note was made from it."; Send is red.
+- [ ] Listen on that item with Grok voices: the question's message gives the same reason first; Read aloud is red.
+
+Edit by voice and Versions (F26, F27, F29, F30, F32)
+- [ ] The suggestion chips and Show all are easy to hit (44 pt). A quick swipe that starts on the speak button scrolls
+      and does not start the microphone; a press held a moment does (on the phone).
+- [ ] After an edit, Versions shows a "2 lines changed" (or "No text changes") line, and no version starts with
+      `<document>`.
+
+Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
+- [ ] Capture: See all is easy to tap; Import a file accepts a PDF (it is read like Paste a link → Import a document).
+- [ ] Create at the largest text size: one column of tiles, no "Spe…" cut-offs; Document ▸ template lists Documents and
+      Rewrites separately.
+- [ ] A generated document: title, class, Edit by voice and Versions, the text, then **Details** (From, Template,
+      Provider, Model only when it says more than the provider, Ran, Privacy, Made). Share → PDF, Word, Text,
+      Voice message…; More holds only Delete.
+- [ ] The model chips name the model ("Runs on this iPhone · Apple on-device model").
+- [ ] Transforms tab with more than 50 documents: "Show older documents" adds the rest; none is out of reach.
+- [ ] A document or text item: the star and Paste a link's clear (x) are easy to tap; the privacy chip has its own row.
 
 ## Writing a checklist (for agents)
 
