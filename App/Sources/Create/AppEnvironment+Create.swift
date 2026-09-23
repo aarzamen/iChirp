@@ -164,3 +164,19 @@ extension AppEnvironment {
         }
     }
 }
+
+extension AppEnvironment {
+    /// Edit by voice (Step 4): a spoken instruction through the dictation path's final pass, on its own recorder over
+    /// the shared microphone (a dictation or meeting in progress makes it say so instead).
+    func makeInstructionRecorder() -> SpokenInstructionRecorder {
+        let rules = textRules
+        return SpokenInstructionRecorder(
+            capture: DictationRecorder(stream: microphone, session: audioSession), speech: speechEngine,
+            scheduler: scheduler, settings: settings, textRules: { await rules.enabledRules() })
+    }
+
+    /// The versions of a generated document (Step 4).
+    func makeDocumentVersionsViewModel(id: UUID) -> DocumentVersionsViewModel {
+        DocumentVersionsViewModel(deliverableID: id, documents: deliverableStore, store: deliverableStore)
+    }
+}

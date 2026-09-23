@@ -253,6 +253,68 @@ final class CreateTourUITests: XCTestCase {
         shot("speak-summary-result")
     }
 
+    // MARK: - Step 4: Edit by voice and Versions
+
+    /// A Summary (stub model) → Edit by voice: a spoken instruction (synthetic speech the agent plays into the Mac's
+    /// microphone while the button is held), then a typed one; each becomes a version; Versions lists them and Restore
+    /// adds the original back as the newest version.
+    func testEditByVoiceMakesVersions() throws {
+        app.launch()
+        ensureStubModel()
+        openCreate()
+        tapOption("Type or paste")
+        typeInEditor("Synthetic planning note\nThe synthetic team moves the review to Thursday at nine.")
+        tapOption("Summary")
+        tapCreate()
+        waitForDone(timeout: 90, name: "edit-source")
+        tapWhenHittable(app.buttons["Open document"])
+        let editButton = app.buttons["Edit by voice"]
+        XCTAssertTrue(editButton.waitForExistence(timeout: 10))
+        shot("document-with-edit-by-voice")
+        editButton.tap()
+        let mic =
+            app.buttons["Speak an instruction"].exists
+            ? app.buttons["Speak an instruction"] : app.otherElements["Speak an instruction"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 10))
+        shot("edit-sheet")
+        let field = app.textFields["Instruction"]
+        let heard = app.staticTexts["Heard on this iPhone. Edit it if a word is wrong."]
+        // Hold to speak only when asked (CHIRP_TOUR_MIC=1 and synthetic speech playing): the simulator records the
+        // Mac's real microphone, which can pick up whatever is said in the room.
+        if ProcessInfo.processInfo.environment["CHIRP_TOUR_MIC"] == "1" {
+            mic.press(forDuration: 7)
+            _ = heard.waitForExistence(timeout: 30)
+            shot("edit-spoken-instruction")
+        }
+        if !heard.exists {
+            // The typed path: a suggestion fills the instruction.
+            tapWhenHittable(app.buttons["Make it shorter"])
+            shot("edit-typed-instruction")
+        }
+        XCTAssertTrue(field.exists)
+        tapWhenHittable(app.buttons["Apply edit"])
+        let saved = app.staticTexts["Saved as a new version"]
+        if !saved.waitForExistence(timeout: 60) {
+            shot("edit-not-saved")
+            XCTFail("the edit was not saved")
+            return
+        }
+        shot("edit-saved")
+        app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Versions"].waitForExistence(timeout: 10))
+        shot("document-after-edit")
+        app.buttons["Versions"].tap()
+        XCTAssertTrue(app.staticTexts["Version 2"].waitForExistence(timeout: 10))
+        shot("versions")
+        let restore = app.buttons["Restore version 1"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5))
+        scrollTo(restore)
+        restore.tap()
+        XCTAssertTrue(app.staticTexts["Version 3"].waitForExistence(timeout: 10))
+        shot("versions-after-restore")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
     // MARK: - Steps
 
     static let companionArguments = [
@@ -336,6 +398,7 @@ final class CreateTourUITests: XCTestCase {
 
     private func tapCreate() {
         let create = app.buttons.matching(NSPredicate(format: "label IN {'Create', 'Start speaking'}")).firstMatch
+        if !create.waitForExistence(timeout: 10) { shot("no-create-button") }
         tapWhenHittable(create)
     }
 

@@ -8,6 +8,8 @@ import Observation
     public enum Request: Sendable, Equatable {
         case template(id: UUID, userNotes: String?)
         case ask(question: String)
+        /// Plan 022: rewrite the document `deliverableID` from an instruction, stored as its next version.
+        case edit(deliverableID: UUID, instruction: String, spoken: Bool)
     }
 
     public enum Phase: Equatable {
@@ -50,7 +52,14 @@ import Observation
         let templateID: UUID?
         if case .template(let id, _) = request { templateID = id } else { templateID = nil }
         do {
-            switch try await service.route(transcriptionID: transcriptionID, templateID: templateID, model: model) {
+            let decision: RouteDecision
+            if case .edit(let deliverableID, _, _) = request {
+                decision = try await service.routeEdit(deliverableID: deliverableID, model: model)
+            } else {
+                decision = try await service.route(
+                    transcriptionID: transcriptionID, templateID: templateID, model: model)
+            }
+            switch decision {
             case .allowed(let route):
                 self.route = route
                 await run(override: nil)
@@ -96,6 +105,10 @@ import Observation
                 templateID: id, transcriptionID: transcriptionID, userNotes: notes, model: model, override: override)
         case .ask(let question):
             stream = service.ask(question: question, transcriptionID: transcriptionID, model: model, override: override)
+        case .edit(let deliverableID, let instruction, let spoken):
+            stream = service.edit(
+                deliverableID: deliverableID, instruction: instruction, spoken: spoken, model: model,
+                override: override)
         }
         let task = Task { await consume(stream) }
         self.task = task

@@ -66,6 +66,10 @@ Before any engine processes an item, the caller asks
   retry, on the source's class as stored then; the per-message question ("Make a voice message of this clinical text
   with <voice>?") is answered only by its dialog's Send button (`AppTests/CreateAppTests`). The file stays on the
   iPhone until the person shares it.
+- **Edit by voice (plan 022)** routes through `DeliverableService` like a template run (the same per-run question for
+  clinical text, the same single-use token); the spoken instruction is transcribed on this iPhone by the dictation
+  final pass (on-device engines only), its recording deleted after; the instruction is kept only in the document's
+  version row, never logged or in the ledger.
 - **Create chains (plan 022)** add no new route: every step is an existing service and routes as that service does,
   on the item's **current** effective class. A new item gets the class the person chose ("Clinical (patient
   information)") before any later step; the operation goes through `DeliverableService` (the same per-run question
@@ -84,7 +88,7 @@ Before any engine processes an item, the caller asks
 | YouTube audio (through the Mac companion) | A video has no usable captions, a companion is set up, the user taps "Get the audio from your Mac" and confirms (once per link), or taps Retry (which asks again when the companion is not the Mac the link was confirmed for in this launch) | **Only the video's canonical link** `https://www.youtube.com/watch?v=<id>`, rebuilt from the validated id (share parameters such as `si=` and `list=` never leave the phone), to the companion on the owner's Mac (`POST /v1/youtube/audio`, Bearer pairing token, plain http on the home network, redirects refused); the Mac's yt-dlp fetches the audio from YouTube and streams it back; the Mac stores nothing and logs no link or title | Plan 019 (built) |
 | Mac companion "Test connection" (Settings → Mac companion) | User taps Test connection | `GET /v1/companion` without the token, then `GET /v1/voices` with it (the saved token only to the saved address; a typed, unsaved address needs the token typed); home-network addresses only; **no user content** | Plan 019 (built) |
 | Documents (PDF, text, RTF, HTML, DOCX) | User imports or shares a document | **Nothing leaves the iPhone**: PDFKit, Vision OCR and the text readers run on device; HTML images and styles are never fetched | M5 (built) |
-| Cloud language models (Anthropic, OpenAI-compatible, Gemini) | User runs a template or Ask with a cloud provider | Transcript or document **text**, the template and any notes the user typed; **never audio** | M4 |
+| Cloud language models (Anthropic, OpenAI-compatible, Gemini) | User runs a template or Ask with a cloud provider, or Edit by voice (plan 022) | Transcript or document **text**, the template and any notes the user typed; for an edit, the generated document's text and the instruction (typed, or transcribed on this iPhone: the audio never leaves it); **never audio** | M4 |
 | Home-network providers (Ollama, LM Studio) | Same, with a LAN provider | Same, over the local network | M4 |
 | Provider "Test connection" and model list (Settings → Models) | User taps Test or refreshes models | The API key in a header, a one-token "Hi" request, a model-list request; **no user content** | M4 |
 | Apple Foundation Models | User runs a template or Ask with the on-device model | Nothing leaves the iPhone | M4 |

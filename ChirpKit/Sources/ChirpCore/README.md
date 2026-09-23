@@ -52,7 +52,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionRequestError`). Reuses `LanguageModelAvailability`
   and `LanguageModelError`. Conformer: `ChirpEngineJev`. Contract: `spec/contracts/decision-model-plugin-v1.md`.
 - `Models/Deliverable.swift`: M4 templates, versions, deliverables and the `LanguageModelRun` ledger row; M6a adds the
-  `decision` feature value (no schema change).
+  `decision` feature value, plan 022 the `edit` value (no schema change).
+- `Models/DeliverableVersion.swift` and `Pipeline/DeliverableVersionStoring.swift` (plan 022): a generated document's
+  append-only versions (`DeliverableVersion`, `DeliverableVersionDraft`, `DeliverableVersionAppend`) and the store
+  protocol `GRDBDeliverableStore` implements.
 - `Models/StructuredResult.swift` (M6): the evidence ledger's values (`StructuredRun`, `StructuredField` with its
   `StructuredSourceSpan` and `StructuredVerdict`, `StructuredEvalRun`) and `StructuredResultStoring`
   ([structured-results-v1](../../../spec/contracts/structured-results-v1.md)).

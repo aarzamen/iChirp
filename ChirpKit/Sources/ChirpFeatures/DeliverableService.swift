@@ -84,6 +84,16 @@ public enum DeliverableError: Error, Equatable, LocalizedError {
     case transcriptTooLong
     /// The model finished without any text.
     case emptyResult
+    /// Plan 022 (Edit by voice): the document no longer exists.
+    case documentNotFound
+    /// The document has no text to edit.
+    case emptyDocument
+    /// The instruction was empty (nothing was sent).
+    case emptyInstruction
+    /// The document is longer than this model can read and write back in one pass. Nothing was sent or stored.
+    case documentTooLongToEdit
+    /// This build's document store keeps no versions, so an edit could not be kept without overwriting.
+    case versionsUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -97,6 +107,13 @@ public enum DeliverableError: Error, Equatable, LocalizedError {
             "This transcript is too long for this model, even split into parts. Nothing was cut or saved. "
                 + "Choose a model with a larger context."
         case .emptyResult: "The model returned no text."
+        case .documentNotFound: "This document no longer exists."
+        case .emptyDocument: "This document has no text to edit."
+        case .emptyInstruction: "Say or type what to change first."
+        case .documentTooLongToEdit:
+            "This document is too long for this model to rewrite in one pass. Nothing was sent or changed. Choose a "
+                + "model with a larger context, or edit it by hand."
+        case .versionsUnavailable: "This document’s versions can’t be kept, so nothing was changed."
         }
     }
 
@@ -111,6 +128,11 @@ public enum DeliverableError: Error, Equatable, LocalizedError {
         case .modelUnavailable: "model_unavailable"
         case .transcriptTooLong: "transcript_too_long"
         case .emptyResult: "empty_result"
+        case .documentNotFound: "document_not_found"
+        case .emptyDocument: "empty_document"
+        case .emptyInstruction: "empty_instruction"
+        case .documentTooLongToEdit: "document_too_long_to_edit"
+        case .versionsUnavailable: "versions_unavailable"
         }
     }
 }
@@ -603,6 +625,162 @@ public actor DeliverableService {
                 )
             }
         }.value
+    }
+
+    // MARK: - Edits (plan 022 Step 4: Edit by voice)
+
+    /// The store's versions (`GRDBDeliverableStore` keeps them); nil means edits cannot be kept, so none run.
+    private var versionStore: (any DeliverableVersionStoring)? { deliverables as? any DeliverableVersionStoring }
+
+    /// What editing the document `deliverableID` with `model` needs. Routes on the transcript's effective class raised by
+    /// the document's own. Sends nothing.
+    public func routeEdit(deliverableID: UUID, model: any LanguageModel) async throws -> RouteDecision {
+        let (transcription, document) = try await editSubject(deliverableID)
+        let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
+        let route = makeRoute(transcription, baseClass: effective, outputClass: document.privacyClass, model: model)
+        if isAllowed(route, model: model, override: false) { return .allowed(route) }
+        return .needsOverride(issueRequest(for: route))
+    }
+
+    /// Rewrites a document from the person's instruction and stores the result as its **next version** (the text it
+    /// had is kept as a version first; nothing is overwritten). Same routing, override and ledger rules as `generate`;
+    /// the ledger row (`feature` `edit`) and the logs never hold the instruction or any text. One model call: a document
+    /// that does not fit fails with `documentTooLongToEdit` before anything is sent.
+    public nonisolated func edit(
+        deliverableID: UUID,
+        instruction: String,
+        spoken: Bool,
+        model: any LanguageModel,
+        override: PrivacyOverride? = nil
+    ) -> AsyncThrowingStream<DeliverableRunEvent, Error> {
+        stream { service, emit in
+            try await service.runEdit(
+                deliverableID: deliverableID, instruction: instruction, spoken: spoken, model: model,
+                override: override, emit: emit)
+        }
+    }
+
+    private func editSubject(_ deliverableID: UUID) async throws -> (Transcription, Deliverable) {
+        guard let document = try await deliverables.fetchDeliverable(id: deliverableID) else {
+            throw DeliverableError.documentNotFound
+        }
+        guard let transcription = try await transcripts.fetch(id: document.transcriptionID) else {
+            throw DeliverableError.transcriptNotFound
+        }
+        return (transcription, document)
+    }
+
+    private func runEdit(
+        deliverableID: UUID,
+        instruction rawInstruction: String,
+        spoken: Bool,
+        model: any LanguageModel,
+        override token: PrivacyOverride?,
+        emit: @escaping @Sendable (DeliverableRunEvent) -> Void
+    ) async throws {
+        let runID = UUID()
+        let started = now()
+        guard let versionStore else { throw DeliverableError.versionsUnavailable }
+        let instruction = rawInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !instruction.isEmpty else { throw DeliverableError.emptyInstruction }
+
+        // 1. Read everything as stored now.
+        let (transcription, document) = try await editSubject(deliverableID)
+        let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
+        let route = makeRoute(transcription, baseClass: effective, outputClass: document.privacyClass, model: model)
+        var metrics = RunMetrics()
+        let context = LedgerContext(
+            runID: runID, started: started, feature: .edit, transcriptionID: transcription.id, promptVersionID: nil,
+            route: route)
+
+        // 2. Route before anything is sent.
+        var overrideUsed = false
+        if !isAllowed(route, model: model, override: false) {
+            overrideUsed = consume(token, for: route)
+            guard overrideUsed, isAllowed(route, model: model, override: true) else {
+                let request = issueRequest(for: route)
+                privacyLogger.notice(
+                    "privacy_routing_refused run=\(runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public)"
+                )
+                await writeLedger(
+                    context, metrics, .refused, error: DeliverableError.privacyOverrideRequired(request).kindName,
+                    deliverableID: deliverableID, overrideUsed: false)
+                throw DeliverableError.privacyOverrideRequired(request)
+            }
+            privacyLogger.notice(
+                "privacy_override_used run=\(runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) host=\(route.host ?? "-", privacy: .private)"
+            )
+        }
+
+        let source = document.text
+        do {
+            guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw DeliverableError.emptyDocument
+            }
+            if case .unavailable(let reason) = await model.availability() {
+                throw DeliverableError.modelUnavailable(reason)
+            }
+            // One call must carry the whole document and have room to write it back: never cut, never map-reduce.
+            let contextTokens =
+                await model.contextWindowTokens() ?? GenerationBudget.defaultContextTokens(for: route.locality)
+            let budget = GenerationBudget(contextTokens: contextTokens)
+            let empty = DeliverablePromptAssembler.editRequest(
+                instruction: instruction, document: "", privacyClass: route.privacyClass, maxOutputTokens: nil)
+            let overhead = (empty.system?.count ?? 0) + empty.prompt.count
+            guard source.count <= budget.sourceCharacters(overheadCharacters: overhead),
+                source.count <= budget.maxOutputTokens * GenerationBudget.charactersPerToken
+            else { throw DeliverableError.documentTooLongToEdit }
+
+            emit(.routed(route, privacyOverrideUsed: overrideUsed))
+            logger.info(
+                "run_started run=\(runID, privacy: .public) feature=edit deliverable=\(deliverableID, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public) chars=\(source.count, privacy: .public)"
+            )
+            emit(.step(.writing))
+            try await recheckRoute(route, model: model, overrideUsed: overrideUsed)
+            let request = DeliverablePromptAssembler.editRequest(
+                instruction: instruction, document: source, privacyClass: route.privacyClass,
+                maxOutputTokens: budget.maxOutputTokens)
+            let written: String
+            do {
+                written = try await Self.send(request, to: model, streamTo: emit, metrics: &metrics)
+            } catch LanguageModelError.contextTooLong {
+                throw DeliverableError.documentTooLongToEdit
+            }
+            let text = written.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw DeliverableError.emptyResult }
+            guard
+                let appended = try await versionStore.appendDeliverableVersion(
+                    DeliverableVersionDraft(
+                        text: text, origin: spoken ? .spokenEdit : .typedEdit, instruction: instruction,
+                        engineID: route.engineID, provider: route.providerName, model: metrics.model,
+                        locality: route.locality, privacyClass: route.privacyClass, createdAt: now()),
+                    deliverableID: deliverableID)
+            else { throw DeliverableError.documentNotFound }
+            await writeLedger(
+                context, metrics, .succeeded, input: source.count, output: text.count, deliverableID: deliverableID,
+                overrideUsed: overrideUsed)
+            emit(.completed(appended.deliverable))
+            logger.info(
+                "run_finished run=\(runID, privacy: .public) status=succeeded version=\(appended.versions.count, privacy: .public)"
+            )
+        } catch {
+            let errorName = Self.kindName(of: error)
+            let status: LanguageModelRun.Status
+            if error is CancellationError || Task.isCancelled {
+                status = .cancelled
+            } else if case DeliverableError.privacyOverrideRequired = error {
+                status = .refused
+            } else {
+                status = .failed
+            }
+            await writeLedger(
+                context, metrics, status, error: status == .cancelled ? nil : errorName, input: source.count,
+                deliverableID: deliverableID, overrideUsed: overrideUsed)
+            logger.notice(
+                "run_finished run=\(runID, privacy: .public) status=\(status.rawValue, privacy: .public) error_type=\(errorName, privacy: .public)"
+            )
+            throw error
+        }
     }
 
     private static func sum(_ lhs: Int?, _ rhs: Int?) -> Int? {

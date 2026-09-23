@@ -17,6 +17,9 @@ struct DeliverableDetailScreen: View {
     @State private var deleteError: String?
     /// Plan 022: More → Save as voice message.
     @State private var voiceMessage: VoiceMessageJob?
+    /// Plan 022 Step 4: Edit by voice and the Versions sheet.
+    @State private var isEditingByVoice = false
+    @State private var isShowingVersions = false
 
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
@@ -38,6 +41,7 @@ struct DeliverableDetailScreen: View {
                     if deliverable.privacyClass == .clinical {
                         ClinicalDraftNote()
                     }
+                    editActions
                     DocumentEditor(document: document)
                         .frame(minHeight: 360)
                     if let error = document.saveError {
@@ -56,7 +60,9 @@ struct DeliverableDetailScreen: View {
             .padding(.bottom, 24)
         }
         .background(Tokens.Color.ground)
-        .voiceReading(environment.voicePlayer, confirmationEnabled: voiceMessage == nil) {
+        .voiceReading(
+            environment.voicePlayer, confirmationEnabled: voiceMessage == nil && !isEditingByVoice
+        ) {
             $0 == .deliverable(id: id)  // plan 020
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -104,6 +110,13 @@ struct DeliverableDetailScreen: View {
         .disabled(document.deliverable == nil && !document.isDeleted && document.loadError == nil)
         .task { await document.load() }
         .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
+        .sheet(isPresented: $isEditingByVoice) {
+            EditByVoiceSheet(document: document, environment: environment, onSaved: reloadAfterNewVersion)
+        }
+        .sheet(isPresented: $isShowingVersions) {
+            DocumentVersionsSheet(
+                model: environment.makeDocumentVersionsViewModel(id: id), onRestored: reloadAfterNewVersion)
+        }
         .sheet(item: $shareText) { item in
             ActivityView(items: [item.text])
                 .presentationDetents([.medium, .large])
@@ -122,6 +135,43 @@ struct DeliverableDetailScreen: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deleteError ?? "")
+        }
+    }
+
+    /// Plan 022 Step 4: Edit by voice (a new version, never an overwrite) and the version list.
+    private var editActions: some View {
+        HStack(spacing: 10) {
+            Button {
+                isEditingByVoice = true
+            } label: {
+                Label("Edit by voice", systemImage: "mic.fill")
+                    .chirpFont(14, .bold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 38)
+                    .background(Capsule().fill(Tokens.Color.accentInk))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Say or type what to change. The result is saved as a new version.")
+            Button {
+                isShowingVersions = true
+            } label: {
+                Label("Versions", systemImage: "clock.arrow.circlepath")
+                    .chirpFont(14, .semibold)
+                    .foregroundStyle(AppColor.accentText)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 38)
+                    .background(Capsule().fill(AppColor.tintFill))
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func reloadAfterNewVersion() {
+        Task {
+            await document.load()
+            await environment.deliverableLibrary.load()
         }
     }
 

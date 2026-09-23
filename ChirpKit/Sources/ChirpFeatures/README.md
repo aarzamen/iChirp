@@ -495,6 +495,16 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
 - `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,
   `ichirp.create.choices`; choices only, never text); `validated(templateIDs:)` drops a removed template.
+- Step 4, Edit by voice: `DeliverableService.routeEdit(deliverableID:model:)` and `edit(deliverableID:instruction:spoken:
+  model:override:)` (in `DeliverableService.swift`, the "Edits" section): routes like every run (the transcript's
+  effective class raised by the document's), one model call with `Create/DocumentEditPrompt.swift`'s request (the
+  document in `<document>` tags, the instruction after it), refuses a document that cannot go in and back out in one
+  call (`documentTooLongToEdit`, nothing sent), and stores the result through `DeliverableVersionStoring` (the store
+  must implement it, `versionsUnavailable` otherwise) as the next version. Ledger feature `edit`; the instruction is
+  never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.
+  `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
+  purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines
+  only; `DocumentVersionsViewModel` (newest first, current version, Restore appends). Tests: `EditByVoiceTests`.
 - Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
   `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
   `CreateSupportTests`.

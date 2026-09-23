@@ -596,6 +596,17 @@ Create (Step 3)
 - [ ] Close Create and reopen: the last choices are selected again (never the text or link).
 - [ ] Stop during a summary: "Stopped. What was already made stays in your Library." and no document is saved.
 
+Edit by voice (Step 4)
+- [ ] Open a Summary → Edit by voice → hold the button and say "make it shorter" → let go: the instruction appears
+      ("Heard on this iPhone"); Apply edit: "Saved as a new version" and the document shows the shorter text.
+- [ ] Versions: Version 2 (Current, "Edited by voice", the instruction) and Version 1 (Original); Restore version 1
+      adds Version 3 and the original text is back; nothing disappeared.
+- [ ] Type in the editor, then Edit by voice again: Versions shows your typed text as "Your edit" before the new one.
+- [ ] A SOAP note with a cloud model: "Send this clinical transcript to …?" before anything is sent; Cancel changes
+      nothing.
+- [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
+      with a small model: "too long for this model to rewrite in one pass", nothing changed.
+
 Voice messages (Step 5; Settings → Voices has a voice)
 - [ ] A transcript → Share → Voice message…: "Speaking · Part 1 of N" counts up, then "Voice message saved" and the
       share sheet offers `<title>.m4a`; AirDrop or save it to Files and play it: the whole text, in order, with a short

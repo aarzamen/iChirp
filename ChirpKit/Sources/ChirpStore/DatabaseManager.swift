@@ -154,6 +154,14 @@ public final class DatabaseManager: Sendable {
             try StructuredResultsSchema.create(db)
         }
 
+        // Plan 022 (Create; contract spec/contracts/deliverables-v1.md, Versions): the append-only
+        // `deliverable_versions` of Edit by voice. The plan names its one migration "v8-text-items"; text items
+        // themselves need no column (`sourceType` is free text since v1), so this holds the versions of generated
+        // text. A new table only; nothing existing changes.
+        migrator.registerMigration("v8-text-items") { db in
+            try DeliverableVersionSchema.create(db)
+        }
+
         return migrator
     }
 }
