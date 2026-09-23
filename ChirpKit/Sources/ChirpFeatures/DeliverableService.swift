@@ -140,10 +140,11 @@ public struct AskAnswer: Sendable, Equatable {
 }
 
 /// **The only path from a transcript to a `LanguageModel`.** Every run:
-/// 1. reads the transcript as stored now and routes it (`PrivacyRoutingPolicy.allows`, with the engine's real host);
+/// 1. reads the transcript as stored now and routes it (`PrivacyRoutingPolicy.allows`, with the engine's real host)
+///    with its `EffectivePrivacyClass` (a clinical deliverable of a personal transcript makes it clinical);
 /// 2. refuses clinical content to a cloud or untrusted LAN engine unless it holds a valid, unused `PrivacyOverride`
 ///    for exactly that route, and logs the override without content;
-/// 3. checks the route again before every later model call, against the class stored at that moment;
+/// 3. checks the route again before every later model call, against the effective class stored at that moment;
 /// 4. splits long input (map-reduce) and never truncates;
 /// 5. stores the result as a new `Deliverable` (never touching the transcript) with the template version and class;
 /// 6. writes one metadata-only `LanguageModelRun`, whatever the outcome.
@@ -207,7 +208,8 @@ public actor DeliverableService {
             }
             outputClass = template.outputPrivacyClass
         }
-        let route = makeRoute(transcription, outputClass: outputClass, model: model)
+        let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
+        let route = makeRoute(transcription, baseClass: effective, outputClass: outputClass, model: model)
         if isAllowed(route, model: model, override: false) { return .allowed(route) }
         return .needsOverride(issueRequest(for: route))
     }
@@ -225,8 +227,11 @@ public actor DeliverableService {
         return token
     }
 
+    /// - Parameter baseClass: the transcript's `EffectivePrivacyClass` as stored now (its own class, raised by any
+    ///   stricter deliverable made from it).
     private func makeRoute(
         _ transcription: Transcription,
+        baseClass: PrivacyClass,
         outputClass: PrivacyClass?,
         model: any LanguageModel
     ) -> ModelRoute {
@@ -236,7 +241,7 @@ public actor DeliverableService {
             providerName: model.descriptor.displayName,
             locality: model.descriptor.locality,
             host: model.endpointHost?.lowercased(),
-            privacyClass: transcription.privacyClass.stricter(outputClass)
+            privacyClass: baseClass.stricter(outputClass)
         )
     }
 
@@ -366,7 +371,9 @@ public actor DeliverableService {
         case .ask(let question):
             task = GenerationTask(kind: .ask(question: question))
         }
-        let route = makeRoute(transcription, outputClass: template?.outputPrivacyClass, model: model)
+        let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
+        let route = makeRoute(
+            transcription, baseClass: effective, outputClass: template?.outputPrivacyClass, model: model)
         var metrics = RunMetrics()
         let context = LedgerContext(
             runID: runID, started: started, feature: feature, transcriptionID: transcriptionID,
@@ -502,13 +509,17 @@ public actor DeliverableService {
         throw DeliverableError.transcriptTooLong
     }
 
-    /// Before every model call: the class as stored now, the policy as configured now, the same override.
+    /// Before every model call: the effective class as stored now (a deliverable made meanwhile counts), the policy as
+    /// configured now, the same override.
     private func recheckRoute(_ route: ModelRoute, model: any LanguageModel, overrideUsed: Bool) async throws {
-        guard let current = try await transcripts.fetch(id: route.transcriptionID) else {
+        guard
+            let current = try await EffectivePrivacyClass.current(
+                transcriptionID: route.transcriptionID, transcripts: transcripts, deliverables: deliverables)
+        else {
             throw DeliverableError.transcriptNotFound
         }
         var now = route
-        now.privacyClass = current.privacyClass.stricter(route.privacyClass)
+        now.privacyClass = current.stricter(route.privacyClass)
         // An override covers the route it was confirmed for; a class raised since then needs a new confirmation.
         let covered = overrideUsed && now.privacyClass == route.privacyClass
         guard isAllowed(now, model: model, override: covered) else {

@@ -176,7 +176,8 @@ final class JevDecisionModelTests: XCTestCase {
             (401, { if case .authenticationFailed = $0 { true } else { false } }),
             (403, { if case .authenticationFailed = $0 { true } else { false } }),
             (429, { $0 == .rateLimited }),
-            (413, { $0 == .contextTooLong }),
+            // A 413 was sent: `contextTooLong` is reserved for the size check before sending (review L4 M3).
+            (413, { if case .providerError = $0 { true } else { false } }),
             (422, { if case .providerError = $0 { true } else { false } }),
             (500, { if case .providerError = $0 { true } else { false } }),
             (529, { if case .providerError = $0 { true } else { false } }),

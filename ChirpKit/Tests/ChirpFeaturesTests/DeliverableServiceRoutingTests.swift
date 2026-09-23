@@ -293,6 +293,88 @@ final class DeliverableServiceRoutingTests: XCTestCase {
         XCTAssertTrue(onDevice.requests.allSatisfy { $0.privacyClass == .clinical })
     }
 
+    /// Review L4 M1: once a transcript has a clinical deliverable (a SOAP note), Ask and Transform treat the transcript
+    /// as clinical, even though its own class is still personal.
+    func testAClinicalDeliverableMakesItsTranscriptClinicalForAskAndTransform() async throws {
+        let harness = try await DeliverableHarness(privacy: .personal)
+        let onDevice = Destination.onDevice.makeModel()
+        _ = try await harness.run(BuiltInTemplates.soapNote, model: onDevice)
+        let stored = await harness.deliverables.deliverables
+        XCTAssertEqual(stored.values.map(\.privacyClass), [.clinical])
+
+        let cloud = Destination.cloud.makeModel()
+        do {
+            _ = try await harness.run(BuiltInTemplates.summary, model: cloud)
+            XCTFail("a summary of a transcript with a clinical deliverable is clinical")
+        } catch DeliverableError.privacyOverrideRequired(let request) {
+            XCTAssertEqual(request.route.privacyClass, .clinical)
+        }
+        do {
+            for try await _ in harness.service.ask(
+                question: "When is the meeting?", transcriptionID: harness.transcript.id, model: cloud)
+            {}
+            XCTFail("Ask about a transcript with a clinical deliverable is clinical")
+        } catch DeliverableError.privacyOverrideRequired(let request) {
+            XCTAssertEqual(request.route.privacyClass, .clinical)
+        }
+        XCTAssertTrue(cloud.requests.isEmpty, "nothing reached the cloud")
+
+        // The route the confirmation names is the one the run checks: the token still works for that run.
+        let token = try await harness.confirmIfAsked(nil, model: cloud)
+        XCTAssertNotNil(token)
+        var answered = false
+        for try await event in harness.service.ask(
+            question: "When is the meeting?", transcriptionID: harness.transcript.id, model: cloud, override: token)
+        {
+            if case .answered(let answer) = event {
+                answered = true
+                XCTAssertEqual(answer.route.privacyClass, .clinical)
+            }
+        }
+        XCTAssertTrue(answered)
+        XCTAssertTrue(cloud.requests.allSatisfy { $0.privacyClass == .clinical })
+    }
+
+    func testAClinicalDeliverableAddedMidRunStopsBeforeTheNextCall() async throws {
+        let lines = (1...400).map { "Speaker 1: synthetic line \($0) about the heron survey." }
+        let harness = try await DeliverableHarness(privacy: .personal, text: lines.joined(separator: "\n"))
+        let cloud = Destination.cloud.makeModel(contextTokens: 4_096)
+        let deliverables = harness.deliverables
+        let id = harness.transcript.id
+        cloud.onEachCall { call in
+            guard call == 1 else { return }
+            try? await deliverables.insertDeliverable(
+                Deliverable(
+                    transcriptionID: id, promptID: nil, promptVersionID: nil, title: "SOAP note", engineID: "fake",
+                    provider: "Fake", model: nil, locality: .onDevice, text: "Synthetic.", privacyClass: .clinical))
+        }
+        do {
+            _ = try await harness.run(model: cloud)
+            XCTFail("the run must stop once the transcript has a clinical deliverable")
+        } catch DeliverableError.privacyOverrideRequired(let request) {
+            XCTAssertEqual(request.route.privacyClass, .clinical)
+        }
+        XCTAssertEqual(cloud.requests.count, 1)
+    }
+
+    func testEffectivePrivacyClassIsTheStrictestOfTheTranscriptAndItsDeliverables() {
+        let transcript = Transcription(fileName: "synthetic.m4a", status: .completed, privacyClass: .general)
+        func deliverable(_ privacy: PrivacyClass) -> Deliverable {
+            Deliverable(
+                transcriptionID: transcript.id, promptID: nil, promptVersionID: nil, title: "Synthetic",
+                engineID: "fake", provider: "Fake", model: nil, locality: .onDevice, text: "Synthetic.",
+                privacyClass: privacy)
+        }
+        XCTAssertEqual(EffectivePrivacyClass.of(transcript, deliverables: []), .general)
+        XCTAssertEqual(EffectivePrivacyClass.of(transcript, deliverables: [deliverable(.personal)]), .personal)
+        XCTAssertEqual(
+            EffectivePrivacyClass.of(transcript, deliverables: [deliverable(.general), deliverable(.clinical)]),
+            .clinical)
+        var clinical = transcript
+        clinical.privacyClass = .clinical
+        XCTAssertEqual(EffectivePrivacyClass.of(clinical, deliverables: [deliverable(.general)]), .clinical)
+    }
+
     func testLANEngineWithoutAReportedHostIsNeverTrusted() async throws {
         let harness = try await DeliverableHarness(privacy: .clinical)
         let hostless = RecordingLanguageModel(locality: .localNetwork, host: nil, engineID: "http.ollama")

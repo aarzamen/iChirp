@@ -40,10 +40,16 @@ Before any engine processes an item, the caller asks
   address (`.local`, `.home.arpa`, `.internal`, `.lan`, private or link-local IP); anything else is `cloud`, and a
   cloud host can never be trusted. Cloud providers must use HTTPS. The HTTP engine refuses every redirect, so a
   trusted LAN host cannot forward a clinical request elsewhere, and keeps no URL cache.
-- **Routing is re-checked before every model call** of a run (long transcripts make several), against the class
-  stored at that moment and the trust settings as they are then. Running the SOAP note template routes as clinical.
+- **One effective class per transcript.** Every router uses `EffectivePrivacyClass`: the stricter of the
+  transcript's own class and the class of every deliverable made from it. A personal transcript that already has a
+  clinical deliverable (a SOAP note) is routed as clinical by Transform, Ask, Jev and Listen. Lowering the
+  transcript's class does not lower it while that deliverable exists (deliverables are never lowered).
+- **Routing is re-checked before every model call** of a run (long transcripts make several), against the effective
+  class stored at that moment and the trust settings as they are then. Running the SOAP note template routes as
+  clinical.
 - **Jev is cloud-only** and, in M6a, **never receives a clinical item, not even with a per-run override**
-  (`DecisionService` refuses it and writes a `refused` ledger row; [ADR-013](adr/013-jev-decision-model.md)).
+  (`DecisionService` refuses it before reading the key and writes a `refused` ledger row, and checks the effective
+  class again just before sending; [ADR-013](adr/013-jev-decision-model.md)).
 - Speech engines follow the same rule. Every speech engine planned through M8 is on-device.
 - **Voices (plan 020)** follow the same rule, in `VoicePlayer`, before the first and every later chunk of a reading:
   clinical text may go to the Mac companion only when the owner marked that Mac trusted (and its address is on the

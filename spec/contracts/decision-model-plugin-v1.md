@@ -61,11 +61,14 @@ counts when it reports them (metadata only).
 - `availability()` never touches the network; without an API key it is `.unavailable(.notConfigured(…))` and
   `decide` sends nothing and throws `LanguageModelError.unavailable`.
 - `decide` makes one request. An encoded request over 120,000 bytes throws `LanguageModelError.contextTooLong`
-  before anything is sent; a response over 1,000,000 bytes is `invalidResponse`.
+  before anything is sent (`contextTooLong` always means "nothing was sent"; an HTTP 413 answer is a
+  `providerError`, because that request did leave the phone); a response over 1,000,000 bytes is `invalidResponse`.
 - Errors are `DecisionRequestError` (caller bug, nothing sent) or `LanguageModelError`; `kindName` is the only error
   text that may be logged or stored. Cancellation surfaces as `CancellationError`.
-- Engines do **not** route. `DecisionService` routes first and, in v1, **refuses every clinical item outright**
-  (no per-run override for decision engines), writing a `refused` ledger row and sending nothing.
+- Engines do **not** route. `DecisionService` routes first, with the transcript's `EffectivePrivacyClass` (its own class raised by
+  any stricter deliverable, so a personal transcript with a clinical SOAP note is clinical) and, in v1, **refuses
+  every clinical item outright** (no per-run override for decision engines), writing a `refused` ledger row, reading
+  no API key and sending nothing. It checks again just before sending; a transcript deleted meanwhile is not sent.
 
 **Ledger**: every `DecisionService` run writes exactly one `llm_runs` row with `feature = "decision"`,
 `engineId = "http.jev"`, the locality, class, latency, `inputCharacters` (the excerpt's length), the provider's

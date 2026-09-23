@@ -125,7 +125,8 @@ public actor JevDecisionModel: DecisionModel {
         case 429:
             return .rateLimited
         case 413:
-            return .contextTooLong
+            // Not `contextTooLong`: that error means "refused before sending" to the ledger, and this request was sent.
+            return .providerError("The request was too large for TypeSafe (HTTP 413).")
         case 529:
             return .providerError("TypeSafe is overloaded (HTTP 529). Try again in a moment.")
         default:

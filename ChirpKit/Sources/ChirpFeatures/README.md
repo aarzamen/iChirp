@@ -132,7 +132,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   `PrivacyOverride` bound to that transcript, engine, host, locality and class (10-minute lifetime);
   `generate(templateID:transcriptionID:userNotes:model:override:)` and `ask(question:…)` stream
   `DeliverableRunEvent`s; `setPrivacyClass(_:transcriptionID:)` sets a transcript's class and raises (never lowers)
-  its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`.
+  its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`. Routes (first check and every
+  later call) use the transcript's `EffectivePrivacyClass`.
+- `EffectivePrivacyClass.swift`: **the one rule for how private a transcript's content is** when it may leave the
+  phone: the stricter of the transcript's class and every deliverable made from it (a personal transcript with a
+  clinical SOAP note is clinical; review L4 M1). `DeliverableService`, `DecisionService` and `VoicePlayer`'s class
+  provider read it as stored at each check.
 - `MapReduceGenerator.swift`: `DeliverablePromptAssembler` (tagged source blocks, `{{transcript}}` /
   `{{userNotes}}` placement, Ask citation rules), `GenerationBudget` (from the engine's context window: a quarter
   reserved for output, 3 characters per token, 10% margin) and `MapReduceGenerator` (one call when it fits;
@@ -356,11 +361,13 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
 - `DecisionService.swift`: **the only path from a transcript to a `DecisionModel`** (contract
   `spec/contracts/decision-model-plugin-v1.md`; `DecisionServiceTests.testOnlyDecisionServiceCallsDecide` scans
   ChirpFeatures and `App/Sources` for other `.decide(` calls). `run(recipe:transcriptionID:)`: Jev off →
-  `DecisionError.disabled` (no row); load the transcript; **a clinical item returns `.blockedClinical` with a
-  `refused` ledger row and nothing sent** (no override for decision engines in v1), and a routing-policy refusal
-  returns `.blockedByRouting` the same way; window; no key → `missingKey`; one `decide` after re-reading the class as
-  stored now; the gate; one metadata-only `llm_runs` row (`feature = decision`, `engineId = http.jev`, excerpt length,
-  the provider's token counts, `callCount` 1, or 0 when nothing was sent) whatever the outcome.
+  `DecisionError.disabled` (no row); load the transcript; route with its `EffectivePrivacyClass`: **a clinical item
+  returns `.blockedClinical` with a `refused` ledger row, no key read and nothing sent** (no override for decision
+  engines in v1), and a routing-policy refusal returns `.blockedByRouting` the same way (`routing_refused`); window;
+  read the key (a Keychain error or no key → a `failed` row); one `decide` after re-reading the effective class as
+  stored now (a deleted transcript → `transcriptNotFound`, nothing sent); the gate; one metadata-only `llm_runs` row
+  (`feature = decision`, `engineId = http.jev`, excerpt length, the provider's token counts, `callCount` 1 once
+  `decide` was called except for its pre-send size check, else 0) whatever the outcome.
 - `DecisionInputWindow.swift`: `excerpt` (the first 3,000 characters cut back to a sentence end, or to a space when
   the only sentence end is in the first third), `paragraphs(of:)` (the Transcript screen's paragraphs),
   `paragraphExcerpt` (`p01: …` lines for at most 12 paragraphs, fewer when they are long) and content-free `facts`
