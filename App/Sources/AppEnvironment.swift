@@ -79,6 +79,10 @@ import Observation
     let structureSettings: StructureSettingsViewModel
     let structuredExtraction: StructuredExtractionService
     let structuredResults: GRDBStructuredResultStore
+    /// Dictation voice commands (off by default): chips while recording, resolved on the final pass.
+    let dictationVoiceCommands: DictationVoiceCommands
+    /// Needle (when it can run) and the STUB, shared by extraction, voice commands and the Eval view.
+    let structureEngines: StructureEngines
     /// False until launch housekeeping has run and the model status has been read once (so Capture does not flash
     /// the "download the model" banner before it knows).
     private(set) var isLaunched = false
@@ -127,6 +131,30 @@ import Observation
             customWords: { (try? await textRulesStore.enabledCustomWords()) ?? [] },
             onProgress: jobCenter.progressHandler
         )
+        // M6: Needle's model lives outside the backed-up library folder (it can be downloaded again).
+        let needle = NeedleEngines.makeDefault(
+            modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true))
+        let structureStore = UserDefaultsStructureSettingsStore()
+        let structuredResults = GRDBStructuredResultStore(database: database)
+        self.needle = needle
+        self.structuredResults = structuredResults
+        self.structureSettings = StructureSettingsViewModel(
+            store: structureStore, needleAssets: needle, needleInBuild: needle.isRuntimeInBuild,
+            notInBuildMessage: NeedleRuntimeInfo.notInBuildMessage,
+            needleDownloadBytes: needle.descriptor.approximateDownloadBytes, needleModelSHA256: needle.modelSHA256)
+        let structureEngines = StructureEngines(
+            needle: needle,
+            needleAvailability: {
+                guard needle.isRuntimeInBuild else { return .unavailable(NeedleRuntimeInfo.notInBuildMessage) }
+                if case .ready = await needle.assetStatus() { return .ready }
+                return .unavailable("Download Needle 3 in Settings → Structure models.")
+            })
+        self.structureEngines = structureEngines
+        self.structuredExtraction = StructuredExtractionService(
+            transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines)
+        // "Read back" speaks through plan 020's voice player once it lands; until then the no-op default says so.
+        let dictationVoiceCommands = DictationVoiceCommands(settings: structureStore, engines: structureEngines)
+        self.dictationVoiceCommands = dictationVoiceCommands
         self.dictation = DictationCoordinator(
             capture: DictationRecorder(stream: microphone, session: audioSession),
             speech: engines.speech,
@@ -136,7 +164,8 @@ import Observation
             paths: paths,
             settings: settings,
             clipboard: SystemClipboard(),
-            textRules: { await DictationTextRules.enabled(in: textRulesStore) }
+            textRules: { await DictationTextRules.enabled(in: textRulesStore) },
+            voiceCommands: dictationVoiceCommands
         )
         self.textRules = TextRulesViewModel(store: textRulesStore)
         let voiceActivity = FluidAudioEngines.makeVoiceActivity()
@@ -217,26 +246,6 @@ import Observation
             transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
         self.languageModels = LanguageModelsViewModel(store: providerStore, factory: AppLanguageModelFactory())
         self.deliverableLibrary = DeliverableLibraryViewModel(store: deliverableStore)
-        // M6: Needle's model lives outside the backed-up library folder (it can be downloaded again).
-        let needle = NeedleEngines.makeDefault(
-            modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true))
-        let structureStore = UserDefaultsStructureSettingsStore()
-        let structuredResults = GRDBStructuredResultStore(database: database)
-        self.needle = needle
-        self.structuredResults = structuredResults
-        self.structureSettings = StructureSettingsViewModel(
-            store: structureStore, needleAssets: needle, needleInBuild: needle.isRuntimeInBuild,
-            notInBuildMessage: NeedleRuntimeInfo.notInBuildMessage,
-            needleDownloadBytes: needle.descriptor.approximateDownloadBytes, needleModelSHA256: needle.modelSHA256)
-        self.structuredExtraction = StructuredExtractionService(
-            transcripts: store, results: structuredResults, settings: structureStore,
-            engines: StructureEngines(
-                needle: needle,
-                needleAvailability: {
-                    guard needle.isRuntimeInBuild else { return .unavailable(NeedleRuntimeInfo.notInBuildMessage) }
-                    if case .ready = await needle.assetStatus() { return .ready }
-                    return .unavailable("Download Needle 3 in Settings → Structure models.")
-                }))
         // iOS's Inbox copy of a shared file is temporary: drop it once its import has settled.
         jobCenter.onImportSettled = { url in inbox?.removeIfInside(url) }
     }

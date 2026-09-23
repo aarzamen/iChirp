@@ -7,16 +7,20 @@ import SwiftUI
 /// - `-ChirpStructureEngine stub|needle`: sets Settings → Structure models → Engine before anything runs.
 /// - `-ChirpExtractFields`: once launch housekeeping is done, opens Extract fields on the newest Library item and
 ///   runs it (pair with `-ChirpImportDocument <path>` to import a synthetic note first).
+/// - `-ChirpVoiceCommands`: opens Settings → Structure models → Try voice commands (the chip and the copied text).
 enum StructurePreviewLaunch {
     static let engineArgument = "-ChirpStructureEngine"
     static let extractFieldsArgument = "-ChirpExtractFields"
+    static let voiceCommandsArgument = "-ChirpVoiceCommands"
 
     enum Screen: Identifiable {
         case extract(id: UUID, title: String)
+        case voiceCommands
 
         var id: String {
             switch self {
             case .extract(let id, _): "extract-\(id)"
+            case .voiceCommands: "voice-commands"
             }
         }
     }
@@ -46,6 +50,8 @@ private struct StructurePreviewLaunchModifier: ViewModifier {
                     ExtractFieldsSheet(
                         transcriptionID: id, transcriptTitle: title, environment: environment, autoStart: true,
                         onSeek: { _ in })
+                case .voiceCommands:
+                    NavigationStack { VoiceCommandTesterScreen() }
                 }
             }
             .task { await apply() }
@@ -57,6 +63,11 @@ private struct StructurePreviewLaunchModifier: ViewModifier {
             let choice = StructureEngineChoice(rawValue: engine)
         {
             environment.structureSettings.settingsValue.engine = choice
+        }
+        if arguments.contains(StructurePreviewLaunch.voiceCommandsArgument) {
+            await environment.launch()
+            screen = .voiceCommands
+            return
         }
         guard arguments.contains(StructurePreviewLaunch.extractFieldsArgument) else { return }
         await environment.launch()

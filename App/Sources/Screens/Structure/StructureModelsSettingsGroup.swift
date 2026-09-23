@@ -41,6 +41,25 @@ struct StructureModelsSettingsGroup: View {
                 .frame(width: 150)
                 .labelsHidden()
             }
+            SettingsRow(
+                title: "Voice commands (Needle)",
+                caption: "“New paragraph”, “scratch that”, “send to SOAP”… said as their own sentence. Off by default."
+            ) {
+                Toggle("Voice commands", isOn: $structure.settingsValue.voiceCommandsEnabled)
+                    .labelsHidden()
+                    .tint(Tokens.Color.success)
+            }
+            NavigationLink {
+                VoiceCommandTesterScreen()
+            } label: {
+                SettingsRow(title: "Try voice commands") {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Tokens.Color.mutedText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             NavigationLink {
                 StructureGateScreen()
             } label: {

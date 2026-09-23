@@ -20,6 +20,8 @@ struct DictatingScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             statusRow
+            DictationVoiceCommandBar()  // M6: voice-command chip (display only) and what the final pass applied
+                .padding(.top, 12)
             Spacer(minLength: 16)
             VStack(spacing: 30) {
                 centerContent
@@ -40,6 +42,7 @@ struct DictatingScreen: View {
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .statusBarHidden(false)
+        .dictationVoiceCommandSheets(environment: environment)  // M6: "send to SOAP / Transform" after the copy
     }
 
     // MARK: - Status row

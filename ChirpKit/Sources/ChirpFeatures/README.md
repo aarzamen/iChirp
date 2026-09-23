@@ -91,7 +91,7 @@ pipeline's `Task`s and publishes its progress to the UI.
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
   done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
   cancels nothing, Retry from `failed`.
-- `Dictation/DictationCoordinator.swift` (M2): the `@MainActor @Observable` dictation coordinator and view model.
+- `Dictation/DictationCoordinator.swift` (M2; M6 voice-command hooks): the `@MainActor @Observable` dictation coordinator and view model.
   Start checks the model and the microphone permission, records into `media/<id>/dictation.wav` through
   `ChirpCore.AudioCapturing`, warms the model, and shows display-only live text from a `LiveSpeechSession` through
   `LiveTranscriptStabilizer` (`committedText` / `tentativeText`), plus real levels and recorded seconds. Stop finishes
@@ -216,6 +216,16 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `ExtractFieldsViewModel` (extract, load the latest run, mark reviewed, engine badge).
 - `Structure/StructureSettingsViewModel.swift`: Settings → Structure models (Needle's download and delete, engine,
   thresholds).
+
+- `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
+  (≤ 8 words) equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
+  removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
+  to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
+  answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
+- `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (plan 020's voice player conforms later; the
+  default `SilentReadBack` does nothing and the screen says so), `DictationVoiceCommanding` (the coordinator's hooks)
+  and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, the final-pass resolution, the
+  pending Transform). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
 
 ## Wiring (app composition root)
 
