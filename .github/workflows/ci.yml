@@ -48,6 +48,9 @@ jobs:
       # M7 (ADR-015): llama.cpp from its pinned source release, so the tests and the app build cover
       # ChirpEngineLlamaCpp. The real-model test stays skipped (CHIRP_ONDEVICE_LLM_TESTS=1 only), so CI downloads no model.
       - name: Build llama.cpp runtime (llama.cpp → vendor/llama.xcframework)
+        # Simulator and Mac slices only: CI never builds for an iPhone (review minor 13).
+        env:
+          LLAMA_BUILDS: ios-sim macos
         run: scripts/build_llamacpp.sh
 
       - name: ChirpKit package tests

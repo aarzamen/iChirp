@@ -6,7 +6,8 @@ import Foundation
 
 /// One piece of a chat prompt before tokenization. Control pieces (the chat template's role markers) are tokenized
 /// with special tokens recognised; content pieces (instructions, transcript text) never are, so text that happens to
-/// contain `<|im_end|>` stays text and cannot open a new turn.
+/// contain `<|im_end|>` stays text and cannot open a new turn. (llama.cpp still matches *user-defined* tokens such as
+/// Qwen's `<think>` in content; only control tokens are kept out, and those are the ones that delimit turns.)
 public enum LlamaPromptPiece: Sendable, Equatable {
     case control(String)
     case content(String)

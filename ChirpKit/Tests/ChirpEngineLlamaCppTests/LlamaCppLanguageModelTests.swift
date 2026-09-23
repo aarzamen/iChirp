@@ -108,11 +108,23 @@ final class LlamaCppLanguageModelTests: XCTestCase {
     func testMaxOutputTokensStopsWithLength() async throws {
         let (model, _, loader) = try await make()
         loader.script(.forever("la "))
-        let result = await LlamaTestSupport.collect(model.generate(request(maxOutputTokens: 5)))
+        let result = await LlamaTestSupport.collect(
+            model.generate(GenerationRequest(prompt: "Summarize.", privacyClass: .personal, maxOutputTokens: 5)))
         XCTAssertNil(result.error)
         XCTAssertEqual(result.usage?.completionTokens, 5)
         XCTAssertEqual(result.usage?.stopReason, "length")
         XCTAssertTrue(result.finished)
+    }
+
+    /// Review minor 8: a clinical draft cut off at the length limit (a loop, with greedy sampling) is not a document.
+    func testAClinicalRunCutOffAtTheLengthLimitIsNotADocument() async throws {
+        let (model, engine, loader) = try await make()
+        loader.script(.forever("Plan: "))
+        let result = await LlamaTestSupport.collect(model.generate(request(maxOutputTokens: 5)))
+        XCTAssertEqual(
+            result.error as? LanguageModelError, .providerError(LlamaCppEngine.clinicalLengthLimitMessage))
+        XCTAssertFalse(result.finished)
+        XCTAssertEqual(engine.loadedModelID, "test-model", "the model is fine; only this draft is refused")
     }
 
     // MARK: - Budget

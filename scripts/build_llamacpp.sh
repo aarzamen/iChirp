@@ -6,7 +6,8 @@
 # is gitignored. No prebuilt binary is downloaded, ever.
 #
 # Usage: scripts/build_llamacpp.sh                      (needs Xcode and CMake 3.28+, or uv to fetch CMake)
-#        LLAMA_CPP_DIR=/path/to/clone scripts/build_llamacpp.sh   (reuse a clone; it is checked out at the pin)
+#        LLAMA_CPP_DIR=/path/to/clone scripts/build_llamacpp.sh   (reuse a clean clone; it is checked out at the pin)
+#        LLAMA_BUILDS="ios-sim macos" scripts/build_llamacpp.sh   (only these slices; CI skips the unused iPhone one)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -15,8 +16,15 @@ cd "$(dirname "$0")/.."
 LLAMA_CPP_REPO="https://github.com/ggml-org/llama.cpp"
 LLAMA_CPP_TAG="b11118"
 LLAMA_CPP_COMMIT="e6ab7c1a41054a888ada952eab4c886444c2f5ad"
-# iPhone, Simulator, Mac (the Mac slice runs the package tests). No visionOS or tvOS.
-BUILDS=(ios-device ios-sim macos)
+# iPhone, Simulator, Mac (the Mac slice runs the package tests). No visionOS or tvOS. LLAMA_BUILDS picks a subset
+# (review minor 13): CI builds and tests only the Simulator and the Mac, so it skips the iPhone slice's minutes.
+read -r -a BUILDS <<<"${LLAMA_BUILDS:-ios-device ios-sim macos}"
+for build in "${BUILDS[@]}"; do
+  case "$build" in
+    ios-device | ios-sim | macos) ;;
+    *) echo "error: LLAMA_BUILDS may name ios-device, ios-sim and macos only (got '$build')." >&2; exit 1 ;;
+  esac
+done
 
 VENDOR="vendor"
 SRC="${LLAMA_CPP_DIR:-$VENDOR/llama.cpp}"
@@ -62,12 +70,20 @@ fi
 if ! git -C "$SRC" cat-file -e "$LLAMA_CPP_COMMIT^{commit}" 2>/dev/null; then
   git -C "$SRC" fetch --quiet --depth 1 origin "refs/tags/$LLAMA_CPP_TAG:refs/tags/$LLAMA_CPP_TAG"
 fi
+# A modified clone would keep its edits through the checkout and still pass the commit check (review minor 12): the
+# runtime must be exactly the pinned source.
+if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
+  echo "error: $SRC has local changes; the runtime is built only from the unmodified pinned source." >&2
+  echo "Discard them (git -C $SRC checkout -- . ) or point LLAMA_CPP_DIR at a clean clone, then run this again." >&2
+  exit 1
+fi
 git -C "$SRC" checkout --quiet --detach "$LLAMA_CPP_COMMIT"
 if [ "$(git -C "$SRC" rev-parse HEAD)" != "$LLAMA_CPP_COMMIT" ]; then
   echo "error: $SRC is not at the pinned commit $LLAMA_CPP_COMMIT" >&2
   exit 1
 fi
-# Patches to the vendored source, if one is ever needed, live in scripts/llamacpp/*.patch (none today).
+# Patches to the vendored source, if one is ever needed, live in scripts/llamacpp/*.patch (none today). Adding one means
+# the clean-clone check above must also accept exactly the patched state.
 shopt -s nullglob
 for patch in scripts/llamacpp/*.patch; do
   git -C "$SRC" apply --check "$(pwd)/$patch" && git -C "$SRC" apply "$(pwd)/$patch"

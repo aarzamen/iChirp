@@ -373,7 +373,9 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
         do {
             try await assets.downloadAssets { fraction in
                 Task { @MainActor [weak self] in
-                    guard let self, case .downloading = self.localModelStatus[id] else { return }
+                    // Never backwards: these hops can arrive out of order (review minor 3).
+                    guard let self, case .downloading(let current) = self.localModelStatus[id], fraction > current
+                    else { return }
                     self.localModelStatus[id] = .downloading(fraction: fraction)
                     onProgress(fraction)
                 }

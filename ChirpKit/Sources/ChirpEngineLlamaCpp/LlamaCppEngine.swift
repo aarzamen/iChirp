@@ -253,9 +253,18 @@ public actor LlamaCppEngine {
             "run_finished model=\(spec.id, privacy: .public) prompt_tokens=\(prompt.count, privacy: .public) completion_tokens=\(generated, privacy: .public) stop=\(stopReason, privacy: .public) sampling=\(sampling == .faithful ? "faithful" : "general", privacy: .public)"
         )
         guard producedText else { throw LanguageModelError.streamingError("the on-device model returned no text") }
+        // A clinical draft cut off at the length limit is not a finished note (review minor 8): with greedy sampling
+        // this almost always means the model was repeating itself. Fail the run so nothing is saved as complete.
+        if stopReason == "length", request.privacyClass == .clinical {
+            throw LanguageModelError.providerError(Self.clinicalLengthLimitMessage)
+        }
         return GenerationUsage(
             promptTokens: prompt.count, completionTokens: generated, model: spec.id, stopReason: stopReason)
     }
+
+    static let clinicalLengthLimitMessage =
+        "the on-device model reached its length limit before it finished (it may have been repeating itself), so this "
+        + "clinical draft was not saved. Try the other small model or a shorter transcript."
 
     /// Frees `modelID` if it is loaded (before its file is deleted). A running request finishes first.
     public func release(modelID: String) {

@@ -56,6 +56,9 @@ final class AppLocalLanguageModels: Sendable {
     @MainActor func observeLifecycle() {
         let center = NotificationCenter.default
         let engine = self.engine
+        // A launch straight into the background (a continued-processing relaunch, a background download event) must
+        // not report the models as available: seed the state, then follow the transitions (review minor 2).
+        engine.setForeground(UIApplication.shared.applicationState != .background)
         _ = center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) {
             _ in
             engine.didReceiveMemoryWarning()

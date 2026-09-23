@@ -26,7 +26,8 @@ and without the runtime the models say "not in this build".
   context window, memory estimate, prompt format, sampler), `LlamaSampling` and its chain `LlamaSamplerStage`
   (clinical requests greedy via `sampling(for:)`; no stage ever looks at earlier tokens, review I2) and the catalog: **Qwen3.5 2B** (default) and
   **Qwen3 4B Instruct 2507** (quality), both Apache-2.0, Q4_K_M. `LlamaPromptFormat` writes ChatML as control pieces
-  (special tokens recognised) and content pieces (never), so transcript text cannot open a new chat turn.
+  (special tokens recognised) and content pieces (never), so transcript text cannot produce a control token or open a
+  new chat turn (llama.cpp still matches user-defined tokens such as `<think>` in content; they delimit no turn).
 - `LlamaCppSession.swift`: the seam. `LlamaSession` (tokenize, reset, decode, sample, end-of-generation, piece) and
   `LlamaSessionLoading`; a fake implements them in the tests.
 - `LlamaCppContext.swift`: `LlamaCppRuntimeInfo` (the pin, whether the runtime is linked) and, when it is,
@@ -39,12 +40,14 @@ and without the runtime the models say "not in this build".
   so Retry loads a fresh context (review I1); each run ends with one confirming decode of its last token, because
   llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
-  generation, `maxOutputTokens` or a full window (`stopReason` "length"); run metrics for the tests.
+  generation, `maxOutputTokens` or a full window (`stopReason` "length"; for a **clinical** request that is an error,
+  not a document: with greedy sampling it almost always means a loop, review minor 8); run metrics for the tests.
 - `LlamaTextStream.swift`: `UTF8StreamDecoder` (a character split across tokens waits for its second half) and
   `LeadingThinkBlockFilter` (a `<think>…</think>` block before the answer is not part of the document).
 - `LlamaCppModelAssets.swift`: `ModelAssetManaging` for one GGUF file: explicit download with progress, free-space
   check, size and SHA-256 before the file is kept (hashing off the cooperative pool), excluded from backup, delete
-  (unloads first). `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
+  (unloads first). Progress is passed on in 0.5% steps, never backwards (`ProgressThrottle`), and cancelling the
+  caller cancels the URLSession download (review minors 3 and 5). `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
 
 ## What to know before editing
 

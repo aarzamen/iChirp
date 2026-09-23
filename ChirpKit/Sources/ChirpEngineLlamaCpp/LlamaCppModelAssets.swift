@@ -4,6 +4,7 @@
 import ChirpCore
 import CryptoKit
 import Foundation
+import Synchronization
 
 /// Downloads one file to a temporary location. `URLSessionLlamaFileFetcher` in the app; a fake in tests.
 public protocol LlamaFileFetching: Sendable {
@@ -104,7 +105,13 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
             downloadFraction = nil
         }
         do {
-            try await task.value
+            // The caller's cancellation (Settings, or the continued-processing request expiring) must reach the
+            // URLSession download inside the unstructured task (review minor 5).
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
         } catch {
             failure = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
             throw error
@@ -128,7 +135,11 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
             throw AssetError.notEnoughSpace(needed: needed, available: available)
         }
 
+        // URLSession reports progress per received chunk (tens of thousands for gigabytes): pass on 0.5% steps only
+        // (review minor 3).
+        let gate = ProgressThrottle()
         let temporary = try await fetcher.fetch(spec.remoteURL) { fraction in
+            guard gate.shouldReport(fraction) else { return }
             progress(fraction)
             Task { await self.record(fraction: fraction) }
         }
@@ -141,8 +152,10 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
         try spec.sha256.write(to: markerURL, atomically: true, encoding: .utf8)
     }
 
+    /// Never backwards: the Tasks that carry progress here can arrive out of order.
     private func record(fraction: Double) {
-        if downloadFraction != nil { downloadFraction = min(max(fraction, 0), 1) }
+        guard let current = downloadFraction else { return }
+        downloadFraction = max(current, min(max(fraction, 0), 1))
     }
 
     /// Settings → Delete: unloads the model, then removes its folder (it can be downloaded again).
@@ -194,6 +207,24 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// Passes on a progress fraction only when it moved forward by `step` or reached the end.
+final class ProgressThrottle: Sendable {
+    private let last = Mutex(-1.0)
+    private let step: Double
+
+    init(step: Double = 0.005) {
+        self.step = step
+    }
+
+    func shouldReport(_ fraction: Double) -> Bool {
+        last.withLock { last in
+            guard fraction >= 1 ? last < 1 : fraction - last >= step else { return false }
+            last = fraction
+            return true
+        }
     }
 }
 
