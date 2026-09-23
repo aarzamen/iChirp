@@ -1,22 +1,26 @@
 ---
-title: Needle 3 on the synthetic eval set (first real numbers)
+title: Needle 3 on the synthetic eval set (first real numbers, re-run after the review fixes)
 date: 2026-09-22
-status: MEASURED (plan 015 Step 8, lane L3) — re-run on every needle-rs or weights bump
+status: MEASURED (plan 015 Step 8, lane L3; re-run on branch fix/needle-safety after review L3) — re-run on every needle-rs or weights bump
 ---
 
 # Needle 3 vs the STUB on invented cases
 
 **Verdict: Needle 3's base model is far below the bar.** On `soap-meds.v1` its argument accuracy is **44.6%**
 (ADR-012's change-my-mind line is ~90%), its field exact match 18%, and it copied or invented numbers wrongly 17 times
-in 48 sentences. The gate held: of Needle's 57 calls, 56 went to **Needs review** and the one that passed (a
-provisional, dashed BP of 128/76) was correct; no wrong number reached the draft in this run. The feature stays labelled **experimental**, off the critical path, and every field
-is a draft for the clinician. The next step, if Needle is to earn its place, is fine-tuning on these two catalogs (the
-research's advice), or the ADR-012 fallback (FunctionGemma or a 7B extractor).
+in 48 sentences. The gate held. How the calls are counted: Needle made **57 calls, 5 of them `none`** (nothing to
+record); of the **52 field calls**, **51** went to **Needs review** and **1** passed, a provisional (dashed) BP of
+128/76 that was correct. No wrong number reached the draft in this run. The feature stays labelled **experimental**
+wherever it is used (Settings → Structure models, the Extract fields menu and sheet, voice commands), off the
+critical path, and every field is a draft for the clinician; only fields the clinician reviewed go to a SOAP note.
+The next step, if Needle is to earn its place, is fine-tuning on these two catalogs (the research's advice), or the
+ADR-012 fallback (FunctionGemma or a 7B extractor).
 
 ## Setup
 
 - Runtime: needle-rs `4de50494` (`needle-c`, constrained greedy decoding, 384 new tokens), pre-linked static library
-  on the Mac (`aarch64-apple-darwin`), release build. Same code path as the app (`StructureEvalRunner` →
+  on the Mac (`aarch64-apple-darwin`), release build; the eval now checks that the linked XCFramework was built from
+  that pin (`vendor/NeedleC.commit`) and names the built commit in the report. Same code path as the app (`StructureEvalRunner` →
   `NeedleStructureModel` → normalizer, validator, gate).
 - Model: `Cactus-Compute/needle3` `needle3.cact`, SHA-256
   `c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38`, full 20-block depth, f32 KV cache.
@@ -31,19 +35,36 @@ research's advice), or the ADR-012 fallback (FunctionGemma or a 7B extractor).
 
 ## Results
 
+Re-run on 2026-09-22 after the review L3 fixes (`fix/needle-safety`): the independent re-parse, neighbour, drug
+adjacency, sentence-wide correction and free-text checks, the per-unit ranges, and the STUB's cap below act. First-run
+numbers (lane L3) in brackets where they differ.
+
 | | STUB (rules) | Needle 3, normalizer on | Needle 3, normalizer off |
 |---|---|---|---|
 | SOAP tool-shape accuracy | 91.7% | 47.9% | 43.8% |
-| SOAP argument accuracy | 90.2% | **44.6%** | 42.9% |
-| SOAP field exact match | 86.0% | 18.0% | 22.0% |
+| SOAP argument accuracy | 91.1% [90.2%] | **44.6%** | 42.9% |
+| SOAP field exact match | 88.0% [86.0%] | 18.0% | 22.0% |
 | Numeric hard fails | 0 | 17 | 16 |
-| Calls sent to Needs review | 0 | 51 | 55 |
-| Seconds per sentence (Mac) | < 0.01 | 6.70 | 6.80 |
+| All calls / `none` calls / field calls | 59 / 13 / 46 | 57 / 5 / 52 | 60 / 5 / 55 |
+| Field calls: act (solid) / provisional (dashed) / Needs review | **0** / 46 / 0 [most were act] | 0 / 1 / 51 | 0 / 0 / 55 |
+| Needs review with every check passed (low confidence only) | 0 | 25 | 22 |
+| Seconds per sentence (Mac) | < 0.01 | 6.97 [6.70] | 6.92 [6.80] |
 | Commands: engine accuracy (gated) | 100% | 53.3% | 53.3% |
 | Commands: feature accuracy (phrase + engine) | 100% | 56.7% | 56.7% |
 | Dictation eaten as a command | 0 | 0 | 0 |
-| Seconds per utterance (Mac) | < 0.01 | 2.36 | 2.77 |
+| Seconds per utterance (Mac) | < 0.01 | 3.01 [2.36] | 3.17 [2.77] |
 
+What moved and why:
+
+- **STUB: no field is solid any more.** Its clinical pseudo-confidence is capped at 0.84 and the gate never gives a
+  STUB field `act` whatever the thresholds, so all 46 field calls are provisional (dashed). Its argument accuracy
+  rose slightly because "Considering starting metoprolol 25 mg" is now `considering`, not `started` (the one field
+  that changed).
+- **Needle: the same answers, the same verdicts.** The model and runtime did not change, and on these tidy sentences
+  the new checks found nothing the old ones missed: the held calls were already held. The new checks target phrasings
+  the set does not contain (spoken hundreds, per-kg and per-hour doses, unit-only and bare-number corrections, a dose
+  next to another drug), which are now covered by unit tests instead.
+- **Latency** is a little higher on this run (same machine, same build type); treat ±0.5 s per call as noise.
 Read the STUB column with care: its rules and the synthetic cases were written by the same agent in the same lane, so
 the STUB's numbers are an upper bound for rules on tidy text, not a prediction for real dictation. It exists so the app
 always works and so Needle has a baseline; it is labelled STUB everywhere.
@@ -77,9 +98,13 @@ app in line with the CLI. Any future catalog must keep that order; `StructureCat
 
 ## Decision record
 
-- Plan 015 / ADR-012: argument accuracy on soap-meds is **below 0.9**, so Needle stays **experimental**: the Eval
-  view says so under every Needle report, every field is a draft, and failed checks never reach the draft.
-- Clinical safety held on every case: no number reached the draft without tracing to the normalizer's side table and
-  passing its range check; nothing left the Mac. Known limit: a number that traces to a *real but wrong* tag of the
-  right kind (the second of two pulses in one sentence) passes the validator; the review state (every field a draft
-  until the clinician checks it against the cited words) is the guard there.
+- Plan 015 / ADR-012: argument accuracy on soap-meds is **below 0.9**, so Needle stays **experimental**: every
+  screen where it is used says so with these numbers (`NeedleExperimental` in `StructureSettingsViewModel.swift`;
+  update it with this file), every field is a draft, failed checks never reach the draft, and "Use in SOAP note"
+  sends only reviewed fields.
+- Clinical safety held on every case: no number reached the draft without tracing to the normalizer's side table,
+  agreeing with an **independent** reading of its words (spell-out `NumberFormatter`, not the normalizer), and passing
+  its range check; nothing left the Mac. The first run's known limit, a real but wrong tag of the right kind, is now
+  narrower: a dose or frequency that is not next to its own drug, and two values for one vital in a sentence, force
+  review. What remains is a wrong tag that sits next to the right drug or vital; the review sheet, which shows the
+  whole sentence with the value highlighted, is the guard there.
