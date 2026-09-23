@@ -10,19 +10,21 @@ from __future__ import annotations
 import json
 import logging
 import time
+from typing import Literal
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from . import config
 from .auth import is_authorized
-from .backends import SpeechBackend, YouTubeBackend
+from .backends import SpeechBackend, SpeechJob, YouTubeBackend
 from .config import CompanionSettings
-from .errors import CompanionError, FeatureUnavailable, error_body
+from .errors import BadRequest, CompanionError, FeatureUnavailable, InputTooLong, error_body
 
 LOGGER_NAME = "parakeet_companion"
 _METHODS = frozenset({"GET", "POST", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"})
@@ -83,8 +85,44 @@ def create_app(
             raise FeatureUnavailable("Speech is not installed in this companion. Run `uv sync --project companion`.")
         return {"voices": [voice.as_json() for voice in speech.voices()]}
 
+    @app.post(config.SPEECH_PATH)
+    def speak(request: SpeechRequest) -> Response:
+        if speech is None:
+            raise FeatureUnavailable("Speech is not installed in this companion. Run `uv sync --project companion`.")
+        if len(request.input) > settings.max_input_characters:
+            raise InputTooLong(
+                f"The text is longer than {settings.max_input_characters} characters. Send it in shorter pieces."
+            )
+        if not request.input.strip():
+            raise BadRequest("There is no text to speak.")
+        if not request.voice.strip():
+            raise BadRequest("Choose a voice. GET /v1/voices lists them.")
+        job = SpeechJob(
+            model=(request.model or "").strip(),
+            text=request.input,
+            voice=request.voice.strip(),
+            instructions=(request.instructions or "").strip() or None,
+            language=(request.language or "").strip() or None,
+            response_format=request.response_format,
+        )
+        result = speech.synthesize(job)
+        return Response(content=result.data, media_type=result.media_type)
+
     app.add_middleware(GuardAndLog, settings=settings, logger=log)
     return app
+
+
+class SpeechRequest(BaseModel):
+    """`POST /v1/audio/speech` (OpenAI speech shape). Unknown fields such as `speed` are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str | None = Field(default=None, max_length=64)
+    input: str
+    voice: str = Field(max_length=128)
+    instructions: str | None = Field(default=None, max_length=1_000)
+    response_format: Literal["mp3", "wav"] = "mp3"
+    language: str | None = Field(default=None, max_length=16)
 
 
 def health(speech: SpeechBackend | None, youtube: YouTubeBackend | None) -> dict:
