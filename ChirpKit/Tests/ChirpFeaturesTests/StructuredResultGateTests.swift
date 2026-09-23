@@ -492,6 +492,15 @@ final class StructuredResultGateTests: XCTestCase {
         XCTAssertEqual(said.problems, [])
     }
 
+    func testAPlanItemFromATitrationSentenceCannotPassClean() throws {
+        // Re-review minor 5: the free-text check tests presence only, but "from 10 to 20 mg" is now a flagged range,
+        // so every call from the sentence goes to review.
+        let result = try validate(
+            "Increase lisinopril from 10 to 20 mg.",
+            #"[{"name":"add_plan_item","arguments":{"text":"increase lisinopril to 10 mg"}}]"#)
+        XCTAssertTrue(result.problems.contains { $0.hasPrefix("Range:") }, "\(result.problems)")
+    }
+
     func testUnknownArgumentsAndNonTextValuesAreDroppedAndFlagged() throws {
         let unknown = try validate(
             "Started lisinopril 10 mg.",
