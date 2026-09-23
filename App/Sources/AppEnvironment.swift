@@ -259,7 +259,9 @@ import Observation
             speechEngines?.row(for: .final)?.capabilities.displayName ?? parakeetName
         })
         self.liveActivity = liveActivity
-        self.library = LibraryViewModel(store: store, paths: paths)
+        // Plan 023: the Library lists the generated documents too (read-only queries on the same database).
+        let deliverableStore = GRDBDeliverableStore(database: database)
+        self.library = LibraryViewModel(store: store, paths: paths, documents: deliverableStore)
         self.capture = CaptureViewModel(store: store)
         self.speechSettings = SpeechSettingsViewModel(
             speech: engines.speech, diarizer: engines.diarizer, settings: settings)
@@ -292,7 +294,6 @@ import Observation
         self.inbox = inbox
         // M4. Routing reads the provider store at every check, so un-trusting a Mac stops the next call of a run.
         let providerStore = UserDefaultsLanguageModelProviderStore(secrets: KeychainSecretStore())
-        let deliverableStore = GRDBDeliverableStore(database: database)
         self.providerStore = providerStore
         self.deliverableStore = deliverableStore
         self.deliverables = DeliverableService(

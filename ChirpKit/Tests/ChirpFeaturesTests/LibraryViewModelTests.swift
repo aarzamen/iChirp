@@ -41,7 +41,8 @@ final class LibraryViewModelTests: XCTestCase {
     ) async -> (LibraryViewModel, FakeStore) {
         let store = FakeStore(rows: rows)
         let fixedNow = now
-        let viewModel = LibraryViewModel(store: store, paths: paths, calendar: calendar, now: { fixedNow })
+        let viewModel = LibraryViewModel(
+            store: store, paths: paths, searchDebounce: .zero, calendar: calendar, now: { fixedNow })
         await viewModel.start()
         addTeardownBlock { @MainActor in viewModel.stop() }
         return (viewModel, store)
@@ -58,7 +59,7 @@ final class LibraryViewModelTests: XCTestCase {
         viewModel.filter = .meetings
 
         XCTAssertEqual(viewModel.visibleItems.map(\.id), [meeting.id])
-        XCTAssertEqual(viewModel.sections.flatMap(\.items).map(\.id), [meeting.id])
+        XCTAssertEqual(viewModel.sections.flatMap(\.entries).map(\.id), [.item(meeting.id)])
     }
 
     func testEveryFilterMapsToItsSourceTypes() async {
@@ -92,12 +93,15 @@ final class LibraryViewModelTests: XCTestCase {
         let (viewModel, _) = await makeViewModel(rows: [titled, spoken, other])
 
         viewModel.searchText = "  bUdGeT "
+        await viewModel.searchSettled()
         XCTAssertEqual(viewModel.visibleItems.map(\.id), [titled.id, spoken.id])
 
         viewModel.searchText = "MILK"
+        await viewModel.searchSettled()
         XCTAssertEqual(viewModel.visibleItems.map(\.id), [other.id])
 
         viewModel.searchText = ""
+        await viewModel.searchSettled()
         XCTAssertEqual(viewModel.visibleItems.count, 3)
     }
 
@@ -108,6 +112,7 @@ final class LibraryViewModelTests: XCTestCase {
 
         viewModel.filter = .dictations
         viewModel.searchText = "budget"
+        await viewModel.searchSettled()
 
         XCTAssertEqual(viewModel.visibleItems.map(\.id), [memo.id])
     }
@@ -124,9 +129,9 @@ final class LibraryViewModelTests: XCTestCase {
         let sections = viewModel.sections
 
         XCTAssertEqual(sections.map(\.title), ["Today", "Yesterday", "Sep 19"])
-        XCTAssertEqual(sections[0].items.map(\.id), [todayLate.id, todayEarly.id])
-        XCTAssertEqual(sections[1].items.map(\.id), [yesterday.id])
-        XCTAssertEqual(sections[2].items.map(\.id), [older.id])
+        XCTAssertEqual(sections[0].entries.map(\.id), [.item(todayLate.id), .item(todayEarly.id)])
+        XCTAssertEqual(sections[1].entries.map(\.id), [.item(yesterday.id)])
+        XCTAssertEqual(sections[2].entries.map(\.id), [.item(older.id)])
     }
 
     // MARK: - Mutations

@@ -850,6 +850,48 @@ Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
 - [ ] Transforms tab with more than 50 documents: "Show older documents" adds the rest; none is out of reach.
 - [ ] A document or text item: the star and Paste a link's clear (x) are easy to tap; the privacy chip has its own row.
 
+## Documents in the Library checklist (wave 4 lane docs-library, plan 023 F43)
+
+> Preconditions: a build at or after the wave4/docs-library merge (Settings → About shows its commit), with at least
+> two recordings or text items that each have two or more documents (Transform → SOAP note, Summary). Synthetic text
+> only. Simulator screenshots (default and largest text size) are in
+> `.superpowers/sdd/milestones/w4-docs-library-screens/`.
+
+Library
+- [ ] Library → All: each SOAP note, summary or other document is a row next to the recording or text it was made
+      from, newest first: the source's title, a badge with the template ("SOAP note"), a privacy badge, the start of
+      the text and "Document · time". A Personal recording with a SOAP note shows **Clinical** on all its documents.
+- [ ] Tap a document row: the document screen opens (Edit by voice, Versions, the text, Details). Back returns to the
+      same place in the list.
+- [ ] Long-press a document row → **Show Source** opens the recording or text it came from.
+- [ ] The chips read All, Meetings, Dictations, Video, Local, **Documents** (the first five unchanged). Documents lists
+      only documents; Meetings, Dictations, Video and Local list none; All lists both. The selected chip is always in
+      view.
+- [ ] Search a word that is only inside a document's text (for example a medicine in a SOAP note's plan): that
+      document appears. Search a template name ("soap") or a recording's title: the recording and every document made
+      from it appear.
+- [ ] With more than 100 items and documents, scroll to the bottom: older rows keep arriving (a "Show older items"
+      button shows while they load); the oldest document can be reached. Scrolling stays smooth.
+- [ ] Swipe a recording that has documents → Delete: the question names them ("… its audio and the 2 documents made
+      from it (SOAP note, Summary) …"). Tap outside to keep it. A document row has no swipe; its Delete is on the
+      document screen (More → Delete Document), which asks and keeps the recording.
+
+Made from this
+- [ ] Open a recording with documents: **Made from this** sits above the text, newest first, with each document's
+      template, class and day. With more than three, "Show all N" lists the rest. Tap one: the document opens.
+- [ ] Open a typed text item or imported PDF with a document: the same section sits under its summary card.
+- [ ] Make a new document (Transform → Summary) and go back: it is at the top of Made from this and of the Library,
+      without reopening anything. Delete it from the document screen: it leaves both.
+- [ ] An item nothing was made from shows no Made from this section.
+
+Transforms
+- [ ] Transforms → Recent documents → **See all in Library** opens the Library on Documents, at the top, with the
+      search cleared. "Show older documents" still pages the Transforms list.
+
+Largest text size (Settings → Accessibility → Larger Text, the largest size)
+- [ ] Library rows wrap the title to two lines and stack the template and privacy badges; nothing is cut off except a
+      long title's end. Made from this rows stack their badges the same way.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

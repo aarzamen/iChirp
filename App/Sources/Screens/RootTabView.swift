@@ -24,7 +24,7 @@ struct RootTabView: View {
                 tabLabel("Library", "square.grid.2x2")
             }
             Tab(value: AppTab.transforms) {
-                TransformsScreen()
+                TransformsScreen(openTab: { selection = $0 })
             } label: {
                 tabLabel("Transforms", "sparkles")
             }

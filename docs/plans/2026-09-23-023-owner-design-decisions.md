@@ -27,6 +27,12 @@ mark.
 
 1. **Documents in the Library (F43):** `LibraryViewModel` gains documents and a Documents filter; source items list their
    documents; Transforms tab keeps "start" + recent with "Show all"; tests for reachability of every document.
+   **Built** on `wave4/docs-library` (2026-09-23, not merged yet): `DeliverableListing` (read-only store queries, no
+   migration) feeds the Library every document as a row (source title, template badge, effective class) with a
+   Documents chip after the unchanged five; search reads document text in the store; rows page 100 at a time (the
+   next page loads at the end of the list); "Made from this" on the Transcript and Document screens; Transforms →
+   "See all in Library". Tests: `DeliverableListingStoreTests`, `LibraryDocumentsTests` (150 documents all reachable,
+   8,000 rows within budget), `LibraryDocumentsAppTests`. QA: `docs/human-qa-guide.md` "Documents in the Library".
 2. **Capture recipes (F14):** a `CreateRecipe` value (input, output, template, clinical) saved from Create's choices;
    Capture shows Create + up to four recipes + Recent above the fold; editing and deleting recipes; tests.
 3. **Formatted view, plain copy (F23):** Markdown rendering on the document screens; a plain-text flattener for Copy

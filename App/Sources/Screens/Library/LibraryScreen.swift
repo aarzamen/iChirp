@@ -7,12 +7,17 @@ import SwiftUI
 /// confirmation) or favorite it.
 ///
 /// Polish (UX audit X): 44 pt targets for the chips, the layout toggle and Clear search, one name for favorites
-/// ("Favorite" / "Unfavorite"), and empty states that say what to do. The filters themselves are unchanged (F63 and
-/// the documents filter are owner decisions for a later lane).
+/// ("Favorite" / "Unfavorite"), and empty states that say what to do. F63 (renaming the source filters) is still the
+/// owner's decision.
+///
+/// Plan 023 (UX audit F43): generated documents are rows here too, next to what they were made from, with a Documents
+/// filter; search reads their text. Rows arrive a page at a time (the next page loads as the last row appears), so a
+/// Library of thousands stays smooth and every row is reachable. A document opens the document screen, whose More menu
+/// keeps its own Delete.
 struct LibraryScreen: View {
     @Environment(AppEnvironment.self) private var environment
 
-    @State private var path: [UUID] = []
+    @State private var path: [LibraryRoute] = []
     @State private var pendingDelete: Transcription?
     @State private var placeholder: Placeholder?
     @State private var actionError: String?
@@ -26,8 +31,11 @@ struct LibraryScreen: View {
             }
             .background(Tokens.Color.ground)
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: UUID.self) { id in
-                LibraryItemScreen(id: id, environment: environment)
+            .navigationDestination(for: LibraryRoute.self) { route in
+                switch route {
+                case .item(let id): LibraryItemScreen(id: id, environment: environment)
+                case .document(let id): DeliverableDetailScreen(id: id, environment: environment)
+                }
             }
         }
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
@@ -63,6 +71,12 @@ struct LibraryScreen: View {
             .frame(minHeight: 44)
             searchField
             chips
+            if let error = environment.library.searchError {
+                Text("Couldn’t search inside documents: \(error)")
+                    .chirpFont(12.5)
+                    .foregroundStyle(AppColor.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !environment.pendingMeetingRecoveries.isEmpty {
                 MeetingRecoveryBanner()  // M3: meetings a killed launch left behind
             }
@@ -136,15 +150,23 @@ struct LibraryScreen: View {
         .onTapGesture { searchFocused = true }
     }
 
+    /// The selected chip scrolls into view, also when another screen picks the filter (Transforms → "See all in
+    /// Library" selects Documents, the last chip).
     private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(LibraryViewModel.Filter.allCases, id: \.self) { filter in
-                    chip(filter)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(LibraryViewModel.Filter.allCases, id: \.self) { filter in
+                        chip(filter).id(filter)
+                    }
                 }
             }
+            .scrollClipDisabled()
+            .onAppear { proxy.scrollTo(environment.library.filter) }
+            .onChange(of: environment.library.filter) { _, filter in
+                withAnimation { proxy.scrollTo(filter) }
+            }
         }
-        .scrollClipDisabled()
     }
 
     private func chip(_ filter: LibraryViewModel.Filter) -> some View {
@@ -182,40 +204,90 @@ struct LibraryScreen: View {
             ScrollView {
                 if !environment.isLaunched {
                     EmptyView()
-                } else if library.items.isEmpty {
+                } else if library.items.isEmpty && library.documents.isEmpty {
                     EmptyStateView(
                         title: "Your library is empty",
                         message: "Tap Create on Capture to speak, type, paste a link or pick a file. Everything you "
                             + "make lands here.")  // F65
                 } else if library.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // F68: an empty filter is not a failed search.
-                    EmptyStateView(title: "Nothing here yet", message: "Nothing in \(library.filter.title) yet.")
+                    if library.filter == .documents {
+                        EmptyStateView(
+                            title: "No documents yet",
+                            message: "SOAP notes, summaries and everything else you make from a recording or text "
+                                + "appear here. Open an item and tap Transform, or use Create.")
+                    } else {
+                        // F68: an empty filter is not a failed search.
+                        EmptyStateView(title: "Nothing here yet", message: "Nothing in \(library.filter.title) yet.")
+                    }
                 } else {
                     EmptyStateView(
-                        title: "No matches",
+                        title: library.isSearching ? "Searching…" : "No matches",
                         message: "Nothing matches “\(library.searchText)” in \(library.filter.title).")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
             .padding(.top, 20)
         } else {
-            List {
-                ForEach(sections, id: \.title) { section in
-                    SectionLabel(section.title)
-                        .listRowInsets(EdgeInsets(top: 12, leading: 28, bottom: 10, trailing: 24))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    ForEach(section.items) { item in
-                        row(item)
+            ScrollViewReader { proxy in
+                list(sections, hasMore: library.hasMore)
+                    // A new filter or search starts at its newest row, not wherever the last list was scrolled.
+                    .onChange(of: library.filter) { _, _ in scrollToTop(proxy) }
+                    .onChange(of: library.searchText) { _, _ in scrollToTop(proxy) }
+            }
+        }
+    }
+
+    private func scrollToTop(_ proxy: ScrollViewProxy) {
+        guard let first = environment.library.sections.first else { return }
+        proxy.scrollTo(first.id, anchor: .top)
+    }
+
+    private func list(_ sections: [LibrarySection], hasMore: Bool) -> some View {
+        List {
+            ForEach(sections) { section in
+                SectionLabel(section.title)
+                    .id(section.id)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 28, bottom: 10, trailing: 24))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                ForEach(section.entries) { entry in
+                    switch entry {
+                    case .item(let item): row(item)
+                    case .document(let document): documentRow(document)
                     }
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .scrollDismissesKeyboard(.interactively)
-            .contentMargins(.top, 8, for: .scrollContent)
-            .environment(\.defaultMinListRowHeight, 1)
+            if hasMore {
+                moreFooter
+            }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .contentMargins(.top, 8, for: .scrollContent)
+        .environment(\.defaultMinListRowHeight, 1)
+    }
+
+    /// The next page loads as this footer scrolls into view; the button does the same for anyone who gets here
+    /// another way (VoiceOver, Switch Control).
+    private var moreFooter: some View {
+        Button {
+            environment.library.showMore()
+        } label: {
+            Text("Show older items")
+                .chirpFont(14, .semibold)
+                // Text-safe ink on the tint fill (F8).
+                .foregroundStyle(AppColor.accentTextOnTint)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(Capsule().fill(AppColor.tintFill))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Adds the next older items to this list")
+        .onAppear { environment.library.showMore() }
+        .listRowInsets(EdgeInsets(top: 4, leading: 24, bottom: 16, trailing: 24))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
     }
 
     private func row(_ item: Transcription) -> some View {
@@ -223,7 +295,7 @@ struct LibraryScreen: View {
             item: item,
             progress: environment.jobCenter.progress[item.id],
             compact: false,
-            onOpen: { path.append(item.id) },
+            onOpen: { path.append(.item(item.id)) },
             onRetry: { environment.retry(item.id) }
         )
         .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 9, trailing: 24))
@@ -257,7 +329,10 @@ struct LibraryScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(LibraryDeleteCopy.message(for: item))
+            Text(
+                LibraryDeleteCopy.message(
+                    for: item,
+                    documentTitles: environment.library.documents(madeFrom: item.id).map(\.typeTitle)))
         }
         .contextMenu {
             Button {
@@ -275,12 +350,35 @@ struct LibraryScreen: View {
         }
     }
 
+    /// A generated document. No swipe actions: its Delete stays on the document screen (More → Delete Document).
+    private func documentRow(_ document: LibraryDocument) -> some View {
+        Button {
+            path.append(.document(document.id))
+        } label: {
+            LibraryDocumentRowContent(document: document, style: .full)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the document")
+        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 9, trailing: 24))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .contextMenu {
+            if document.sourceTitle != nil {
+                Button {
+                    path.append(.item(document.summary.transcriptionID))
+                } label: {
+                    Label("Show Source", systemImage: "arrow.up.forward.square")
+                }
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private func delete(_ item: Transcription) async {
         do {
             try await environment.delete(item.id)
-            path.removeAll { $0 == item.id }
+            path.removeAll { $0 == .item(item.id) }
         } catch {
             actionError = Formatting.message(for: error)
         }
@@ -302,24 +400,43 @@ enum LibraryFavoriteCopy {
     }
 }
 
+/// Where a Library row leads: a recording, text item or imported file, or a generated document (plan 023).
+enum LibraryRoute: Hashable {
+    case item(UUID)
+    case document(UUID)
+}
+
 /// The delete question for a Library item, shared by the Library and the Transcript screen's More → Delete…
 ///
 /// Deleting a row also deletes the documents made from it (the `deliverables` foreign key cascades), so the message
-/// says so.
+/// says so, and names them when the caller knows them (plan 023: "the 2 documents made from it (SOAP note, Summary)").
 enum LibraryDeleteCopy {
     static func title(for item: Transcription) -> String {
         item.isTextItem
             ? "Delete this text?" : item.isDocument ? "Delete this document?" : "Delete transcript and its audio?"
     }
 
-    static func message(for item: Transcription) -> String {
+    /// - Parameter documentTitles: the template names of the documents made from `item`, newest first.
+    static func message(for item: Transcription, documentTitles: [String] = []) -> String {
         let name = "“\(item.displayTitle)”"
+        let made = documentsPhrase(documentTitles)
         let what =
             item.isTextItem
-            ? "\(name) and anything made from it"
+            ? "\(name) and \(made ?? "anything made from it")"
             : item.isDocument
-                ? "\(name), its copy of the file and anything made from it"
-                : "\(name), its audio and any documents made from it"
+                ? "\(name), its copy of the file and \(made ?? "anything made from it")"
+                : "\(name), its audio and \(made ?? "any documents made from it")"
         return "\(what) will be removed from this iPhone. This can’t be undone."
+    }
+
+    /// "the document made from it (SOAP note)", "the 5 documents made from it (SOAP note, Summary, Agenda and 2 more)";
+    /// nil when there are none.
+    static func documentsPhrase(_ titles: [String]) -> String? {
+        guard !titles.isEmpty else { return nil }
+        if titles.count == 1 { return "the document made from it (\(titles[0]))" }
+        let shown = titles.prefix(3).joined(separator: ", ")
+        let rest = titles.count - 3
+        let list = rest > 0 ? "\(shown) and \(rest) more" : shown
+        return "the \(titles.count) documents made from it (\(list))"
     }
 }

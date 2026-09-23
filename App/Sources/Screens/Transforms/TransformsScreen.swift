@@ -5,9 +5,12 @@ import SwiftUI
 
 /// Tab 3: the generated documents, newest first, a page at a time ("Show more" reaches every one; UX audit F43), and
 /// every template (tap one to run it on a transcript). Transcript → Transform runs the same templates on the transcript
-/// at hand.
+/// at hand. Plan 023: this tab is where a transform starts; every document also lives in the Library (Documents
+/// filter), which "See all in Library" opens.
 struct TransformsScreen: View {
     @Environment(AppEnvironment.self) private var environment
+    /// Switches tabs (RootTabView); nil hides "See all in Library".
+    var openTab: ((AppTab) -> Void)?
     @State private var launching: PromptTemplate?
 
     var body: some View {
@@ -58,10 +61,20 @@ struct TransformsScreen: View {
     }
 
     @ViewBuilder private func recentSection(_ recent: [Deliverable], hasMore: Bool) -> some View {
-        SectionLabel("Recent documents")
-            .padding(.leading, 4)
-            .padding(.top, 20)
-            .padding(.bottom, 8)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionLabel("Recent documents")
+                Spacer(minLength: 8)
+                seeAllInLibrary(showing: !recent.isEmpty)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                SectionLabel("Recent documents")
+                seeAllInLibrary(showing: !recent.isEmpty)
+            }
+        }
+        .padding(.leading, 4)
+        .padding(.top, 20)
+        .padding(.bottom, 8)
         if recent.isEmpty {
             Text("Nothing yet. Open a transcript and tap Transform, or pick a template below.")
                 .chirpFont(14)
@@ -93,6 +106,25 @@ struct TransformsScreen: View {
                     .accessibilityHint("Adds the next older documents to this list")
                 }
             }
+        }
+    }
+
+    /// Plan 023: every document is in the Library; this opens it on the Documents filter.
+    @ViewBuilder private func seeAllInLibrary(showing: Bool) -> some View {
+        if showing, let openTab {
+            Button {
+                environment.library.searchText = ""
+                environment.library.filter = .documents
+                openTab(.library)
+            } label: {
+                Text("See all in Library")
+                    .chirpFont(13.5, .semibold)
+                    .foregroundStyle(AppColor.accentText)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the Library on the Documents filter")
         }
     }
 
