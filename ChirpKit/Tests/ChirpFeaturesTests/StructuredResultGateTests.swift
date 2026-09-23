@@ -302,6 +302,26 @@ final class StructuredResultGateTests: XCTestCase {
         XCTAssertEqual(StructuredResultGate().verdict(confidence: 0.99, problems: result.problems), .needsReview)
     }
 
+    // MARK: - Re-review N3: a tablet count near a strength
+
+    func testTheIndependentCheckFlagsATabletCountNearAStrength() {
+        for text in [
+            "Metoprolol 25 mg, half a tablet twice daily.", "Metoprolol 25 mg 1/2 tab BID.",
+            "Metoprolol 25 mg two tablets twice daily.", "Half a tablet of metoprolol 25 mg daily.",
+            "Metoprolol 25 mg, 1.5 tabs daily.",
+        ] {
+            // As the old normalizer tagged it: the strength alone, clean.
+            let sentence = handTagged(text, [("25 mg", "dose_1", .dose, 25, "mg")])
+            let result = StructuredCallValidator.validate(
+                medication("metoprolol"), sentence: sentence, catalog: .soapMeds)
+            XCTAssertTrue(
+                result.problems.contains { $0.contains("count differs from strength") }, "\(text): \(result.problems)")
+        }
+        let one = handTagged("Metoprolol 25 mg, one tablet twice daily.", [("25 mg", "dose_1", .dose, 25, "mg")])
+        XCTAssertEqual(
+            StructuredCallValidator.validate(medication("metoprolol"), sentence: one, catalog: .soapMeds).problems, [])
+    }
+
     // MARK: - Review L3 I2 and I3: a value must sit next to what it belongs to
 
     func testADoseMustSitNextToItsOwnDrug() throws {

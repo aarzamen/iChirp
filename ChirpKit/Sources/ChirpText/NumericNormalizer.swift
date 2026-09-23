@@ -218,7 +218,64 @@ private struct NumericScanner {
             }
             index += 1
         }
-        return annotateNeighbours(markRanges(result))
+        return markCounts(annotateNeighbours(markRanges(result)))
+    }
+
+    // MARK: Counts near a strength (re-review N3)
+
+    /// A tablet or puff count other than one, or a fraction ("half", "1/2", "quarter"), said near a strength ("25 mg,
+    /// half a tablet"; "two tablets of metoprolol 25 mg") means the dose given is not the strength. The strength keeps
+    /// its value and both it and the count are flagged: the code never multiplies.
+    func markCounts(_ quantities: [Quantity]) -> [Quantity] {
+        var result = quantities
+        func isStrength(_ quantity: Quantity) -> Bool {
+            guard quantity.kind == .dose, let unit = quantity.unit?.split(separator: "/").first else { return false }
+            return Self.strengthUnits.contains(String(unit))
+        }
+        func isCount(_ quantity: Quantity) -> Bool {
+            quantity.kind == .dose && Self.countUnits.contains(quantity.unit ?? "")
+        }
+        func quantityIndex(at token: Int) -> Int? {
+            result.firstIndex { $0.start == tokens[token].start }
+        }
+        /// The count or fraction met walking from `start` by `step`, or nil at a sentence end, another strength or
+        /// after `limit` tokens.
+        func count(from start: Int, step: Int, limit: Int) -> (token: Int, quantity: Int?)? {
+            var cursor = start
+            var steps = 0
+            while cursor >= 0, cursor < tokens.count, steps < limit, !endsSentence(at: cursor) {
+                let ending = step < 0 ? result.lastIndex { tokens[cursor].end == $0.end } : nil
+                if let index = quantityIndex(at: cursor) ?? ending {
+                    let other = result[index]
+                    if isStrength(other) { return nil }
+                    if isCount(other) { return other.value == 1 ? nil : (cursor, index) }
+                } else if Self.fractionWords.contains(tokens[cursor].text)
+                    || (tokens[cursor].isDigits && tokens[cursor].text.contains("/"))
+                {
+                    return (cursor, nil)
+                }
+                cursor += step
+                steps += 1
+            }
+            return nil
+        }
+        for index in result.indices where isStrength(result[index]) {
+            guard let first = tokens.firstIndex(where: { $0.start == result[index].start }) else { continue }
+            let found =
+                count(from: result[index].nextToken, step: 1, limit: 8) ?? count(from: first - 1, step: -1, limit: 6)
+            guard let found else { continue }
+            let low = min(result[index].start, tokens[found.token].start)
+            let high = max(result[index].end, found.quantity.map { result[$0].end } ?? tokens[found.token].end)
+            let said = text.utf16Substring(low, high)
+            let reason =
+                "Tablet count differs from strength: “\(said)”. The dose given may be a fraction or a multiple of "
+                + "\(result[index].display); check it."
+            result[index].reviewReason = Self.joined(result[index].reviewReason, reason)
+            if let other = found.quantity {
+                result[other].reviewReason = Self.joined(result[other].reviewReason, reason)
+            }
+        }
+        return result
     }
 
     // MARK: Ranges (re-review N2)
@@ -396,6 +453,15 @@ private struct NumericScanner {
                 .joined(separator: " ")
         }
         return result
+    }
+
+    /// ";", "!", "?", or a period followed by a capital or the end ("mg. Half" ends; "p.o. half" does not).
+    func endsSentence(at index: Int) -> Bool {
+        switch tokens[index].text {
+        case ";", "!", "?": return true
+        case ".": return index + 1 >= tokens.count || tokens[index + 1].original.first?.isUppercase == true
+        default: return false
+        }
     }
 
     /// "a" in "a hundred" / "a thousand".
@@ -1012,6 +1078,11 @@ private struct NumericScanner {
     static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
     /// Words that make two numbers a range ("4 *to* 8 mg", "4*-*8 mg", "500 *or* 1000 mg", "fifty *and* a hundred").
     static let rangeJoiners: Set<String> = ["to", "or", "through", "-", "–", "—", "and"]
+    /// Units of a drug's strength, and of a count of what holds it (re-review N3).
+    static let strengthUnits: Set<String> = ["mg", "mcg", "g", "units", "mEq"]
+    static let countUnits: Set<String> = ["tablet", "puff"]
+    /// "half a tablet", "a quarter tab", "a third".
+    static let fractionWords: Set<String> = ["half", "halves", "quarter", "quarters", "third", "thirds", "½", "¼", "¾"]
     /// The kinds a range can apply to (a time, a pressure pair and a side cannot).
     static let rangeKinds: Set<NumericTag.Kind> = [
         .dose, .rate, .oxygenSaturation, .temperature, .frequency, .duration,

@@ -233,6 +233,16 @@ enum SentenceNeighbours {
     /// Words that can sit inside a spoken number or between two numbers said together ("a hundred *and* twelve",
     /// "fifty *and a* hundred").
     static let spokenNumberJoiners: Set<String> = ["and", "a", "an"]
+    /// Re-review N3: the units of a strength, the words that count what holds it, and fractions of one.
+    static let strengthUnits: Set<String> = ["mg", "mcg", "g", "units", "mEq"]
+    static let strengthUnitWords: Set<String> = [
+        "mg", "mgs", "milligram", "milligrams", "mcg", "ug", "microgram", "micrograms", "g", "gm", "gram", "grams",
+        "unit", "units", "meq",
+    ]
+    static let countWords: Set<String> = [
+        "tablet", "tablets", "tab", "tabs", "pill", "pills", "capsule", "capsules", "cap", "caps", "puff", "puffs",
+    ]
+    static let fractionWords: Set<String> = ["half", "halves", "quarter", "quarters", "third", "thirds"]
     /// Words that join the two ends of a range ("4 *to* 8", "500 *or* 1000").
     static let rangeWords: Set<String> = ["to", "or", "through"]
     static let routeWords: Set<String> = ["mouth", "os", "rectum", "tube", "ng", "og", "peg", "vagina"]
@@ -305,10 +315,52 @@ enum SentenceNeighbours {
                 )
             }
         }
+        if tag.kind == .dose, let unit = IndependentNumberReader.read(tag.sourceText).units.last,
+            strengthUnits.contains(unit),
+            let phrase = countNearStrength(after, in: sentence, forward: true)
+                ?? countNearStrength(before, in: sentence, forward: false)
+        {
+            problems.append(
+                "Tablet count differs from strength: “\(phrase)” is said near “\(tag.sourceText)”. The dose given may "
+                    + "be a fraction or a multiple of it; check it.")
+        }
         if let marker = correction(before.suffix(2)) ?? correction(Array(after.prefix(2)), leading: true) {
             problems.append("“\(marker)” was said next to “\(tag.sourceText)”: check this value.")
         }
         return problems
+    }
+
+    /// Re-review N3: a count other than one ("two tablets", "1.5 tabs"), or a fraction ("half", "1/2"), among the
+    /// words next to a strength: at most 8 words after it or 6 before it, cut at another strength or a sentence break.
+    /// Returns the words that were said.
+    static func countNearStrength(_ words: [Word], in sentence: String, forward: Bool) -> String? {
+        let ns = sentence as NSString
+        var window: [Word] = []
+        for word in forward ? words : words.reversed() {
+            guard window.count < (forward ? 8 : 6), !strengthUnitWords.contains(word.text) else { break }
+            if let last = window.last {
+                let low = min(last.range.upperBound, word.range.upperBound)
+                let high = max(last.range.lowerBound, word.range.lowerBound)
+                let between = ns.substring(with: NSRange(location: low, length: max(0, high - low)))
+                if between.contains(where: { ";!?".contains($0) }) { break }
+            }
+            window.append(word)
+        }
+        if !forward { window.reverse() }
+        for (index, word) in window.enumerated() {
+            if fractionWords.contains(word.text) { return word.text }
+            if word.text == "/", index > 0, index + 1 < window.count, isNumber(window[index - 1].text),
+                isNumber(window[index + 1].text)
+            {
+                return "\(window[index - 1].text)/\(window[index + 1].text)"
+            }
+            if countWords.contains(word.text), index > 0, isNumber(window[index - 1].text),
+                IndependentNumberReader.read(window[index - 1].text).numbers.first != 1
+            {
+                return "\(window[index - 1].text) \(word.text)"
+            }
+        }
+        return nil
     }
 
     /// A correction phrase among two neighbouring words.

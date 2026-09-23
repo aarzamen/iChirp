@@ -255,6 +255,43 @@ final class NumericNormalizerTests: XCTestCase {
         }
     }
 
+    // MARK: - Re-review N3: a tablet count or fraction after a strength
+
+    func testATabletCountOrFractionNearAStrengthIsFlagged() throws {
+        let cases: [(String, Double)] = [
+            ("Metoprolol 25 mg, half a tablet twice daily.", 25),
+            ("Metoprolol 25 mg 1/2 tab BID.", 25),
+            ("Metoprolol 25 mg two tablets twice daily.", 25),
+            ("Metoprolol 25 mg, one and a half tablets daily.", 25),
+            ("Metoprolol 25 mg, 1.5 tabs daily.", 25),
+            ("Half a tablet of metoprolol 25 mg daily.", 25),
+            ("Two tablets of metoprolol 25 mg daily.", 25),
+            ("Albuterol 90 mcg, two puffs every 4 hours.", 90),
+        ]
+        for (text, strength) in cases {
+            let tags = NumericNormalizer.normalize(text).tags
+            let dose = try XCTUnwrap(tags.first { $0.kind == .dose && $0.value == strength }, text)
+            XCTAssertTrue(dose.needsReview, text)
+            XCTAssertTrue(
+                dose.reviewReason?.contains("count differs from strength") ?? false,
+                "\(text): \(dose.reviewReason ?? "nil")")
+            for count in tags where count.kind == .dose && ["tablet", "puff"].contains(count.unit ?? "") {
+                XCTAssertTrue(count.needsReview, "the count is flagged too: \(text)")
+            }
+        }
+    }
+
+    func testAStrengthWithOneTabletOrNoCountStaysClean() {
+        for text in [
+            "Metoprolol 25 mg, one tablet twice daily.", "Metoprolol 25 mg twice daily.",
+            "Uses albuterol two puffs every 4 hours as needed.", "Metoprolol 25 mg daily and aspirin 81 mg daily.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy { !$0.needsReview }, "\(text): \(tags.compactMap(\.reviewReason))")
+        }
+    }
+
     func testANumberRightBeforeADoseIsCarriedIntoTheTagAndFlagged() throws {
         let result = NumericNormalizer.normalize("Take one 25 microgram tablet.")
         let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose })

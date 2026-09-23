@@ -285,7 +285,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   (`IndependentNumberCheck.swift`: regex digits, spell-out `NumberFormatter`, its own unit list, plus the words right
   around the tag; a spoken number is re-read whole across "and" / "a", so "a hundred and" before a "twenty-five
   micrograms" tag reads as 125 and disagrees; a range in or around a tag's words, "4 to" before it or "to 120"
-  after it, is never one value), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug and a
+  after it, is never one value; a tablet or puff count other than one, or a fraction, near a strength forces
+  review), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug and a
   vital is not a drug's strength, carries any flagged tag or spoken correction to every call from the sentence, checks
   numbers in free text against the sentence, drops unknown or non-text arguments, flags drug or substance names
   missing from the sentence and schema problems; a number that traces to nothing is a numeric hard fail).

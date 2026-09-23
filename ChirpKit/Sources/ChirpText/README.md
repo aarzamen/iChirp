@@ -49,7 +49,11 @@ pipeline directly.
   never one value (re-review N2): "4 to 8 mg", "4-8 mg", "500 or 1000 mg", "4 mg to 8 mg", "fifty and a hundred
   milligrams", "heart rate 100 to 120", "two to three times a day" and "5 to 7 days" become one tag covering both
   ends, displayed "4–8 mg" / "100–120/min", with **no** `value` and a review reason starting "Range:" (`markRanges`,
-  `rangeJoiners`, `rangeKinds`). Never across "and" after a value ("pulse 72 and irregular" stays clean).
+  `rangeJoiners`, `rangeKinds`). Never across "and" after a value ("pulse 72 and irregular" stays clean). A tablet or
+  puff count other than one, or a fraction ("half", "1/2", "quarter"), said near a strength ("metoprolol 25 mg, half a
+  tablet"; "two tablets of metoprolol 25 mg"; "albuterol 90 mcg, two puffs") flags both the strength and the count
+  with a reason starting "Tablet count differs from strength:"; the strength keeps its value and the code never
+  multiplies (`markCounts`, re-review N3).
 - `PromptTemplateRenderer.swift`: single-pass `{{transcript}}` / `{{userNotes}}` substitution for deliverable
   templates (M4). Values are never re-rendered, so transcript text cannot inject template variables; unknown keys
   render empty and are logged `.private`.
