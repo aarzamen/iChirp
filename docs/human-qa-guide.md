@@ -579,6 +579,23 @@ Type or paste (Step 1)
 - [ ] On the text item: Transform, Listen, Extract fields and Share (Text, Markdown, JSON) work as on a document;
       Delete asks "Delete this text?".
 
+Create (Step 3)
+- [ ] Capture shows the **Create** card on top and four shortcuts (Dictate, Type or paste, Paste a link, Import
+      audio); Dictate still starts a dictation, and the Action Button still works while Create is open (the sheet steps
+      aside).
+- [ ] Create → Speak → Summary → Start speaking: the Dictating screen shows "Then: Summary"; say a few synthetic
+      sentences, Stop & copy, Done: the Create sheet comes back, Summary runs, the result opens in Transforms.
+- [ ] Type or paste → Transcript, → Summary, → Document ▸ SOAP note, → Voice message: each finishes; the text item and
+      the document are in the Library and Transforms.
+- [ ] Link (a podcast episode or a direct audio link) → Transcript: "Transcribe · NN%" moves for real; Hide, the Create
+      card shows the same percent, tap returns. A YouTube link without captions says so and points to Paste a link.
+- [ ] File (a Voice Memo from Files; a PDF) → Summary: the audio is transcribed, the PDF read, then summarised.
+- [ ] Clinical on + a cloud model: "Send this clinical transcript to …?" before anything is sent; Cancel says "Not
+      sent. Nothing left this iPhone." and Retry asks again.
+- [ ] No model, no voice, no speech model: the sheet says which, Create stays disabled; nothing is created.
+- [ ] Close Create and reopen: the last choices are selected again (never the text or link).
+- [ ] Stop during a summary: "Stopped. What was already made stays in your Library." and no document is saved.
+
 Voice messages (Step 5; Settings → Voices has a voice)
 - [ ] A transcript → Share → Voice message…: "Speaking · Part 1 of N" counts up, then "Voice message saved" and the
       share sheet offers `<title>.m4a`; AirDrop or save it to Files and play it: the whole text, in order, with a short

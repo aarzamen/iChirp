@@ -66,4 +66,66 @@ final class CreateAppTests: XCTestCase {
         XCTAssertEqual(spoken?.request.text, "Edited summary text.")
         XCTAssertEqual(spoken?.request.privacyClass, .clinical)
     }
+
+    // MARK: - The Create sheet (Step 3)
+
+    func testCreateSaysWhyItCannotStart() {
+        var draft = CreateDraft(choices: CreateChoices(input: .speak, output: .transcript))
+        XCTAssertEqual(
+            CreateReadiness.problem(draft, speechModelReady: false, modelProblem: nil, voiceProblem: nil),
+            "Download the speech model in Settings → Speech to speak.")
+        XCTAssertNil(CreateReadiness.problem(draft, speechModelReady: true, modelProblem: nil, voiceProblem: nil))
+
+        draft.input = .text
+        XCTAssertEqual(
+            CreateReadiness.problem(draft, speechModelReady: true, modelProblem: nil, voiceProblem: nil),
+            "Type or paste some text.")
+        draft.text = "Synthetic text"
+
+        draft.output = .summary
+        XCTAssertEqual(
+            CreateReadiness.problem(draft, speechModelReady: true, modelProblem: "No model.", voiceProblem: nil),
+            "No model.", "a language model is needed for a summary")
+        draft.output = .transcript
+        XCTAssertNil(
+            CreateReadiness.problem(
+                draft, speechModelReady: false, modelProblem: "No model.", voiceProblem: "No voice."),
+            "typed text to a transcript needs nothing else")
+
+        draft.output = .voiceMessage
+        XCTAssertEqual(
+            CreateReadiness.problem(
+                draft, speechModelReady: true, modelProblem: "No model.", voiceProblem: "No voice."),
+            "No voice.", "the whole text needs a voice, not a model")
+        draft.voiceSummarizeFirst = true
+        XCTAssertEqual(
+            CreateReadiness.problem(draft, speechModelReady: true, modelProblem: "No model.", voiceProblem: nil),
+            "No model.", "a summary first needs the model too")
+
+        draft.output = .document
+        XCTAssertEqual(
+            CreateReadiness.problem(draft, speechModelReady: true, modelProblem: nil, voiceProblem: nil),
+            "Choose a template for the document.")
+
+        draft.input = .link
+        draft.link = "not a link"
+        XCTAssertNotNil(CreateReadiness.problem(draft, speechModelReady: true, modelProblem: nil, voiceProblem: nil))
+        draft.input = .file
+        XCTAssertEqual(
+            CreateReadiness.problem(draft, speechModelReady: true, modelProblem: nil, voiceProblem: nil),
+            "Choose a file.")
+    }
+
+    func testTheDraftBecomesTheChainsRequest() {
+        var draft = CreateDraft(
+            choices: CreateChoices(input: .link, output: .voiceMessage, voiceSummarizeFirst: true, isClinical: true))
+        XCTAssertNil(draft.request, "no link yet")
+        draft.link = "  https://example.com/synthetic-episode.mp3 "
+        XCTAssertEqual(
+            draft.request,
+            CreateRequest(
+                input: .link("https://example.com/synthetic-episode.mp3"), output: .voiceMessage(summarizeFirst: true),
+                privacyClass: .clinical))
+        XCTAssertEqual(draft.choices.input, .link, "only the choices are remembered")
+    }
 }

@@ -54,6 +54,8 @@ import Observation
     /// a new launch) waits here for "Send this link to your Mac?" (review L1 M2; `CompanionRetryConfirmation`).
     var pendingCompanionRetry: PendingCompanionRetry?
     let jobCenter: TranscriptionJobCenter
+    /// Plan 022: the Create sheet and its chain (App/Sources/Create).
+    let create = CreateHost()
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
     let capture: CaptureViewModel

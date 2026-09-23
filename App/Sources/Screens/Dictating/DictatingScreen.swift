@@ -22,6 +22,10 @@ struct DictatingScreen: View {
             statusRow
             DictationVoiceCommandBar()  // M6: voice-command chip (display only) and what the final pass applied
                 .padding(.top, 12)
+            if let next = environment.create.speechOutputTitle {  // plan 022: this dictation feeds a Create chain
+                CreateNextChip(title: next)
+                    .padding(.top, 10)
+            }
             Spacer(minLength: 16)
             VStack(spacing: 30) {
                 centerContent

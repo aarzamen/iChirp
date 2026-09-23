@@ -49,6 +49,25 @@ struct RootTabView: View {
         .onChange(of: environment.dictation.state) { _, state in
             // A discarded dictation closes at once; its files are deleted in the background.
             if state == .cancelled { environment.dictation.dismiss() }
+            // A dictation started elsewhere (Action Button, Control) while Create is open: the Dictating screen wins.
+            if state == .starting, environment.create.isSheetPresented { environment.create.hide() }
+            // Plan 022: a spoken Create chain brings its sheet back once the Dictating screen has gone.
+            if state == .idle {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(800))
+                    environment.create.dictationDidClose()
+                }
+            }
+        }
+        // Plan 022: Create (Capture's primary action) lives here so the Dictating screen can take over for Speak.
+        .sheet(
+            isPresented: Binding(
+                get: { environment.create.isSheetPresented },
+                set: { environment.create.isSheetPresented = $0 }),
+            onDismiss: { environment.create.sheetDidDismiss(environment: environment) }
+        ) {
+            CreateSheet(host: environment.create, environment: environment)
+                .environment(environment)
         }
         // M3: the Meeting screen while a meeting runs, and the launch recovery sheet (App/Sources/Screens/Meeting).
         .meetingPresentation()

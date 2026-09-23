@@ -84,6 +84,175 @@ final class CreateTourUITests: XCTestCase {
         shot("voice-message-saved")
     }
 
+    // MARK: - Step 3: the Create sheet, every path
+
+    /// Capture's Create card and shortcuts; the sheet's two questions and each output's options.
+    func testCaptureAndTheCreateQuestions() throws {
+        app.launch()
+        let create = createCard()
+        XCTAssertTrue(create.waitForExistence(timeout: 20))
+        shot("capture")
+        create.tap()
+        XCTAssertTrue(app.staticTexts["What do you have?".uppercased()].waitForExistence(timeout: 10))
+        tapOption("Speak")
+        tapOption("Transcript")
+        shot("questions-speak-transcript")
+        tapOption("Document")
+        shot("questions-document-template")
+        tapOption("Voice message")
+        shot("questions-voice-message")
+        app.buttons["Close"].tap()
+    }
+
+    /// Type or paste → Summary with the language-model stub (a trusted Mac).
+    func testTypeToSummary() throws {
+        app.launch()
+        ensureStubModel()
+        openCreate()
+        tapOption("Type or paste")
+        typeInEditor(
+            "Synthetic planning note\nThe synthetic team moves the review to Thursday at nine. Bring the forms.")
+        tapOption("Summary")
+        shot("type-summary-ready")
+        tapCreate()
+        waitForDone(timeout: 90, name: "type-summary")
+        shot("type-summary-done")
+        tapWhenHittable(app.buttons["Open document"])
+        XCTAssertTrue(app.staticTexts["Summary"].firstMatch.waitForExistence(timeout: 10))
+        shot("type-summary-document-opened")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Link → Transcript: a synthetic sample served on this Mac (`python3 -m http.server 8765` in
+    /// App/Resources/Samples), downloaded and transcribed on the iPhone.
+    func testLinkToTranscript() throws {
+        try XCTSkipUnless(sampleServerRuns(), "Serve App/Resources/Samples on http://127.0.0.1:8765 for this step.")
+        app.launch()
+        openCreate()
+        tapOption("Link")
+        let field = app.textFields["Podcast, YouTube or audio link"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        dismissKeyboardTip()
+        field.typeText("http://127.0.0.1:8765/sample-two-voices.m4a")
+        tapOption("Transcript")
+        shot("link-transcript-ready")
+        tapCreate()
+        let transcribing = staticText(containing: "%")
+        if transcribing.waitForExistence(timeout: 30) { shot("link-transcript-running") }
+        waitForDone(timeout: 180, name: "link-transcript")
+        shot("link-transcript-done")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// File → Meeting notes: a synthetic audio file (preselected with the DEBUG `-ChirpCreateFile` argument, since a
+    /// test cannot drive the Files picker), transcribed, then the template on the stub model.
+    func testFileToMeetingNotes() throws {
+        let file = try copySample(named: "Synthetic standup.m4a")
+        app.launchArguments = ["-ChirpCreateFile", file.path]
+        app.launch()
+        ensureStubModel()
+        openCreate()
+        tapOption("File")
+        tapOption("Document")
+        let menu = button(beginningWith: "Choose a template")
+        if menu.waitForExistence(timeout: 3) {
+            menu.tap()
+        } else {
+            button(beginningWith: "Template:").tap()
+        }
+        tapWhenHittable(app.buttons["Meeting notes"].firstMatch)
+        shot("file-meeting-notes-ready")
+        tapCreate()
+        waitForDone(timeout: 180, name: "file-meeting-notes")
+        shot("file-meeting-notes-done")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Type or paste → Voice message with the stub Mac companion; the share sheet opens with the `.m4a`.
+    func testTypeToVoiceMessage() throws {
+        app.launchArguments = Self.companionArguments
+        app.launch()
+        chooseStubVoice()
+        app.tabBars.buttons["Capture"].tap()
+        openCreate()
+        tapOption("Type or paste")
+        typeInEditor("Synthetic reminder\nThe synthetic parking lot closes early on Friday.")
+        tapOption("Voice message")
+        app.buttons["The whole text"].tap()
+        shot("type-voice-ready")
+        tapCreate()
+        XCTAssertTrue(app.staticTexts["Voice message saved"].waitForExistence(timeout: 60))
+        sleep(2)
+        shot("type-voice-share-sheet")
+        let close = app.buttons.matching(NSPredicate(format: "label IN {'Close', 'Cancel'}")).firstMatch
+        if close.waitForExistence(timeout: 5) { close.tap() }
+        shot("type-voice-done")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// A clinical text → Summary with a cloud model: the per-run question; Cancel sends nothing.
+    func testClinicalTextAsksBeforeTheCloud() throws {
+        app.launch()
+        ensureCloudModel()
+        openCreate()
+        tapOption("Type or paste")
+        typeInEditor("Synthetic encounter note\nSynthetic patient reports a synthetic cough for two days.")
+        tapOption("Summary")
+        let clinical = app.switches.matching(NSPredicate(format: "label BEGINSWITH 'Clinical'")).firstMatch
+        scrollTo(clinical)
+        if (clinical.value as? String) != "1" { clinical.switches.firstMatch.tap() }
+        let runs = button(beginningWith: "Runs ")
+        scrollTo(runs)
+        runs.tap()
+        tapWhenHittable(button(beginningWith: "Synthetic Cloud"))
+        shot("clinical-summary-ready")
+        tapCreate()
+        let question = app.alerts.firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 20))
+        XCTAssertTrue(question.label.hasPrefix("Send this clinical transcript to Synthetic Cloud?"), question.label)
+        shot("clinical-summary-question")
+        question.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Not sent. Nothing left this iPhone."].waitForExistence(timeout: 10))
+        shot("clinical-summary-not-sent")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Speak → Summary: the sheet steps aside for the Dictating screen (with "Then: Summary"), then comes back with the
+    /// chain. Needs synthetic speech in the Mac's microphone (the agent plays `say` in a loop during this test); without
+    /// it the final pass honestly says it heard nothing, and that failure is what the screenshots show.
+    func testSpeakToSummary() throws {
+        app.launch()
+        ensureStubModel()
+        openCreate()
+        tapOption("Speak")
+        tapOption("Summary")
+        shot("speak-summary-ready")
+        tapWhenHittable(app.buttons["Start speaking"])
+        let stop = app.buttons["Stop & copy"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 20), "the Dictating screen opens")
+        sleep(8)
+        shot("speak-dictating-then-summary")
+        stop.tap()
+        let done = app.buttons["Done"]
+        let close = app.buttons["Close"]
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline, !done.exists, !close.exists {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        shot("speak-dictation-finished")
+        if done.exists { done.tap() } else if close.exists { close.tap() }
+        let sheet = app.staticTexts.matching(
+            NSPredicate(format: "label IN {'Created', 'Stopped', 'Creating…', 'Waiting for you'}")
+        )
+        .firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 15), "the Create sheet comes back")
+        let finished = app.staticTexts["Created"]
+        _ = finished.waitForExistence(timeout: 60)
+        shot("speak-summary-result")
+    }
+
     // MARK: - Steps
 
     static let companionArguments = [
@@ -131,6 +300,142 @@ final class CreateTourUITests: XCTestCase {
         if tip.waitForExistence(timeout: 2) { tip.tap() }
     }
 
+    private func createCard() -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Create'")).firstMatch
+    }
+
+    private func openCreate() {
+        app.tabBars.buttons["Capture"].tap()
+        let card = createCard()
+        if !card.waitForExistence(timeout: 20) {
+            shot("no-create-card")
+            XCTFail("Capture's Create card is not on screen")
+            return
+        }
+        card.tap()
+        if !app.staticTexts["What do you have?".uppercased()].waitForExistence(timeout: 5) {
+            // A finished chain from an earlier test: start over.
+            if app.buttons["Create another"].exists { app.buttons["Create another"].tap() }
+        }
+        XCTAssertTrue(app.staticTexts["What do you have?".uppercased()].waitForExistence(timeout: 10))
+    }
+
+    private func tapOption(_ title: String) {
+        let option = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        scrollTo(option)
+        tapWhenHittable(option)
+    }
+
+    private func typeInEditor(_ text: String) {
+        let editor = app.textViews["Text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        dismissKeyboardTip()
+        editor.typeText(text)
+    }
+
+    private func tapCreate() {
+        let create = app.buttons.matching(NSPredicate(format: "label IN {'Create', 'Start speaking'}")).firstMatch
+        tapWhenHittable(create)
+    }
+
+    private func waitForDone(timeout: TimeInterval, name: String) {
+        let done = app.staticTexts["Created"]
+        if !done.waitForExistence(timeout: timeout) {
+            shot("\(name)-not-done")
+            XCTFail("\(name) did not finish")
+        }
+    }
+
+    /// Adds the language-model stub as a trusted Mac in Settings → Models and makes it the default.
+    private func ensureStubModel() {
+        app.tabBars.buttons["Settings"].tap()
+        let modelsLink = button(beginningWith: "Models for Ask")
+        scrollTo(modelsLink)
+        modelsLink.tap()
+        XCTAssertTrue(app.staticTexts["Apple on-device model"].firstMatch.waitForExistence(timeout: 10))
+        if !button(beginningWith: "localhost (Ollama)").exists {
+            tapWhenHittable(button(beginningWith: "Add a model"))
+            app.buttons["Ollama on your Mac"].tap()
+            replaceText(in: app.textFields["Server address"], with: "http://localhost:11999")
+            let model = app.textFields["Model name"]
+            model.tap()
+            model.typeText("synthetic-stub:1b")
+            let trust = app.switches["Trust for clinical transcripts"]
+            scrollTo(trust)
+            trust.switches.firstMatch.tap()
+            app.buttons["Save"].tap()
+            XCTAssertTrue(button(beginningWith: "localhost (Ollama)").waitForExistence(timeout: 15))
+        }
+        tapWhenHittable(button(beginningWith: "localhost (Ollama)"))
+        app.navigationBars.buttons.firstMatch.tap()
+    }
+
+    /// Adds a synthetic cloud provider (never reached: the tour cancels before anything is sent).
+    private func ensureCloudModel() {
+        app.tabBars.buttons["Settings"].tap()
+        let modelsLink = button(beginningWith: "Models for Ask")
+        scrollTo(modelsLink)
+        modelsLink.tap()
+        XCTAssertTrue(app.staticTexts["Apple on-device model"].firstMatch.waitForExistence(timeout: 10))
+        if !button(beginningWith: "Synthetic Cloud").exists {
+            tapWhenHittable(button(beginningWith: "Add a model"))
+            app.buttons["Anthropic (Claude)"].tap()
+            replaceText(in: app.textFields["Server address"], with: "https://api.example.com/v1")
+            let name = app.textFields["Name"]
+            name.tap()
+            name.typeText("Synthetic Cloud")
+            let model = app.textFields["Model name"]
+            model.tap()
+            model.typeText("synthetic-model")
+            let key = app.secureTextFields["API key"]
+            scrollTo(key)
+            key.tap()
+            key.typeText("synthetic-key-not-real")
+            app.buttons["Save"].tap()
+            XCTAssertTrue(button(beginningWith: "Synthetic Cloud").waitForExistence(timeout: 15))
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+    }
+
+    private func replaceText(in field: XCUIElement, with text: String) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        let current = (field.value as? String) ?? ""
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
+        field.typeText(text)
+    }
+
+    /// The bundled synthetic two-voice sample, copied into the tour folder under `name`.
+    private func copySample(named name: String) throws -> URL {
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("App/Resources/Samples/sample-two-voices.m4a")
+        let destination = URL(fileURLWithPath: folder).appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
+
+    private func sampleServerRuns() -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:8765/sample-two-voices.m4a") else { return false }
+        let done = expectation(description: "sample server")
+        var runs = false
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            runs = (response as? HTTPURLResponse)?.statusCode == 200
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 5)
+        return runs
+    }
+
+    private func staticText(containing text: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+
     private func button(beginningWith prefix: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
@@ -163,6 +468,7 @@ final class CreateTourUITests: XCTestCase {
 
     private func shot(_ name: String) {
         step += 1
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))  // let selection and sheet animations settle
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = String(format: "%@-%02d-%@", tourPrefix, step, name)
