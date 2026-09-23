@@ -47,7 +47,8 @@ import SwiftUI
 /// A document → Edit by voice (plan 022 Step 4): hold the button and say what to change ("make it shorter", "add a
 /// follow-up in two weeks"), or type it; the instruction is transcribed on this iPhone by the dictation path's final
 /// pass, then the chosen model rewrites the document. The result is saved as the document's **next version**; the
-/// earlier text stays in Versions.
+/// earlier text stays in Versions. Closing never silently drops a typed instruction or a rewrite in progress: swipe-down
+/// is off and Cancel asks first.
 struct EditByVoiceSheet: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -61,8 +62,15 @@ struct EditByVoiceSheet: View {
     @State private var instruction = ""
     /// The text the recorder gave, to tell a spoken instruction from a typed one.
     @State private var spokenText: String?
-    @State private var isHolding = false
+    @State private var isConfirmingCancel = false
+    /// True while a finger is on the speak button (after the short hold that tells it from a scroll); reset by SwiftUI
+    /// when the touch ends or is taken away, so a cancelled touch stops listening too.
+    @GestureState private var isPressing = false
     @FocusState private var fieldFocused: Bool
+
+    /// How long a touch must rest on the speak button before the microphone starts, so a scroll that begins on it
+    /// never starts listening (UX audit F27).
+    static let holdToSpeakDelay = 0.15
 
     static let suggestions = [
         "Make it shorter", "Turn it into bullet points", "Add a follow-up in two weeks", "Fix the grammar",
@@ -109,7 +117,12 @@ struct EditByVoiceSheet: View {
             .toolbar {
                 if !isSaved {  // once saved, the bar's Done closes
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { close() }
+                        Button("Cancel") {
+                            switch DiscardDecision.onCancel(hasInput: hasWorkToLose) {
+                            case .close: close()
+                            case .ask: isConfirmingCancel = true
+                            }
+                        }
                     }
                 }
             }
@@ -118,6 +131,15 @@ struct EditByVoiceSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(recorder.isBusy)
+        .discardInputConfirmation(
+            isRewriting ? "Stop the rewrite?" : "Discard this instruction?",
+            message: isRewriting
+                ? "Nothing is saved until it finishes. The document stays as it is."
+                : "The document stays as it is.",
+            hasInput: hasWorkToLose, isAsking: $isConfirmingCancel,
+            discardLabel: isRewriting ? "Stop Rewriting" : "Discard",
+            keepLabel: isRewriting ? "Keep Rewriting" : "Keep Editing"
+        ) { close() }
         .task { await environment.languageModels.refresh() }
         // Saved directly or after the clinical question's Send: the document screen reloads either way.
         .onChange(of: isSaved) { _, saved in
@@ -153,20 +175,24 @@ struct EditByVoiceSheet: View {
             }
             .frame(maxWidth: .infinity)
             .contentShape(Circle())
+            // A short hold first (a scroll that starts here moves away and never starts the microphone), then the
+            // press lasts until the finger lifts.
             .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !isHolding else { return }
-                        isHolding = true
-                        fieldFocused = false
-                        recorder.dismissFailure()
-                        recorder.start()
-                    }
-                    .onEnded { _ in
-                        isHolding = false
-                        Task { await finishSpeaking() }
+                LongPressGesture(minimumDuration: Self.holdToSpeakDelay)
+                    .sequenced(before: DragGesture(minimumDistance: 0))
+                    .updating($isPressing) { value, pressing, _ in
+                        if case .second(true, _) = value { pressing = true }
                     }
             )
+            .onChange(of: isPressing) { _, pressing in
+                if pressing {
+                    fieldFocused = false
+                    recorder.dismissFailure()
+                    recorder.start()
+                } else {
+                    Task { await finishSpeaking() }
+                }
+            }
             .accessibilityElement()
             .accessibilityLabel(recorder.phase == .listening ? "Stop and use what you said" : "Speak an instruction")
             .accessibilityAddTraits(.isButton)
@@ -242,6 +268,8 @@ struct EditByVoiceSheet: View {
                             .padding(.horizontal, 12)
                             .frame(minHeight: 34)
                             .background(Capsule().fill(AppColor.tintFill))
+                            .frame(minHeight: 44)  // the hit area; the capsule stays 34 pt (UX audit F26)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -339,6 +367,17 @@ struct EditByVoiceSheet: View {
     private var isSaved: Bool {
         if case .completed = host.run?.phase { return true }
         return false
+    }
+
+    /// A rewrite is being routed, asked about or written.
+    private var isRewriting: Bool {
+        guard let phase = host.run?.phase else { return false }
+        return RunStatus.isActive(phase) || { if case .needsConfirmation = phase { true } else { false } }()
+    }
+
+    /// Closing now would drop a rewrite in progress or an instruction typed or heard.
+    private var hasWorkToLose: Bool {
+        isRewriting || (host.run == nil && DiscardDecision.holdsInput(instruction))
     }
 
     // MARK: - Bottom bar

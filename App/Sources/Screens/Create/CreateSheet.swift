@@ -13,9 +13,12 @@ enum CreateDestination: Hashable {
 /// Capture → Create (plan 022 Step 3): two questions, "What do you have?" (Speak · Type or paste · Link · File) and
 /// "What do you want?" (Transcript · Summary · Document ▸ template · Voice message), then the chain's real progress
 /// and result in the same sheet. The last answers are remembered. Anything that cannot run says why before Create is
-/// tapped (no speech model, no language model, no voice); clinical steps ask through the existing dialogs.
+/// tapped (no speech model, no language model, no voice); clinical steps ask through the existing dialogs. Typed text or
+/// a pasted link is never lost: swipe-down is off while there is some, Cancel asks first, and a sheet hidden by
+/// something else (the Action Button's dictation) keeps it for the next open (UX audit F19).
 struct CreateSheet: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dynamicTypeSize) private var typeSize
     let host: CreateHost
 
     @State private var draft: CreateDraft
@@ -23,6 +26,9 @@ struct CreateSheet: View {
     @State private var path: [CreateDestination] = []
     @State private var isPickingFile = false
     @State private var pickerError: String?
+    @State private var isConfirmingDiscard = false
+    /// Cancel → Discard: the sheet goes and its text is not kept.
+    @State private var isDiscarding = false
     @FocusState private var textFocused: Bool
     @FocusState private var linkFocused: Bool
 
@@ -37,7 +43,8 @@ struct CreateSheet: View {
         var initial = CreateDraft(
             choices: templateIDs.isEmpty ? remembered : remembered.validated(templateIDs: templateIDs))
         initial.file = CreatePreviewLaunch.file()  // DEBUG tour only; always nil in Release
-        _draft = State(initialValue: initial)
+        // What was typed when the sheet last went away without a Discard (cleared in onAppear, once it is shown).
+        _draft = State(initialValue: host.keptDraft ?? initial)
         _choice = State(initialValue: environment.languageModels.defaultChoice)
     }
 
@@ -60,6 +67,15 @@ struct CreateSheet: View {
                 }
             }
         }
+        .tint(AppColor.accentText)
+        .discardInputConfirmation(
+            "Discard what you typed?", message: "The text or link you entered here is not kept.",
+            hasInput: host.flow == nil && draft.hasUnsavedInput, isAsking: $isConfirmingDiscard
+        ) {
+            isDiscarding = true
+            host.keptDraft = nil
+            host.hide()
+        }
         // The operation's per-run question and the voice message's: only their dialogs answer (spec/12).
         .clinicalConfirmation(for: host.flow?.operationRun)
         .voiceMessageConfirmation(for: host.flow?.voiceMessage as? VoiceMessageExporter)
@@ -76,6 +92,11 @@ struct CreateSheet: View {
             await environment.voiceSettings.refresh()
         }
         .onChange(of: draft.choices) { _, choices in choicesStore.save(choices) }
+        .onAppear { host.keptDraft = nil }
+        .onDisappear {
+            // Hidden by something other than Cancel → Discard while text was typed: keep it for the next open.
+            if host.flow == nil, !isDiscarding, draft.hasUnsavedInput { host.keptDraft = draft }
+        }
     }
 
     // MARK: - Questions
@@ -88,7 +109,7 @@ struct CreateSheet: View {
                         .chirpTitleFont(26, .heavy)
                         .foregroundStyle(Tokens.Color.ink)
                         .accessibilityAddTraits(.isHeader)
-                    Text("Anything in, anything out. Everything stays on this iPhone unless a step says otherwise.")
+                    Text("Anything in, anything out. Each step below says where it runs.")
                         .chirpFont(13)
                         .foregroundStyle(Tokens.Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -124,7 +145,12 @@ struct CreateSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Close") { host.hide() }
+                Button("Cancel") {
+                    switch DiscardDecision.onCancel(hasInput: draft.hasUnsavedInput) {
+                    case .close: host.hide()
+                    case .ask: isConfirmingDiscard = true
+                    }
+                }
             }
         }
         .alert(
@@ -140,7 +166,9 @@ struct CreateSheet: View {
     private func grid<Item: Hashable, Tile: View>(_ items: [Item], @ViewBuilder tile: @escaping (Item) -> Tile)
         -> some View
     {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+        let columns = Array(
+            repeating: GridItem(.flexible(), spacing: 10), count: CreateOptionTile.columns(for: typeSize))
+        return LazyVGrid(columns: columns, spacing: 10) {
             ForEach(items, id: \.self) { tile($0) }
         }
     }
@@ -185,7 +213,7 @@ struct CreateSheet: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
-                TextField("Podcast, YouTube or audio link", text: $draft.link, axis: .vertical)
+                TextField("Podcast, YouTube or web link", text: $draft.link, axis: .vertical)
                     .chirpFont(15)
                     .lineLimit(1...3)
                     .keyboardType(.URL)
@@ -285,12 +313,21 @@ struct CreateSheet: View {
         environment.deliverableLibrary.documentTemplates + environment.deliverableLibrary.transformTemplates
     }
 
+    /// Documents and rewrites in their own sections, as the Transform sheet lists them (UX audit F20).
     private var templateMenu: some View {
         let selected = templates.first { $0.id == draft.templateID }
+        let library = environment.deliverableLibrary
         return Menu {
             Picker("Template", selection: $draft.templateID) {
-                ForEach(templates) { template in
-                    Text(template.name).tag(Optional(template.id))
+                Section("Documents") {
+                    ForEach(library.documentTemplates) { template in
+                        Text(template.name).tag(Optional(template.id))
+                    }
+                }
+                Section("Rewrites") {
+                    ForEach(library.transformTemplates) { template in
+                        Text(template.name).tag(Optional(template.id))
+                    }
                 }
             }
         } label: {
@@ -343,7 +380,7 @@ struct CreateSheet: View {
             CreateNote(
                 text: "Spoken by \(provider.displayName) (\(provider.place.lowercasedFirst)). "
                     + (draft.isClinical || provider == .xai
-                        ? "Clinical text asks before it is sent." : "Saved as an .m4a with the item."),
+                        ? "Clinical text asks before it is sent." : "Saved with the item as an audio file."),
                 systemImage: "speaker.wave.2")
         }
     }

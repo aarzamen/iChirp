@@ -4,7 +4,8 @@ import ChirpUI
 import SwiftUI
 
 /// Capture → Type or paste (plan 022 Step 1): a plain editor that saves typed or pasted text as a Library item. The
-/// first line becomes its title. Nothing leaves the phone; the item then works everywhere a transcript does.
+/// first line becomes its title. Nothing leaves the phone. Typed text is never lost: swipe-down is off while there is
+/// some, and Cancel asks first (UX audit F24).
 struct TextItemSheet: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -15,7 +16,11 @@ struct TextItemSheet: View {
     @State private var isClinical = false
     @State private var isSaving = false
     @State private var error: String?
+    @State private var isConfirmingDiscard = false
     @FocusState private var editorFocused: Bool
+
+    /// What the footer promises: only what the text item's screen really offers (UX audit F25: no Ask there).
+    static let footer = "Saved in your Library on this iPhone. Transform, Listen, Extract fields and Share work on it."
 
     var body: some View {
         NavigationStack {
@@ -31,12 +36,10 @@ struct TextItemSheet: View {
                             .foregroundStyle(AppColor.error)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(
-                        "Saved in your Library on this iPhone. Transform, Ask, Listen and Create work on it like on a transcript."
-                    )
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(Self.footer)
+                        .chirpFont(12.5)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -48,7 +51,12 @@ struct TextItemSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        switch DiscardDecision.onCancel(hasInput: DiscardDecision.holdsInput(text)) {
+                        case .close: dismiss()
+                        case .ask: isConfirmingDiscard = true
+                        }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
@@ -57,6 +65,10 @@ struct TextItemSheet: View {
                 }
             }
         }
+        .discardInputConfirmation(
+            "Discard this text?", message: "What you typed or pasted is not saved.",
+            hasInput: DiscardDecision.holdsInput(text) && !isSaving, isAsking: $isConfirmingDiscard
+        ) { dismiss() }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onAppear { editorFocused = true }
@@ -90,7 +102,7 @@ struct TextEntryCard: View {
                 if text.isEmpty {
                     Text(placeholder)
                         .chirpFont(16)
-                        .foregroundStyle(Tokens.Color.mutedText)
+                        .foregroundStyle(Tokens.Color.secondary)  // text-safe grey (UX audit F89)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 8)
                         .accessibilityHidden(true)
@@ -119,10 +131,16 @@ struct TextEntryCard: View {
                 .tint(Tokens.Color.accentInk)
                 .controlSize(.small)
                 if !text.isEmpty {
-                    Button("Clear") { text = "" }
-                        .chirpFont(13.5, .semibold)
-                        .foregroundStyle(AppColor.accentText)
-                        .frame(minHeight: 32)
+                    Button {
+                        text = ""
+                    } label: {
+                        Text("Clear")
+                            .chirpFont(13.5, .semibold)
+                            .foregroundStyle(AppColor.accentText)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
                 Spacer(minLength: 8)
                 Text(Self.countLabel(text))

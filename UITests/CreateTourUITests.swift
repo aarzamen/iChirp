@@ -113,7 +113,7 @@ final class CreateTourUITests: XCTestCase {
         shot("questions-document-template")
         tapOption("Voice message")
         shot("questions-voice-message")
-        app.buttons["Close"].tap()
+        app.buttons["Cancel"].tap()
     }
 
     /// Type or paste → Summary with the language-model stub (a trusted Mac).
@@ -143,7 +143,7 @@ final class CreateTourUITests: XCTestCase {
         app.launch()
         openCreate()
         tapOption("Link")
-        let field = app.textFields["Podcast, YouTube or audio link"]
+        let field = app.textFields["Podcast, YouTube or web link"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         dismissKeyboardTip()

@@ -117,7 +117,9 @@ struct VoiceMessageSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .voiceMessageConfirmation(for: exporter)
+        // A swipe would stop a voice message being made: only Cancel does that (never silently).
+        .interactiveDismissDisabled(Self.isMaking(exporter.phase))
+        .voiceMessageConfirmation(for: exporter, source: job.request.source)
         .task {
             guard !hasStarted else { return }
             hasStarted = true
@@ -146,6 +148,14 @@ struct VoiceMessageSheet: View {
     }
 
     private var isFinished: Bool { finishedURL != nil }
+
+    /// The voice message is being made (a swipe would stop it).
+    static func isMaking(_ phase: VoiceMessagePhase) -> Bool {
+        switch phase {
+        case .preparing, .needsConfirmation, .synthesizing, .assembling: true
+        case .idle, .finished, .failed: false
+        }
+    }
 }
 
 /// The voice message's progress, result or failure, as a card. Shared by the voice-message sheet and Create.
@@ -236,7 +246,8 @@ struct VoiceMessageProgressCard: View {
             [voiceName, "Part \(min(done + 1, total)) of \(total)"].compactMap { $0 }.joined(separator: " · ")
         case .assembling: "Joining \(voiceName.map { "the parts from \($0)" } ?? "the parts") into one file…"
         case .finished(let file):
-            [file.durationMs.map { Formatting.clock(ms: $0) }, "\(file.url.lastPathComponent)", "saved with this item"]
+            // The length and where it is; not the internal file name ("voice-1.m4a").
+            [file.durationMs.map { Formatting.clock(ms: $0) }, "saved with this item"]
                 .compactMap { $0 }.joined(separator: " · ")
         case .failed(let message): message
         }
@@ -289,10 +300,14 @@ struct VoiceMessageProgressCard: View {
 }
 
 /// The per-message question before clinical text goes to a cloud voice (or a Mac the owner has not trusted). Never
-/// remembered.
+/// remembered. With `source`, the message first says why an item not marked clinical counts as clinical (UX audit F51);
+/// the question then shows once that reason is read.
 struct VoiceMessageConfirmationModifier: ViewModifier {
+    @Environment(AppEnvironment.self) private var environment: AppEnvironment?
     let exporter: VoiceMessageExporter?
+    var source: VoiceSource?
     @State private var answeredRequestID: UUID?
+    @State private var reason: VoiceQuestionReason.Resolved?
 
     func body(content: Content) -> some View {
         let request = pendingRequest
@@ -305,19 +320,34 @@ struct VoiceMessageConfirmationModifier: ViewModifier {
                 answeredRequestID = request.id
                 if let exporter { VoiceMessageConfirmationActions(exporter: exporter).userTappedCancel() }
             }
-            Button("Send") {
+            // The choice that sends clinical text away looks like one (UX audit F46).
+            Button("Send", role: .destructive) {
                 answeredRequestID = request.id
                 if let exporter {
                     VoiceMessageConfirmationActions(exporter: exporter).userTappedMakeVoiceMessage(request)
                 }
             }
         } message: { request in
-            Text(Self.message(request))
+            Text(VoiceQuestionReason.message(Self.message(request), reason: reason?.text))
+        }
+        .task(id: waitingRequestID) {
+            guard let id = waitingRequestID else { return }
+            let text = await VoiceQuestionReason.text(for: source, environment: environment)
+            reason = VoiceQuestionReason.Resolved(requestID: id, text: text)
         }
     }
 
-    private var pendingRequest: VoiceConfirmationRequest? {
+    private var waitingRequestID: UUID? {
         guard case .needsConfirmation(let request) = exporter?.phase, request.id != answeredRequestID else {
+            return nil
+        }
+        return request.id
+    }
+
+    private var pendingRequest: VoiceConfirmationRequest? {
+        guard case .needsConfirmation(let request) = exporter?.phase, request.id != answeredRequestID,
+            reason?.requestID == request.id
+        else {
             return nil
         }
         return request
@@ -343,8 +373,9 @@ struct VoiceMessageConfirmationModifier: ViewModifier {
 }
 
 extension View {
-    /// Shows the voice-message confirmation whenever `exporter` waits for one.
-    func voiceMessageConfirmation(for exporter: VoiceMessageExporter?) -> some View {
-        modifier(VoiceMessageConfirmationModifier(exporter: exporter))
+    /// Shows the voice-message confirmation whenever `exporter` waits for one (`source`: what is spoken, for the
+    /// reason line).
+    func voiceMessageConfirmation(for exporter: VoiceMessageExporter?, source: VoiceSource? = nil) -> some View {
+        modifier(VoiceMessageConfirmationModifier(exporter: exporter, source: source))
     }
 }
