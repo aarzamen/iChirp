@@ -43,7 +43,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
   `ChirpEngineHTTPLLM`. Contract: `spec/contracts/language-model-plugin-v1.md`.
-- `Engines/StructureModel.swift`: the M6 extraction and embedding contract. No conformers yet.
+- `Engines/StructureModel.swift`: the M6 extraction and embedding contract (`StructuredOutput` with the model hash and
+  `isAbstention`, `StructureModelError`); conformers `NeedleStructureModel` and the STUB
+  ([structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md)).
 - `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
   each privacy class.
 - `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`, including the M1.5

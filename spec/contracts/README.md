@@ -37,6 +37,8 @@ Each contract document includes:
 - [Media Storage Layout v1](media-storage-layout-v1.md): the on-disk layout under `Application Support/iChirp/`.
 - [File Transcription Audio Tracks v1](file-transcription-audio-tracks-v1.md): which audio track of an imported
   file is transcribed, the track picker, and `transcriptions.audioTrackOrdinal` (M1.5).
+- [Structure Model Plug-in v1](structure-model-plugin-v1.md): `StructureModel` with tool catalogs (Needle 3, the
+  STUB): call arrays, `"[]"` abstention, confidence, model hash, on-device-only for clinical text (M6).
 - [Language Model Plug-in v1](language-model-plugin-v1.md): `LanguageModel`, provider configuration, secret
   storage and the where-content-goes guarantees (M4).
 - [Deliverables v1](deliverables-v1.md): templates, immutable versions, deliverables, the metadata-only run ledger

@@ -13,11 +13,26 @@ static library for `aarch64-apple-ios`, `aarch64-apple-ios-sim` and `aarch64-app
 `NeedleC` binary target only when that folder exists; this target always builds, and without the runtime every call
 throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scripts/build_needle.sh").
 
+## Entry point
+
+`NeedleStructureModel.swift`: `NeedleEngines.makeDefault(modelsDirectory:)` returns the `NeedleStructureModel`
+(engine id `needle.needle3`, `.structure`, `.onDevice`, license "Apache-2.0 (weights) / MIT (runtime)").
+
 ## What's here
 
 - `NeedleCModel.swift`: `NeedleRuntimeInfo` (the pinned commit, whether the runtime is linked) and `NeedleCModel`, a
   thin synchronous wrapper over `needle_v3_load`, `needle_v3_generate`, `needle_v3_confidence_for`,
   `needle_free_str` and `needle_last_error`. Not thread-safe; only the runtime actor owns one.
+- `NeedleRuntime.swift`: `NeedleInferring` (load, unload, complete), the `NeedleRuntime` actor (one model per
+  process, on its own serial queue so a multi-second generation never blocks Swift's cooperative pool; one
+  constrained greedy generation, then the confidence head over the completion) and `NeedleToolCallParser` (port of
+  needle-rs `extract_tool_call`).
+- `NeedleModelAssets.swift`: the pinned `needle3.cact` (Hugging Face revision, size, SHA-256), download on demand with
+  progress, size and hash checks before the file is kept, excluded from backup, delete. `URLSessionNeedleFetcher` is
+  the only network code.
+- `NeedleStructureModel.swift`: `StructureModel` + `ModelAssetManaging`: `extract` returns the call array, the
+  confidence and the model hash; `"[]"` is an abstention; no `<tool_call>` throws `noToolCall`; `embed` is
+  unsupported.
 
 ## What to know before editing
 
@@ -34,4 +49,6 @@ throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scr
 cd /Users/ama/Documents/GitHub/iChirp
 scripts/build_needle.sh
 scripts/check.sh ChirpEngineNeedleTests
+# The real model on this Mac (uses vendor/models/needle3.cact if present, else downloads 35 MB):
+CHIRP_NEEDLE_TESTS=1 swift test --package-path ChirpKit --filter NeedleRealModelTests
 ```
