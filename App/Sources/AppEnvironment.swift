@@ -274,7 +274,12 @@ import Observation
         self.deliverableStore = deliverableStore
         self.deliverables = DeliverableService(
             transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
-        self.languageModels = LanguageModelsViewModel(store: providerStore, factory: AppLanguageModelFactory())
+        // M7 (ADR-015): small models on this iPhone (llama.cpp), files next to Needle's under Models/llm/.
+        let localLanguageModels = AppLocalLanguageModels(
+            modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true))
+        localLanguageModels.observeLifecycle()
+        self.languageModels = LanguageModelsViewModel(
+            store: providerStore, factory: AppLanguageModelFactory(local: localLanguageModels))
         self.deliverableLibrary = DeliverableLibraryViewModel(store: deliverableStore)
         // M6a: Jev. `-ChirpJevBaseURL` (DEBUG only) points it at the QA stub; routing reads the same provider policy.
         let jevSettings = JevSettingsStore(
@@ -587,6 +592,14 @@ import Observation
         let structure = structureSettings
         downloadModel(title: "Needle 3 model") { onProgress in
             await structure.downloadNeedle(onProgress: onProgress)
+        }
+    }
+
+    /// M7: Settings → Models → a small model on this iPhone (1.3–2.5 GB, SHA-256 checked).
+    func downloadLocalLanguageModel(_ option: LocalModelOption) {
+        let models = languageModels
+        downloadModel(title: option.name) { onProgress in
+            await models.downloadLocalModel(id: option.id, onProgress: onProgress)
         }
     }
 

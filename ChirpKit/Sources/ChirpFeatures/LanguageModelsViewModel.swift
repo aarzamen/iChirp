@@ -18,6 +18,14 @@ public protocol LanguageModelFactory: Sendable {
     func testConnection(to provider: LanguageModelProviderConfiguration, apiKey: SecretValue?) async throws
     /// The provider's model ids, for the model picker. Sends no user content.
     func listModels(of provider: LanguageModelProviderConfiguration, apiKey: SecretValue?) async throws -> [String]
+    /// M7: small models that run on this iPhone (`LocalLanguageModels.swift`); empty when none are in this build.
+    var localModelOptions: [LocalModelOption] { get }
+    /// Why the on-device small-model runtime is missing from this build, or nil.
+    var localModelRuntimeProblem: String? { get }
+    /// The engine for one of `localModelOptions`.
+    func makeLocalModel(id: String) throws -> any LanguageModel
+    /// The model file of one of `localModelOptions`: status, explicit download, delete.
+    func localModelAssets(id: String) -> (any ModelAssetManaging)?
 }
 
 /// Where a model runs, as the UI says it: "on this iPhone", "on mac-studio (Ollama)", "in the cloud (Claude)".
@@ -36,11 +44,14 @@ public enum ModelPlace {
     }
 }
 
-/// One model a Transform or Ask run can use: Apple's on-device model or a provider from Settings → Models.
+/// One model a Transform or Ask run can use: Apple's on-device model, a downloaded small model on this iPhone, or a
+/// provider from Settings → Models.
 public struct LanguageModelChoice: Sendable, Equatable, Hashable, Identifiable {
     public enum Source: Sendable, Equatable, Hashable {
         case onDevice
         case provider(UUID)
+        /// M7: a small model on this iPhone, by `LocalModelOption.id`.
+        case localModel(String)
     }
 
     public var source: Source
@@ -54,6 +65,7 @@ public struct LanguageModelChoice: Sendable, Equatable, Hashable, Identifiable {
         switch source {
         case .onDevice: "on-device"
         case .provider(let id): id.uuidString
+        case .localModel(let id): "local:\(id)"
         }
     }
 
@@ -221,10 +233,19 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
     }
 
     public private(set) var providers: [LanguageModelProviderConfiguration] = []
-    /// What Transform and Ask start with: the saved default provider, else Apple's on-device model.
+    /// What Transform and Ask start with: the saved default provider or downloaded small model, else Apple's
+    /// on-device model.
     public private(set) var defaultChoice: LanguageModelChoice = .onDevice
     /// Apple's on-device model right now; nil until the first `refresh()`.
     public private(set) var onDeviceAvailability: LanguageModelAvailability?
+    /// M7: small models this build can download and run on the iPhone, in catalog order.
+    public let localModels: [LocalModelOption]
+    /// Why the small-model runtime is missing from this build, or nil.
+    public let localModelRuntimeProblem: String?
+    /// Each small model's file; a model is offered for runs only once `.ready`.
+    public private(set) var localModelStatus: [String: ModelAssetStatus] = [:]
+    /// The last download or delete failure, as a sentence for an alert.
+    public var localModelError: String?
 
     @ObservationIgnored private let store: any LanguageModelProviderStoring
     @ObservationIgnored private let factory: any LanguageModelFactory
@@ -233,17 +254,26 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
     public init(store: any LanguageModelProviderStoring, factory: any LanguageModelFactory) {
         self.store = store
         self.factory = factory
+        localModels = factory.localModelOptions
+        localModelRuntimeProblem = factory.localModelRuntimeProblem
         reloadProviders()
     }
 
-    /// Apple's model first, then the providers in the order they were added.
+    /// Apple's model first, then the downloaded small models, then the providers in the order they were added.
     public var choices: [LanguageModelChoice] {
-        [.onDevice] + providers.map(LanguageModelChoice.init(provider:))
+        [.onDevice] + readyLocalModels.map(LanguageModelChoice.init(localModel:))
+            + providers.map(LanguageModelChoice.init(provider:))
     }
 
-    /// Whether any model could run now: Apple's model is available, or a provider is set up.
+    /// Whether any model could run now: Apple's model is available, a small model is downloaded, or a provider is set
+    /// up.
     public var hasUsableModel: Bool {
-        onDeviceAvailability == .available || !providers.isEmpty
+        onDeviceAvailability == .available || !readyLocalModels.isEmpty || !providers.isEmpty
+    }
+
+    /// Small models whose file is downloaded and verified.
+    public var readyLocalModels: [LocalModelOption] {
+        localModels.filter { isReady(localModelStatus[$0.id]) }
     }
 
     public func choice(id: String) -> LanguageModelChoice? {
@@ -252,16 +282,82 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
 
     /// Re-reads the providers and Apple's availability (after Settings changes, or when a screen appears).
     public func refresh() async {
+        await refreshLocalModelStatus()
         reloadProviders()
         onDeviceAvailability = await factory.makeOnDeviceModel().availability()
     }
 
     public func setDefault(_ choice: LanguageModelChoice) throws {
         switch choice.source {
-        case .onDevice: try store.setDefaultProviderID(nil)
-        case .provider(let id): try store.setDefaultProviderID(id)
+        case .onDevice:
+            try store.setDefaultProviderID(nil)
+            try store.setDefaultLocalModelID(nil)
+        case .provider(let id):
+            try store.setDefaultLocalModelID(nil)
+            try store.setDefaultProviderID(id)
+        case .localModel(let id):
+            try store.setDefaultProviderID(nil)
+            try store.setDefaultLocalModelID(id)
         }
         reloadProviders()
+    }
+
+    // MARK: - Small models on this iPhone (M7)
+
+    /// Re-reads every small model's file status (no network).
+    public func refreshLocalModelStatus() async {
+        for option in localModels {
+            guard let assets = factory.localModelAssets(id: option.id) else { continue }
+            localModelStatus[option.id] = await assets.assetStatus()
+        }
+        reloadProviders()
+    }
+
+    /// Settings → Download (the only way a model file is fetched). Returns true when the model is ready.
+    public func downloadLocalModel(id: String, onProgress: @escaping @MainActor (Double) -> Void) async -> Bool {
+        guard let assets = factory.localModelAssets(id: id) else {
+            localModelError = localModelRuntimeProblem ?? "This model is not in this build."
+            return false
+        }
+        localModelStatus[id] = .downloading(fraction: 0)
+        do {
+            try await assets.downloadAssets { fraction in
+                Task { @MainActor [weak self] in
+                    guard let self, case .downloading = self.localModelStatus[id] else { return }
+                    self.localModelStatus[id] = .downloading(fraction: fraction)
+                    onProgress(fraction)
+                }
+            }
+            logger.info("local_model_downloaded model=\(id, privacy: .public)")
+        } catch {
+            localModelError = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
+            logger.notice(
+                "local_model_download_failed model=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)"
+            )
+        }
+        localModelStatus[id] = await assets.assetStatus()
+        reloadProviders()
+        return isReady(localModelStatus[id])
+    }
+
+    /// Settings → Delete (after the person confirmed): unloads and removes the file. A deleted default falls back to
+    /// Apple's on-device model.
+    public func deleteLocalModel(id: String) async {
+        guard let assets = factory.localModelAssets(id: id) else { return }
+        do {
+            try await assets.deleteAssets()
+            if store.defaultLocalModelID() == id { try store.setDefaultLocalModelID(nil) }
+            logger.info("local_model_deleted model=\(id, privacy: .public)")
+        } catch {
+            localModelError = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        localModelStatus[id] = await assets.assetStatus()
+        reloadProviders()
+    }
+
+    private func isReady(_ status: ModelAssetStatus?) -> Bool {
+        if case .ready = status { return true }
+        return false
     }
 
     /// The engine for one run, with the provider's key read from the Keychain just now.
@@ -269,6 +365,8 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
         switch choice.source {
         case .onDevice:
             return factory.makeOnDeviceModel()
+        case .localModel(let id):
+            return try factory.makeLocalModel(id: id)
         case .provider(let id):
             guard
                 let provider = providers.first(where: { $0.id == id })
@@ -340,6 +438,8 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
         providers = store.loadProviders()
         if let id = store.defaultProviderID(), let provider = providers.first(where: { $0.id == id }) {
             defaultChoice = LanguageModelChoice(provider: provider)
+        } else if let id = store.defaultLocalModelID(), let local = readyLocalModels.first(where: { $0.id == id }) {
+            defaultChoice = LanguageModelChoice(localModel: local)
         } else {
             defaultChoice = .onDevice
         }

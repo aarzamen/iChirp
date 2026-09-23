@@ -28,8 +28,8 @@ public enum LlamaCppRuntimeInfo {
     static let logger = Log.logger("llamacpp")
 }
 
-/// Loads GGUF files with llama.cpp. Every layer runs on the GPU (Metal) on a device and on the Mac; the Simulator's
-/// GPU lacks what llama.cpp's Metal kernels need, so there it runs on the CPU.
+/// Loads GGUF files with llama.cpp. Every layer runs on the GPU (Metal) on a device and on the Mac; in the Simulator it
+/// runs on the CPU (the Simulator's Metal is no stand-in for the phone's GPU, and CPU keeps it predictable there).
 public struct LlamaCppLoader: LlamaSessionLoading {
     public init() {}
 

@@ -78,6 +78,9 @@ struct ModelsSettingsScreen: View {
                     .accessibilityElement(children: .combine)
                 }
 
+                // M7 (ADR-015): Qwen models through llama.cpp, downloaded on request.
+                OnDeviceModelsSection()
+
                 SettingsGroup(
                     title: "Your models",
                     footer:
