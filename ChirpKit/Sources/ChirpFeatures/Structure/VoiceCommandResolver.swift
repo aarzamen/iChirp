@@ -141,7 +141,9 @@ public struct VoiceCommandResolver: Sendable {
             command: candidate, utterance: sentence, confidence: output.confidence, engineID: engine.descriptor.id)
     }
 
-    /// Sentences of the final text: split after . ! ? followed by whitespace, and at line breaks.
+    /// Sentences of the final text: split after . ! ? followed by whitespace, and at line breaks. A period that ends
+    /// an abbreviation (review L3 I9) ends the sentence only when a capital letter follows ("p.o. t.i.d." stays one
+    /// order; "t.i.d. Scratch that." splits), and never after a title or "vs.", "approx.", "e.g." ("Dr. Lee").
     public static func sentences(in text: String) -> [String] {
         var result: [String] = []
         var current = ""
@@ -154,14 +156,43 @@ public struct VoiceCommandResolver: Sendable {
             }
             current.append(character)
             let next = index + 1 < characters.count ? characters[index + 1] : nil
-            if ".!?".contains(character), next == nil || next!.isWhitespace {
-                result.append(current)
-                current = ""
+            guard ".!?".contains(character), next == nil || next!.isWhitespace else { continue }
+            if character == "." {
+                let following = characters[(index + 1)...].first { !$0.isWhitespace }
+                guard endsSentence(current, following: following) else { continue }
             }
+            result.append(current)
+            current = ""
         }
         if !current.trimmingCharacters(in: .whitespaces).isEmpty { result.append(current) }
         return result.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
+
+    /// Whether the period at the end of `current` ends a sentence, given the next non-space character.
+    static func endsSentence(_ current: String, following: Character?) -> Bool {
+        guard let following, following != "\n" else { return true }
+        let word =
+            current.split(whereSeparator: \.isWhitespace).last.map {
+                String($0).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "(\"'“‘["))
+            } ?? ""
+        let bare = String(word.dropLast())
+        if neverEnding.contains(bare) { return false }
+        let dotted = bare.range(of: #"^([a-z]\.)+[a-z]$"#, options: .regularExpression) != nil
+        if dotted || abbreviations.contains(bare) { return following.isUppercase }
+        return true
+    }
+
+    /// Abbreviations that are followed by more of the same sentence (a name, a comparison, an example).
+    static let neverEnding: Set<String> = [
+        "dr", "mr", "mrs", "ms", "prof", "st", "vs", "approx", "e.g", "i.e", "cf", "no",
+    ]
+    /// Abbreviations that may end a sentence: a capital letter after them starts the next one.
+    static let abbreviations: Set<String> = [
+        "mg", "mcg", "ml", "g", "kg", "tab", "tabs", "cap", "caps", "hr", "hrs", "min", "mins", "sec", "wk", "wks",
+        "mo",
+        "yr", "yrs", "pt", "pts", "dx", "hx", "rx", "sx", "tx", "etc", "qty", "prn", "po", "bid", "tid", "qid",
+        "qd", "qhs", "od", "os", "ou",
+    ]
 
     // MARK: - Rendering
 

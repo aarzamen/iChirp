@@ -264,15 +264,20 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   tools, missing required arguments and values outside an enum). A test pins each catalog file's SHA-256: a change
   ships as a new version file.
 - `Structure/StubStructureModel.swift`: the rule-based **STUB** engine (`stub.rules`) for both catalogs, with a
-  pseudo-confidence; always available and always labelled STUB. `VoiceCommandText` (a command is a whole short
+  pseudo-confidence (at most 0.84 on `soap-meds`, and `StructuredResultGate.verdict(…engineID:)` never gives a STUB
+  field `act`; a hedge like "considering" before a drug wins over a later "starting"); always available and always
+  labelled STUB. `VoiceCommandText` (a command is a whole short
   utterance that equals one of its phrases, optionally after "okay"/"please").
 
 - `Structure/StructuredResultGate.swift`: `StructureSettings` (voice commands off by default, gate thresholds,
-  engine choice; its own UserDefaults key) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
-  else needs review; any problem forces needs review); `StructuredCallValidator` (maps tags back to the normalizer's
-  values, traces digits a model copied, **re-parses every number in code and range-checks vitals and doses**, flags
-  self-corrections, drug or substance names missing from the sentence and schema problems; a number that traces to
-  nothing is a numeric hard fail).
+  engine choice; its own UserDefaults key; the gate never below act 0.70 / provisional 0.50) and its stores; `StructuredResultGate` (act ≥ 0.85, provisional ≥ 0.60,
+  else needs review; any problem forces needs review); `StructuredCallValidator` (per sentence: maps tags back to the
+  normalizer's values, traces digits a model copied, **re-reads every number independently of the normalizer**
+  (`IndependentNumberCheck.swift`: regex digits, spell-out `NumberFormatter`, its own unit list, plus the words right
+  around the tag), range-checks vitals, doses by unit and frequencies, checks a dose sits next to its own drug and a
+  vital is not a drug's strength, carries any flagged tag or spoken correction to every call from the sentence, checks
+  numbers in free text against the sentence, drops unknown or non-text arguments, flags drug or substance names
+  missing from the sentence and schema problems; a number that traces to nothing is a numeric hard fail).
 - `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
   text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
   milliseconds).
@@ -282,23 +287,28 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator →
   gate → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
   (`mayRun`); engine failures become needs-review items, never silent gaps.
-- `Structure/ExtractFieldsViewModel.swift`: `DraftItem` / `DraftSections` (vitals, medications, allergies, problems,
-  plan, the needs-review bin, skipped sentences), `SOAPDraftHandoff` (the reviewed draft as `{{userNotes}}` for the
-  SOAP template, always the on-device model; needs-review items left out, unreviewed ones marked) and
-  `ExtractFieldsViewModel` (extract, load the latest run, mark reviewed, engine badge).
+- `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
+  editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
+  bin, skipped sentences), `SOAPDraftHandoff` (**only reviewed fields** as `{{userNotes}}` for the SOAP template,
+  always the on-device model; an accepted-despite or edited field carries its reasons) and `ExtractFieldsViewModel`
+  (extract, load the latest run, mark reviewed; a field that failed a check opens `reviewRequest` instead, and
+  `confirmReview(_:edits:)` saves edits; engine badge with Needle's experimental label; `menuTitle`).
 - `Structure/StructureSettingsViewModel.swift`: Settings → Structure models (Needle's download and delete, engine,
-  thresholds).
+  thresholds) and `NeedleExperimental` (the latest eval numbers and the "Experimental" chip and sentence every Needle
+  surface shows until argument accuracy reaches 0.9).
 
 - `Structure/VoiceCommandResolver.swift`: `dictation-commands.v1` on the **final pass**: a command is a whole sentence
-  (≤ 8 words) equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
+  (≤ 8 words; abbreviations such as "p.o.", "t.i.d.", "mg.", "Dr." do not end a sentence unless a capital follows)
+  equal to one of its phrases **and** confirmed by the engine at the act threshold; its sentence is
   removed and the edit applied (new paragraph / line, bullet list, scratch that, undo, capitalize); read back and send
   to SOAP / Transform become actions after the copy. The same words inside a longer sentence and low-confidence
   answers change nothing. `liveCommand(in:)` checks the live preview's trailing words for a chip only.
 - `Dictation/DictationVoiceCommands.swift` (M6): `ReadBackSpeaking` (`readBack(_:transcriptionID:)`; the app connects
   a `ReadBackRelay` to plan 020's `VoicePlayer` with source `.dictationReadBack(id:)`, so every chunk routes on that
   dictation's effective class; `SilentReadBack` is the unconnected default), `DictationVoiceCommanding` (the coordinator's hooks)
-  and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, the final-pass resolution, the
-  pending Transform). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+  and `DictationVoiceCommands` (off by default; the live chip after a 0.9 s pause, chip only, even for "stop"; the
+  final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental";
+  dictation is routed as clinical, so command words only reach on-device engines). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
   order (Needle answered differently, and worse, when the schema keys were sorted).

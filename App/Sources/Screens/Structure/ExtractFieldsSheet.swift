@@ -68,6 +68,13 @@ struct ExtractFieldsSheet: View {
         .sheet(item: $soapNotes) { notes in
             SOAPFromFieldsSheet(transcriptionID: transcriptionID, transcriptTitle: transcriptTitle, notes: notes.text)
         }
+        .sheet(
+            item: Binding(get: { model.reviewRequest }, set: { if $0 == nil { model.cancelReview() } })
+        ) { item in
+            ReviewFieldSheet(
+                item: item, onAccept: { edits in Task { await model.confirmReview(item, edits: edits) } },
+                onCancel: { model.cancelReview() })
+        }
     }
 
     // MARK: - Header
@@ -109,7 +116,7 @@ struct ExtractFieldsSheet: View {
             case .needle:
                 if !settings.needleInBuild { return "STUB · Needle is not in this build" }
                 return settings.isNeedleReady
-                    ? "Needle 3 · model \(settings.needleModelSHA256?.prefix(8) ?? "")"
+                    ? "Needle 3 · model \(settings.needleModelSHA256?.prefix(8) ?? "") · \(NeedleExperimental.chip)"
                     : "STUB · Needle 3 not downloaded"
             }
         }()
@@ -168,10 +175,21 @@ struct ExtractFieldsSheet: View {
         if !sections.needsReview.isEmpty {
             SectionLabel("Needs review (\(sections.needsReview.count))")
                 .padding(.top, 6)
-            Text("Not in the draft: low confidence, or a check failed. Review to add one.")
-                .chirpFont(12.5)
-                .foregroundStyle(Tokens.Color.secondary)
+            Text(
+                "Not in the draft: low confidence, or a check failed. Review to add one; a failed check shows why first."
+            )
+            .chirpFont(12.5)
+            .foregroundStyle(Tokens.Color.secondary)
             ForEach(sections.needsReview) { item in row(item) }
+        }
+        if !sections.draftItems.isEmpty {
+            Text(
+                "“Use in SOAP note” sends only the fields you reviewed (\(model.reviewedDraftCount) of "
+                    + "\(sections.draftItems.count)). Tap the circle to review one."
+            )
+            .chirpFont(12.5)
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         if sections.skippedCount > 0 {
             Text("\(sections.skippedCount) sentence\(sections.skippedCount == 1 ? "" : "s") held nothing to record.")
@@ -221,11 +239,11 @@ struct ExtractFieldsSheet: View {
                             .foregroundStyle(Tokens.Color.ink)
                             .multilineTextAlignment(.trailing)
                     }
-                    Text("“\(item.evidence)”")
+                    Text(Self.evidence(item))
                         .chirpFont(12)
                         .italic()
                         .foregroundStyle(Tokens.Color.secondary)
-                        .lineLimit(2)
+                        .lineLimit(4)
                     Text(statusLine(item))
                         .chirpFont(11.5, .semibold)
                         .monospacedDigit()
@@ -252,7 +270,10 @@ struct ExtractFieldsSheet: View {
                     .frame(minWidth: 44, minHeight: 44)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(item.field.reviewed ? "Reviewed. Tap to undo." : "Mark reviewed")
+            .accessibilityLabel(
+                item.field.reviewed
+                    ? "Reviewed. Tap to undo."
+                    : item.needsReviewSheet ? "Review: shows why it was flagged" : "Mark reviewed")
         }
         .padding(.leading, 12)
         .padding(.vertical, 6)
@@ -268,6 +289,22 @@ struct ExtractFieldsSheet: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// The whole sentence, the field's own words in bold on a tint (review L3 I2).
+    static func evidence(_ item: DraftItem) -> AttributedString {
+        let sentence = item.evidenceSentence.isEmpty ? item.evidence : item.evidenceSentence
+        let ns = sentence as NSString
+        guard let highlight = item.highlight, highlight.upperBound <= ns.length else {
+            return AttributedString("“\(sentence)”")
+        }
+        var middle = AttributedString(
+            ns.substring(with: NSRange(location: highlight.lowerBound, length: highlight.count)))
+        middle.inlinePresentationIntent = .stronglyEmphasized
+        middle.foregroundColor = Tokens.Color.ink
+        middle.backgroundColor = Tokens.Color.accent.opacity(0.18)
+        return AttributedString("“" + ns.substring(to: highlight.lowerBound)) + middle
+            + AttributedString(ns.substring(from: highlight.upperBound) + "”")
+    }
+
     private func statusLine(_ item: DraftItem) -> String {
         let verdict: String =
             switch item.field.verdict {
@@ -276,7 +313,7 @@ struct ExtractFieldsSheet: View {
             case .needsReview: "Needs review"
             }
         let confidence = "\(Int((item.field.confidence * 100).rounded()))%"
-        let review = item.field.reviewed ? "Reviewed" : "Draft"
+        let review = item.field.reviewed ? (item.isEdited ? "Reviewed, edited" : "Reviewed") : "Draft"
         let stub = model.draft?.isStub == true ? " (STUB pseudo-confidence)" : ""
         return "\(verdict) · \(confidence)\(stub) · \(review)"
     }
@@ -311,6 +348,76 @@ struct ExtractFieldsSheet: View {
     private var isRunning: Bool {
         if case .running = model.phase { return true }
         return false
+    }
+}
+
+/// A field that failed a check (review L3 I8): its reasons first, the sentence it came from, and every value editable
+/// before "Accept". The reasons stay with the field and go into the SOAP hand-off with it.
+struct ReviewFieldSheet: View {
+    let item: DraftItem
+    let onAccept: ([String: String]) -> Void
+    let onCancel: () -> Void
+    @State private var values: [String: String]
+
+    init(item: DraftItem, onAccept: @escaping ([String: String]) -> Void, onCancel: @escaping () -> Void) {
+        self.item = item
+        self.onAccept = onAccept
+        self.onCancel = onCancel
+        _values = State(initialValue: Dictionary(uniqueKeysWithValues: item.editableFields.map { ($0.key, $0.value) }))
+    }
+
+    private var edited: Bool {
+        item.editableFields.contains { values[$0.key, default: ""] != $0.value }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Why it needs review") {
+                    ForEach(item.field.reviewReasons, id: \.self) { reason in
+                        Text(reason)
+                            .foregroundStyle(AppColor.error)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Section("What was said") {
+                    Text(ExtractFieldsSheet.evidence(item))
+                        .italic()
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section {
+                    ForEach(item.editableFields) { field in
+                        LabeledContent(field.label) {
+                            TextField(
+                                field.label,
+                                text: Binding(get: { values[field.key, default: ""] }, set: { values[field.key] = $0 })
+                            )
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        }
+                    }
+                } header: {
+                    Text("Correct it if needed")
+                } footer: {
+                    Text(
+                        "Accepting keeps these reasons with the field; the SOAP note hand-off lists them next to it. "
+                            + "Nothing leaves this iPhone.")
+                }
+            }
+            .navigationTitle(item.title.isEmpty ? "Review field" : item.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(edited ? "Accept edited" : "Accept anyway") { onAccept(values) }
+                        .accessibilityHint(
+                            edited ? "Marks the field reviewed with your changes" : "Marks the field reviewed as shown")
+                }
+            }
+        }
     }
 }
 

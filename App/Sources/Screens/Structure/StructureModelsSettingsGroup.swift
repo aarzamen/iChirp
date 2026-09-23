@@ -13,9 +13,9 @@ struct StructureModelsSettingsGroup: View {
         SettingsGroup(
             title: "Structure models",
             footer:
-                "Needle 3 turns dictated text into typed fields on this iPhone. Its answers are drafts: numbers are "
-                + "re-checked in code and every field waits for your review. The STUB is a rule-based stand-in, "
-                + "never a model."
+                "Needle 3 turns dictated text into typed fields on this iPhone. \(NeedleExperimental.sentence) "
+                + "Numbers are re-checked in code, only fields you reviewed go to a SOAP note, and the STUB is a "
+                + "rule-based stand-in, never a model."
         ) {
             if structure.needleInBuild {
                 ModelAssetRow(
@@ -42,8 +42,9 @@ struct StructureModelsSettingsGroup: View {
                 .labelsHidden()
             }
             SettingsRow(
-                title: "Voice commands (Needle)",
-                caption: "“New paragraph”, “scratch that”, “send to SOAP”… said as their own sentence. Off by default."
+                title: "Voice commands (experimental)",
+                caption: "“New paragraph”, “scratch that”, “send to SOAP”… said as their own sentence. Off by default. "
+                    + NeedleExperimental.commandChip + "."
             ) {
                 Toggle("Voice commands", isOn: $structure.settingsValue.voiceCommandsEnabled)
                     .labelsHidden()
@@ -115,19 +116,26 @@ struct StructureGateScreen: View {
                     footer:
                         "At or above Act, a field is shown solid; at or above Provisional, dashed; below, it waits in "
                         + "Needs review. A failed check (a number that does not trace to the transcript, out of range, a "
-                        + "spoken correction) always needs review. Every field stays a draft until you review it."
+                        + "spoken correction) always needs review. Every field stays a draft until you review it. "
+                        + "Act never goes below 70 and Provisional never below 50."
                 ) {
                     SettingsRow(title: "Act", caption: "Default 85") {
-                        Slider(value: $structure.settingsValue.actThreshold, in: 0.5...0.99, step: 0.01)
-                            .frame(width: 150)
+                        Slider(
+                            value: $structure.settingsValue.actThreshold, in: StructureSettings.actFloor...0.99,
+                            step: 0.01
+                        )
+                        .frame(width: 150)
                         Text("\(Int((structure.settingsValue.actThreshold * 100).rounded()))")
                             .chirpFont(15)
                             .monospacedDigit()
                             .frame(width: 30)
                     }
                     SettingsRow(title: "Provisional", caption: "Default 60") {
-                        Slider(value: $structure.settingsValue.provisionalThreshold, in: 0.3...0.95, step: 0.01)
-                            .frame(width: 150)
+                        Slider(
+                            value: $structure.settingsValue.provisionalThreshold,
+                            in: StructureSettings.provisionalFloor...0.95, step: 0.01
+                        )
+                        .frame(width: 150)
                         Text("\(Int((structure.settingsValue.provisionalThreshold * 100).rounded()))")
                             .chirpFont(15)
                             .monospacedDigit()

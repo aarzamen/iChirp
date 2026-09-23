@@ -2,6 +2,33 @@ import ChirpCore
 import Foundation
 import Observation
 
+/// Review L3 I10: Needle is **experimental** until its argument accuracy on `soap-meds.v1` reaches ADR-012's 0.9 bar.
+/// The numbers are the latest real eval (`docs/research/2026-09-22-needle-eval.md`); update them together with that
+/// file after every eval run. Every screen where Needle is used shows `chip` or `sentence`.
+public enum NeedleExperimental {
+    /// Needle 3, normalizer on: argument accuracy on the synthetic SOAP set.
+    public static let measuredArgumentAccuracy = 0.446
+    /// Needle 3: voice-command feature accuracy (phrase check and engine) on the synthetic command set.
+    public static let measuredCommandAccuracy = 0.567
+    public static let bar = 0.9
+    public static var isExperimental: Bool { measuredArgumentAccuracy < bar }
+
+    static func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+
+    /// "Experimental · 45% argument accuracy (synthetic eval)"
+    public static var chip: String {
+        "Experimental · \(percent(measuredArgumentAccuracy)) argument accuracy (synthetic eval)"
+    }
+    /// For voice commands.
+    public static var commandChip: String {
+        "Experimental · \(percent(measuredCommandAccuracy)) command accuracy (synthetic eval)"
+    }
+    public static var sentence: String {
+        "Experimental: Needle 3 got \(percent(measuredArgumentAccuracy)) of arguments right on the synthetic eval set "
+            + "(the bar is \(percent(bar))). Every field is a draft for your review."
+    }
+}
+
 /// Settings → Structure models: Needle's model file, the engine choice, the gate thresholds and voice commands.
 @MainActor @Observable public final class StructureSettingsViewModel {
     /// Saved on every change; a run reads the settings when it starts.
@@ -48,9 +75,11 @@ import Observation
         switch settingsValue.engine {
         case .stub: return "STUB: rules, not a model. Confidence is a rule-match strength."
         case .needle:
-            if !needleInBuild { return notInBuildMessage + " The STUB runs instead." }
-            return isNeedleReady
-                ? "Needle 3 on this iPhone (CPU)." : "Download Needle 3 below; the STUB runs until then."
+            if !needleInBuild { return notInBuildMessage + " The STUB runs instead. " + NeedleExperimental.sentence }
+            return
+                (isNeedleReady
+                ? "Needle 3 on this iPhone (CPU). " : "Download Needle 3 below; the STUB runs until then. ")
+                + NeedleExperimental.sentence
         }
     }
 

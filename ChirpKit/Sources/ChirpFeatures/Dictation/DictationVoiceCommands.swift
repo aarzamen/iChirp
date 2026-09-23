@@ -86,7 +86,7 @@ public struct VoiceCommandChip: Sendable, Equatable {
 
 /// The dictation coordinator's voice-command hooks. `DictationVoiceCommands` in the app; nil when unused.
 @MainActor public protocol DictationVoiceCommanding: AnyObject {
-    /// Called for a live "stop" command at the act threshold.
+    /// Kept for the coordinator's hook; since review L3 minor 6 a live "stop" only shows a chip and never calls it.
     var onLiveStop: (@MainActor () -> Void)? { get set }
     /// A new dictation starts.
     func reset()
@@ -130,12 +130,18 @@ public struct VoiceCommandChip: Sendable, Equatable {
 
     public var isEnabled: Bool { settings.load().voiceCommandsEnabled }
 
+    /// Review L3 minor 4: dictation is routed as clinical (the strictest class), so a voice command's words only ever
+    /// reach an on-device structure engine, whatever class the dictation is saved with later.
+    static let routingClass = PrivacyClass.clinical
+
     public func reset() {
         liveTask?.cancel()
         liveTask = nil
         chip = nil
         lastResult = nil
         readBackUnavailable = false
+        // Review L3 minor 7: a "send to SOAP" from the previous dictation never opens against the next one.
+        pendingTransform = nil
     }
 
     public func observeLive(_ text: String) {
@@ -151,17 +157,19 @@ public struct VoiceCommandChip: Sendable, Equatable {
 
     private func checkLive(_ text: String) async {
         let resolver = await makeResolver()
-        guard let match = await resolver.liveCommand(in: text), !Task.isCancelled else { return }
+        guard let match = await resolver.liveCommand(in: text, privacyClass: Self.routingClass), !Task.isCancelled
+        else { return }
+        // Review L3 minor 6 (plan 015 Step 7): the live check is chip-only. A live "stop" never ends the recording
+        // (a false positive would lose the words said after it); the final pass still applies a spoken "stop".
         chip = VoiceCommandChip(
             command: match.command, title: Self.title(for: match.command), confidence: match.confidence,
             isStub: match.engineID == StubStructureModel.engineID)
-        if match.command == "stop" { onLiveStop?() }
     }
 
     public func applyToFinalPass(_ text: String) async -> VoiceCommandResult {
         liveTask?.cancel()
         guard isEnabled else { return .unchanged(text) }
-        let result = await makeResolver().resolve(text)
+        let result = await makeResolver().resolve(text, privacyClass: Self.routingClass)
         lastResult = result
         return result
     }
@@ -182,6 +190,15 @@ public struct VoiceCommandChip: Sendable, Equatable {
                 pendingTransform = PendingDictationTransform(transcriptionID: transcriptionID, target: .picker)
             }
         }
+    }
+
+    /// The Done screen's line: what the final pass applied and which engine confirmed it (review L3 minor 8: STUB, or
+    /// Needle's experimental label). Nil when nothing was applied.
+    public var appliedSummary: String? {
+        guard let result = lastResult, !result.applied.isEmpty else { return nil }
+        let names = result.applied.map { Self.title(for: $0.command) }.joined(separator: ", ")
+        let byStub = result.applied.contains { $0.engineID == StubStructureModel.engineID }
+        return "Voice commands applied (\(byStub ? "STUB, rules" : NeedleExperimental.commandChip)): \(names)"
     }
 
     /// The Dictating screen opened (or dismissed) the pending Transform.

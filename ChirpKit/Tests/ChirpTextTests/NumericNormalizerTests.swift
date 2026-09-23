@@ -137,6 +137,116 @@ final class NumericNormalizerTests: XCTestCase {
         XCTAssertEqual(NumericNormalizer.normalize(text), first)
     }
 
+    // MARK: - Review L3 C1: spoken hundreds, rate and weight-based units
+
+    func testSpokenHundredsBeforeADoseUnitIsTheWholeNumberNeverItsTail() throws {
+        let cases: [(String, Double, String, String)] = [
+            ("Takes levothyroxine one twenty-five micrograms daily.", 125, "mcg", "one twenty-five micrograms"),
+            ("Levothyroxine one twelve micrograms.", 112, "mcg", "one twelve micrograms"),
+            ("Levothyroxine one seventy-five mcg daily.", 175, "mcg", "one seventy-five mcg"),
+            ("Amoxicillin two fifty milligrams.", 250, "mg", "two fifty milligrams"),
+        ]
+        for (text, value, unit, source) in cases {
+            let result = NumericNormalizer.normalize(text)
+            let doses = result.tags.filter { $0.kind == .dose }
+            XCTAssertEqual(doses.count, 1, text)
+            let dose = try XCTUnwrap(doses.first, text)
+            XCTAssertEqual(dose.value, value, text)
+            XCTAssertEqual(dose.unit, unit, text)
+            XCTAssertEqual(dose.sourceText, source, "the evidence is the whole phrase: \(text)")
+            XCTAssertTrue(dose.needsReview, "spoken hundreds could be one 25 mcg tablet: review. \(text)")
+        }
+    }
+
+    func testANumberRightBeforeADoseIsCarriedIntoTheTagAndFlagged() throws {
+        let result = NumericNormalizer.normalize("Take one 25 microgram tablet.")
+        let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose })
+        XCTAssertEqual(dose.sourceText, "one 25 microgram")
+        XCTAssertTrue(dose.needsReview)
+        XCTAssertEqual(result.tagged, "Take dose_1 tablet.")
+    }
+
+    func testRateAndWeightBasedUnitsAreKeptWholeAndFlagged() throws {
+        let cases: [(String, String, String, String)] = [
+            ("Ketamine 0.3 mg per kg IV.", "0.3 mg/kg", "mg/kg", "0.3 mg per kg"),
+            ("Ketamine 0.3 mg/kg IV.", "0.3 mg/kg", "mg/kg", "0.3 mg/kg"),
+            ("Ketamine 20 mg per hour.", "20 mg/h", "mg/h", "20 mg per hour"),
+            ("Norepinephrine 0.1 mcg/kg/min.", "0.1 mcg/kg/min", "mcg/kg/min", "0.1 mcg/kg/min"),
+            ("Tranexamic acid one gram an hour.", "1 g/h", "g/h", "one gram an hour"),
+            (
+                "Heparin 18 units per kilogram per hour.", "18 units/kg/h", "units/kg/h",
+                "18 units per kilogram per hour"
+            ),
+        ]
+        for (text, display, unit, source) in cases {
+            let result = NumericNormalizer.normalize(text)
+            let dose = try XCTUnwrap(result.tags.first { $0.kind == .dose }, text)
+            XCTAssertEqual(dose.display, display, text)
+            XCTAssertEqual(dose.unit, unit, text)
+            XCTAssertEqual(dose.sourceText, source, text)
+            XCTAssertTrue(dose.needsReview, "a weight- or time-based dose always needs review: \(text)")
+        }
+    }
+
+    func testUnknownWordsAfterPerAreFlaggedButARouteIsNot() throws {
+        let odd = try XCTUnwrap(NumericNormalizer.normalize("Morphine 2 mg per protocol.").tags.first)
+        XCTAssertEqual(odd.sourceText, "2 mg per protocol")
+        XCTAssertTrue(odd.needsReview)
+        let route = try XCTUnwrap(NumericNormalizer.normalize("Amoxicillin 500 mg per mouth.").tags.first)
+        XCTAssertEqual(route.sourceText, "500 mg")
+        XCTAssertFalse(route.needsReview)
+    }
+
+    // MARK: - Review L3 C2: every self-correction near a quantity needs review
+
+    func testAUnitOnlyCorrectionRebuildsTheQuantityAndFlagsIt() throws {
+        let result = NumericNormalizer.normalize("Fentanyl five hundred micrograms, sorry, milligrams.")
+        XCTAssertEqual(result.tagged, "Fentanyl dose_1.")
+        let dose = try XCTUnwrap(result.tag(named: "dose_1"))
+        XCTAssertEqual(dose.value, 500)
+        XCTAssertEqual(dose.unit, "mg")
+        XCTAssertEqual(dose.sourceText, "five hundred micrograms, sorry, milligrams")
+        XCTAssertTrue(dose.needsReview)
+    }
+
+    func testABareNumberCorrectionOfADoseIsNotAFullValueSoTheTagHoldsNoAmount() throws {
+        let result = NumericNormalizer.normalize("Ketorolac fifty milligrams, no, five.")
+        XCTAssertEqual(result.tagged, "Ketorolac dose_1.")
+        let dose = try XCTUnwrap(result.tag(named: "dose_1"))
+        XCTAssertNil(dose.value, "neither 50 (taken back) nor 5 (no unit) was fully stated")
+        XCTAssertEqual(dose.sourceText, "fifty milligrams, no, five")
+        XCTAssertTrue(dose.needsReview)
+    }
+
+    func testABareNumberCorrectionOfAVitalKeepsTheCorrectedValueFlagged() throws {
+        let rate = try XCTUnwrap(NumericNormalizer.normalize("Pulse 76, no, 86.").tags.first)
+        XCTAssertEqual(rate.value, 86)
+        XCTAssertEqual(rate.unit, "/min")
+        XCTAssertTrue(rate.needsReview)
+    }
+
+    func testAnyCorrectionWordNextToAQuantityFlagsIt() {
+        for text in [
+            "Morphine 4 mg, sorry.", "Give 50 mg, scratch that.", "Pulse 76, I mean, roughly.",
+            "Correction: 5 mg of morphine.", "Morphine, I mean, 4 mg.", "Ondansetron 4 mg, wait, IV.",
+        ] {
+            let tags = NumericNormalizer.normalize(text).tags
+            XCTAssertFalse(tags.isEmpty, text)
+            XCTAssertTrue(tags.allSatisfy(\.needsReview), text)
+        }
+    }
+
+    // MARK: - Review L3 I3: a vital's name does not reach across a clause
+
+    func testARateWordDoesNotTagADrugStrengthAsAVital() {
+        for text in [
+            "Heart rate 110 on metoprolol 25.", "Heart rate 110, metoprolol 25.", "Pulse 110 and metoprolol 25.",
+        ] {
+            let rates = NumericNormalizer.normalize(text).tags.filter { $0.kind == .rate }
+            XCTAssertEqual(rates.map(\.display), ["110/min"], text)
+        }
+    }
+
     func testFormat() {
         XCTAssertEqual(NumericNormalizer.format(50), "50")
         XCTAssertEqual(NumericNormalizer.format(0.5), "0.5")

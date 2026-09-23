@@ -8,8 +8,9 @@ Plan: [015](../../../docs/plans/2026-09-22-015-m6-structure-models.md).
 ## How the runtime gets in
 
 `scripts/build_needle.sh` clones needle-rs at the pinned commit into `vendor/needle-rs`, builds `needle-c` as a
-static library for `aarch64-apple-ios`, `aarch64-apple-ios-sim` and `aarch64-apple-darwin`, and packages
-`vendor/NeedleC.xcframework` (header + module map). All of `vendor/` is gitignored. `ChirpKit/Package.swift` adds the
+static library for `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios` and `aarch64-apple-darwin`,
+lipos the two simulator builds into one `ios-arm64_x86_64-simulator` slice (CI's `generic/platform=iOS Simulator`
+build links x86_64 too), and packages `vendor/NeedleC.xcframework` (header + module map). All of `vendor/` is gitignored. `ChirpKit/Package.swift` adds the
 `NeedleC` binary target only when that folder exists; this target always builds, and without the runtime every call
 throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scripts/build_needle.sh").
 
@@ -22,7 +23,9 @@ throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scr
 
 - `NeedleCModel.swift`: `NeedleRuntimeInfo` (the pinned commit, whether the runtime is linked) and `NeedleCModel`, a
   thin synchronous wrapper over `needle_v3_load`, `needle_v3_generate`, `needle_v3_confidence_for`,
-  `needle_free_str` and `needle_last_error`. Not thread-safe; only the runtime actor owns one.
+  `needle_free_str` and `needle_last_error`. Not thread-safe; only the runtime actor owns one. `needle_v3_has_confidence`
+  is read once at load: a model without a head throws `.noConfidenceHead`, and a failed score on a model with one
+  throws `.confidenceFailed` with `needle_last_error`.
 - `NeedleRuntime.swift`: `NeedleInferring` (load, unload, complete), the `NeedleRuntime` actor (one model per
   process, on its own serial queue so a multi-second generation never blocks Swift's cooperative pool; one
   constrained greedy generation, then the confidence head over the completion) and `NeedleToolCallParser` (port of

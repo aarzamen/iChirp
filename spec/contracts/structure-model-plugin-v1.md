@@ -34,7 +34,8 @@ clinical number without review, or mistake a deliberate "no tool fits" for a fai
   none. It is a decision, never an error. A generation with no tool call at all throws
   `StructureModelError.noToolCall`.
 - **`confidence`** is in 0…1 and scores the finished answer (Needle: the confidence head over prompt + completion,
-  never the bare query). The STUB's is a rule-match strength and is labelled a pseudo-confidence.
+  never the bare query). The STUB's is a rule-match strength and is labelled a pseudo-confidence; on `soap-meds` it
+  is at most 0.84 and a STUB field is never `act`, whatever the gate's thresholds (review L3 I6).
 - **`modelSHA256`** is the model file's SHA-256 (Needle: the pinned `needle3.cact` hash); nil for the STUB. It is
   stored with every result.
 - **Privacy:** callers route first. Clinical text only ever reaches a structure engine whose locality is

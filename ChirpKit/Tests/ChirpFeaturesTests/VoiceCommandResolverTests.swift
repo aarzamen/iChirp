@@ -78,6 +78,73 @@ final class VoiceCommandResolverTests: XCTestCase {
             ["A 2.5 mg dose.", "New line.", "Next?", "Yes!"])
     }
 
+    // MARK: - Review L3 I9: abbreviations do not end a sentence
+
+    func testScratchThatRetractsTheWholeOrderSentenceWithDosingAbbreviations() async {
+        let order = await resolve("Start amoxicillin 500 mg p.o. t.i.d. Scratch that.")
+        XCTAssertEqual(order.text, "", "the whole order is retracted, not just “t.i.d.”")
+        let kept = await resolve(
+            "Patient seen. Start amoxicillin 500 mg p.o. t.i.d. Scratch that. Recheck in two weeks.")
+        XCTAssertEqual(kept.text, "Patient seen. Recheck in two weeks.")
+        let doctor = await resolve("Discussed with Dr. Lee vs. watchful waiting. Scratch that.")
+        XCTAssertEqual(doctor.text, "")
+        let units = await resolve(
+            "Metoprolol 25 mg. b.i.d. with food. Scratch that. Aspirin 81 mg q.d. New line. Done.")
+        XCTAssertEqual(units.text, "Aspirin 81 mg q.d.\nDone.")
+    }
+
+    func testSentenceSplitterKeepsAbbreviations() {
+        XCTAssertEqual(
+            VoiceCommandResolver.sentences(in: "Start amoxicillin 500 mg p.o. t.i.d. Scratch that."),
+            ["Start amoxicillin 500 mg p.o. t.i.d.", "Scratch that."])
+        XCTAssertEqual(
+            VoiceCommandResolver.sentences(in: "Seen by Dr. Lee today. Plan approx. two weeks, e.g. Monday."),
+            ["Seen by Dr. Lee today.", "Plan approx. two weeks, e.g. Monday."])
+        XCTAssertEqual(
+            VoiceCommandResolver.sentences(in: "Take 5 mg. Then stop. Give 2 tabs. q.d. dosing."),
+            ["Take 5 mg.", "Then stop.", "Give 2 tabs. q.d. dosing."])
+    }
+
+    // MARK: - Review L3 minors 6, 7, 8
+
+    @MainActor
+    func testALiveStopIsAChipOnlyAResetClearsAPendingSendAndTheDoneLineNamesTheStub() async throws {
+        var settings = StructureSettings()
+        settings.voiceCommandsEnabled = true
+        settings.engine = .stub
+        let commands = DictationVoiceCommands(
+            settings: InMemoryStructureSettingsStore(settings),
+            engines: StructureEngines(needle: nil, needleAvailability: { .unavailable("x") }), pauseSeconds: 0)
+        var stopped = false
+        commands.onLiveStop = { stopped = true }
+        commands.observeLive("Patient is well. Stop dictation")
+        for _ in 0..<200 where commands.chip == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(commands.chip?.command, "stop")
+        XCTAssertFalse(stopped, "the live check is chip-only: the person keeps talking, nothing is lost")
+
+        commands.perform([.sendToSOAP], copiedText: "Synthetic.", transcriptionID: UUID())
+        commands.reset()
+        XCTAssertNil(commands.pendingTransform, "a new dictation never opens the previous one's send-to sheet")
+
+        _ = await commands.applyToFinalPass("Plan as discussed. New paragraph. Recheck.")
+        XCTAssertTrue(commands.appliedSummary?.contains("STUB") ?? false, commands.appliedSummary ?? "nil")
+    }
+
+    @MainActor
+    func testDictationCommandWordsNeverReachAnEngineOffThePhone() async {
+        var settings = StructureSettings()
+        settings.voiceCommandsEnabled = true
+        settings.engine = .needle
+        let cloud = RecordingStructureModel(
+            locality: .cloud, reply: #"[{"name":"new_paragraph","arguments":{}}]"#, confidence: 0.99)
+        let commands = DictationVoiceCommands(
+            settings: InMemoryStructureSettingsStore(settings),
+            engines: StructureEngines(needle: cloud, needleAvailability: { .ready }))
+        let result = await commands.applyToFinalPass("First. New paragraph. Second.")
+        XCTAssertEqual(result.text, "First. New paragraph. Second.")
+        XCTAssertEqual(cloud.callCount, 0, "review L3 minor 4: dictation routes as clinical")
+    }
+
     func testReadBackUsesTheSpeakerAndSendToOpensTransform() async {
         let speaker = RecordingSpeaker()
         var settings = StructureSettings()
