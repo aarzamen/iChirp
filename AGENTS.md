@@ -191,3 +191,8 @@ equivalent (see the pipeline map, section 10). Update the provenance SHA when yo
 
 Milestones M0–M8 and their status: [`spec/README.md#milestones`](spec/README.md#milestones). Executor plans and
 the status board: [`docs/plans/README.md`](docs/plans/README.md). Before executing a plan, run its drift check.
+
+<!-- apple-developer-kit:pointer:start -->
+## Apple signing — read `APPLE_DEVELOPER_WARNING.md` first
+Team ID is `XM6E4PUXTU` (paid membership; `434HG698U6` is a certificate ID, not a team). Do not change signing, certificates, profiles, App IDs, or run `-allowProvisioningUpdates` without the user's explicit OK. Canonical facts: `~/apple-developer-kit/APPLE_DEVELOPER_ACCOUNT.md`.
+<!-- apple-developer-kit:pointer:end -->
