@@ -157,9 +157,10 @@ equivalent (see the pipeline map, section 10). Update the provenance SHA when yo
 
 ## 7. Review and commit
 
-- **Branch first**, from the branch that owns the work; one worktree per parallel lane. `main` and
-  `ichirp/foundation` were made equal at `afc1f354` (2026-09-22); new work branches from `ichirp/foundation` (the
-  integration branch), which lands on `main` when the owner asks for a push.
+- **`main` is the working branch** (since 2026-10-01). Lanes branch from `main`, one worktree each, and merge back
+  into `main` locally; `main` reaches GitHub only when the owner asks for a push. `ichirp/foundation`, the old
+  integration branch, was fast-forwarded into `main` at `47eeefb1` and is retired: never branch from or merge into
+  it. Lanes cut from it earlier merge into `main` as they are.
 - **The repository is public** (github.com/aarzamen/iChirp, since 2026-09-22). Never commit credentials, device
   identifiers, a literal Team ID in code or config (it comes from the environment or the gitignored
   `Config/Signing.local.xcconfig`), personal contact details, recordings or PHI. Run `scripts/scan_secrets.sh`

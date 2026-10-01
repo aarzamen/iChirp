@@ -66,7 +66,7 @@ These are settled. Change one only through a dated ADR amendment approved by the
 
 | Channel | Status | Notes |
 |---|---|---|
-| `main` (development source, public on GitHub) | Unreleased | Work lands on the `ichirp/foundation` integration branch first and reaches `main` when the owner asks for a push (M0/M1 did at `afc1f354`, 2026-09-22). A source revision is not a release. |
+| `main` (development source, public on GitHub) | Unreleased | The working branch: lanes branch from `main` and merge back locally, and `main` reaches GitHub when the owner asks for a push. Until 2026-10-01 work landed on the `ichirp/foundation` integration branch first; it was fast-forwarded into `main` at `47eeefb1` and retired. A source revision is not a release. |
 | Developer device build | Owner's iPhone only | Installed with `scripts/run_device.sh` from whatever commit was checked out. Identify it in Settings → About (version, build, commit, branch, date). |
 | Sideload build (IPA) | none yet | `scripts/build_ipa.sh` can produce one. When an IPA is first installed through SideStore, record its version (build) and commit here. |
 
