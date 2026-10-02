@@ -43,7 +43,9 @@
   formats before a row exists.
 - `Links/PodcastEpisodeResolver.swift`: port of upstream's resolver. The iTunes lookup
   (`lookup?id=<show>&entity=podcastEpisode&limit=200`) matches an episode link's `?i=` against `trackId`; an episode
-  older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug; a show link takes the
+  older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug (exactly, else by a
+  prefix that ends on a word boundary: the longest wins, a title under half the slug or a tie matches nothing, so a
+  wrong episode is never picked); a show link takes the
   latest episode; `latestEpisode(inFeed:)` serves feed links. Only the show id (and Apple's feed URL) is requested.
 - `Links/YouTubeCaptionFetcher.swift`: captions by the youtube-transcript-api method (credited, re-implemented): watch
   page → `INNERTUBE_API_KEY` (passing the consent page with a one-request cookie) → `/youtubei/v1/player` as the

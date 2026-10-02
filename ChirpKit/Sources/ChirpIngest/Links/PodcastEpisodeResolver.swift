@@ -1,9 +1,10 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Services/PodcastEpisodeResolver.swift @ bbae9e0e
 // Changes: requests go through `IngestHTTPClient` (ephemeral session, readable network errors) instead of
 // `URLSession.shared`; an episode missing from the show's lookup (older than its latest 200) falls back to the RSS
-// feed, matched by the share link's title slug (`PodcastEpisodeMatcher.findByTitle` semantics on slugs); a show whose
-// lookup lists no episode also falls back to the feed; `latestEpisode(inFeed:)` serves plain feed links; an episode
-// whose audio iOS cannot decode (Ogg, Opus, WebM) is refused with `MediaDownloadError.unsupportedFormat`.
+// feed, matched by the share link's title slug (`PodcastEpisodeMatcher.findByTitle` semantics on slugs, narrowed:
+// a prefix match must end on a word boundary, the longest wins, and ties or very short titles match nothing); a show
+// whose lookup lists no episode also falls back to the feed; `latestEpisode(inFeed:)` serves plain feed links; an
+// episode whose audio iOS cannot decode (Ogg, Opus, WebM) is refused with `MediaDownloadError.unsupportedFormat`.
 
 import ChirpCore
 import Foundation
@@ -176,17 +177,39 @@ public struct PodcastEpisodeResolver: PodcastResolving {
 
     // MARK: - Matching
 
-    /// The feed episode whose title slugs to `slug` (exactly, else by prefix either way: Apple shortens long slugs).
+    /// The feed episode whose title slugs to `slug`: exactly, else by a prefix either way (Apple shortens long slugs)
+    /// that ends on a word boundary ("ep-1" never matches "ep-12-…"). The longest shared prefix wins; a feed title
+    /// shorter than half the link's slug ("Bonus" for "bonus-interview-x") is no match, and two equally good matches
+    /// are none: a clear "episode not found" is better than transcribing the wrong episode.
     static func findBySlug(_ episodes: [PodcastFeedEpisode], slug: String) -> PodcastFeedEpisode? {
         let target = slugify(slug)
         guard !target.isEmpty else { return nil }
         if let exact = episodes.first(where: { slugify($0.title) == target }) {
             return exact
         }
-        return episodes.first { episode in
-            let candidate = slugify(episode.title)
-            return !candidate.isEmpty && (candidate.hasPrefix(target) || target.hasPrefix(candidate))
+        var best: (episode: PodcastFeedEpisode, shared: Int)?
+        var tied = false
+        for episode in episodes {
+            guard let shared = boundaryPrefixLength(slugify(episode.title), target) else { continue }
+            if let current = best, shared <= current.shared {
+                if shared == current.shared { tied = true }
+                continue
+            }
+            best = (episode, shared)
+            tied = false
         }
+        return tied ? nil : best?.episode
+    }
+
+    /// The length of the shorter slug when it is the longer one's prefix up to a "-"; nil otherwise, and nil when the
+    /// feed title is the shorter and covers less than half the link's slug.
+    static func boundaryPrefixLength(_ candidate: String, _ target: String) -> Int? {
+        guard !candidate.isEmpty else { return nil }
+        if candidate.count < target.count {
+            guard target.hasPrefix(candidate + "-"), candidate.count * 2 >= target.count else { return nil }
+            return candidate.count
+        }
+        return candidate.hasPrefix(target + "-") ? target.count : nil
     }
 
     /// Lowercased ASCII letters and digits joined by single dashes, the way Apple builds share-link slugs:

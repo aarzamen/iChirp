@@ -179,6 +179,35 @@ final class PodcastEpisodeResolverTests: XCTestCase {
         }
     }
 
+    /// Review R2-10: the RSS fallback matches a shortened slug only at a word boundary, prefers the longest match,
+    /// refuses a feed title much shorter than the link's slug, and refuses to guess between equal matches.
+    func testSlugFallbackMatchesOnlyAtAWordBoundary() {
+        func episode(_ title: String) -> PodcastFeedEpisode {
+            let slug = PodcastEpisodeResolver.slugify(title)
+            return PodcastFeedEpisode(title: title, audioURL: "https://cdn.example.com/\(slug).mp3")
+        }
+        let numbered = [episode("Ep 1"), episode("Ep 12: Synthetic Interview")]
+        XCTAssertEqual(
+            PodcastEpisodeResolver.findBySlug(numbered, slug: "ep-12-synthetic")?.title, "Ep 12: Synthetic Interview")
+        XCTAssertNil(
+            PodcastEpisodeResolver.findBySlug([episode("Ep 1")], slug: "ep-12-synthetic-interview"),
+            "\"ep-1\" is not a word-boundary prefix of \"ep-12-…\"")
+        XCTAssertNil(
+            PodcastEpisodeResolver.findBySlug([episode("Bonus")], slug: "bonus-interview-x"),
+            "a feed title less than half the link's slug is no match")
+        let bonus = [episode("Bonus"), episode("Bonus Interview X with a Synthetic Guest")]
+        XCTAssertEqual(
+            PodcastEpisodeResolver.findBySlug(bonus, slug: "bonus-interview-x")?.title,
+            "Bonus Interview X with a Synthetic Guest", "Apple's shortened slug still finds the long title")
+        let longer = [episode("Synthetic Show Notes"), episode("Synthetic Show Notes Part")]
+        XCTAssertEqual(
+            PodcastEpisodeResolver.findBySlug(longer, slug: "synthetic-show-notes-part-two")?.title,
+            "Synthetic Show Notes Part", "the longest shared prefix wins")
+        let twins = [episode("Synthetic Part 1"), episode("Synthetic Part 2")]
+        XCTAssertNil(
+            PodcastEpisodeResolver.findBySlug(twins, slug: "synthetic-part"), "two equal matches: no guess")
+    }
+
     func testSlugify() {
         XCTAssertEqual(PodcastEpisodeResolver.slugify("Ep. 12: Synthetic & Co!"), "ep-12-synthetic-co")
         XCTAssertEqual(PodcastEpisodeResolver.slugify("Café résumé"), "cafe-resume")
