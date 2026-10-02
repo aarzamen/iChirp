@@ -101,8 +101,8 @@ final class TranscriptCorrectionsTourUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         shot("revert-all-dialog")
         confirm.tap()
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'No corrections'")).firstMatch
-            .waitForExistence(timeout: 5))
+        let empty = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'No corrections'")).firstMatch
+        XCTAssertTrue(empty.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 3), "the sheet offers its own Undo")
         shot("corrections-reverted-undo")
         app.buttons["Done"].firstMatch.tap()
