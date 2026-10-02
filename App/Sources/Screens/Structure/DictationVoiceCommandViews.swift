@@ -123,6 +123,8 @@ struct VoiceCommandTesterScreen: View {
     @State private var checkedLive = false
     @State private var result: VoiceCommandResult?
     @State private var engineName = ""
+    /// The rules engine answered (R6b-19: from the engine's id, not the wording of `engineName`).
+    @State private var engineIsStub = false
 
     var body: some View {
         ScrollView {
@@ -135,15 +137,15 @@ struct VoiceCommandTesterScreen: View {
                 .foregroundStyle(Tokens.Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 StatusChip(
-                    engineName, icon: .system(engineName.hasPrefix("STUB") ? "wrench.adjustable" : "cpu"),
-                    ink: engineName.hasPrefix("STUB") ? Tokens.Color.partialAudioInk : Tokens.Color.privacyBadgeInk,
-                    fill: engineName.hasPrefix("STUB") ? Tokens.Color.partialAudioFill : Tokens.Color.privacyBadgeFill)
+                    engineName, icon: .system(engineIsStub ? "wrench.adjustable" : "cpu"),
+                    ink: engineIsStub ? Tokens.Color.partialAudioInk : Tokens.Color.privacyBadgeInk,
+                    fill: engineIsStub ? Tokens.Color.partialAudioFill : Tokens.Color.privacyBadgeFill)
 
                 SectionLabel("Live preview")
-                TextField("What the live preview shows", text: $liveText, axis: .vertical)
+                ChirpTextField("What the live preview shows", text: $liveText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Tokens.Color.night)
+                    RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous).fill(Tokens.Color.night)
                     if let chip {
                         VoiceCommandChipView(chip: chip).padding(12)
                     } else {
@@ -156,7 +158,7 @@ struct VoiceCommandTesterScreen: View {
                 .frame(minHeight: 60)
 
                 SectionLabel("Final pass")
-                TextField("What the final pass says", text: $finalPass, axis: .vertical)
+                ChirpTextField("What the final pass says", text: $finalPass, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                 if let result {
                     Text("Copied text")
@@ -167,7 +169,7 @@ struct VoiceCommandTesterScreen: View {
                         .foregroundStyle(Tokens.Color.ink)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CardBackground(radius: 14))
+                        .background(CardBackground(radius: Tokens.Radius.s))
                     Text(summary(result))
                         .chirpFont(12.5)
                         .foregroundStyle(Tokens.Color.secondary)
@@ -212,8 +214,9 @@ struct VoiceCommandTesterScreen: View {
     private func run() async {
         let settings = environment.structureSettings.settingsValue
         let (engine, fallback) = await environment.structureEngines.resolve(settings.engine)
+        engineIsStub = engine.descriptor.id == StubStructureModel.engineID
         engineName =
-            engine.descriptor.id == StubStructureModel.engineID
+            engineIsStub
             ? "STUB · rules, not Needle" + (fallback.map { " · \($0)" } ?? "")
             : "\(engine.descriptor.displayName) · \(NeedleExperimental.commandChip)"
         let resolver = VoiceCommandResolver(engine: engine, gate: settings.gate)

@@ -8,6 +8,12 @@ import SwiftUI
 /// One generated document from the Transforms tab: title and privacy class, Edit by voice and Versions, the editable
 /// text, then where it came from under "Details" (template and version, provider, model, where it ran; UX audit F34),
 /// Copy, Share (PDF, Word, Text, Voice message…) and Delete (with confirmation).
+///
+/// Plan 024 Task 10: the title is what the document was made from, with the template as its type badge, as on the
+/// Library row (R7-6); the privacy badge is the class the rules use, raised by its transcript (K4), as the Library row
+/// shows it; Edit by voice and Versions share the Formatted | Edit row, so the text starts near the top (R7-6); a
+/// document the model cut off offers "Make it again" (a new document from the same template and transcript; the cut-off
+/// one stays).
 struct DeliverableDetailScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -16,7 +22,11 @@ struct DeliverableDetailScreen: View {
     @State private var document: DeliverableDocumentViewModel
     @State private var shareText: ShareText?
     @State private var confirmingDelete = false
-    @State private var copied = false
+    @State private var copied = CopyFeedback()
+    /// The class the privacy rules use for this document (K4); nil until read.
+    @State private var effectiveClass: PrivacyClass?
+    /// "Make it again" for a document the model cut off.
+    @State private var remaking: Deliverable?
     @State private var deleteError: String?
     /// Plan 022: Share → Voice message… (the same place and words as on transcripts and documents; UX audit F37).
     @State private var voiceMessage: VoiceMessageJob?
@@ -38,22 +48,27 @@ struct DeliverableDetailScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let deliverable = document.deliverable {
-                    Text(deliverable.title)
+                    // R7-6: what it was made from leads, as on the Library row; the template is the type badge.
+                    Text(sourceTitle(deliverable))
                         .chirpTitleFont(24, .heavy)
                         .foregroundStyle(Tokens.Color.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
-                    PrivacyClassBadge(privacyClass: deliverable.privacyClass)
+                        .accessibilityLabel("\(deliverable.title) from \(sourceTitle(deliverable))")
+                    badges(deliverable)
                     if deliverable.privacyClass == .clinical {
                         ClinicalDraftNote()
                     }
                     if let notice = document.cutOffNotice {
-                        // Plan 024 Task 8: no rerun from here; the Transform tab makes it again, or edit it by hand.
+                        // Plan 024 Task 10: a real try-again. It makes a new document; this one stays as it is.
                         CutOffNote(
-                            message: notice + " Make it again from its transcript, or finish it by hand.")
+                            message: notice + " Make it again from its transcript, or finish it by hand.",
+                            tryAgainTitle: "Make it again"
+                        ) { remaking = deliverable }
+                        .accessibilityHint("Runs the same template on the same transcript; this document stays")
                     }
-                    editActions
-                    DocumentEditor(document: document)
-                        .frame(minHeight: 360)
+                    DocumentEditor(document: document, accessory: AnyView(editButtons))
+                        .frame(minHeight: 360, alignment: .top)
                     if let error = document.saveError {
                         Text("Couldn’t save your edit: \(error)")
                             .chirpFont(12)
@@ -64,7 +79,7 @@ struct DeliverableDetailScreen: View {
                         DeliverableMetadataCard(
                             rows: Self.metadata(
                                 deliverable, versionNumber: document.templateVersionNumber,
-                                sourceTitle: sourceTitle(deliverable))
+                                sourceTitle: sourceTitle(deliverable), effectiveClass: effectiveClass)
                         )
                         .padding(.top, 8)
                     } label: {
@@ -95,19 +110,17 @@ struct DeliverableDetailScreen: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 // Plan 020: reads the text as edited now.
-                ListenToolbarButton(
-                    source: .deliverable(id: id), privacyClass: document.deliverable?.privacyClass ?? .clinical
-                ) { document.draft }
+                ListenToolbarButton(source: .deliverable(id: id), privacyClass: shownClass ?? .clinical) {
+                    document.draft
+                }
                 Button {
                     // UX audit F23: clean plain text on the clipboard, not raw `**`/`##` (PlainTextFlattener).
                     LocalPasteboard.copy(PlainTextFlattener.flatten(document.draft))
-                    copied = true
-                    Task {
-                        try? await Task.sleep(for: .seconds(1.5))
-                        copied = false
-                    }
+                    copied.flash()
                 } label: {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(
+                        copied.isShowing ? "Copied" : "Copy", systemImage: copied.isShowing ? "checkmark" : "doc.on.doc"
+                    )
                 }
                 // One Share order on every screen: PDF, Word, Text, Voice message… (UX audit F37, F54).
                 Menu {
@@ -139,7 +152,10 @@ struct DeliverableDetailScreen: View {
             }
         }
         .disabled(document.deliverable == nil && !document.isDeleted && document.loadError == nil)
-        .task { await document.load() }
+        .task {
+            await document.load()
+            await refreshEffectiveClass()
+        }
         .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
         .sheet(item: $shareFile) { item in
             ActivityView(items: [item.url])
@@ -156,6 +172,11 @@ struct DeliverableDetailScreen: View {
         }
         .sheet(isPresented: $isEditingByVoice) {
             EditByVoiceSheet(document: document, environment: environment, onSaved: reloadAfterNewVersion)
+        }
+        .sheet(item: $remaking, onDismiss: reloadAfterNewVersion) { original in
+            TransformSheet(
+                transcriptionID: original.transcriptionID, transcriptTitle: sourceTitle(original),
+                privacyClass: shownClass ?? .clinical, environment: environment, repeating: original)
         }
         .sheet(isPresented: $isShowingVersions) {
             DocumentVersionsSheet(
@@ -182,45 +203,57 @@ struct DeliverableDetailScreen: View {
         }
     }
 
-    /// Plan 022 Step 4: Edit by voice (a new version, never an overwrite) and the version list; stacked when they do
-    /// not fit side by side (large text).
-    private var editActions: some View {
+    /// The template as the type badge and the class the rules use, side by side or stacked (large text): the Library
+    /// row's two badges (R7-6, K4).
+    private func badges(_ deliverable: Deliverable) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                editButtons
-                Spacer(minLength: 0)
-            }
-            VStack(alignment: .leading, spacing: 8) { editButtons }
+            HStack(spacing: 6) { badgeItems(deliverable) }
+            VStack(alignment: .leading, spacing: 4) { badgeItems(deliverable) }
         }
     }
 
-    @ViewBuilder private var editButtons: some View {
-        Button {
-            isEditingByVoice = true
-        } label: {
-            Label("Edit by voice", systemImage: "mic.fill")
-                .chirpFont(14, .bold)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 44)  // UX audit F36
-                .background(Capsule().fill(Tokens.Color.accentFill))
-                .contentShape(Capsule())
+    @ViewBuilder private func badgeItems(_ deliverable: Deliverable) -> some View {
+        DocumentTypeBadge(title: deliverable.title)
+        PrivacyClassBadge(privacyClass: shownClass ?? deliverable.privacyClass)
+    }
+
+    /// The badge's class: the document's own, raised by its transcript's effective class once read (K4).
+    private var shownClass: PrivacyClass? {
+        guard let stored = document.deliverable?.privacyClass else { return effectiveClass }
+        return stored.stricter(effectiveClass)
+    }
+
+    private func refreshEffectiveClass() async {
+        effectiveClass = await DocumentPrivacy.effectiveClass(of: id, environment: environment)
+    }
+
+    /// Plan 022 Step 4: Edit by voice (a new version, never an overwrite) and the version list. Compact tinted pills on
+    /// the Formatted | Edit row (R7-6: the filled coral button was louder than the document).
+    private var editButtons: some View {
+        // Side by side, or one under the other at large text, so a pill never breaks a word ("Versio" / "ns").
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Tokens.Spacing.xs) { editButtonItems }
+            VStack(alignment: .leading, spacing: Tokens.Spacing.xxs) { editButtonItems }
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Say or type what to change. The result is saved as a new version.")
-        Button {
-            isShowingVersions = true
-        } label: {
-            Label("Versions", systemImage: "clock.arrow.circlepath")
-                .chirpFont(14, .semibold)
-                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
-                .foregroundStyle(AppColor.accentTextOnTint)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
-                .background(Capsule().fill(AppColor.tintFill))
-                .contentShape(Capsule())
+    }
+
+    @ViewBuilder private var editButtonItems: some View {
+        Group {
+            Button {
+                isEditingByVoice = true
+            } label: {
+                Label("Edit by voice", systemImage: "mic.fill")
+            }
+            .buttonStyle(.chirp(.tinted, size: .compact))
+            .accessibilityHint("Say or type what to change. The result is saved as a new version.")
+            Button {
+                isShowingVersions = true
+            } label: {
+                Label("Versions", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.chirp(.quiet, size: .compact))
         }
-        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     /// The document's title, provenance and text (as edited now) into `<tmp>/export-<transcript id>/`, which goes with
@@ -264,6 +297,7 @@ struct DeliverableDetailScreen: View {
     private func reloadAfterNewVersion() {
         Task {
             await document.load()
+            await refreshEffectiveClass()
             await environment.deliverableLibrary.load()
         }
     }
@@ -291,15 +325,25 @@ struct DeliverableDetailScreen: View {
         return model
     }
 
-    /// The provenance rows, in reading order.
-    static func metadata(_ deliverable: Deliverable, versionNumber: Int?, sourceTitle: String) -> [(String, String)] {
+    /// The provenance rows, in reading order. Privacy is the class the rules use (K4), with the document's own mark
+    /// when its transcript makes it stricter.
+    static func metadata(
+        _ deliverable: Deliverable, versionNumber: Int?, sourceTitle: String, effectiveClass: PrivacyClass? = nil
+    ) -> [(String, String)] {
         var rows: [(String, String)] = [("From", sourceTitle)]
         rows.append(("Template", versionNumber.map { "\(deliverable.title) · version \($0)" } ?? deliverable.title))
         rows.append(("Provider", deliverable.provider))
         if let model = modelLabel(deliverable.model) { rows.append(("Model", model)) }
         rows.append(
             ("Ran", ModelPlace.phrase(locality: deliverable.locality, name: deliverable.provider).capitalizedFirst))
-        rows.append(("Privacy", deliverable.privacyClass.title))
+        let effective = deliverable.privacyClass.stricter(effectiveClass)
+        rows.append(
+            (
+                "Privacy",
+                effective == deliverable.privacyClass
+                    ? effective.title
+                    : "\(effective.title) (from its transcript; marked \(deliverable.privacyClass.title))"
+            ))
         rows.append(("Made", Formatting.day(deliverable.createdAt) + " " + Formatting.timeOfDay(deliverable.createdAt)))
         if let edited = deliverable.editedAt {
             rows.append(("Edited", Formatting.day(edited) + " " + Formatting.timeOfDay(edited)))

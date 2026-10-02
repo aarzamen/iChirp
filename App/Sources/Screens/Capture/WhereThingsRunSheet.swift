@@ -64,18 +64,12 @@ struct WhereThingsRunSheet: View {
                         "Clinical items, and anything with a SOAP note, never leave this iPhone for the cloud or an "
                             + "untrusted computer without asking you first, every time. Jev never sees them.",
                         systemImage: "cross.case")
-                    Button {
+                    // Plan 024 Task 10: `accentText` on tint was 4.39:1; the ChirpUI secondary button is text-safe.
+                    Button("Open Settings") {
                         dismiss()
                         openSettings()
-                    } label: {
-                        Text("Open Settings")
-                            .chirpFont(15, .semibold)
-                            .foregroundStyle(AppColor.accentText)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(Capsule().fill(AppColor.tintFill))
-                            .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.chirpSecondary)
                     .accessibilityHint("Models, voices and Jev are set there")
                 }
                 .padding(.horizontal, 24)

@@ -74,7 +74,20 @@
   [plan 023](2026-09-23-023-owner-design-decisions.md) (F44 and F45 stay open).
 - **Planned at:** commit `53bc2cc6`, 2026-10-01 (re-checked at `1276dfc3`: only review documents and plan 024 were
   added; no code changed)
-- **Status:** NOT STARTED
+- **Status:** IN PROGRESS — core half (Steps 0–3, 5, 6) started 2026-10-01 at `928a8074`.
+
+### Drift check at `928a8074` (2026-10-01, core half)
+
+- Plan 024 wave 1 and wave-2 Tasks 8 and 11 are merged; Tasks 9 and 10 run in parallel (screens: Steps 7–10 wait).
+- Migrations end at `v10-deliverable-cut-off` (`v9-llm-runs-deliverable-index`, `v10-deliverable-cut-off`); plan 025
+  takes `v11` in parallel, so this plan's migration is **`v12-template-library`** (every `vN` below means `v12`).
+- Still true: no callers of `createTemplate(` / `addVersion(` / `softDeleteTemplate(` in `App/Sources` or
+  `ChirpFeatures`; the installer holds `record.sortOrder = builtIn.sortOrder`; no `isVisible` / `isHidden`; no "Make
+  again" or "Regenerate" in the app; `SingleGenerationPathTests` holds `\.generate\((?!\s*templateID:)`.
+- `DeliverableService` was reshaped by plan 024 Task 8: one privacy gate (`authorize`), one failure path
+  (`finishFailed`), model input through `Transcription.text(.shown(mode))`, `isCutOff` on documents and versions,
+  `edit(..., baseText:)`. Step 3 sets `GenerationTask.author` where `run` builds the task; line numbers are re-found by
+  symbol.
 
 ## Why this matters
 

@@ -92,7 +92,8 @@ final class M4ScreenTourUITests: XCTestCase {
         button(beginningWith: "Choose another model").tap()
         chooseModel(prefix: "Runs ", name: "localhost (Ollama)")
         button(containing: "SOAP note").tap()
-        let saved = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved in Transforms'")).firstMatch
+        let saved = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved in your Library'"))
+            .firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 60))
         shot("transform-result")
         app.buttons["Done"].tap()
@@ -153,7 +154,8 @@ final class M4ScreenTourUITests: XCTestCase {
         test.tap()
         XCTAssertTrue(
             app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Connected'")).firstMatch
-                .waitForExistence(timeout: 20) || app.buttons.containing(
+                .waitForExistence(timeout: 20)
+                || app.buttons.containing(
                     NSPredicate(format: "label CONTAINS 'Connected'")
                 ).firstMatch.exists)
         shot("settings-models-editor")

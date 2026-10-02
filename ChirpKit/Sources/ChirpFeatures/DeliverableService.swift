@@ -444,7 +444,10 @@ public actor DeliverableService {
             else { throw DeliverableError.templateNotFound }
             template = found
             version = active
-            task = GenerationTask(kind: .template(content: active.content), userNotes: userNotes)
+            // Plan 026: a version the person wrote gets the app rules (format, and clinical rules on a clinical run).
+            task = GenerationTask(
+                kind: .template(content: active.content), userNotes: userNotes,
+                author: TemplateAuthor.of(active, found))
         case .ask(let question):
             task = GenerationTask(kind: .ask(question: question, citesTimestamps: shown.hasWordTimings))
         }

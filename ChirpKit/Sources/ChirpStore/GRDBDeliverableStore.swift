@@ -20,6 +20,8 @@ public final class GRDBDeliverableStore: DeliverableStoring {
     var versionsDatabase: DatabaseManager { database }
     /// Plan 023: the same database for the Library's lists of documents (`DeliverableListingStore.swift`).
     var listingDatabase: DatabaseManager { database }
+    /// Plan 026: the same database for the person's own templates (`TemplateLibraryStore.swift`).
+    var templatesDatabase: DatabaseManager { database }
 
     public enum StoreError: Error, Equatable, LocalizedError {
         case templateNotFound
@@ -65,7 +67,7 @@ public final class GRDBDeliverableStore: DeliverableStoring {
                 record.canonicalRevision = builtIn.revision
                 record.name = builtIn.name
                 record.outputPrivacyClass = builtIn.outputPrivacyClass?.rawValue
-                record.sortOrder = builtIn.sortOrder
+                // Plan 026: `sortOrder` and `isVisible` are the person's; only the first insert (above) sets them.
                 record.updatedAt = now
                 try record.update(db)
             }

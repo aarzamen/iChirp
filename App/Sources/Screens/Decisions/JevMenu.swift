@@ -22,6 +22,8 @@ enum JevMenuPolicy {
 
 /// The Transcript toolbar's "Jev" menu: Classify recording, Suggest a template, Tag paragraphs.
 struct JevMenu: View {
+    /// The item's class as the router uses it (`EffectivePrivacyExplanation.effective`): a personal transcript with a
+    /// SOAP note counts as clinical, so the items are disabled instead of starting a run Jev would refuse (R6b-10).
     let privacyClass: PrivacyClass
     let run: (DecisionRecipe) -> Void
 

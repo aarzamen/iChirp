@@ -13,12 +13,8 @@ struct MacCompanionSettingsLink: View {
         NavigationLink {
             MacCompanionScreen(store: environment.companionSettings)
         } label: {
-            SettingsRow(title: "Mac companion", caption: caption(endpoint)) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.mutedText)
-            }
-            .contentShape(Rectangle())
+            SettingsRow(title: "Mac companion", caption: caption(endpoint), showsChevron: true)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -60,7 +56,7 @@ struct MacCompanionScreen: View {
                 Text(
                     "The Parakeet companion runs on your Mac. It speaks with your own voices and fetches the audio "
                         + "of YouTube videos that have no captions. Start Parakeet companion on your Mac, then "
-                        + "enter the address and pairing code it shows."
+                        + "enter the address and pairing token it shows."
                 )
                 .chirpFont(14)
                 .foregroundStyle(Tokens.Color.secondary)
@@ -86,8 +82,7 @@ struct MacCompanionScreen: View {
                 SettingsGroup(title: "Clinical text", footer: trustFooter) {
                     SettingsRow(title: "Trusted for clinical text") {
                         Toggle("Trusted for clinical text", isOn: $model.isTrusted)
-                            .labelsHidden()
-                            .tint(Tokens.Color.success)
+                            .toggleStyle(.chirpSwitch)
                             .disabled(model.isInternetAddress)
                     }
                 }
@@ -173,7 +168,7 @@ struct MacCompanionScreen: View {
             Text(title)
                 .chirpFont(15.5)
                 .foregroundStyle(Tokens.Color.ink)
-            TextField(placeholder, text: text)
+            ChirpTextField(placeholder, text: text)
                 .chirpFont(15)
                 .keyboardType(keyboard)
                 .textContentType(contentType)
@@ -194,7 +189,7 @@ struct MacCompanionScreen: View {
             Text(title)
                 .chirpFont(15.5)
                 .foregroundStyle(Tokens.Color.ink)
-            SecureField(placeholder, text: text)
+            SecureField(text: text, prompt: .chirpPlaceholder(placeholder)) { Text(title) }
                 .chirpFont(15)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

@@ -162,12 +162,13 @@ extension CreateChoices.OutputKind {
         }
     }
 
+    /// One symbol per output, shared with Transforms' templates and the Create run (R7-11, `OutputSymbol`).
     var systemImage: String {
         switch self {
-        case .transcript: "text.alignleft"
-        case .summary: "list.bullet.rectangle"
-        case .document: "doc.richtext"
-        case .voiceMessage: "waveform.badge.plus"
+        case .transcript: OutputSymbol.transcript
+        case .summary: OutputSymbol.summary
+        case .document: OutputSymbol.document
+        case .voiceMessage: OutputSymbol.voiceMessage
         }
     }
 }
@@ -187,12 +188,22 @@ struct CreateOptionTile: View {
             HStack(spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
-                        .fill(isSelected ? Tokens.Color.accent : AppColor.tintFill)
+                        .fill(isSelected ? Tokens.Color.accentFill : AppColor.tintFill)
                     Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(isSelected ? .white : Tokens.Color.accentInk)
+                        .chirpGlyph(15, .semibold, relativeTo: .subheadline)
+                        .foregroundStyle(isSelected ? Tokens.Color.onAccent : Tokens.Color.accentInk)
                 }
                 .frame(width: 32, height: 32)
+                // R7-24: the selected tile's check sits on its icon, so it never collides with the title.
+                .overlay(alignment: .topTrailing) {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .chirpGlyph(13, .semibold, relativeTo: .footnote)
+                            .foregroundStyle(Tokens.Color.accent)
+                            .background(Circle().fill(Tokens.Color.surface))
+                            .offset(x: 6, y: -6)
+                    }
+                }
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
@@ -216,15 +227,6 @@ struct CreateOptionTile: View {
                     radius: Tokens.Radius.s, fill: isSelected ? AppColor.tintFill : Tokens.Color.surface,
                     stroke: isSelected ? AppColor.tintStrokeSelected : Tokens.Color.border)
             )
-            .overlay(alignment: .topTrailing) {
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.accent)
-                        .padding(6)
-                        .accessibilityHidden(true)
-                }
-            }
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous))
         }
         .buttonStyle(.plain)

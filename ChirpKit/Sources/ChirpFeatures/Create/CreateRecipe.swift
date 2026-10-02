@@ -81,6 +81,11 @@ public struct CreateRecipe: Codable, Sendable, Equatable, Identifiable {
     /// The output needs a voice.
     public var needsVoice: Bool { choices.output == .voiceMessage }
 
+    /// The recipe makes a Document with this template (plan 026: the recipes a template's delete would stop).
+    public func uses(templateID: UUID) -> Bool {
+        choices.output == .document && choices.templateID == templateID
+    }
+
     /// The model a run uses: the one saved with the recipe, or `defaultID`.
     public func runModelID(default defaultID: String) -> String { modelID ?? defaultID }
 
@@ -230,7 +235,9 @@ public enum CreateRecipeCheck {
                 let what =
                     recipe.templateName.map { "“\($0)”, the template this recipe makes," }
                     ?? "The template this recipe makes"
-                return "\(what) no longer exists. Make the recipe again in Create, or delete it."
+                // Plan 026: a deleted template of the person's own can be restored, and its id never changes.
+                return "\(what) no longer exists. Restore it in Templates, make the recipe again in Create, or "
+                    + "delete it."
             }
         }
         if recipe.needsLanguageModel {

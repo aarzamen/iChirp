@@ -8,7 +8,8 @@
 // (link and document provenance columns, new in iChirp; "v5" belongs to the M3 meetings lane). M6 adds
 // "v7-structured-results" (structure-model runs, fields and eval runs; new tables, new in iChirp). Plan 022 adds
 // "v8-text-items" (the append-only deliverable versions; a new table), and review R1-17 "v9-llm-runs-deliverable-index"
-// (an index on `llm_runs.deliverableId`; no column).
+// (an index on `llm_runs.deliverableId`; no column). Plan 024 Task 8 adds "v10-deliverable-cut-off"; plan 026 adds
+// "v12-template-library" (`prompts.isVisible`, one additive column; "v11" belongs to plan 025's parallel lane).
 
 import Foundation
 import GRDB
@@ -185,6 +186,13 @@ public final class DatabaseManager: Sendable {
             try db.alter(table: "deliverable_versions") { t in
                 t.add(column: "isCutOff", .boolean).notNull().defaults(to: false)
             }
+        }
+
+        // Plan 026 (your own templates; contract spec/contracts/deliverables-v1.md, Template library): a template can
+        // be hidden from the pickers and still run by id. One additive column, true for every existing row; no row
+        // changes (older builds ignore it). Named v12 because plan 025's parallel lane registers v11.
+        migrator.registerMigration("v12-template-library") { db in
+            try TemplateLibrarySchema.create(db)
         }
 
         return migrator

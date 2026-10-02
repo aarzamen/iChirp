@@ -12,12 +12,8 @@ struct SpeechEnginesSettingsLink: View {
         NavigationLink {
             SpeechEnginesScreen()
         } label: {
-            SettingsRow(title: "Speech engines", caption: Self.caption(engines)) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.mutedText)
-            }
-            .contentShape(Rectangle())
+            SettingsRow(title: "Speech engines", caption: Self.caption(engines), showsChevron: true)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
@@ -86,12 +82,8 @@ struct SpeechEnginesScreen: View {
                     NavigationLink {
                         ASRBenchmarkScreen()
                     } label: {
-                        SettingsRow(title: "Benchmark engines") {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Tokens.Color.mutedText)
-                        }
-                        .contentShape(Rectangle())
+                        SettingsRow(title: "Benchmark engines", showsChevron: true)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -115,7 +107,7 @@ struct SpeechEnginesScreen: View {
             Text([engines.lastError, engines.lastNotice].compactMap { $0 }.joined(separator: "\n\n"))
         }
         .confirmationDialog(
-            "Delete the \(deleting?.capabilities.displayName ?? "") model?",
+            ModelAssetRow.deleteQuestion(title: deleting?.capabilities.displayName ?? ""),
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
             titleVisibility: .visible
         ) {
@@ -163,15 +155,9 @@ struct SpeechEnginesScreen: View {
                     : "Takes effect next time you open Parakeet",
                 captionColor: selected == running ? Tokens.Color.secondary : AppColor.accentText
             ) {
-                Picker("Model version", selection: $speech.settingsValue.parakeetVariant) {
-                    Text("v3").tag(ParakeetVariant.v3)
-                    Text("v2").tag(ParakeetVariant.v2)
-                }
-                .pickerStyle(.segmented)
-                // F77: sizes to its own content rather than a fixed pixel width, so it doesn't get squeezed at
-                // accessibility Dynamic Type sizes.
-                .fixedSize()
-                .labelsHidden()
+                ChirpSegmentedControl(
+                    "Model version", selection: $speech.settingsValue.parakeetVariant,
+                    segments: [.init("v3", value: ParakeetVariant.v3), .init("v2", value: ParakeetVariant.v2)])
             }
         }
     }
@@ -200,7 +186,7 @@ struct SpeechEnginesScreen: View {
                         .chirpFont(15)
                         .foregroundStyle(AppColor.accentText)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
+                        .chirpGlyph(11, .semibold, relativeTo: .footnote)
                         .foregroundStyle(AppColor.accentText)
                 }
                 .frame(minHeight: 44)
@@ -212,7 +198,7 @@ struct SpeechEnginesScreen: View {
 }
 
 /// One engine build: name, provider, what it can do, its model state and the action that fits it.
-private struct SpeechEngineRow: View {
+struct SpeechEngineRow: View {
     let row: SpeechEnginesViewModel.Row
     let onDownload: () -> Void
     let onDelete: () -> Void
@@ -257,16 +243,27 @@ private struct SpeechEngineRow: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// A failed download of a model the person may delete offers Delete beside Try again.
+    static func offersDeleteAfterFailure(_ row: SpeechEnginesViewModel.Row) -> Bool {
+        guard case .downloadable = row.availability else { return false }
+        return row.failureMessage != nil && row.capabilities.modelLifecycle.isUserDeletable
+    }
+
     private var isUnavailable: Bool {
         if case .unavailable = row.availability { return true }
         return false
     }
 
-    private var sizeText: String {
+    /// The download size until the model is on the phone; then the status line gives its real size once (R7-27: the
+    /// row used to say "500 MB" and "On device · 483 MB" side by side).
+    static func sizeText(_ row: SpeechEnginesViewModel.Row) -> String {
         let lifecycle = row.capabilities.modelLifecycle
         if lifecycle.isSystemManaged { return "Built into iOS" }
+        if case .ready = row.availability { return "" }
         return lifecycle.approximateDownloadBytes.map { Formatting.size(bytes: $0) } ?? ""
     }
+
+    private var sizeText: String { Self.sizeText(row) }
 
     private var capabilityText: String {
         let capabilities = row.capabilities
@@ -310,11 +307,19 @@ private struct SpeechEngineRow: View {
     @ViewBuilder private var action: some View {
         switch row.availability {
         case .downloadable:
-            Button(action: onDownload) {
-                CapsuleButtonLabel(title: row.failureMessage == nil ? "Download" : "Try again", kind: .filled)
+            HStack(spacing: Tokens.Spacing.xs) {
+                Button(action: onDownload) {
+                    CapsuleButtonLabel(title: row.failureMessage == nil ? "Download" : "Try again", kind: .filled)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Download \(row.capabilities.displayName)")
+                // Plan 024 (R3-8): a failed download leaves its partial files; Delete removes them (and asks first).
+                if Self.offersDeleteAfterFailure(row) {
+                    Button(action: onDelete) { CapsuleButtonLabel(title: "Delete", kind: .destructive) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Delete the partial download of \(row.capabilities.displayName)")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Download \(row.capabilities.displayName)")
         case .ready where row.capabilities.modelLifecycle.isUserDeletable:
             Button(action: onDelete) { CapsuleButtonLabel(title: "Delete", kind: .destructive) }
                 .buttonStyle(.plain)

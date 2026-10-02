@@ -35,7 +35,7 @@ database and every screen that lists or edits documents.
 
 | Table | Columns |
 |---|---|
-| `prompts` | `id`, `name`, `category` (`deliverable` / `transform`), `isBuiltIn`, `canonicalKey` (unique when set), `canonicalRevision`, `outputPrivacyClass`, `sortOrder`, `activeVersionId`, `userCustomizedAt`, `deletedAt`, `createdAt`, `updatedAt` |
+| `prompts` | `id`, `name`, `category` (`deliverable` / `transform`), `isBuiltIn`, `canonicalKey` (unique when set), `canonicalRevision`, `outputPrivacyClass`, `sortOrder`, `activeVersionId`, `userCustomizedAt`, `deletedAt`, `createdAt`, `updatedAt`, `isVisible` (migration `v12-template-library`, BOOLEAN NOT NULL DEFAULT 1; see "Template library") |
 | `prompt_versions` | `id`, `promptId` → prompts (restrict), `versionNumber` (unique per prompt), `content`, `origin` (`builtIn` / `user` / `systemUpdate`), `createdAt` |
 | `deliverables` | `id`, `transcriptionId` → transcriptions (**cascade**), `promptId` / `promptVersionId` (set null), `title`, `engineId`, `provider`, `model`, `locality`, `text`, `privacyClass`, `userNotes`, `createdAt`, `updatedAt`, `editedAt`, `isCutOff` (migration `v10-deliverable-cut-off`, BOOLEAN NOT NULL DEFAULT 0; see "Cut off at the length limit") |
 | `llm_runs` | `id`, `feature` (`deliverable` / `ask` / `decision` (M6a, `DecisionService`) / `edit` (plan 022, Edit by voice)), `status` (`succeeded` / `failed` / `cancelled` / `refused`), `transcriptionId` / `deliverableId` / `promptVersionId` (set null), `engineId`, `provider`, `model`, `locality`, `privacyClass`, `privacyOverride`, `errorType`, `promptTokens`, `completionTokens`, `latencyMs`, `inputCharacters`, `outputCharacters`, `callCount`, `createdAt`. Indexed on `createdAt`, `transcriptionId` and (migration `v9-llm-runs-deliverable-index`, review R1-17) `deliverableId`, so the set-null of a document's delete finds its rows without scanning the ledger |
@@ -133,6 +133,63 @@ database and every screen that lists or edits documents.
   of its own class, its source's class and every other document made from that source (`EffectivePrivacyClass`);
   clinical when the source row cannot be read.
 
+### Template library (plan 026, migration `v12-template-library`)
+
+The person makes templates of their own. `TemplateLibraryStoring` (`ChirpCore/Pipeline/TemplateLibraryStoring.swift`,
+implemented in `ChirpStore/TemplateLibraryStore.swift`) does every write in one transaction.
+
+- **Schema.** One additive column, `prompts.isVisible` (BOOLEAN NOT NULL DEFAULT 1). No row changes; older builds
+  ignore the column (their records encode only their own columns, so their built-in upgrade keeps it).
+- **Visibility.** `isVisible = 0` keeps a template out of the pickers (Transforms, the Transform sheet, Create's menu).
+  A hidden template is still listed by `fetchTemplates()`, still runs by id (recipes, Jev's suggestion, Extract
+  fields' SOAP hand-off) and still receives built-in updates. Any template that is not deleted can be hidden,
+  built-ins too.
+- **Built-ins are read-only here.** `updateUserTemplate` and `deleteUserTemplate` refuse them
+  (`builtInIsReadOnly`); they can be hidden and reordered, and neither sets `userCustomizedAt`. ("Duplicate and edit"
+  makes a template of the person's own.) The older `addVersion` / `softDeleteTemplate` still accept a built-in; no
+  screen calls them.
+- **Your templates.** A fresh `UUID()`, `isBuiltIn = 0`, `canonicalKey` and `canonicalRevision` NULL, so the
+  installer (which matches built-ins by canonical key only) can never adopt or overwrite one. Version 1 has origin
+  `user`.
+- **Names and instructions** (`TemplateDraft.problem`, checked again inside the save transaction): a name is one line,
+  trimmed, 1–40 characters, unique ignoring case among templates that are not deleted (hidden ones count; a deleted
+  one frees its name); instructions are trimmed at both ends, 1–4,000 characters, and may not open or close the tags
+  Parakeet marks the source with (`<transcript`, `<transcript_part`, `<transcript_notes`, `<user_notes`, `<task`,
+  `<document`, with or without `/`, any case).
+- **Edits.** Saving changes name, kind (`category`) and the clinical switch (`outputPrivacyClass` `clinical` or NULL)
+  on the row. A version is appended (and made active) only when the instructions changed; old versions never change,
+  so a document keeps naming the version that made it and keeps its `title` (the name at generation). A new kind
+  moves the template last in its new section.
+- **Order** is per section and the person's. `reorderTemplates(category:ids:)` takes every template of that section
+  that is not deleted, each once (otherwise `invalidOrder` and nothing changes), and writes Documents as
+  `sortOrder` 0…n-1 and Rewrites as 1000+index. A new or restored template goes last in its section (its section's
+  highest `sortOrder` + 1). **The built-in installer never rewrites `sortOrder` or `isVisible` of an existing row**;
+  it sets them only when it first inserts a built-in.
+- **Delete is soft** and only for the person's own templates: `deletedAt` is set; versions and documents stay
+  (`fetchTemplate(id:)`, `fetchVersion(id:)` and every document's `promptId` / `promptVersionId` keep working).
+  `fetchDeletedTemplates()` lists deleted templates newest delete first. `restoreDeletedTemplate` clears
+  `deletedAt`; when another template took the name meanwhile it becomes "<name> (restored)", then "(restored 2)", …
+  The id never changes, so recipes that name it run again.
+- `countDeliverables(promptID:)` counts the documents that name a template (for the delete question).
+- **Consumers.** Lists that resolve ids (recipes, Create's remembered choice, Jev's suggestion, Extract fields' SOAP
+  hand-off) use every template that is not deleted, hidden ones included; only pickers leave hidden ones out (a
+  selected hidden template stays choosable). A recipe of a deleted template is blocked with a sentence that offers
+  Restore; restoring makes it run again. A document's Details say what made it (title snapshot and version) and what
+  changed since (renamed, edited, updated by the app, deleted), and show that version's text read only.
+- **Prompt assembly for the person's text (D5).** A run of a `user` version puts the text exactly where built-in text
+  goes (`{{transcript}}` / `{{userNotes}}` render as for built-ins; without `{{transcript}}` the `<transcript>` block
+  follows). The step that writes the result (single or combine) adds fixed app rules to the system message after the
+  unchanged preamble: for a Document "Respond with only the document, in Markdown: short headings, lists where they
+  help. No preamble and no closing remarks."; for a Rewrite "Respond with only the rewritten text. Do not add
+  explanations or preamble."; and, when the run's class is clinical, the clinical draft rules (never invent findings,
+  vital signs, doses, dates or durations; copy every number exactly; "Not documented." for a section the source does
+  not cover; `[unclear]` for anything uncertain). Map and condense carry the text as `<task>` with no rule. Reserved
+  source-tag openers in the person's text are neutralized (`<` → `‹`). Built-in, `systemUpdate`, Ask, Edit by voice
+  and Jev requests are unchanged. A template never picks a model, a host or a class below the item's: the switch
+  only raises the output to clinical, exactly like SOAP note's `outputPrivacyClass`.
+- **Logs** carry ids, kinds and counts only (`template_created`, `template_updated`, `template_hidden`,
+  `template_shown`, `template_reordered`, `template_deleted`, `template_restored`); never a name or instructions.
+
 ## Non-stable fields
 
 - Template wording (bump `revision`), `sortOrder`, titles, the prompt preamble and map/reduce instructions, the
@@ -179,6 +236,15 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
   and the class an edit is sent with; an edit of a draft keeps the draft as a version. `DeliverableCutOffMigrationTests`
   (ChirpStoreTests): `v10-deliverable-cut-off` on a v9 database adds both columns false and keeps every row; the mark
   survives a relaunch and a hand edit and follows a restore.
+- `TemplateDraftTests` (ChirpCoreTests): names, limits, reserved tags, the raise-only switch, copy and restored names.
+  `TemplateLibraryMigrationTests` (ChirpStoreTests): `v12-template-library` on a v10 database keeps every
+  pre-existing column of every row, adds `isVisible` NOT NULL DEFAULT 1 (1 on every template) and keeps the version
+  triggers. `TemplateLibraryStoreTests` (ChirpStoreTests): create, versions only on text change, uniqueness in the
+  transaction, built-ins read-only, hide, reorder per section, built-in upgrades keep order and visibility, soft
+  delete, restore. `UserTemplatePromptTests` (ChirpFeaturesTests): every built-in request byte-identical (SHA-256
+  golden), the app rules for the person's Documents and Rewrites, clinical rules only on clinical runs, the source
+  tagged after the text, imitated tags neutralized, no rule in map and condense, a 4,000-character clinical template
+  still leaves ≥ 3,000 characters of source per call on a 4K window.
 
 ## When this changes
 

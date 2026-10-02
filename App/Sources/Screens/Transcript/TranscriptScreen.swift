@@ -104,7 +104,7 @@ struct TranscriptScreen: View {
                 let item = model.transcription
             {
                 ToolbarItem(placement: .topBarTrailing) {
-                    JevMenu(privacyClass: item.privacyClass) { recipe in
+                    JevMenu(privacyClass: privacy?.effective ?? item.privacyClass) { recipe in  // review R6b-10
                         decisionRun = DecisionRunViewModel(
                             recipe: recipe, transcriptionID: id, service: environment.decisions)
                     }

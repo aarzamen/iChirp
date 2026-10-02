@@ -13,12 +13,20 @@ import SwiftUI
     @ObservationIgnored private let service: DeliverableService
     @ObservationIgnored private let models: LanguageModelsViewModel
 
-    init(environment: AppEnvironment) {
-        service = environment.deliverables
-        models = environment.languageModels
+    init(service: DeliverableService, models: LanguageModelsViewModel) {
+        self.service = service
+        self.models = models
     }
 
-    func start(document: Deliverable, instruction: String, spoken: Bool, choice: LanguageModelChoice) async {
+    convenience init(environment: AppEnvironment) {
+        self.init(service: environment.deliverables, models: environment.languageModels)
+    }
+
+    /// - Parameter baseText: the document screen's unsaved draft, when it differs from the stored text (review R5-9):
+    ///   the model rewrites the text on screen, and the service keeps that draft as a version before the rewrite.
+    func start(
+        document: Deliverable, instruction: String, spoken: Bool, choice: LanguageModelChoice, baseText: String?
+    ) async {
         startError = nil
         let model: any LanguageModel
         do {
@@ -30,7 +38,8 @@ import SwiftUI
         }
         let run = DeliverableRunViewModel(
             service: service, model: model, transcriptionID: document.transcriptionID,
-            request: .edit(deliverableID: document.id, instruction: instruction, spoken: spoken))
+            request: .edit(
+                deliverableID: document.id, instruction: instruction, spoken: spoken, baseText: baseText))
         self.run = run
         await run.start()
     }
@@ -49,6 +58,10 @@ import SwiftUI
 /// pass, then the chosen model rewrites the document. The result is saved as the document's **next version**; the
 /// earlier text stays in Versions. Closing never silently drops a typed instruction or a rewrite in progress: swipe-down
 /// is off and Cancel asks first.
+///
+/// Plan 024 Task 10: the model rewrites the text on screen, unsaved edits included (`baseText`, review R5-9), and the
+/// result replaces that text on the document screen (`applyEdit`); speaking after typing adds to the typed
+/// instruction instead of replacing it (R5-15).
 struct EditByVoiceSheet: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -59,10 +72,11 @@ struct EditByVoiceSheet: View {
     @State private var recorder: SpokenInstructionRecorder
     @State private var host: EditRunHost
     @State private var choice: LanguageModelChoice
-    @State private var instruction = ""
-    /// The text the recorder gave, to tell a spoken instruction from a typed one.
-    @State private var spokenText: String?
+    /// The instruction and where its words came from (spoken, typed or both; review R5-15).
+    @State private var field = InstructionField()
     @State private var isConfirmingCancel = false
+    /// The document's class as the router uses it (raised by its transcript), for the clinical heads-up.
+    @State private var effectiveClass: PrivacyClass?
     /// True while a finger is on the speak button (after the short hold that tells it from a scroll); reset by SwiftUI
     /// when the touch ends or is taken away, so a cancelled touch stops listening too.
     @GestureState private var isPressing = false
@@ -140,10 +154,16 @@ struct EditByVoiceSheet: View {
             discardLabel: isRewriting ? "Stop Rewriting" : "Discard",
             keepLabel: isRewriting ? "Keep Rewriting" : "Keep Editing"
         ) { close() }
-        .task { await environment.languageModels.refresh() }
-        // Saved directly or after the clinical question's Send: the document screen reloads either way.
+        .task {
+            effectiveClass = await DocumentPrivacy.effectiveClass(of: document.id, environment: environment)
+            await environment.languageModels.refresh()
+        }
+        // Saved directly or after the clinical question's Send: the rewrite replaces the text on the document screen
+        // (it was made from that text, so nothing typed there is hidden or lost), then the screen reloads.
         .onChange(of: isSaved) { _, saved in
-            if saved { onSaved() }
+            guard saved else { return }
+            if case .completed(let edited) = host.run?.phase { document.applyEdit(edited) }
+            onSaved()
         }
         // A rewrite that ends while "Stop the rewrite?" is up: the question no longer applies.
         .onChange(of: isRewriting) { _, rewriting in
@@ -170,11 +190,11 @@ struct EditByVoiceSheet: View {
                     .shadow(color: Tokens.Color.accent.opacity(0.32), radius: 8, y: 6)
                     .frame(width: 92, height: 92)
                 if recorder.phase == .transcribing || recorder.phase == .starting {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(Tokens.Color.onAccent)
                 } else {
                     Image(systemName: recorder.phase == .listening ? "waveform" : "mic.fill")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .chirpGlyph(34, .semibold, relativeTo: .title, maxScale: 1.4)
+                        .foregroundStyle(Tokens.Color.onAccent)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -236,21 +256,20 @@ struct EditByVoiceSheet: View {
 
     private func finishSpeaking() async {
         guard let text = await recorder.stop() else { return }
-        instruction = text
-        spokenText = text
+        field.appendHeard(text)
     }
 
     private var instructionField: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel("Instruction")
-            TextField("Or type what to change", text: $instruction, axis: .vertical)
+            ChirpTextField("Or type what to change", text: $field.text, axis: .vertical)
                 .chirpFont(15.5)
                 .lineLimit(1...5)
                 .focused($fieldFocused)
                 .padding(12)
                 .background(CardBackground(radius: Tokens.Radius.s))
                 .accessibilityLabel("Instruction")
-            if spokenText != nil, spokenText == instruction {
+            if field.isUnchangedSinceSpeech {
                 Label("Heard on this iPhone. Edit it if a word is wrong.", systemImage: "waveform")
                     .chirpFont(12)
                     .foregroundStyle(Tokens.Color.secondary)
@@ -263,8 +282,7 @@ struct EditByVoiceSheet: View {
             HStack(spacing: 8) {
                 ForEach(Self.suggestions, id: \.self) { suggestion in
                     Button {
-                        instruction = suggestion
-                        spokenText = nil
+                        field.choose(suggestion)
                     } label: {
                         Text(suggestion)
                             .chirpFont(13, .semibold)
@@ -285,18 +303,8 @@ struct EditByVoiceSheet: View {
     private var modelRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             ModelChoiceMenu(prefix: "Rewrites", choice: $choice)
-            if let message = environment.unavailableMessage(for: choice) {
-                ModelUnavailableNote(message: message)
-            } else if !choice.isTrustedForClinical {
-                Text(
-                    document.deliverable?.privacyClass == .clinical
-                        ? "This document is clinical. Parakeet will ask before sending it to \(choice.name)."
-                        : "Clinical documents ask before anything is sent to \(choice.name)."
-                )
-                .chirpFont(12.5)
-                .foregroundStyle(Tokens.Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            // One heads-up for every model chooser (review R6b-8), with the class the router uses for this document.
+            ModelRunNotes(choice: choice, subject: .document, isClinical: effectiveClass == .clinical)
             if let error = host.startError {
                 Text(error)
                     .chirpFont(13)
@@ -329,12 +337,14 @@ struct EditByVoiceSheet: View {
                     .foregroundStyle(Tokens.Color.ink)
             }
             .accessibilityElement(children: .combine)
-            Text("“\(instruction)”")
+            Text("“\(field.text)”")
                 .chirpFont(13.5)
                 .italic()
                 .foregroundStyle(Tokens.Color.secondary)
             if let route = run.route {
-                LocalityChip(text: "Rewrites \(route.placeWithName)", staysPrivate: route.locality != .cloud)
+                LocalityChip(
+                    text: "Rewrites \(route.placeWithName)", locality: route.locality,
+                    trustedForClinical: choice.isTrustedForClinical)
             }
             if case .failed(let message) = run.phase {
                 Text(message)
@@ -382,77 +392,112 @@ struct EditByVoiceSheet: View {
 
     /// Closing now would drop a rewrite in progress or an instruction typed or heard.
     private var hasWorkToLose: Bool {
-        isRewriting || (host.run == nil && DiscardDecision.holdsInput(instruction))
+        isRewriting || (host.run == nil && DiscardDecision.holdsInput(field.text))
     }
 
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        HStack(spacing: 10) {
-            if let run = host.run {
-                switch run.phase {
-                case .completed:
-                    primaryButton("Done") { close() }
-                case .failed, .idle:
-                    secondaryButton("Change instruction") { host.reset() }
-                    primaryButton("Retry") { apply() }
-                default:
-                    secondaryButton("Stop") { host.cancel() }
+        ChirpBottomBar {
+            ChirpButtonRow {
+                if let run = host.run {
+                    switch run.phase {
+                    case .completed:
+                        Button("Done") { close() }.buttonStyle(.chirpPrimary)
+                    case .failed, .idle:
+                        Button("Change instruction") { host.reset() }.buttonStyle(.chirpSecondary)
+                        Button("Retry") { apply() }.buttonStyle(.chirpPrimary)
+                    default:
+                        Button("Stop") { host.cancel() }.buttonStyle(.chirp(.destructive))
+                    }
+                } else {
+                    let ready =
+                        !field.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recorder.isBusy
+                        && environment.unavailableMessage(for: choice) == nil && document.deliverable != nil
+                    Button("Apply edit") { apply() }
+                        .buttonStyle(.chirpPrimary)
+                        .disabled(!ready)
                 }
-            } else {
-                let ready =
-                    !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recorder.isBusy
-                    && environment.unavailableMessage(for: choice) == nil && document.deliverable != nil
-                primaryButton("Apply edit", enabled: ready) { apply() }
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(
-            Tokens.Color.ground
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom))
     }
 
-    private func primaryButton(_ title: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .chirpFont(16, .bold)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Capsule().fill(enabled ? Tokens.Color.accentFill : Tokens.Color.mutedText))
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
-
-    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .chirpFont(15.5, .semibold)
-                // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
-                .foregroundStyle(AppColor.accentTextOnTint)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Capsule().fill(AppColor.tintFill))
-        }
-        .buttonStyle(.plain)
+    /// The text the model rewrites: the document screen's draft when it has unsaved edits (review R5-9), else nil
+    /// (the stored text).
+    static func baseText(of document: DeliverableDocumentViewModel) -> String? {
+        document.hasUnsavedChanges ? document.draft : nil
     }
 
     private func apply() {
-        let text = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let text = field.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let current = document.deliverable else { return }
         fieldFocused = false
-        let spoken = spokenText != nil && spokenText == instruction
+        // Marked spoken only when every word was heard on this iPhone; typed or mixed text is not (review fix round 1).
+        let spoken = field.isSpoken
+        // No save first (review R6b-11: a failed save used to stop here with no message). The draft goes with the
+        // request; the service keeps it as a version and rewrites it, and any failure shows in this sheet with Retry.
+        let baseText = Self.baseText(of: document)
         Task {
-            // The editor's unsaved typing is saved first, so it becomes a version rather than being lost.
-            guard await document.save(), let current = document.deliverable else { return }
-            await host.start(document: current, instruction: text, spoken: spoken, choice: choice)
+            await host.start(
+                document: current, instruction: text, spoken: spoken, choice: choice, baseText: baseText)
         }
     }
 
     private func close() {
         host.cancel()
         dismiss()
+    }
+}
+
+/// Edit by voice's instruction field and where its words came from (review R5-15; plan 024 Task 10 fix round 1).
+///
+/// Speaking always adds to what the field holds, so nothing typed, edited or heard before is ever replaced by a later
+/// speech ("Make it shorter" + "add a follow-up" + "and fix the grammar" keeps all three; clear the field to start
+/// over). The request is marked spoken only when every word was heard on this iPhone and none was typed or edited
+/// since; typed or mixed text is not.
+struct InstructionField: Equatable {
+    /// The field's text, as typed, heard or edited.
+    var text = ""
+    /// The text right after the last speech; it differs once the person types or edits.
+    private(set) var lastHeardText: String?
+    /// Some words were typed, picked from a suggestion or edited, now or before an earlier speech.
+    private(set) var hasTypedWords = false
+
+    /// The field shows exactly what the last speech left (the "Heard on this iPhone" line).
+    var isUnchangedSinceSpeech: Bool { lastHeardText != nil && lastHeardText == text }
+
+    /// Every word was heard on this iPhone: the edit is recorded as spoken.
+    var isSpoken: Bool { isUnchangedSinceSpeech && !hasTypedWords }
+
+    /// Adds what the recorder heard after whatever the field holds.
+    mutating func appendHeard(_ heard: String) {
+        let kept = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if kept.isEmpty {
+            hasTypedWords = false
+        } else if text != lastHeardText {
+            hasTypedWords = true  // typed, or edited since the last speech
+        }
+        text = Self.appending(heard, to: kept)
+        lastHeardText = text
+    }
+
+    /// A suggestion chip: its words were picked, not heard.
+    mutating func choose(_ suggestion: String) {
+        text = suggestion
+        lastHeardText = nil
+        hasTypedWords = true
+    }
+
+    /// `kept` then `heard`, continuing the sentence: "Make it shorter and" + "Add a follow-up." → "Make it shorter and
+    /// add a follow-up."; after a sentence end the capital stays; "I", "SOAP" and "BP" keep their capitals.
+    static func appending(_ heard: String, to kept: String) -> String {
+        let new = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !kept.isEmpty else { return new }
+        guard !new.isEmpty else { return kept }
+        let endsSentence = kept.last.map { ".!?;:".contains($0) } ?? false
+        let firstWord = new.prefix { !$0.isWhitespace && !$0.isPunctuation }
+        let keepsCapital = firstWord.count < 2 || firstWord.dropFirst().contains(where: \.isUppercase)
+        let continued = endsSentence || keepsCapital ? new : new.prefix(1).lowercased() + new.dropFirst()
+        return kept + " " + continued
     }
 }
