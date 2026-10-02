@@ -452,12 +452,16 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
         reloadProviders()
     }
 
-    /// A one-token request with no user content, using the typed key or else the stored one.
+    /// A one-token request with no user content, using the typed key, or else the stored one only when the form still
+    /// points at the saved address (`checkKey(for:)`, review R4-5).
     public func testConnection(_ draft: LanguageModelProviderDraft) async -> ConnectionCheck {
         let provider = draft.configuration
+        var keyWithheld = false
         do {
             try provider.validate()
-            try await factory.testConnection(to: provider, apiKey: key(for: draft))
+            let check = try checkKey(for: draft)
+            keyWithheld = check.withheld
+            try await factory.testConnection(to: provider, apiKey: check.key)
             logger.info("connection_test result=ok kind=\(provider.kind.rawValue, privacy: .public)")
             return .succeeded
         } catch {
@@ -465,24 +469,67 @@ public struct LanguageModelProviderDraft: Sendable, Equatable, Identifiable {
             logger.notice(
                 "connection_test result=failed kind=\(provider.kind.rawValue, privacy: .public) error_type=\(Self.kindName(error), privacy: .public)"
             )
-            return .failed(error.localizedDescription)
+            return .failed(Self.checkFailure(error, keyWithheld: keyWithheld).localizedDescription)
         }
     }
 
-    /// The provider's model ids, using the typed key or else the stored one.
+    /// The provider's model ids, using the typed key, or else the stored one only for the saved address (review R4-5).
     public func listModels(_ draft: LanguageModelProviderDraft) async throws -> [String] {
         let provider = draft.configuration
         try provider.validate()
-        return try await factory.listModels(of: provider, apiKey: key(for: draft)).sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
+        let check = try checkKey(for: draft)
+        do {
+            return try await factory.listModels(of: provider, apiKey: check.key).sorted {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            }
+        } catch {
+            throw Self.checkFailure(error, keyWithheld: check.withheld)
         }
     }
 
-    private func key(for draft: LanguageModelProviderDraft) throws -> SecretValue? {
+    /// The key Test connection and the model list send (review R4-5): the typed key; else the stored key, but only to
+    /// the saved provider's own address (the same scheme, host and port), never to an address typed but not saved,
+    /// which may be plain http on the home network or a mistyped host (the Mac companion form follows the same rule,
+    /// review L1 M3). `withheld` says a stored key was held back: a provider that needs a key is then not contacted at
+    /// all (`StoredKeyWithheld`), and one that does not is checked without it.
+    private func checkKey(for draft: LanguageModelProviderDraft) throws -> (key: SecretValue?, withheld: Bool) {
         switch draft.apiKeyChange {
-        case .set(let typed): return typed
-        case .remove: return nil
-        case .keep: return draft.isNew ? nil : try store.apiKey(for: draft.configuration)
+        case .set(let typed): return (typed, false)
+        case .remove: return (nil, false)
+        case .keep:
+            guard !draft.isNew else { return (nil, false) }
+            let saved = store.loadProviders().first { $0.id == draft.id }
+            if let saved, Self.isSameAddress(saved.baseURL, draft.configuration.baseURL) {
+                return (try store.apiKey(for: draft.configuration), false)
+            }
+            guard hasStoredKey(for: draft.configuration) else { return (nil, false) }
+            if draft.configuration.requiresAPIKey { throw StoredKeyWithheld() }
+            return (nil, true)
+        }
+    }
+
+    /// Whether two base URLs name the same server: scheme, host (any case) and port (the scheme's default when none is
+    /// written). The path does not matter: the key goes to the server, whatever the path.
+    static func isSameAddress(_ first: URL?, _ second: URL?) -> Bool {
+        guard let first, let second, let scheme = first.scheme?.lowercased(), scheme == second.scheme?.lowercased(),
+            let host = first.host(percentEncoded: false)?.lowercased(),
+            host == second.host(percentEncoded: false)?.lowercased()
+        else { return false }
+        let defaultPort = scheme == "https" ? 443 : (scheme == "http" ? 80 : nil)
+        return (first.port ?? defaultPort) == (second.port ?? defaultPort)
+    }
+
+    /// A server that refused a check the stored key was held back from gets the sentence that says why.
+    private static func checkFailure(_ error: any Error, keyWithheld: Bool) -> any Error {
+        if keyWithheld, case .authenticationFailed = error as? LanguageModelError { return StoredKeyWithheld() }
+        return error
+    }
+
+    /// Test connection or the model list for an address typed but not saved, with no key typed: the saved key goes
+    /// only to the saved address (review R4-5).
+    public struct StoredKeyWithheld: Error, LocalizedError, Equatable {
+        public var errorDescription: String? {
+            "Type the API key above: Parakeet sends the saved key only to the saved address."
         }
     }
 

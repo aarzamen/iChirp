@@ -81,6 +81,9 @@ import Observation
     @ObservationIgnored private let startMediaJob: @MainActor (UUID, LinkMediaSource) -> Void
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var confirmedCompanionLinks: Set<String> = []
+    /// Which run owns the sheet: `reset()` and every new run move it on, so an earlier run's late result never lands
+    /// on a sheet cleared for another link (review R4-15).
+    @ObservationIgnored private var generation = 0
 
     /// - Parameter startMediaJob: runs a new link row's download and transcription as a tracked job (the app wires
     ///   `TranscriptionJobCenter.startTracked` with `LinkIngestService.download` and the file pipeline).
@@ -95,11 +98,17 @@ import Observation
 
     /// The person's tap: resolves the link (the only network use), then creates the row. Does nothing unless
     /// `canTranscribe`.
+    ///
+    /// Review R4-15: once the row exists its job always starts, even when the sheet was reset or closed (its model
+    /// released, the lookup cancelled) while the row was being written; otherwise the row would wait in
+    /// "Downloading…" with no job until the next launch. Only the sheet's own state follows the run that owns it.
     public func transcribe() {
         guard canTranscribe else { return }
         let kind = self.kind
         phase = .working(Self.workingMessage(for: kind))
         let service = self.service
+        let startMediaJob = self.startMediaJob  // strong on purpose: the job outlives the sheet
+        let run = beginRun()
         task = Task { [weak self] in
             do {
                 let resolved = try await service.resolve(kind)
@@ -107,28 +116,41 @@ import Observation
                 switch resolved {
                 case .media(let source):
                     let id = try await service.createRow(for: source)
-                    self?.startMediaJob(id, source)
-                    self?.phase = .started(id)
+                    startMediaJob(id, source)
+                    self?.settle(run, .started(id))
                 case .youtubeCaptions(let videoID, let link):
-                    self?.phase = .working("Fetching the captions from YouTube…")
+                    self?.settle(run, .working("Fetching the captions from YouTube…"))
                     do {
                         let id = try await service.importCaptions(videoID: videoID, link: link)
-                        self?.phase = .started(id)
+                        self?.settle(run, .started(id))
                     } catch let error as YouTubeCaptionError where Self.companionCanHelp(error) {
-                        self?.offerCompanion(for: link, captionsError: error)
+                        self?.offerCompanion(for: link, captionsError: error, run: run)
                     }
                 }
             } catch is CancellationError {
-                self?.phase = .editing
+                self?.settle(run, .editing)
             } catch {
-                self?.phase = .failed(LinkIngestService.readable(error))
+                self?.settle(run, .failed(LinkIngestService.readable(error)))
             }
         }
     }
 
-    /// Stops a running lookup (a started job is cancelled from the Library instead).
+    /// Stops a running lookup (a started job is cancelled from the Library instead). A row whose write had already
+    /// begun still gets its job, and the sheet then says so (`.started`).
     public func cancel() {
         task?.cancel()
+    }
+
+    /// A new run owns the sheet from now on.
+    private func beginRun() -> Int {
+        generation += 1
+        return generation
+    }
+
+    /// Sets `phase` for `run`, unless `reset()` or a newer run took the sheet over since.
+    private func settle(_ run: Int, _ newPhase: Phase) {
+        guard run == generation else { return }
+        phase = newPhase
     }
 
     /// The person agreed to send `companionLink` to their Mac (the sheet's confirmation). Remembered for this link.
@@ -144,15 +166,17 @@ import Observation
         let source = LinkMediaSource.companionYouTube(link)
         phase = .working("Asking your Mac for the audio…")
         let service = self.service
+        let startMediaJob = self.startMediaJob  // strong on purpose: the job outlives the sheet (review R4-15)
+        let run = beginRun()
         task = Task { [weak self] in
             do {
                 let id = try await service.createRow(for: source)
-                self?.startMediaJob(id, source)
-                self?.phase = .started(id)
+                startMediaJob(id, source)
+                self?.settle(run, .started(id))
             } catch is CancellationError {
-                self?.phase = .editing
+                self?.settle(run, .editing)
             } catch {
-                self?.phase = .failed(LinkIngestService.readable(error))
+                self?.settle(run, .failed(LinkIngestService.readable(error)))
             }
         }
     }
@@ -165,7 +189,8 @@ import Observation
         }
     }
 
-    private func offerCompanion(for link: URL, captionsError: YouTubeCaptionError) {
+    private func offerCompanion(for link: URL, captionsError: YouTubeCaptionError, run: Int) {
+        guard run == generation else { return }
         let reason = Self.captionsReason(captionsError)
         if service.isCompanionConfigured() {
             companionLink = link
@@ -188,8 +213,10 @@ import Observation
         }
     }
 
-    /// Clears the field for another link.
+    /// Clears the field for another link. A run still going keeps nothing of the sheet; a row it already wrote keeps
+    /// its job.
     public func reset() {
+        generation += 1
         task?.cancel()
         task = nil
         text = ""

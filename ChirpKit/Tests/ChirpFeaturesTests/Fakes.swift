@@ -58,6 +58,9 @@ actor FakeStore: TranscriptionStoring {
         case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, updatePrivacyClass, transitionStatus
         /// `fetch(id:)` (plan 022 review M1: park a route check).
         case fetch
+        /// `insert(_:)`, parked after its cancellation check: like a GRDB write that already started, it lands even
+        /// when the caller is cancelled while it is parked (reviews R4-8, R4-15).
+        case insert
     }
 
     private var rows: [UUID: Transcription] = [:]
@@ -78,6 +81,7 @@ actor FakeStore: TranscriptionStoring {
 
     func insert(_ transcription: Transcription) async throws {
         try Task.checkCancellation()
+        await parkIfHeld(.insert)
         guard rows[transcription.id] == nil else { throw FakeStoreError.duplicate(transcription.id) }
         rows[transcription.id] = transcription
         recordClass(of: transcription)
@@ -645,6 +649,8 @@ final class ProgressRecorder: Sendable {
 struct PipelineHarness {
     let root: URL
     let inbox: URL
+    /// The pipeline's import staging directory (its own, so no test touches the real temporary directory).
+    let staging: URL
     let paths: AppPaths
     let store: FakeStore
     let normalizer: FakeNormalizer
@@ -670,8 +676,10 @@ struct PipelineHarness {
             .appendingPathComponent("ChirpFeaturesTests-\(UUID().uuidString)", isDirectory: true)
         root = base.appendingPathComponent("iChirp", isDirectory: true)
         inbox = base.appendingPathComponent("Inbox", isDirectory: true)
+        staging = base.appendingPathComponent("tmp", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         testCase.addTeardownBlock { try? FileManager.default.removeItem(at: base) }
 
         paths = AppPaths(root: root)
@@ -693,6 +701,7 @@ struct PipelineHarness {
             scheduler: scheduler,
             settings: self.settings,
             customWords: { customWords },
+            stagingDirectory: staging,
             onProgress: { id, progress in
                 recorder.handler(id, progress)
                 onProgress?(id, progress)

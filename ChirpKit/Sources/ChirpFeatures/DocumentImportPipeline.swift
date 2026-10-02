@@ -14,14 +14,16 @@ import UniformTypeIdentifiers
 ///    made meanwhile survives.
 ///
 /// Failures end `.failed` with a readable message; cancelling ends `.cancelled`; Retry re-extracts from the kept
-/// source. No speech engine, no scheduler slot, no network. Contract: `spec/contracts/document-items-v1.md`.
+/// source. No speech engine, no scheduler slot, no network. Contract: `spec/contracts/document-items-v1.md`. The row
+/// rules (Retry statuses, terminal writes, failure sentences) are the audio pipeline's, from `PipelineJobSupport`.
 public actor DocumentImportPipeline: ItemImporting {
-    static let retryableStatuses: Set<Transcription.Status> = [.failed, .cancelled, .interrupted]
-
     private let paths: AppPaths
     private let store: any TranscriptionStoring
     private let extractor: any DocumentTextExtracting
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
+    /// Where an import's copy and journal wait until the copy is complete and its row exists (review R4-8); the same
+    /// directory as the audio pipeline's, whose `recoverInterruptedImports()` recovers documents too.
+    private let stagingDirectory: URL
     private let logger = Log.logger("documents")
     /// Ids with a `process` in flight; a second one for the same id is refused.
     private var running: Set<UUID> = []
@@ -30,11 +32,13 @@ public actor DocumentImportPipeline: ItemImporting {
         paths: AppPaths,
         store: any TranscriptionStoring,
         extractor: any DocumentTextExtracting,
+        stagingDirectory: URL = FileManager.default.temporaryDirectory,
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
         self.paths = paths
         self.store = store
         self.extractor = extractor
+        self.stagingDirectory = stagingDirectory
         self.onProgress = onProgress
     }
 
@@ -56,8 +60,10 @@ public actor DocumentImportPipeline: ItemImporting {
 
     // MARK: - Import
 
-    /// Copies `url` into `media/<id>/source.<ext>` and inserts a `.processing` document row. On failure nothing is
-    /// left behind (no folder, no row). Throws `DocumentExtractionError.unsupportedFormat` for other files.
+    /// Copies `url` into `media/<id>/source.<ext>` and inserts a `.processing` document row, through the same import
+    /// steps as the audio pipeline (`PipelineJobSupport`: journal, staged copy, one move, then the row, written outside
+    /// the caller's cancellation so a Cancel never drops the file; review R4-10). On failure nothing is left behind
+    /// (no journal, no folder, no row). Throws `DocumentExtractionError.unsupportedFormat` for other files.
     public func importItem(from url: URL) async throws -> UUID {
         try await importItem(from: url, privacyClass: .personal)
     }
@@ -68,17 +74,15 @@ public actor DocumentImportPipeline: ItemImporting {
             throw DocumentExtractionError.unsupportedFormat(url.pathExtension.lowercased())
         }
         let id = UUID()
-        let directory = paths.mediaDirectory(for: id)
-        let destination = directory.appendingPathComponent("source.\(url.pathExtension.lowercased())")
+        let journal = ImportJournal(
+            fileName: url.lastPathComponent, sourceType: .document, privacyClass: privacyClass, audioTrackOrdinal: nil,
+            documentFormat: format)
+        PipelineJobSupport.beginImport(id)
+        defer { PipelineJobSupport.endImport(id) }
         do {
-            try await Self.onFileQueue {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let accessing = url.startAccessingSecurityScopedResource()
-                defer {
-                    if accessing { url.stopAccessingSecurityScopedResource() }
-                }
-                try FileManager.default.copyItem(at: url, to: destination)
-            }
+            let destination = try await PipelineJobSupport.copyIntoMedia(
+                url, id: id, name: "source.\(url.pathExtension.lowercased())", journal: journal, paths: paths,
+                staging: stagingDirectory)
             guard let relativePath = paths.relativePath(for: destination) else {
                 throw CocoaError(.fileWriteInvalidFileName)
             }
@@ -88,12 +92,15 @@ public actor DocumentImportPipeline: ItemImporting {
                 id: id, sourceType: .document, fileName: url.lastPathComponent, mediaRelativePath: relativePath,
                 fileSizeBytes: size, status: .processing, privacyClass: privacyClass)
             row.documentFormat = format
-            try await store.insert(row)
+            let inserted = row
+            let store = self.store
+            try await PipelineJobSupport.detached { try await store.insert(inserted) }
+            await PipelineJobSupport.finishImport(id, staging: stagingDirectory)
             onProgress(id, JobProgress(stage: .readingDocument, fraction: 0))
             logger.info("document_imported id=\(id, privacy: .public) format=\(format.rawValue, privacy: .public)")
             return id
         } catch {
-            try? FileManager.default.removeItem(at: directory)
+            await PipelineJobSupport.abandonImport(id, paths: paths, staging: stagingDirectory)
             logger.error("document_import_failed error_type=\(error.logTypeName, privacy: .public)")
             throw error
         }
@@ -108,12 +115,15 @@ public actor DocumentImportPipeline: ItemImporting {
         running.insert(id)
         defer { running.remove(id) }
 
-        guard let row = await fetch(id) else { return nil }
+        guard let row = await PipelineJobSupport.storedRow(id, store: store, logger: logger) else { return nil }
         guard row.status == .processing else { return row }
         do {
             let completed = try await extract(row)
             let store = self.store
-            guard let saved = try await Self.detached({ try await store.savePreservingUserMetadata(completed) })
+            guard
+                let saved = try await PipelineJobSupport.detached({
+                    try await store.savePreservingUserMetadata(completed)
+                })
             else {
                 logger.notice("document_row_deleted_during_job id=\(id, privacy: .public)")
                 return nil
@@ -124,12 +134,15 @@ public actor DocumentImportPipeline: ItemImporting {
             )
             return saved
         } catch {
-            if error is CancellationError || Task.isCancelled {
-                return await markEnded(id, status: .cancelled, message: nil)
+            if PipelineJobSupport.isCancellation(error) {
+                return await PipelineJobSupport.endProcessing(
+                    id, as: .cancelled, message: nil, fallback: row, store: store, logger: logger)
             }
             logger.error(
                 "document_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
-            return await markEnded(id, status: .failed, message: Self.readable(error))
+            return await PipelineJobSupport.endProcessing(
+                id, as: .failed, message: PipelineJobSupport.sentence(for: error), fallback: row, store: store,
+                logger: logger)
         }
     }
 
@@ -137,11 +150,7 @@ public actor DocumentImportPipeline: ItemImporting {
     /// source. Returns nil, changing nothing, for any other status or a missing row.
     @discardableResult public func retry(id: UUID) async -> Transcription? {
         guard !running.contains(id) else { return nil }
-        let store = self.store
-        let reset: Transcription?? = try? await Self.detached {
-            try await store.transitionStatus(id: id, from: Self.retryableStatuses, to: .processing, errorMessage: nil)
-        }
-        guard let reset, reset != nil else { return nil }
+        guard await PipelineJobSupport.reopenForRetry(id, store: store, logger: logger) else { return nil }
         onProgress(id, JobProgress(stage: .readingDocument, fraction: 0))
         return await process(id: id)
     }
@@ -179,44 +188,5 @@ public actor DocumentImportPipeline: ItemImporting {
         completed.errorMessage = nil
         completed.updatedAt = Date()
         return completed
-    }
-
-    // MARK: - Helpers
-
-    private func fetch(_ id: UUID) async -> Transcription? {
-        let store = self.store
-        return try? await Self.detached { try await store.fetch(id: id) }
-    }
-
-    /// `.processing` → `status`, outside the job's cancellation. Returns the row as stored, or nil when it is gone.
-    private func markEnded(_ id: UUID, status: Transcription.Status, message: String?) async -> Transcription? {
-        let store = self.store
-        do {
-            if let ended = try await Self.detached({
-                try await store.transitionStatus(id: id, from: [.processing], to: status, errorMessage: message)
-            }) {
-                return ended
-            }
-            return await fetch(id)
-        } catch {
-            logger.error("document_status_write_failed id=\(id, privacy: .public)")
-            return nil
-        }
-    }
-
-    static func readable(_ error: any Error) -> String {
-        if let description = (error as? any LocalizedError)?.errorDescription, !description.isEmpty {
-            return description
-        }
-        return error.localizedDescription
-    }
-
-    private static func detached<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-        try await Task { try await operation() }.value
-    }
-
-    /// Copies run off the actor and the cooperative pool (a document can be large).
-    private static func onFileQueue(_ work: @escaping @Sendable () throws -> Void) async throws {
-        try await FileTranscriptionPipeline.runOnFileQueue(work)
     }
 }

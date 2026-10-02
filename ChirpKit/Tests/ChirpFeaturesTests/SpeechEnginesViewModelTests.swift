@@ -84,6 +84,62 @@ final class SpeechEnginesViewModelTests: XCTestCase {
         XCTAssertEqual(model.row(for: .final)?.id, parakeet)
     }
 
+    // MARK: - Review R4-19: download progress never goes backwards
+
+    /// Reports 0.6 then 0.3 (main-actor hops can arrive out of order, as with any engine's callbacks), then waits for
+    /// the test before it finishes.
+    actor OutOfOrderDownload: SpeechEngine {
+        nonisolated let descriptor = EngineDescriptor(
+            id: SpeechEngineCapabilityRegistry.whisperKitEngineID, kind: .speech, provider: "Test",
+            displayName: "Whisper Base", locality: .onDevice, license: "MIT")
+        let reported = Signal()
+        let release = Signal()
+        private var status: ModelAssetStatus = .notDownloaded
+
+        func assetStatus() async -> ModelAssetStatus { status }
+        func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {
+            progress(0.6)
+            progress(0.3)
+            reported.fire()
+            await release.wait()
+            progress(1)
+            status = .ready(bytesOnDisk: 1)
+        }
+        func deleteAssets() async throws { status = .notDownloaded }
+        func prepare() async throws {}
+        func transcribe(
+            fileAt url: URL, options: SpeechTranscriptionOptions, progress: @escaping @Sendable (Double) -> Void
+        ) async throws -> SpeechResult {
+            SpeechResult(text: "x", words: [], language: nil, engineID: descriptor.id, engineVariant: nil)
+        }
+    }
+
+    final class FractionLog {
+        var values: [Double] = []
+    }
+
+    func testDownloadProgressNeverGoesBackwards() async {
+        let engine = OutOfOrderDownload()
+        let router = SpeechEngineRouter(engines: [
+            .init(key: parakeet, engine: FakeSpeech(id: SpeechEngineCapabilityRegistry.parakeetEngineID)),
+            .init(key: base, engine: engine),
+        ])
+        let model = SpeechEnginesViewModel(router: router, physicalMemoryBytes: 12_000_000_000)
+        await model.refresh()
+        let log = FractionLog()
+
+        let download = Task { await model.download(base) { log.values.append($0) } }
+        await engine.reported.wait()
+        // Both hops were queued on the main actor (first in, first out) before this test resumed, so both ran.
+        XCTAssertEqual(log.values, [0.6], "0.3 after 0.6 is ignored")
+        XCTAssertEqual(model.rows.first { $0.id == base }?.status, .downloading(fraction: 0.6))
+
+        engine.release.fire()
+        let ready = await download.value
+        XCTAssertTrue(ready)
+        XCTAssertEqual(log.values, [0.6, 1])
+    }
+
     func testAChangeDuringAMeetingIsRefusedWithAReason() async {
         let (model, router, _) = makeModel(baseStatus: .ready(bytesOnDisk: 1))
         await model.refresh()

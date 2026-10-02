@@ -10,6 +10,32 @@ public enum ContinuedProcessingKind: String, Sendable, CaseIterable {
     case modelDownload = "download"
 }
 
+/// What a transcription request works on, which is all its title says (review R4-3). The system shows the title in a
+/// Live Activity on the Lock Screen and in the Dynamic Island, readable without unlocking the iPhone, so it is never an
+/// item's own name (a file name, a rename, a document's title or one derived from the transcript), whatever the item's
+/// privacy class. The subtitle names only the stage ("Transcribing · 42%").
+public enum ContinuedProcessingSubject: Sendable, Equatable, CaseIterable {
+    /// Audio or video files being transcribed (imports, shares, Create's file, their Retry).
+    case recording
+    /// Documents being read.
+    case document
+    /// A link being downloaded, then transcribed.
+    case link
+    /// A meeting's final pass, Retry or recovery.
+    case meeting
+
+    /// "Transcribing a recording", "Transcribing 3 recordings", "Reading a document", "Transcribing a meeting".
+    public func title(count: Int = 1) -> String {
+        let one = count == 1
+        return switch self {
+        case .recording: one ? "Transcribing a recording" : "Transcribing \(count) recordings"
+        case .document: one ? "Reading a document" : "Reading \(count) documents"
+        case .link: one ? "Transcribing a link" : "Transcribing \(count) links"
+        case .meeting: one ? "Transcribing a meeting" : "Transcribing \(count) meetings"
+        }
+    }
+}
+
 /// The system task that keeps user-started work running after the app leaves the foreground, with the system's own
 /// progress UI (a Live Activity with Cancel). In the app this wraps `BGContinuedProcessingTask`; tests use a fake.
 @MainActor public protocol ContinuedProcessingTask: AnyObject {
@@ -42,6 +68,8 @@ public enum ContinuedProcessingKind: String, Sendable, CaseIterable {
 /// request: the bridge between the app's own job state and the system's keep-alive and progress UI.
 ///
 /// The job's own state machine stays authoritative; the system task is only a keep-alive and a progress surface.
+/// - **Title** says what the work is, never which item (`ContinuedProcessingSubject`, review R4-3): it is readable on
+///   the Lock Screen.
 /// - **Progress** is the mean of the items' real fractions (an ended item counts as 1), reported in
 ///   `totalUnits` units and never decreasing. Nothing is simulated: with no real update, nothing moves.
 /// - **Completion.** When every item has ended, the task completes with success only if every item succeeded. A
@@ -79,6 +107,8 @@ public enum ContinuedProcessingKind: String, Sendable, CaseIterable {
     private let logger = Log.logger("continued-processing")
 
     /// - Parameters:
+    ///   - title: shown on the Lock Screen. Never an item's name: transcription work uses
+    ///     `init(scheduler:subject:items:expirationGrace:)`; a model download is titled with the model's name.
     ///   - items: the work's ids (one per file job, or one for a download), all known up front.
     ///   - subtitle: shown before the first progress update, e.g. "Waiting to start".
     ///   - expirationGrace: after expiration, how long to wait for the cancelled work to end before completing the
@@ -98,6 +128,19 @@ public enum ContinuedProcessingKind: String, Sendable, CaseIterable {
         self.initialSubtitle = subtitle
         self.lastSubtitle = subtitle
         self.expirationGrace = expirationGrace
+    }
+
+    /// A transcription request titled only by what it works on (review R4-3): `subject`'s title for `items.count`
+    /// items, "Waiting to start" until the first progress update.
+    public convenience init(
+        scheduler: (any ContinuedProcessingScheduling)?,
+        subject: ContinuedProcessingSubject,
+        items: [UUID],
+        expirationGrace: Duration = .seconds(5)
+    ) {
+        self.init(
+            scheduler: scheduler, kind: .transcription, title: subject.title(count: items.count),
+            subtitle: "Waiting to start", items: items, expirationGrace: expirationGrace)
     }
 
     /// Submits the request (from the person's action). Returns whether the system accepted it; when it did not, the

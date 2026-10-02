@@ -8,7 +8,7 @@ import Observation
 ///
 /// A person's own files may be clinical (review M6): each is labelled "Your file 1", "Your file 2"… (its name is never
 /// shown, stored or exported), copied under a neutral name, and every copy is deleted when the run ends and at launch
-/// (`removeLeftoverImports`).
+/// (`removeLeftoverImports`), the runner's 16 kHz copies included (review R4-7).
 @MainActor @Observable public final class ASRBenchmarkViewModel {
     public struct EngineChoice: Identifiable, Equatable, Sendable {
         public var key: SpeechEngineVariantKey
@@ -122,9 +122,11 @@ import Observation
         }
     }
 
-    /// Deletes copies an earlier launch left in the import folder (the list of added files is not kept). Call at
+    /// Deletes copies an earlier launch left in the import folder (the list of added files is not kept), and the 16 kHz
+    /// copies a run killed mid-way left in the runner's work folder (review R4-7; never a running run's). Call at
     /// launch.
     public func removeLeftoverImports() {
+        runner.removeLeftoverWork()
         guard userItems.isEmpty, !isRunning else { return }
         try? FileManager.default.removeItem(at: importFolder)
     }

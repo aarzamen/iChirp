@@ -60,12 +60,21 @@ Verified against the iOS 26.5 SDK headers and WWDC25 session 227 (plan 010, "Ref
   keep-alive and a progress surface only (`ChirpFeatures.BackgroundContinuation`, bridged in
   `App/Sources/Support/ContinuedProcessing.swift`). Progress is the pipeline's real `JobProgress` (1000 units,
   never decreasing); the subtitle reads "Transcribing · 42%" or "1 of 3 done · 42%". Nothing is simulated.
+- **The title never names the item** (review R4-3). The system shows it in the Live Activity on the Lock Screen and
+  in the Dynamic Island, readable without unlocking, so for every privacy class it says only what the work is:
+  "Transcribing a recording" ("Transcribing 3 recordings"), "Reading a document", "Transcribing a link" or
+  "Transcribing a meeting" (`ChirpFeatures.ContinuedProcessingSubject`); never a file name, a rename or a title
+  taken from the content. A Settings model Download is titled with the model's name.
 - **Every ending is terminal.** All jobs completed → `setTaskCompleted(success: true)`; any failed, cancelled or
   missing → `false`. A request the system never started is withdrawn. Expiration (the person taps Cancel in the Live
   Activity, or the system expires the task) cancels that action's jobs, so their rows end `cancelled`; if the
   process is suspended before that write lands, or the person force-quits the app (no callback), the next launch
   marks the row `interrupted`. Either way Retry works and the source is kept. After expiration the task completes
-  once the jobs end, or after a 5-second grace.
+  once the jobs end, or after a 5-second grace. A Cancel while a file is still being imported never drops it (review
+  R4-10): once its copy is in, its row is written anyway and ends `cancelled`, with no error alert. A kill during an
+  import (review R4-8) is settled at the next launch: a copy that reached `media/` becomes an `interrupted` row with
+  Retry, and a copy cut off mid-way is deleted (the person's own file was only read; `ChirpFeatures` README,
+  `PipelineJobSupport`).
 - **Refused requests** (the Simulator always answers `unavailable`, code 1) leave the job running in the foreground
   exactly as in M1; a refused download falls back to `DownloadKeepAlive`.
 - **Neural Engine in the background:** see the table above; plan 010 Step 3 measures it on the owner's phone.

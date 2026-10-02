@@ -11,7 +11,9 @@ import Observation
 /// files, or one `retry`) also submits one continued-processing request, so the jobs keep running after the person
 /// leaves the app, with the system's progress UI. The jobs start at once either way; the request is only a keep-alive
 /// and a progress surface (`BackgroundContinuation`). When the system expires it (or the person taps Cancel in the
-/// Live Activity), that action's jobs are cancelled: their rows end `cancelled`, never lost.
+/// Live Activity), that action's jobs are cancelled: their rows end `cancelled`, never lost. The request's title says
+/// only what the work is ("Transcribing a recording", "Reading 2 documents"; `ContinuedProcessingSubject`), never an
+/// item's name, whatever its class: the Live Activity is readable on the Lock Screen (review R4-3).
 ///
 /// **Audio tracks (M1.5).** When the pipeline can list tracks, `start(filesAt:)` first checks every file. If any has
 /// two or more audio tracks, nothing is imported yet: `pendingAudioTrackSelection` asks the person to choose, and
@@ -115,7 +117,8 @@ import Observation
 
     /// Starts one tracked job per file, in order, for files the person handed over in one action (a multi-select
     /// pick, or a file shared from another app). Each file is its own row and its own job; the action gets one
-    /// continued-processing request titled after the file (or "N files").
+    /// continued-processing request titled "Transcribing a recording" (or "Transcribing N recordings"), never with a
+    /// file's name.
     ///
     /// When the pipeline can list audio tracks, every file is checked first; a batch with a multi-track file waits
     /// for `selectAudioTrack(_:for:)` before anything is imported. A file whose tracks cannot be read is imported as
@@ -196,7 +199,7 @@ import Observation
         pipeline: FileTranscriptionPipeline
     ) {
         let tokens = urls.map { _ in UUID() }
-        let continuation = beginContinuation(title: Self.title(for: urls), tokens: tokens)
+        let continuation = beginContinuation(.recording, tokens: tokens)
         for (index, (url, token)) in zip(urls, tokens).enumerated() {
             startJob(
                 fileAt: url,
@@ -224,7 +227,7 @@ import Observation
                 self?.logger.error(
                     "import_failed error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
                 )
-                self?.lastImportError = Self.readable(error)
+                self?.lastImportError = PipelineJobSupport.sentence(for: error)
                 self?.tasks[token] = nil
                 self?.onImportSettled?(url)
                 self?.endContinuation(token, status: nil)
@@ -239,12 +242,13 @@ import Observation
     }
 
     /// Re-runs a failed, cancelled or interrupted row as a tracked job (see `FileTranscriptionPipeline.retry`).
-    /// Does nothing while that row's job is still running. `title` names the row in the system's progress UI.
-    public func retry(_ id: UUID, title: String = "Transcription", pipeline: FileTranscriptionPipeline) {
+    /// Does nothing while that row's job is still running. Its background request is titled "Transcribing a
+    /// recording", never with the row's name.
+    public func retry(_ id: UUID, pipeline: FileTranscriptionPipeline) {
         guard tokenByJob[id] == nil else { return }
         let token = UUID()
         track(id, token: token)
-        continuationByToken[token] = beginContinuation(title: title, tokens: [token])
+        continuationByToken[token] = beginContinuation(.recording, tokens: [token])
         tasks[token] = Task { @MainActor [weak self] in
             let row = await pipeline.retry(id: id)
             self?.endContinuation(token, status: row?.status)
@@ -255,12 +259,13 @@ import Observation
     // MARK: - Other importers and tracked work (M5)
 
     /// Starts one tracked job per file for an importer other than the audio pipeline (M5 documents), under one
-    /// continued-processing request, exactly like `start(filesAt:pipeline:)` without the audio-track check: each file
-    /// is imported (its row exists), reported to `onImportSettled`, then processed.
+    /// continued-processing request ("Reading a document", "Reading N documents"), exactly like
+    /// `start(filesAt:pipeline:)` without the audio-track check: each file is imported (its row exists), reported to
+    /// `onImportSettled`, then processed.
     public func start(filesAt urls: [URL], importer: any ItemImporting) {
         guard !urls.isEmpty else { return }
         let tokens = urls.map { _ in UUID() }
-        let continuation = beginContinuation(title: Self.title(for: urls), tokens: tokens)
+        let continuation = beginContinuation(.document, tokens: tokens)
         for (url, token) in zip(urls, tokens) {
             continuationByToken[token] = continuation
             tasks[token] = Task { @MainActor [weak self] in
@@ -269,7 +274,7 @@ import Observation
                     id = try await importer.importItem(from: url)
                 } catch {
                     self?.logger.error("import_failed error_type=\(error.logTypeName, privacy: .public)")
-                    self?.lastImportError = Self.readable(error)
+                    self?.lastImportError = PipelineJobSupport.sentence(for: error)
                     self?.tasks[token] = nil
                     self?.onImportSettled?(url)
                     self?.endContinuation(token, status: nil)
@@ -284,19 +289,23 @@ import Observation
         }
     }
 
-    /// Re-runs a failed, cancelled or interrupted row through `importer` (M5 documents), like `retry(_:title:pipeline:)`.
-    public func retry(_ id: UUID, title: String, importer: any ItemImporting) {
-        startTracked(id, title: title) { await importer.retry(id: id) }
+    /// Re-runs a failed, cancelled or interrupted row through `importer` (M5 documents), like `retry(_:pipeline:)`,
+    /// under a request titled "Reading a document".
+    public func retry(_ id: UUID, importer: any ItemImporting) {
+        startTracked(id, subject: .document) { await importer.retry(id: id) }
     }
 
-    /// Runs `work` as the tracked job of the existing row `id` (M5: a link's download followed by its transcription),
-    /// with its own continued-processing request titled `title`. `work` returns the row as it ended (nil: gone); it
-    /// is cancelled by `cancel(id)` or when the system expires the request. Does nothing while `id` has a job.
-    public func startTracked(_ id: UUID, title: String, work: @escaping @Sendable () async -> Transcription?) {
+    /// Runs `work` as the tracked job of the existing row `id` (M5: a link's download followed by its transcription;
+    /// Create's file), with its own continued-processing request titled by `subject` alone ("Transcribing a link"),
+    /// never by the row's name. `work` returns the row as it ended (nil: gone); it is cancelled by `cancel(id)` or when
+    /// the system expires the request. Does nothing while `id` has a job.
+    public func startTracked(
+        _ id: UUID, subject: ContinuedProcessingSubject, work: @escaping @Sendable () async -> Transcription?
+    ) {
         guard tokenByJob[id] == nil else { return }
         let token = UUID()
         track(id, token: token)
-        continuationByToken[token] = beginContinuation(title: title, tokens: [token])
+        continuationByToken[token] = beginContinuation(subject, tokens: [token])
         tasks[token] = Task { @MainActor [weak self] in
             let row = await work()
             self?.endContinuation(token, status: row?.status)
@@ -341,13 +350,11 @@ import Observation
 
     // MARK: - Background continuation
 
-    /// Submits one continued-processing request for a user action's jobs. Returns nil when there is no scheduler or
-    /// the system refused the request (the jobs still run, in the foreground).
-    private func beginContinuation(title: String, tokens: [UUID]) -> BackgroundContinuation? {
+    /// Submits one continued-processing request for a user action's jobs, titled by `subject` alone. Returns nil when
+    /// there is no scheduler or the system refused the request (the jobs still run, in the foreground).
+    private func beginContinuation(_ subject: ContinuedProcessingSubject, tokens: [UUID]) -> BackgroundContinuation? {
         guard let continuedProcessing else { return nil }
-        let continuation = BackgroundContinuation(
-            scheduler: continuedProcessing, kind: .transcription, title: title, subtitle: "Waiting to start",
-            items: tokens)
+        let continuation = BackgroundContinuation(scheduler: continuedProcessing, subject: subject, items: tokens)
         continuation.onExpiration = { [weak self] in
             self?.cancelTokens(tokens)
         }
@@ -369,26 +376,13 @@ import Observation
         }
         logger.notice("jobs_cancelled_on_expiration count=\(tokens.count, privacy: .public)")
     }
-
-    /// The system progress UI's title: the file's name without its extension, or "N files".
-    static func title(for urls: [URL]) -> String {
-        guard urls.count == 1, let url = urls.first else { return "\(urls.count) files" }
-        let name = url.deletingPathExtension().lastPathComponent
-        return name.isEmpty ? "Transcription" : name
-    }
-
-    private static func readable(_ error: any Error) -> String {
-        if let description = (error as? any LocalizedError)?.errorDescription, !description.isEmpty {
-            return description
-        }
-        return error.localizedDescription
-    }
 }
 
 /// An importer the job center can run besides the audio pipeline (M5: `DocumentImportPipeline`). The same shape as
 /// `FileTranscriptionPipeline`: `importItem` copies the file in and creates the row (nothing is left behind when it
-/// throws), `process` runs a `.processing` row to its end, `retry` moves a failed, cancelled or interrupted row back and
-/// runs it again.
+/// throws; once the copy is in, the row is written even if the job was cancelled meanwhile, so the file is never
+/// dropped), `process` runs a `.processing` row to its end, `retry` moves a failed, cancelled or interrupted row back
+/// and runs it again.
 public protocol ItemImporting: Sendable {
     func importItem(from url: URL) async throws -> UUID
     func process(id: UUID) async -> Transcription?

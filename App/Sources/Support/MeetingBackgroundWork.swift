@@ -5,6 +5,9 @@ import Foundation
 /// Asks iOS to keep a meeting's final pass (or a recovery) running with the phone locked, through the same
 /// continued-processing request file jobs use (`BackgroundContinuation`, kind `transcribe`), fed with the finalizer's
 /// real progress. When the system refuses (the Simulator always does) the pass simply runs in the foreground.
+///
+/// The request is titled "Transcribing a meeting", never with the meeting's name: the system shows it on the Lock
+/// Screen and in the Dynamic Island, readable without unlocking (review R4-3).
 @MainActor final class MeetingBackgroundWork {
     private let scheduler: (any ContinuedProcessingScheduling)?
     private var running: [UUID: BackgroundContinuation] = [:]
@@ -13,10 +16,9 @@ import Foundation
         self.scheduler = scheduler
     }
 
-    func begin(_ id: UUID, title: String) {
+    func begin(_ id: UUID) {
         guard running[id] == nil else { return }
-        let continuation = BackgroundContinuation(
-            scheduler: scheduler, kind: .transcription, title: title, subtitle: "Waiting to start", items: [id])
+        let continuation = BackgroundContinuation(scheduler: scheduler, subject: .meeting, items: [id])
         continuation.begin()
         running[id] = continuation
     }

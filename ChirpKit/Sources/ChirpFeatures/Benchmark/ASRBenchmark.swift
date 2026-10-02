@@ -1,6 +1,7 @@
 import ChirpCore
 import ChirpText
 import Foundation
+import Synchronization
 
 /// One recording the benchmark transcribes. `referenceText` is the known transcript (the synthetic reference set);
 /// nil for a person's own file, which then gets speed and memory but no word error rate.
@@ -161,7 +162,8 @@ public struct ASRBenchmarkProgress: Sendable, Equatable {
 /// Runs engines over recordings one at a time, each engine's load and passes through the scheduler's background slot,
 /// and measures word error rate, real-time factor, load time and peak memory (M7 Step 6, plan 016).
 ///
-/// - Every recording is normalized to 16 kHz mono once, then shared by all engines; the temporary WAVs are deleted.
+/// - Every recording is normalized to 16 kHz mono once, then shared by all engines; the temporary WAVs are deleted
+///   when the run ends, and those a killed run left are swept at launch and before every run (`removeLeftoverWork`).
 /// - Before and after each engine the runner unloads it (`SpeechEngineUnloading`) so load time and memory are its own.
 /// - fix/speech-memory-fit: right before each load it reads `availableMemory` (the memory iOS lets the app use) and it
 ///   samples the peak footprint during the load alone, for the device numbers that replace the registry's first-load
@@ -200,14 +202,52 @@ public struct ASRBenchmarkRunner: Sendable {
         self.sampleInterval = sampleInterval
     }
 
+    private static let workFolderPrefix = "asr-benchmark-"
+    /// The work folders runs in this process are using now, by name: a sweep never touches them.
+    private static let activeWorkFolders = Mutex<Set<String>>([])
+
+    /// Deletes the `asr-benchmark-<uuid>` folders in the work directory that no run in this process is using: the
+    /// 16 kHz copies a run killed by iOS (during a large model load, say) left behind, a person's own recording among
+    /// them, possibly clinical audio (review R4-7). The app calls it at launch (through
+    /// `ASRBenchmarkViewModel.removeLeftoverImports()`) and every run calls it first. Only names a run creates match,
+    /// so another app's files in a shared temporary directory are never touched. Returns how many folders it deleted.
+    @discardableResult public func removeLeftoverWork() -> Int {
+        let fileManager = FileManager.default
+        guard let names = try? fileManager.contentsOfDirectory(atPath: workDirectory.path) else { return 0 }
+        var removed = 0
+        for name in names where Self.isWorkFolderName(name) {
+            guard !Self.activeWorkFolders.withLock({ $0.contains(name) }) else { continue }
+            if (try? fileManager.removeItem(at: workDirectory.appendingPathComponent(name, isDirectory: true))) != nil {
+                removed += 1
+            }
+        }
+        if removed > 0 {
+            Log.logger("benchmark").notice("benchmark_leftover_work_removed count=\(removed, privacy: .public)")
+        }
+        return removed
+    }
+
+    /// `asr-benchmark-` followed by a whole UUID: only a folder `run` creates.
+    static func isWorkFolderName(_ name: String) -> Bool {
+        guard name.hasPrefix(workFolderPrefix) else { return false }
+        return UUID(uuidString: String(name.dropFirst(workFolderPrefix.count))) != nil
+    }
+
     public func run(
         engines: [ASRBenchmarkEngine],
         items: [ASRBenchmarkItem],
         progress: @escaping @Sendable (ASRBenchmarkProgress) -> Void = { _ in }
     ) async throws -> [ASRBenchmarkResult] {
-        let folder = workDirectory.appendingPathComponent("asr-benchmark-\(UUID().uuidString)", isDirectory: true)
+        removeLeftoverWork()
+        let name = "\(Self.workFolderPrefix)\(UUID().uuidString)"
+        let folder = workDirectory.appendingPathComponent(name, isDirectory: true)
+        // Registered before it exists, so a sweep that can see the folder also sees it is in use.
+        _ = Self.activeWorkFolders.withLock { $0.insert(name) }
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            _ = Self.activeWorkFolders.withLock { $0.remove(name) }
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
 
         // Normalize once; a recording that cannot be read is reported for every engine.
         var prepared: [(item: ASRBenchmarkItem, audio: NormalizedAudio?, error: String?)] = []

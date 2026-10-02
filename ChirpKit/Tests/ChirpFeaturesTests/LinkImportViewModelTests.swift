@@ -11,6 +11,8 @@ final class LinkImportViewModelTests: XCTestCase {
     private var root: URL!
     private let store = FakeStore()
     private var started: [(UUID, LinkMediaSource)] = []
+    /// Called after each started job is recorded.
+    private var onStarted: (() -> Void)?
 
     override func setUp() async throws {
         root = FileManager.default.temporaryDirectory
@@ -33,6 +35,7 @@ final class LinkImportViewModelTests: XCTestCase {
             captions: captions, preferredLanguages: { ["en"] }, onProgress: { _, _ in })
         return LinkImportViewModel(service: service) { [weak self] id, source in
             self?.started.append((id, source))
+            self?.onStarted?()
         }
     }
 
@@ -86,6 +89,69 @@ final class LinkImportViewModelTests: XCTestCase {
         XCTAssertTrue(rows.isEmpty, "no half-created row")
         model.text += " "
         XCTAssertEqual(model.phase, .editing)
+    }
+
+    // MARK: - Review R4-15: once the row exists, its job always starts
+
+    private let podcastLink = "https://podcasts.apple.com/us/podcast/ep/id1000000001?i=1000000000002"
+
+    /// Reset while the row is being written: the row's job still starts (a row never waits in "Downloading…" with no
+    /// job), and the cleared sheet stays cleared.
+    func testResetWhileTheRowIsBeingWrittenStillStartsItsJob() async throws {
+        let model = makeModel()
+        let jobStarted = expectation(description: "the row's job started")
+        onStarted = { jobStarted.fulfill() }
+        let hold = await store.holdNext([.insert])
+        model.text = podcastLink
+        model.transcribe()
+        await hold.entered.wait()
+
+        model.reset()
+        hold.release.fire()
+        await fulfillment(of: [jobStarted], timeout: 5)
+
+        XCTAssertEqual(started.count, 1, "the row's download and transcription run")
+        let row = await store.row(try XCTUnwrap(started.first?.0))
+        XCTAssertEqual(row?.status, .processing)
+        XCTAssertEqual(model.phase, .editing, "the cleared sheet is not taken over by the earlier link")
+        XCTAssertNil(model.startedID)
+        XCTAssertEqual(model.text, "")
+    }
+
+    /// The sheet closes (its model goes, cancelling the lookup) while the row is being written: the job still starts.
+    func testClosingTheSheetWhileTheRowIsBeingWrittenStillStartsItsJob() async throws {
+        var model: LinkImportViewModel? = makeModel()
+        let jobStarted = expectation(description: "the row's job started")
+        onStarted = { jobStarted.fulfill() }
+        let hold = await store.holdNext([.insert])
+        model?.text = podcastLink
+        model?.transcribe()
+        await hold.entered.wait()
+
+        weak var released = model
+        model = nil
+        XCTAssertNil(released, "the sheet's model is gone")
+        hold.release.fire()
+        await fulfillment(of: [jobStarted], timeout: 5)
+
+        XCTAssertEqual(started.count, 1)
+        let row = await store.row(try XCTUnwrap(started.first?.0))
+        XCTAssertEqual(row?.status, .processing)
+    }
+
+    /// Cancel during the lookup, before any row: nothing is created and the sheet is ready again.
+    func testCancelBeforeTheRowExistsCreatesNothing() async throws {
+        let model = makeModel()
+        model.text = podcastLink
+        model.transcribe()
+        model.cancel()
+        await model.waitUntilSettled()
+
+        XCTAssertEqual(model.phase, .editing)
+        XCTAssertTrue(model.canTranscribe, "Transcribe is offered again")
+        XCTAssertTrue(started.isEmpty)
+        let rows = try await store.fetchAll()
+        XCTAssertTrue(rows.isEmpty, "the cancelled lookup created no row")
     }
 
     func testResetClearsForAnotherLink() async {

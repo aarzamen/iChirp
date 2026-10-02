@@ -20,9 +20,17 @@ pipeline's `Task`s and publishes its progress to the UI.
   when transcription starts. Plan 019 adds `JobProgress.isIndeterminate` (`.indeterminate(stage)`,
   `determinateFraction`): a download whose size is unknown shows "Downloading…" and a spinner, never "0%".
   - `importFile(from:sourceType:audioTrackOrdinal:privacyClass:)` copies the file (security-scoped, never moved)
-    into `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the
-    person's audio-track choice (nil: automatic) and its class from the first write (default `personal`; Create
-    passes the chosen class). `process` decodes that track on every run, Retry included.
+    into `media/<id>/source.<ext>` on the file queue, then inserts a `.processing` row carrying the person's
+    audio-track choice (nil: automatic) and its class from the first write (default `personal`; Create passes the
+    chosen class). `process` decodes that track on every run, Retry included. The copy goes through the shared import
+    steps (`PipelineJobSupport`, below): a journal and the copy in the staging directory, one move into `media/`, the
+    row written outside the caller's cancellation (review R4-10: a Cancel in the Live Activity during an import ends
+    in a `cancelled` row with its source kept, never a dropped file or a raw CancellationError), then the journal goes.
+  - `recoverInterruptedImports()` (review R4-8, call at launch): an import a kill cut short. A copy that had reached
+    `media/<id>/` without its row becomes an `.interrupted` row with Retry, named, classed and track-chosen as its
+    journal says (audio and documents alike); a copy cut off mid-way is deleted (the person's own file was only
+    read); a journal whose row exists is just removed. A media folder without a journal (a deleted item's leftover)
+    is never brought back.
   - `audioTracks(in:)` lists a file's audio tracks (security-scoped, through the injected `trackProbe`; empty
     without one) so a multi-track file can ask before import; `canInspectAudioTracks` says whether a probe exists.
   - `process(id:)` runs: privacy routing check → model check → audio-preparation permit (at most two jobs) →
@@ -42,23 +50,40 @@ pipeline's `Task`s and publishes its progress to the UI.
   `onImportSettled` is called once per incoming file after its import attempt ends (imported or not); the app uses
   it to delete iOS's temporary Inbox copy. Given a `ContinuedProcessingScheduling` at init, each `start(filesAt:)`
   and each `retry` (a person's action) also submits one background request; its expiration cancels that action's
-  jobs. With a track probe, `start(filesAt:)` first lists every file's audio tracks; a batch with a multi-track file
-  waits in `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
+  jobs. Review R4-3: the request's title says only what the work is (`ContinuedProcessingSubject`: "Transcribing a
+  recording", "Transcribing 3 recordings", "Reading a document", "Transcribing a link"), never a file name, a rename
+  or a derived title, for every privacy class (general, personal and clinical alike): the system shows it on the
+  Lock Screen and in the Dynamic Island without unlocking. No job-center API takes an item's name. With a track
+  probe, `start(filesAt:)` first lists every file's audio tracks; a batch with a multi-track file waits in
+  `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
   (the choice for multi-track files, automatic for the rest) or `cancelAudioTrackSelection(_:)` drops it (its files
   count as settled). Later batches queue behind it. Contract: `spec/contracts/file-transcription-audio-tracks-v1.md`.
-  M5 (additive): `start(filesAt:importer:)` and `retry(_:title:importer:)` run any `ItemImporting` (documents) the
-  same way, and `startTracked(_:title:work:)` tracks work for an existing row (a link's download, then its
-  transcription) with its own background request, cancellable by `cancel(id)`.
+  M5 (additive): `start(filesAt:importer:)` and `retry(_:importer:)` run any `ItemImporting` (documents) the
+  same way, and `startTracked(_:subject:work:)` tracks work for an existing row (a link's download, then its
+  transcription; Create's file) with its own background request, cancellable by `cancel(id)`.
 - `DocumentImportPipeline.swift` (M5): documents, an `ItemImporting` the job center runs. `importItem(from:)` copies
   the file into `media/<id>/source.<ext>` and inserts a `.processing` `.document` row with its `documentFormat`
-  (`importItem(from:privacyClass:)` gives the row Create's chosen class from its first write)
-  (nothing left behind on failure; unsupported types throw); `process(id:)` extracts on device through
+  (`importItem(from:privacyClass:)` gives the row Create's chosen class from its first write), through the same
+  import steps as audio (nothing left behind on failure; unsupported types throw; a Cancel never drops the file);
+  `process(id:)` extracts on device through
   `DocumentTextExtracting` with `.readingDocument` page progress, derives title and snippet, and saves with
   `savePreservingUserMetadata`; `retry(id:)` re-extracts from the kept source. No engine, no scheduler slot, no network.
+- `PipelineJobSupport.swift` (review R4-17): what both pipelines share instead of copies that had drifted:
+  `retryableStatuses`, `detached` (writes outside the job's cancellation), `isCancellation` (an engine's `.cancelled`
+  counts), `sentence(for:)` (the failure sentence; a cancel never shows Foundation's raw text), `storedRow`,
+  `endProcessing` (the terminal write: only status and message change; a store failure still reports how the job
+  ended), `reopenForRetry`, the file queue (`runOnFileQueue`), and the import steps with their launch recovery
+  (review R4-8): `ImportJournal` (name, kind, class, track, format) written to `<staging>/import-<id>/journal.json`,
+  the copy made beside it and moved into `media/<id>/` in one rename, the row inserted, then the journal removed;
+  imports running in this process are never recovered. The staging directory is the app's temporary directory
+  (both pipelines must use the same one; tests pass their own).
 - `LinkImportViewModel.swift` (M5): the Paste a link sheet. `text` is classified locally on every change (`kind`);
   `transcribe()` is the one networked action: podcast and media links get their row and continue as a tracked job
   (`startMediaJob`, wired by the app to `startTracked`), YouTube links finish in the sheet; errors stay in the sheet
-  (`phase == .failed`) with no row created. `reset()` clears it for another link. Plan 019: when captions are missing
+  (`phase == .failed`) with no row created. `reset()` clears it for another link. Review R4-15: once a row exists its
+  job always starts, even when the sheet was reset or closed while the row was being written (`startMediaJob` is held
+  strongly by the run); only the run that owns the sheet (a generation that `reset()` and each run move on) may still
+  change `phase`. Plan 019: when captions are missing
   (or YouTube refuses them) and a Mac companion is set up, `phase == .companionOffer(reason)`; the person confirms
   once per link (`needsCompanionConfirmation`, `confirmCompanion()`) and `getAudioFromMac()` starts a `.companion`
   job. Without a companion the failure keeps the captions error's own advice (try again later, share the file) and
@@ -96,7 +121,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   user action: `update(_:fraction:stage:)` feeds the mean of its items' real fractions to the task (never
   decreasing), `end(_:succeeded:)` completes the task when every item ended (success only if all succeeded) or
   withdraws a request the system never started, and expiration calls `onExpiration` (the owner cancels the work)
-  and completes once the items end or after `expirationGrace`.
+  and completes once the items end or after `expirationGrace`. Transcription work is built with
+  `init(scheduler:subject:items:)`, whose title is `ContinuedProcessingSubject.title(count:)` (the job center and the
+  app's `MeetingBackgroundWork`, "Transcribing a meeting"); only a model download passes its own title (the model's
+  name). The subtitle names only the stage.
 - `IncomingFileInbox.swift`: the app's `Documents/Inbox/`, where iOS copies a file another app hands to Parakeet
   (Share sheet → Parakeet, Files → Open in; M1.5). `contains(_:)` and `removeIfInside(_:)` only ever touch files
   strictly inside that folder, never a file the user picked with the document picker.
@@ -113,8 +141,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
   favorite, and `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
-  `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` into
-  `<tmp>/export-<id>/`, rename and favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
+  `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` (async,
+  review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`, `<tmp>/export-<id>/`), rename and
+  favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
   item's `EffectivePrivacyClass` when the app passes `deliverables` (plan 022 review M5: a personal transcript with a
   clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
@@ -138,7 +167,8 @@ pipeline's `Task`s and publishes its progress to the UI.
     final one (the budget, or one loading beside the other above the memory available now); a Transcripts choice too
     big for the live engine moves live text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()`
     unloads the engine that left both routes (review I3), and the rows are read again.
-  - `download` goes through the engine. `delete` (review I2, N3) refuses an engine a route uses while a meeting
+  - `download` goes through the engine; its progress never goes backwards (review R4-19: a lower fraction arriving
+    late is ignored, as in `LanguageModelsViewModel`). `delete` (review I2, N3) refuses an engine a route uses while a meeting
     holds the lease; otherwise the delete is asked for first, and only once the engine agrees do its routes move
     back to Parakeet (Transcripts first), `lastNotice` names the fallback's own row (review N2, never
     `row(for: .final)`, which is wrong when the delete only moved Live text). An engine that refuses the delete
@@ -241,9 +271,12 @@ pipeline's `Task`s and publishes its progress to the UI.
     for a home-network host, `apiKeyChange` (a blank key keeps the stored one), and `problem` as a sentence.
   - `LanguageModelsViewModel` lists providers and Apple's availability, sets the default, saves and deletes through
     the provider store (key to the Keychain first), tests a connection and lists models (typed key, else the stored
-    one), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists the small models
-    (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`, downloads (only on a
-    Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one default at a time.
+    one, but only for the saved address: review R4-5 — an edited, unsaved scheme, host or port never gets the stored
+    key; a provider that needs one answers `StoredKeyWithheld`, "Type the API key above…", and one that does not is
+    checked without it), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists
+    the small models (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`,
+    downloads (only on a Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one
+    default at a time.
     Review I3d: `refresh()` also reads each small model's `localModelAvailability` (no network, nothing loaded);
     `unavailableReason(for:)` gives the sentence the Transform and Ask sheets show before Start (Apple's model and
     small models: not downloaded, would not fit in memory), and `unavailableLocalModels` lists the ones the pickers
@@ -486,6 +519,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
     - Privacy routing runs first: the synthetic set is `.general`, and a person's own file is treated as `.clinical`.
       An engine without its model is reported, never downloaded.
     - A person's own file keeps no recognized text.
+    - Review R4-7: the 16 kHz copies live in `<work dir>/asr-benchmark-<uuid>/` only while the run needs them.
+      `removeLeftoverWork()` deletes the folders a run killed by iOS left (only `asr-benchmark-` plus a whole UUID,
+      never a folder a run in this process is using); every run calls it first, and the app at launch.
   - `ASRBenchmarkExport`: CSV (RFC 4180) and JSON (`ichirp.asr-benchmark/v1`).
 - `ASRBenchmarkStore.swift`: an actor holding one JSON file (`<library>/benchmarks/asr-benchmark-runs.json`) with the
   newest 20 runs. Before saving, it strips text from results without a reference. There is no database table and no
@@ -510,8 +546,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
   - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your
     file n" and copied under a neutral name (a file name can hold a patient's name); the copies are deleted when a
-    run ends and at launch (`removeLeftoverImports`). `ASRBenchmarkStore` also replaces a file name an earlier build
-    saved (items with a UUID id) when it reads the file.
+    run ends and at launch (`removeLeftoverImports`, which also runs the runner's `removeLeftoverWork()`).
+    `ASRBenchmarkStore` also replaces a file name an earlier build saved (items with a UUID id) when it reads the file.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
 
 ## Number fidelity (on-device language models, review I2, `Benchmark/NumberFidelity.swift`)
@@ -536,6 +572,7 @@ let pipeline = FileTranscriptionPipeline(
     scheduler: scheduler, settings: settings, onProgress: jobs.progressHandler)
 _ = try await store.markStaleProcessingAsInterrupted()     // at launch, then:
 await pipeline.sweepOrphanedTemporaryAudio()
+await pipeline.recoverInterruptedImports()                 // review R4-8, before any import starts
 jobs.onImportSettled = { url in inbox?.removeIfInside(url) } // inbox = IncomingFileInbox.appDefault()
 jobs.start(filesAt: pickedOrSharedURLs, pipeline: pipeline) // per user action
 LibraryViewModel(store: store, paths: paths, documents: deliverableStore)  // paths: delete removes media/<id>/;
@@ -582,7 +619,8 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   site (M4 language models, M6 structure models).
 - **The pipeline never downloads.** If `speech.assetStatus()` is not `.ready`, or `prepare`/`transcribe` throws
   `SpeechEngineError.modelNotDownloaded`, the row fails with `SpeechModelMissingError`'s sentence: for Parakeet
-  `FileTranscriptionPipeline.modelMissingMessage` ("Download the Parakeet speech model in Settings → Speech model"),
+  `FileTranscriptionPipeline.modelMissingMessage` ("Download the Parakeet speech model in Settings → Speech engines",
+  review R4-13: the "Speech model" row is gone),
   for another engine a route chose its name and "Download it in Settings → Speech engines, or switch Transcripts to
   Parakeet". A diarizer that is not ready is skipped and
   logged; a diarization error is logged and the job still completes without speakers (upstream: non-fatal).
@@ -590,8 +628,14 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   slot; here both models run in one background slot, so two files never hold Parakeet and the diarizer in memory at
   once on the phone. Dictation (the interactive slot) is unaffected.
 - **Terminal writes run outside the job's cancellation.** GRDB's async accessors throw `CancellationError` inside a
-  cancelled task, so the `.cancelled`/`.failed` status and the final save go through an unstructured `Task`. The
-  fake store in the tests throws the same way; keep that when changing persistence here.
+  cancelled task, so the `.cancelled`/`.failed` status and the final save go through an unstructured `Task`
+  (`PipelineJobSupport.detached`). So does an import's row insert once its copy is in (review R4-10), so a Cancel in
+  the Live Activity never drops a file. The fake store in the tests throws the same way; keep that when changing
+  persistence here.
+- **An import never leaves half a file in `media/`, and a kill never loses one that got there** (review R4-8). The
+  copy is made in the staging directory beside its journal and moved into `media/<id>/` in one rename; the journal
+  goes only after the row exists. `recoverInterruptedImports()` at launch adopts a complete copy without a row as an
+  Interrupted item and deletes an incomplete copy. Never write into `media/<id>/` before the copy is complete.
 - **Every write that can race a job is field-level.** Rename and favorite (Library, Transcript) use the store's
   `updateTitleOverride` / `updateFavorite`; failure and cancel marking use `transitionStatus(from: [.processing])`;
   retry uses `transitionStatus(from: [.failed, .cancelled, .interrupted], to: .processing)`. Each is one store
@@ -609,8 +653,9 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   first come, first served; cancelling it while it waits marks it `.cancelled` without normalizing. The permit is
   pipeline state, not a scheduler slot: normalizing inside the `.fileTranscription` slot would hold the one
   background slot through a long decode and delay M2/M3 meeting work queued for it.
-- **Blocking work stays off the pipeline actor and Swift's cooperative pool.** The import copy runs on the
-  pipeline's file queue (`runOnFileQueue`); `AVAudioNormalizer` decodes on its own queue (see
+- **Blocking work stays off the pipeline actor and Swift's cooperative pool.** The import copy, its journal and the
+  launch recovery's file work run on the shared file queue (`PipelineJobSupport.runOnFileQueue`); `AVAudioNormalizer`
+  decodes on its own queue (see
   `ChirpAudio/README.md`). Never call a blocking file or decode API directly in an `async` function here.
 - **`normalized-16k.wav` is removed on every exit** (when the permit is returned, and again by a `defer` in
   `process`); the source is never touched. The media layout is a contract:

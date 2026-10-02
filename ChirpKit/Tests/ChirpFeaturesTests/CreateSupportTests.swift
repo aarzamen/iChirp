@@ -11,7 +11,7 @@ final class CreateSupportTests: XCTestCase {
         let center = TranscriptionJobCenter()
         let id = UUID()
         let hold = Hold()
-        center.startTracked(id, title: "Synthetic") {
+        center.startTracked(id, subject: .recording) {
             hold.entered.fire()
             await hold.release.wait()
             return nil
