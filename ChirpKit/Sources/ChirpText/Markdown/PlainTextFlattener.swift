@@ -16,7 +16,12 @@ import Foundation
 ///
 /// Every word of the source survives, in order (`PlainTextFlattenerPropertyTests`): the only characters this drops
 /// are Markdown's own structural syntax (`#`, `*`, `_`, `` ` ``, list markers, fences) — never a letter, digit or
-/// word the source actually wrote.
+/// word the source actually wrote. A delimiter written between two letters or digits ("2*3", "25~50") is the
+/// person's character and is kept, and `~` is never read as strikethrough (`MarkdownInline`, plan 024 Task 4).
+///
+/// One transform is not a removal, by design (known item K3, plan 024 ruling): an HTML entity reference is decoded
+/// to the character it names (`&lt;` → `<`, `&amp;` → `&`, `&#8805;` → `≥`), because CommonMark requires it and the
+/// screen (`MarkdownDocument`) shows that same character — Copy writes what the person saw.
 public enum PlainTextFlattener {
     /// The bullet marker every unordered item gets, at every nesting level. Documented here because it is a
     /// product decision (plan 023), not an implementation detail — read it before assuming "•" instead.

@@ -72,12 +72,21 @@ pipeline directly.
     numbered or a mix, with a `MarkdownListItem.level` for nesting), `.code` (a fenced ```` ``` ```` block). A
     numbered marker needs a digit run followed by ". "/") " (so "120/80 mmHg" and "3.5 mg" are never read as list
     items); each two leading spaces of indentation is one more nesting level.
-  - `MarkdownInline.swift` (internal): resolves bold/italic/inline-code/links within one block's text via
-    `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`, shared by the renderer (keeps the
-    attributes) and the flattener (keeps only the plain characters). A `[label](url)` is rewritten to
-    "label (url)" first — `AttributedString` alone drops the url — and a "*" directly between two digits is
-    escaped first too, so a line with the same "N*N" multiplication written twice does not have its two unmatched
-    `*`s pair with each other and corrupt both numbers (`MarkdownInlineTests`, `PlainTextFlattenerPropertyTests`).
+  - `MarkdownInline.swift`: resolves bold/italic/inline-code/links within one block's text via
+    `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`, one line at a time, shared by the
+    renderer (`attributed`, keeps the attributes), the flattener and the PDF/Word exports (`plain`, public, keeps
+    only the plain characters). Before parsing (plan 024 Task 4, `MarkdownInlineTests`,
+    `PlainTextFlattenerPropertyTests`):
+    - a `[label](url)` is rewritten to "label (url)" — `AttributedString` alone drops the url;
+    - a run of `*` or a backtick written between two Latin letters or digits ("2*3", "2**10", "x*2", "5`10") is
+      escaped, so two of them on one line never pair as emphasis or code across the words between them and merge
+      the numbers ("2**10 and 3**4" used to copy as "210 and 34");
+    - every `~` is escaped (ruling: this app never strikes text through; "metoprolol 25~50 mg q8~12h" used to
+      copy as "2550 mg q812h", review R2-8);
+    - inline code is never touched (an escape inside it would show its backslash) and an escape the source
+      already wrote is kept.
+    HTML entity references (`&lt;`, `&#8805;`) are decoded, as CommonMark requires, so the screen, Copy and the
+    exports all show the same character (known item K3, ruling: keep decoding).
   - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line
     plus a blank line after; a bullet becomes `PlainTextFlattener.bulletMarker` ("- ", not "•": it pastes
     identically everywhere an EMR field might mangle a glyph) at every nesting level; a numbered item keeps its own

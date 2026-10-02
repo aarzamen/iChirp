@@ -214,4 +214,21 @@ final class PlainTextFlattenerTests: XCTestCase {
         // Documents the choice plan 023 asked us to pick and record: "-" over "•".
         XCTAssertEqual(PlainTextFlattener.bulletMarker, "- ")
     }
+
+    // MARK: - Review fixes 2026-10-01 (plan 024 Task 4)
+
+    /// Known item K3, ruling: an HTML entity reference is decoded on Copy exactly as the screen shows it (CommonMark
+    /// behavior, kept deliberately) — the copied note never says "&#8805;" where the screen said "≥".
+    func testHTMLEntitiesDecodeOnCopyAsOnScreen() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("- Threshold &#8805; 38.0\n- 5 &amp; 3 &lt; 9"),
+            "- Threshold ≥ 38.0\n- 5 & 3 < 9")
+    }
+
+    /// Review R2-8: a dose range written with tildes copies exactly as written, never as a strikethrough.
+    func testTildeDoseRangeCopiesExactly() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("**Plan**\n- metoprolol 25~50 mg q8~12h"),
+            "Plan\n\n- metoprolol 25~50 mg q8~12h")
+    }
 }
