@@ -37,3 +37,11 @@ unpolished transcript.
 - Tests pin Raw leaving `cleanTranscript` nil and Clean removing "um" (`testCleanupRawLeavesCleanTranscriptNil`,
   `testCleanupCleanRemovesUm`).
 - Custom words and snippets need their editors (M2) before Clean is very useful beyond filler removal.
+
+## Amendment (2026-10-02, plan 025)
+
+Corrections (Correct…, Find's Replace and Replace all, a dictation's voice commands) and learned rules ("Also fix …
+in future transcripts") are explicit, visible user edits over the unchanged engine words: stored apart from them
+(`textCorrections`), marked on screen, revertible, and applied in Raw and Clean alike ([ADR-016](016-transcript-corrections-over-an-immutable-baseline.md)).
+Clean still never edits the words; learned rules never run as clean-up, and manual custom words keep their Clean
+and meeting behavior. No model takes part in either.

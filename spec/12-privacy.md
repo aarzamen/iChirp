@@ -175,4 +175,9 @@ contract that proves no content or identifiers leave the device.
   own row (`textCorrections`): same privacy class, same delete, same backup; nothing about them leaves the iPhone, and
   the text a model or voice receives is the transcript as corrected, routed exactly as before. Logs carry ids, counts
   and origin names only, never heard or corrected text.
+- **Find and learned rules (plan 025 Part B).** Find runs on the iPhone over the text on screen; queries are never
+  stored or logged, and VoiceOver announcements carry counts and times only. A learned rule ("Also fix … in future
+  transcripts") is saved in Settings → Custom words & snippets for every transcript, outside any item's class, and
+  never leaves the iPhone; on a clinical item the offer adds "Saved in Settings → Text rules for all transcripts. Don’t
+  add patient names." The network surfaces table does not change.
 - Downloaded models are excluded from backups because they can be downloaded again.

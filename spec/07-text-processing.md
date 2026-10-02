@@ -65,8 +65,29 @@ write them, ChirpCore, ChirpStore and the device smoke.
   (`TranscriptTextContext`: manual custom words, the filler setting, snippets for dictation). A row without
   corrections returns exactly what it did before. `scripts/check_transcript_text_reads.sh` keeps consumers on the
   accessor.
+- **Find in transcript (plan 025 Part B).** Find searches the lines the Transcript screen shows (`.heard`, with
+  corrections; the screen shows no Clean text, so plan step B6 does not apply). `TranscriptSearchIndex` (ChirpText,
+  semantics from upstream's `TranscriptFindModel`) folds every Character case- and diacritic-insensitively once per text
+  change and maps each folded unit back to its Character, so a match always covers whole Characters (an accented
+  letter written as two code points, an emoji with a skin tone); blank queries match nothing, the untrimmed query is
+  searched, matches never overlap or cross a line. Budget: 20,000 words, index ≤ 50 ms and query ≤ 8 ms p95 on the
+  iPhone (the device smoke's `FIND BENCH`). **Replace** turns each match's line into the line with the match replaced
+  and saves the smallest spans through `CorrectionPlanner` and the one writer (`origin: replace`; Replace all is one
+  write with one `batchID`, `origin: replaceAll`, undone together); a match whose text no longer matches the query is
+  skipped and counted. Replace needs word timings, as Correct does.
+- **Learned rules (plan 025 D8).** After a Replace whose every match is a whole-word place (`\b<query>\b`,
+  case-insensitive), with a query of at least three characters with a letter and no edge spaces and a different,
+  non-blank replacement, the screen offers "Also fix “…” in future transcripts?". Add Rule saves a `custom_words` row
+  with `source = learned`. Learned rules never run in Clean: files, dictation and meetings, right after their pipeline
+  saves a completed transcript (dictation before its voice commands and the copy; captions after insert), apply the
+  enabled learned rules to its `.heard` lines (`LearnedRuleMatcher`: custom-word matching, no chaining, never over a
+  word already corrected) as `rule` corrections with the rule's `ruleID`, visible and revertible like any other, in Raw
+  and Clean. Clean and the meeting applier get manual words only (`enabledManualCustomWords()`), so manual custom words
+  behave exactly as before. A rule that fails never fails the job.
 
 ## Clean-up pipeline (`TextRefinement`, Clean mode only)
+
+Custom words here are the person's manual words only; learned rules (above) are corrections, never clean-up.
 
 `TextProcessingPipeline` runs five steps in a fixed order (upstream ADR-004):
 

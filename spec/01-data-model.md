@@ -113,7 +113,9 @@ import ──► processing ──► completed
 Upstream's tables and columns, in one migration (the parallel M4 lane owns `v3-language-models`):
 
 - `custom_words`: `id`, `word`, `replacement` (nullable), `source` (`manual` · `learned`), `isEnabled`, `createdAt`,
-  `updatedAt`; unique on `word COLLATE NOCASE`.
+  `updatedAt`; unique on `word COLLATE NOCASE`. `learned` rows (plan 025 D8, saved by "Also fix … in future
+  transcripts") are applied to new transcripts as `rule` corrections; Clean and the meeting applier use `manual`
+  rows only. No schema change.
 - `text_snippets`: `id`, `trigger`, `expansion`, `isEnabled`, `useCount`, `action` (nullable, `return`),
   `createdAt`, `updatedAt`; unique on `"trigger" COLLATE NOCASE`.
 

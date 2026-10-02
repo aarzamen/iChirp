@@ -42,6 +42,21 @@
 >    A0 adds `UncorrectedSurfacesGoldenTests` for the remaining surfaces.
 > 8. R5-2 is fixed by Part A (controller ruling 2): the consumer table's row 13 "Covered (R5-2)" is superseded.
 
+> **Part B drift check (2026-10-02, at `16e49503`, Part A's app half; supersedes the plan text where they disagree):**
+> 1. `TranscriptCorrectionService` exists (ChirpFeatures/Corrections), `transcriptions.textCorrections` exists
+>    (migration `v11-transcript-corrections`; plan 026 added v12), `scripts/check_transcript_text_reads.sh` passes. The
+>    screen already has the `ScrollViewReader` and `.id(line.id)` lines.
+> 2. The Transcript screen shows `.heard` lines (`TranscriptViewModel.apply`), never Clean text: **B6 is skipped.**
+> 3. `TranscriptCorrectionService.correct` already takes `origin` and `batchID` and plans against the loaded
+>    `TranscriptText`; Part B adds `correct(_:lines:in:baseline:origin:batchID:)` (Replace all, one write) and
+>    `applyLearnedRules(_:)`, and the service takes a `learnedRules` provider.
+> 4. Deviations: the find match type is `TranscriptFindMatch { blockIndex, range }` (upstream's field name, so its 20
+>    tests port unchanged; `TranscriptFindModel.Match` is an alias); `replace` / `replaceAll` take the find `query` (to
+>    skip stale matches); the B3 view-model tests live in `TranscriptViewModelReplaceTests`; the find tour reuses the
+>    corrections seed (`-ChirpSeedCorrectionsSample`; "the" → 1 of 2, "Smyth" → "Smith") because the plan's sample needs
+>    a speech model; the dictation's voice-command corrections are planned over the token stream
+>    (`VoiceCommandCorrections.plan(tokens:...)`) so a scratched sentence replaces its rule correction whole.
+>
 > **Executor instructions:** Follow this plan step by step. Run every verification command and confirm the expected
 > result before moving on. If anything in "STOP conditions" occurs, stop and report; do not improvise. The plan has two
 > parts that are built and merged **in order**: Part A (F1, corrections) on its own branch, merged into `main`; then
@@ -97,7 +112,7 @@
 | **Depends on** | The review-fix lane (R2-1, R5-2) merged on `main` | Part A merged on `main` |
 | **Governing docs** | [ADR-009](../../spec/adr/009-deterministic-cleanup-raw-default.md), [ADR-002](../../spec/adr/002-local-first-and-privacy-classes.md), [spec/07](../../spec/07-text-processing.md), [spec/01](../../spec/01-data-model.md), [spec/04](../../spec/04-ui.md), [spec/12](../../spec/12-privacy.md), contracts [transcript-json-v1](../../spec/contracts/transcript-json-v1.md), [structured-results-v1](../../spec/contracts/structured-results-v1.md); new: ADR-016 and `spec/contracts/transcript-corrections-v1.md` (this plan writes them) | Same, plus the find and Text rules sections of spec/04 and spec/07 |
 | **Planned at** | commit `53bc2cc6`, 2026-10-01 | same |
-| **Status** | IMPLEMENTED on `worktree-agent-a6f38d146464e9ab1` (core merged to `main` at `4f9dc9bb`; app half A8–A10 on the lane): package suite, app-hosted suite, UI tour in light, dark and AX5 green; `scripts/device_smoke.sh` is the controller's | NOT STARTED |
+| **Status** | IMPLEMENTED on `worktree-agent-a6f38d146464e9ab1` (core merged to `main` at `4f9dc9bb`; app half A8–A10 on the lane): package suite, app-hosted suite, UI tour in light, dark and AX5 green; `scripts/device_smoke.sh` is the controller's | IMPLEMENTED on `worktree-agent-a21ad08fd81d0cc04` (B0–B8; B6 skipped: the screen shows `.heard`, not Clean text): package suite, app-hosted suite, find UI tour in light, dark and AX5 green; `scripts/device_smoke.sh` (SMOKE PASS, FIND BENCH PASS) is the controller's |
 
 ## Why this matters
 

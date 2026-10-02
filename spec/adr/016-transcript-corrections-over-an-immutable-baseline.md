@@ -33,7 +33,9 @@ that") changed only the copied text, so Send to SOAP read the scratched words (r
 - **Pipelines never drop corrections:** they are a user field. A save with the same words keeps them; different words
   detach them (kept, listed, never applied, deleted only on request).
 - **Voice commands are corrections** (`origin: voiceCommand`), stored before Send to SOAP / Transform opens.
-- Learned rules (plan 025 Part B) will be corrections too (`origin: rule`), never a silent rewrite.
+- Learned rules (plan 025 Part B, built 2026-10-02) are corrections too (`origin: rule`, `ruleID`), applied by the
+  pipelines right after they save a completed transcript, never a silent rewrite; Find's Replace and Replace all are
+  corrections (`replace`, `replaceAll` with one `batchID`).
 
 ## Consequences
 
