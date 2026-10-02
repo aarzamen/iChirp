@@ -54,6 +54,11 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
     filler setting, snippets for dictation rows only), placed on the lines by `CleanTextAligner`. A row that never had
     clean text gets no fresh clean-up. `TranscriptTextContext` is read only for corrected rows.
   - `Transcription.heardText(_:)` is the engine's words of a range as heard (Show Original).
+- `Corrections/CorrectionPlanner.swift` (plan 025 A4): the person's edited text of one line → the smallest word-span
+  corrections (`TranscriptCorrectionPlan`): a word diff (case and punctuation count, whitespace does not), a pure
+  insertion or deletion takes its neighbor word (the previous one; the next at the start of a line), hunks widen to
+  whole tokens and merge when they overlap or touch, and a hunk retyped back to the words as heard reverts the
+  corrections inside it. Blank text throws `emptyText`.
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name
