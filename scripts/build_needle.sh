@@ -38,15 +38,29 @@ fi
 if ! git -C "$SRC" cat-file -e "$NEEDLE_RS_COMMIT^{commit}" 2>/dev/null; then
   git -C "$SRC" fetch --quiet origin
 fi
+# A modified clone would keep its edits through the checkout and still pass the commit check below, so a debugging edit
+# could be compiled into the structure-extraction runtime while the build reports the pinned commit (R8-16): the runtime
+# must be exactly the pinned source. The same rule as build_llamacpp.sh.
+if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
+  echo "error: $SRC has local changes; the runtime is built only from the unmodified pinned source." >&2
+  echo "Discard them (git -C $SRC checkout -- . ) or point NEEDLE_RS_DIR at a clean clone, then run this again." >&2
+  exit 1
+fi
 git -C "$SRC" checkout --quiet --detach "$NEEDLE_RS_COMMIT"
 if [ "$(git -C "$SRC" rev-parse HEAD)" != "$NEEDLE_RS_COMMIT" ]; then
   echo "error: $SRC is not at the pinned commit $NEEDLE_RS_COMMIT" >&2
   exit 1
 fi
-# Patches to the vendored source, if one is ever needed, live in scripts/needle/*.patch (none today).
+# Patches to the vendored source, if one is ever needed, live in scripts/needle/*.patch (none today). A patch that does
+# not apply stops the build: it used to be skipped silently, so the runtime was built without a fix the repository
+# carries (R8-16). Adding one means the clean-clone check above must also accept exactly the patched state.
 shopt -s nullglob
 for patch in scripts/needle/*.patch; do
-  git -C "$SRC" apply --check "$(pwd)/$patch" && git -C "$SRC" apply "$(pwd)/$patch"
+  if ! git -C "$SRC" apply --check "$(pwd)/$patch"; then
+    echo "error: $patch does not apply to needle-rs at ${NEEDLE_RS_COMMIT:0:8}. Update or remove it (and ADR-012)." >&2
+    exit 1
+  fi
+  git -C "$SRC" apply "$(pwd)/$patch"
 done
 shopt -u nullglob
 
