@@ -1,7 +1,7 @@
 # ADR-018: The EMR Note Is Written by Parakeet From a Form the Model Fills
 
-> Status: Proposed (owner approved the approach in conversation on 2026-10-02; accepted when the owner approves
-> [plan 027's design](../../docs/plans/2026-10-02-027-emr-note-design.md))
+> Status: Proposed, deferred (owner, 2026-10-02: spec saved for a future plan, not to be executed; accepted only when
+> the owner approves [plan 027's design](../../docs/plans/2026-10-02-027-emr-note-design.md))
 > Date: 2026-10-02
 > Related: [ADR-002](002-local-first-and-privacy-classes.md), [ADR-017](017-your-own-templates.md),
 > [spec/08](../08-language-and-structure-models.md), [deliverables-v1](../contracts/deliverables-v1.md)

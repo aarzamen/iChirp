@@ -1,8 +1,9 @@
 # Plan 027 (design): The EMR note — the owner's house-style clinical note, built by Parakeet
 
-> Status: **DRAFT for owner review** (2026-10-02). The approach, the scope and each of the four design sections were
-> approved in conversation on 2026-10-02; this document is the written spec. An executor plan follows only after the
-> owner approves this file.
+> Status: **DEFERRED — saved for a future plan, do not execute** (owner, 2026-10-02). The approach, the scope and the
+> four design sections were approved in conversation; the owner then chose to keep this spec for later rather than
+> review it for execution. No executor plan exists. Before any work: the owner reviews and approves this file, then
+> an executor plan is written from it.
 > Decision record: [ADR-018](../../spec/adr/018-emr-note-app-rendered.md).
 > Source of the rules: the owner's `emr` skill, **version 1.1 (6 Sep 2026)**, kept outside this repo (on the owner's
 > Mac at `~/plugins/emr/skills/emr`, identical copy in the Claude app's skills folder). This repo carries a copy of the
