@@ -252,6 +252,10 @@ struct ItemActionBar<ShareMenu: View>: View {
             listen
             ChirpActionBarItem("Transform", systemImage: "sparkles", emphasized: true, action: onTransform)
         }
+        // Like the system's tab bar and toolbars, the bar stops growing at the largest non-accessibility size and a long
+        // press shows each label in the large content viewer (`ChirpActionBarLabel`). At AX3 it otherwise became a
+        // 2 × 2 grid a quarter of the screen tall, over the text it acts on (fix round 1).
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 

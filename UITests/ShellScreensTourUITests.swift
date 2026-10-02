@@ -38,6 +38,14 @@ final class ShellScreensTourUITests: XCTestCase {
 
         if open(rowContaining: "Remind me") {
             shot("transcript")
+            let ask = app.buttons["Ask"].firstMatch
+            if ask.waitForExistence(timeout: 3), ask.isHittable {
+                ask.tap()
+                sleep(1)
+                shot("ask")
+                app.buttons["Transcript"].firstMatch.tap()
+                sleep(1)
+            }
             let notes = app.buttons["Notes"].firstMatch
             if notes.waitForExistence(timeout: 3), notes.isHittable {
                 notes.tap()
@@ -48,7 +56,7 @@ final class ShellScreensTourUITests: XCTestCase {
             }
             back()
         }
-        if open(rowContaining: "Team sync") {
+        if open(rowContaining: "Team sync", alsoContaining: "words") {  // the typed text, not its Summary
             shot("document")
             back()
         }
@@ -63,11 +71,41 @@ final class ShellScreensTourUITests: XCTestCase {
         } else {
             print("ShellScreensTour: no failed dictation row; skipped")
         }
+
+        // The other tabs and the Create sheet (plan 024 Task 10's screens), to check them at large text sizes.
+        app.tabBars.buttons["Transforms"].tap()
+        sleep(1)
+        shot("transforms")
+        app.swipeUp()
+        shot("transforms-scrolled")
+        app.tabBars.buttons["Settings"].tap()
+        sleep(1)
+        shot("settings")
+        app.swipeUp()
+        shot("settings-scrolled")
+        app.swipeUp()
+        shot("settings-scrolled-2")
+        app.tabBars.buttons["Capture"].tap()
+        sleep(1)
+        let create = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Create'")).firstMatch
+        if create.waitForExistence(timeout: 3) {
+            create.tap()
+            sleep(2)
+            shot("create-sheet")
+            app.swipeUp()
+            shot("create-sheet-scrolled")
+            let cancel = app.buttons["Cancel"].firstMatch
+            if cancel.exists { cancel.tap() }
+        }
     }
 
-    private func open(rowContaining text: String) -> Bool {
+    private func open(rowContaining text: String, alsoContaining extra: String = "") -> Bool {
         // BEGINSWITH: a generated document's row ("Summary from Team sync…") must not match its source's title.
-        let row = app.buttons.containing(NSPredicate(format: "label BEGINSWITH[c] %@", text)).firstMatch
+        let predicate =
+            extra.isEmpty
+            ? NSPredicate(format: "label BEGINSWITH[c] %@", text)
+            : NSPredicate(format: "label BEGINSWITH[c] %@ AND label CONTAINS[c] %@", text, extra)
+        let row = app.buttons.containing(predicate).firstMatch
         scrollTo(row)
         guard row.exists else {
             print("ShellScreensTour: no row containing \(text); skipped")
@@ -75,6 +113,11 @@ final class ShellScreensTourUITests: XCTestCase {
         }
         row.tap()
         sleep(2)
+        // A row half under the header may take the tap elsewhere: only a pushed screen (a back button) counts.
+        guard app.navigationBars.buttons.firstMatch.waitForExistence(timeout: 3) else {
+            print("ShellScreensTour: \(text) did not open; skipped")
+            return false
+        }
         return true
     }
 
@@ -83,7 +126,7 @@ final class ShellScreensTourUITests: XCTestCase {
         if button.waitForExistence(timeout: 3) { button.tap() }
         sleep(1)
         // Return the Library to its top for the next row.
-        app.swipeDown()
+        for _ in 0..<4 { app.swipeDown() }
     }
 
     private func scrollTo(_ element: XCUIElement) {
@@ -95,6 +138,10 @@ final class ShellScreensTourUITests: XCTestCase {
         // "Hittable" includes behind the floating tab bar: bring the whole row above it.
         if element.exists, element.frame.maxY > app.frame.height - 140 {
             app.swipeUp(velocity: .slow)
+        }
+        // And out from under the Library's fixed header (search and chips).
+        if element.exists, element.frame.minY < app.frame.height * 0.3 {
+            app.swipeDown(velocity: .slow)
         }
     }
 

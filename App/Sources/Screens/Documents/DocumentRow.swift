@@ -124,23 +124,40 @@ enum DocumentRow {
 /// just-saved text item cannot open as a transcript before the Library has delivered its row.
 struct LibraryItemScreen: View {
     let id: UUID
-    let isTextOnly: Bool
+    /// The kind when the caller knows it; nil: read the row once from the store.
+    private let knownIsTextOnly: Bool?
+    private let store: (any TranscriptionStoring)?
+    @State private var storedIsTextOnly: Bool?
 
     init(id: UUID, isTextOnly: Bool) {
         self.id = id
-        self.isTextOnly = isTextOnly
+        self.knownIsTextOnly = isTextOnly
+        self.store = nil
     }
 
-    /// For a caller that has only the id: the kind as the Library knows it now (a recording when it does not).
+    /// For a caller that has only the id (Create's result): the kind as the Library knows it now, else from the row in
+    /// the store, read once (a row saved a moment ago may not have reached the Library's list yet).
     init(id: UUID, environment: AppEnvironment) {
-        self.init(id: id, isTextOnly: environment.library.items.first { $0.id == id }?.isTextOnly == true)
+        self.id = id
+        self.knownIsTextOnly = environment.library.items.first { $0.id == id }?.isTextOnly
+        self.store = environment.store
     }
 
     var body: some View {
-        if isTextOnly {
-            DocumentScreen(id: id)
+        if let isTextOnly = knownIsTextOnly ?? storedIsTextOnly {
+            if isTextOnly {
+                DocumentScreen(id: id)
+            } else {
+                TranscriptScreen(id: id)
+            }
         } else {
-            TranscriptScreen(id: id)
+            Tokens.Color.ground
+                .ignoresSafeArea()
+                .task {
+                    // A row that cannot be read opens the transcript screen, which says it is gone.
+                    let row = try? await store?.fetch(id: id)
+                    storedIsTextOnly = row?.isTextOnly ?? false
+                }
         }
     }
 }

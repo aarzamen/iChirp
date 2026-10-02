@@ -232,16 +232,30 @@ struct TranscriptScreen: View {
 
     /// One row when it fits; otherwise the privacy control gets its own row above the tabs, and the tabs scroll
     /// sideways rather than break a word (F48). Labels never wrap.
+    /// One row when it fits: Transcript, Ask, Notes, then the privacy control. Otherwise (large text) the privacy
+    /// control and Notes take a row of their own (stacking if they must) above the two tabs, so nothing is clipped at
+    /// the screen's edge; the tabs scroll sideways rather than break a word (F48). Labels never wrap.
     private var tabs: some View {
         VStack(alignment: .leading, spacing: 0) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
                     tabItems
+                    notesButton
                     Spacer(minLength: 0)
                     privacyControl
                 }
                 VStack(alignment: .leading, spacing: 0) {
-                    privacyControl
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Tokens.Spacing.s) {
+                            privacyControl
+                            Spacer(minLength: 0)
+                            notesButton
+                        }
+                        VStack(alignment: .leading, spacing: 0) {
+                            privacyControl
+                            notesButton
+                        }
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 16) { tabItems }
                     }
@@ -258,8 +272,11 @@ struct TranscriptScreen: View {
     @ViewBuilder private var tabItems: some View {
         tabButton("Transcript", selected: selectedTab == .transcript) { selectedTab = .transcript }
         tabButton("Ask", selected: selectedTab == .ask) { selectedTab = .ask }
-        // F52: Notes opens a sheet, so it looks like a button, not a third tab; R7-17: a quiet capsule, so the
-        // selected tab's coral underline stays the loudest thing in the row.
+    }
+
+    /// F52: Notes opens a sheet, so it looks like a button, not a third tab; R7-17: a quiet capsule, so the selected
+    /// tab's coral underline stays the loudest thing in the row.
+    private var notesButton: some View {
         Button {
             isShowingNotes = true
         } label: {

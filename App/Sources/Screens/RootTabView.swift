@@ -48,7 +48,9 @@ struct RootTabView: View {
                         RootOverlayLayer(layer: layer, openTab: { selection = $0 }) { active in
                             overlays.setActive(active, layer: layer)
                         }
-                        .environment(environment))
+                        .environment(environment)
+                        // The app's tint: a separate window does not inherit the TabView's (carets, menus, Done).
+                        .tint(AppColor.accentText))
                 }
             }
         }

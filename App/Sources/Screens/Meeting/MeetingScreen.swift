@@ -136,6 +136,8 @@ struct MeetingScreen: View {
             }
         }
         .padding(16)
+        // Full width at every size (at AX5 the stacked card otherwise hugged its text).
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(ChirpCardBackground(radius: Tokens.Radius.l))
         .accessibilityElement(children: .contain)
     }

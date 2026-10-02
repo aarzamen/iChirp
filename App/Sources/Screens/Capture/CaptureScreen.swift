@@ -82,7 +82,9 @@ struct CaptureScreen: View {
             }
         }
         .sheet(isPresented: $isPastingLink) {
-            PasteLinkSheet { id in path.append(.item(id: id, in: environment.library.items)) }
+            // The sheet opens only a link's own row (a podcast, media or YouTube transcript), never a text item or
+            // document, so the kind is known without waiting for the Library to list it.
+            PasteLinkSheet { id in path.append(.item(id, isTextOnly: false)) }
         }
         .sheet(isPresented: $isTyping) {
             // A typed or pasted text item: it opens the document screen even before the Library lists it (R6a-5).
