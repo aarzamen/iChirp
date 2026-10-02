@@ -1,16 +1,19 @@
 // UX audit F23 / plan 023 (owner decision): generated documents render their Markdown on screen instead of showing
 // `**`/`##` literally, and Copy puts clean plain text on the clipboard. This file is the pure, testable half: a
 // small line-based block parser (no third-party dependency) shared by `MarkdownDocument` (the SwiftUI renderer) and
-// `PlainTextFlattener` (the Copy-side plain-text writer). Inline emphasis inside a block's `text` — bold, italic,
-// inline code, links — is resolved separately by `MarkdownInline`.
+// `PlainTextFlattener` (the Copy-side plain-text writer), and since plan 024 Task 4 by the PDF/Word exports
+// (`ChirpExport.ExportDocument.text`), so all four read a document the same way. Inline emphasis inside a block's
+// `text` — bold, italic, inline code, links — is resolved separately by `MarkdownInline`.
 
 import Foundation
 
 /// One block of a generated document's Markdown.
 public enum MarkdownBlock: Sendable, Equatable {
-    /// An ATX heading (`#` … `######`), or a line that is a single bold run and nothing else — the shape every
-    /// built-in template uses for its section names (`**Subjective**`, `**Key Points**`). `level` is 1–6 for a real
-    /// `#` heading; a bold-only pseudo-heading is level 2.
+    /// An ATX heading of two to six hashes (`##` … `######`), a single `#` on the document's first non-empty line
+    /// (a model's title), or a line that is a single bold run and nothing else — the shape every built-in template
+    /// uses for its section names (`**Subjective**`, `**Key Points**`). `level` is 1–6 for a real `#` heading; a
+    /// bold-only pseudo-heading is level 2. Below the first line a single `#` is never a heading (known item K1,
+    /// plan 024 rulings — see `MarkdownBlockParser.headingLine`).
     case heading(level: Int, text: String)
     /// One or more source lines with no list or heading marker, joined by "\n" (blank lines end a paragraph).
     case paragraph(String)
@@ -29,11 +32,16 @@ public struct MarkdownListItem: Sendable, Equatable {
     public let number: Int?
     /// The item's inline text, marker stripped.
     public let text: String
+    /// An ordered item's marker exactly as the source wrote it: its digits and its "." or ")" ("2.", "2)", "07.");
+    /// nil for a bulleted item. The screen, Copy and the PDF/Word exports write it back unchanged, so "2)" is never
+    /// turned into "2." and "07." never into "7." (known item K2, plan 024). Defaults to the number plus ".".
+    public let marker: String?
 
-    public init(level: Int, number: Int?, text: String) {
+    public init(level: Int, number: Int?, text: String, marker: String? = nil) {
         self.level = level
         self.number = number
         self.text = text
+        self.marker = marker ?? number.map { "\($0)." }
     }
 }
 
@@ -60,8 +68,12 @@ public enum MarkdownBlockParser {
         }
 
         let normalized = markdown.replacingOccurrences(of: "\r\n", with: "\n")
+        var seenContent = false
         for rawLine in normalized.components(separatedBy: "\n") {
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            // The document's first non-empty line, where a single "#" is the title (`headingLine`).
+            let isFirstLine = !seenContent && !trimmed.isEmpty
+            if !trimmed.isEmpty { seenContent = true }
 
             // A fence line toggles code mode, whether it opens (optionally with a language tag) or closes.
             if trimmed.hasPrefix("```") {
@@ -85,7 +97,7 @@ public enum MarkdownBlockParser {
                 flushList()
                 continue
             }
-            if let heading = headingLine(trimmed) {
+            if let heading = headingLine(trimmed, isFirstLine: isFirstLine) {
                 flushParagraph()
                 flushList()
                 blocks.append(.heading(level: heading.level, text: heading.text))
@@ -110,13 +122,27 @@ public enum MarkdownBlockParser {
 
     // MARK: - Line classifiers
 
-    /// A real ATX heading needs "# " (a space after the hashes, CommonMark's own rule) — this is what keeps "#1
-    /// rule for success" and "#hashtag" from being misread as headings. A bold-only line is a heading only when the
-    /// bold run spans the *entire* trimmed line; "**a** and **b**" is two inline runs inside a paragraph, not one.
-    private static func headingLine(_ line: String) -> (level: Int, text: String)? {
+    /// A real ATX heading needs a space after the hashes (CommonMark's own rule) — this is what keeps "#1 rule for
+    /// success" and "#hashtag" from being misread as headings — and two to six hashes, or a single one on the
+    /// document's first non-empty line.
+    ///
+    /// Ruling (known item K1, plan 024 Task 4; controller ruling in fix round 1): a single "#" is a heading only on
+    /// the document's first non-empty line, where a model writes its title ("# SOAP Note"; the PDF/Word export
+    /// then also skips it when it repeats the document's title). Anywhere else it is text and keeps its "#",
+    /// although CommonMark allows the heading: in clinical shorthand "#" is a character with meaning — "number of"
+    /// ("# of doses given: 3"), "fracture" ("# L radius"), a problem-list entry ("# HTN") — and reading it as a
+    /// heading dropped it from the screen, Copy and the PDF/Word exports. Every built-in template names its sections
+    /// with a bold line (`BuiltInTemplates`: `**Subjective**`, `**Key Points**`), and models write `##`/`###`, so
+    /// those render as headings anywhere. Cost if wrong: a document whose very first line is "#" shorthand
+    /// ("# of doses given: 3" as line one) shows that line as its title, without the "#".
+    ///
+    /// A bold-only line is a heading only when the bold run spans the *entire* trimmed line ("**a** and **b**" is
+    /// two inline runs inside a paragraph, not one) and holds a letter or digit (a "_____" signature blank or a
+    /// "*****" divider is text, not a heading whose text is "_").
+    private static func headingLine(_ line: String, isFirstLine: Bool) -> (level: Int, text: String)? {
         if line.hasPrefix("#") {
             let hashes = line.prefix { $0 == "#" }.count
-            guard hashes <= 6 else { return nil }
+            guard ((isFirstLine ? 1 : 2)...6).contains(hashes) else { return nil }
             let rest = line.dropFirst(hashes)
             guard rest.hasPrefix(" ") else { return nil }
             let text = rest.trimmingCharacters(in: .whitespaces)
@@ -126,14 +152,18 @@ public enum MarkdownBlockParser {
         for marker in ["**", "__"] {
             guard line.hasPrefix(marker), line.hasSuffix(marker), line.count > marker.count * 2 else { continue }
             let inner = String(line.dropFirst(marker.count).dropLast(marker.count))
-            if !inner.isEmpty, !inner.contains(marker) {
+            if inner.contains(where: { $0.isLetter || $0.isNumber }), !inner.contains(marker) {
                 return (2, inner)
             }
         }
         return nil
     }
 
-    private static let bulletMarkers = ["- ", "* ", "+ ", "• "]
+    /// Ruling (plan 024 Task 4): "+" is not a bullet marker, although CommonMark allows it. In clinical writing "+"
+    /// means present or positive and "-" absent or negative; as a bullet, "+ fever" was drawn "•" on screen and
+    /// copied as "- fever" — the opposite finding. A "+" line stays text with its "+". Cost if wrong: a model's
+    /// "+"-bulleted list shows as text lines starting with "+" (cosmetic).
+    private static let bulletMarkers = ["- ", "* ", "• "]
 
     /// A numbered marker needs a period or close-paren *and a following space* right after 1–4 digits — this is
     /// what keeps "120/80 mmHg" (a slash, not a list) and "3.5 mg" (a decimal, not "item 3") from being read as
@@ -154,9 +184,10 @@ public enum MarkdownBlockParser {
         let digits = line.prefix { $0.isNumber }
         guard !digits.isEmpty, digits.count <= 4, let number = Int(digits) else { return nil }
         let rest = line.dropFirst(digits.count)
-        guard rest.hasPrefix(". ") || rest.hasPrefix(") ") else { return nil }
+        guard let delimiter = rest.first, rest.hasPrefix(". ") || rest.hasPrefix(") ") else { return nil }
         let text = String(rest.dropFirst(2)).trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return nil }
-        return MarkdownListItem(level: level, number: number, text: text)
+        return MarkdownListItem(
+            level: level, number: number, text: text, marker: String(digits) + String(delimiter))
     }
 }

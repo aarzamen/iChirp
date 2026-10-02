@@ -45,10 +45,12 @@ public struct DOCXDocumentWriter: Sendable {
                     body += paragraph(style: "Speaker", runs: runs)
                 }
                 body += paragraph(style: nil, runs: [run(text)])
-            case .bullet(let text):
-                body += paragraph(style: "ListParagraph", numbering: 1, runs: [run(text)])
-            case .numbered(let number, let text):
-                body += paragraph(style: "ListParagraph", runs: [run("\(number).\t" + text)], hanging: true)
+            case .bullet(let text, let level):
+                body += paragraph(style: "ListParagraph", numbering: 1, level: level, runs: [run(text)])
+            case .numbered(let marker, let text, let level):
+                // The marker is text, exactly as the document wrote it ("2)", "07."), not Word's own numbering.
+                body += paragraph(
+                    style: "ListParagraph", level: level, runs: [run("\(marker)\t" + text)], hanging: true)
             }
         }
         if let footer = document.footer {
@@ -64,15 +66,22 @@ public struct DOCXDocumentWriter: Sendable {
             """
     }
 
-    private static func paragraph(style: String?, numbering: Int? = nil, runs: [String], hanging: Bool = false)
-        -> String
-    {
+    /// `level` is a list item's nesting depth: a bullet uses that Word list level (`numbering.xml` defines 0–8), a
+    /// numbered item's hanging indent moves 360 twips (a quarter inch) further in per level. Level 0 is the layout
+    /// every item had before nesting was kept.
+    private static func paragraph(
+        style: String?, numbering: Int? = nil, level: Int = 0, runs: [String], hanging: Bool = false
+    ) -> String {
+        let level = min(max(level, 0), 8)
         var properties = ""
         if let style { properties += "<w:pStyle w:val=\"\(style)\"/>" }
-        if let numbering { properties += "<w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"\(numbering)\"/></w:numPr>" }
+        if let numbering {
+            properties += "<w:numPr><w:ilvl w:val=\"\(level)\"/><w:numId w:val=\"\(numbering)\"/></w:numPr>"
+        }
         if hanging {
+            let left = 432 + 360 * level
             properties +=
-                "<w:tabs><w:tab w:val=\"left\" w:pos=\"432\"/></w:tabs><w:ind w:left=\"432\" w:hanging=\"432\"/>"
+                "<w:tabs><w:tab w:val=\"left\" w:pos=\"\(left)\"/></w:tabs><w:ind w:left=\"\(left)\" w:hanging=\"432\"/>"
         }
         let pPr = properties.isEmpty ? "" : "<w:pPr>\(properties)</w:pPr>"
         return "<w:p>\(pPr)\(runs.joined())</w:p>"
@@ -198,13 +207,20 @@ public struct DOCXDocumentWriter: Sendable {
         </w:styles>
         """
 
-    static let numbering = """
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\
-        <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="singleLevel"/>\
-        <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/>\
-        <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>\
-        <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>\
-        </w:numbering>
-        """
+    /// One bullet list definition with Word's nine levels; level 0 is the layout bullets always had, each deeper
+    /// level a quarter inch further in.
+    static let numbering: String = {
+        let levels = (0...8).map { level in
+            "<w:lvl w:ilvl=\"\(level)\"><w:start w:val=\"1\"/><w:numFmt w:val=\"bullet\"/><w:lvlText w:val=\"•\"/>"
+                + "<w:lvlJc w:val=\"left\"/><w:pPr><w:ind w:left=\"\(720 + 360 * level)\" w:hanging=\"360\"/></w:pPr>"
+                + "</w:lvl>"
+        }.joined()
+        return """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\
+            <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>\(levels)</w:abstractNum>\
+            <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>\
+            </w:numbering>
+            """
+    }()
 }

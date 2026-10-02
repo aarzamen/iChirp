@@ -24,7 +24,8 @@ pipeline directly.
   most time overlap, then smooths isolated one-word speaker flips.
 - `TranscriptSegmenter.swift`: groups words into presentation segments (punctuation / long gap / speaker
   change / 40-word cap) and durable `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats,
-  and `sanitizedExportStem` (reused by `ChirpExport` for export file names).
+  and `sanitizedExportStem(from:)` for a real file name (it strips the extension first, so exports do not use it:
+  they name their files with `ChirpExport.ExportFileName`).
 - `TranscriptParagraphBuilder.swift`: reading-oriented paragraphs (up to 3 sentences / 80 words / 2.5s
   pause).
 - `TranscriptCueBuilder.swift`: subtitle-style cues (up to 12 words / 800ms gap / 7s / speaker change);
@@ -66,28 +67,65 @@ pipeline directly.
   render empty and are logged `.private`.
 - `Markdown/` (UX audit F23, plan 023 — "formatted view, plain copy"): a generated document's Markdown, rendered on
   screen and flattened for Copy from the same parse.
-  - `MarkdownBlock.swift`: `MarkdownBlockParser.parse(_:)`, a pure, deterministic line-based block parser —
-    `.heading` (a real `#`…`######` line, or a line that is a single bold run and nothing else, the shape every
-    built-in template uses for its section names, e.g. `**Subjective**`), `.paragraph`, `.list` (bulleted,
-    numbered or a mix, with a `MarkdownListItem.level` for nesting), `.code` (a fenced ```` ``` ```` block). A
-    numbered marker needs a digit run followed by ". "/") " (so "120/80 mmHg" and "3.5 mg" are never read as list
-    items); each two leading spaces of indentation is one more nesting level.
-  - `MarkdownInline.swift` (internal): resolves bold/italic/inline-code/links within one block's text via
-    `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`, shared by the renderer (keeps the
-    attributes) and the flattener (keeps only the plain characters). A `[label](url)` is rewritten to
-    "label (url)" first — `AttributedString` alone drops the url — and a "*" directly between two digits is
-    escaped first too, so a line with the same "N*N" multiplication written twice does not have its two unmatched
-    `*`s pair with each other and corrupt both numbers (`MarkdownInlineTests`, `PlainTextFlattenerPropertyTests`).
+  - `MarkdownBlock.swift`: `MarkdownBlockParser.parse(_:)`, a pure, deterministic line-based block parser shared
+    by the screen, Copy and the PDF/Word exports — `.heading` (a real `##`…`######` line, a single `#` on the
+    document's first non-empty line, or a line that is a single bold run holding a letter or digit and nothing
+    else, the shape every built-in template uses for its section names, e.g. `**Subjective**`), `.paragraph`,
+    `.list` (bulleted with `-`, `*` or `•`, numbered, or a
+    mix, with a `MarkdownListItem.level` for nesting and, for a numbered item, its `marker` exactly as written:
+    "2)", "07."), `.code` (a fenced ```` ``` ```` block). A numbered marker needs a digit run followed by ". "/") "
+    (so "120/80 mmHg" and "3.5 mg" are never read as list items); each two leading spaces of indentation is one
+    more nesting level. Rulings (plan 024 Task 4), each keeping a character the person wrote: a single `#` is a
+    heading only on the document's first non-empty line, where a model writes its title (controller ruling, fix
+    round 1); below it "# of doses given: 3" and "# L radius" keep their "#" (known item K1); `+` is never a bullet
+    ("+ fever" is never drawn "•" or copied "- fever"), and a numbered item keeps its own delimiter ("2)" never
+    becomes "2."; known item K2).
+  - `MarkdownInline.swift`: resolves bold/italic/inline-code/links within one block's text via
+    `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`, one line at a time, shared by the
+    renderer (`attributed`, keeps the attributes), the flattener and the PDF/Word exports (`plain`, public, keeps
+    only the plain characters). Before parsing (plan 024 Task 4, `MarkdownInlineTests`,
+    `PlainTextFlattenerPropertyTests`):
+    - a `[label](url)` is rewritten to "label (url)" — `AttributedString` alone drops the url;
+    - a run of `*` or a backtick written between two Latin letters or digits ("2*3", "2**10", "x*2", "5`10") is
+      escaped, so two of them on one line never pair as emphasis or code across the words between them and merge
+      the numbers ("2**10 and 3**4" used to copy as "210 and 34");
+    - every `~` is escaped (ruling: this app never strikes text through; "metoprolol 25~50 mg q8~12h" used to
+      copy as "2550 mg q812h", review R2-8);
+    - the `*`/`_` delimiters the parser would pair around content with no letter or digit are escaped, so a
+      form's blanks stay ("BP: ___/___ mmHg" used to copy as "BP: / mmHg", review R1-6 (c)). Which runs pair is
+      decided by a copy of CommonMark's own emphasis algorithm (flanking rules, nearest opener, the "multiple of
+      3" rule), not by adjacency, so "**Fever**, **chills**" and "**8/10**→**3/10**" still render (fix round 1:
+      an adjacency rule leaked "**" there); `PlainTextFlattenerPropertyTests.testEmphasisIsNeverDrawnAroundLetterFreeText`
+      checks it against Foundation's parser on random lines;
+    - inline code and links are never touched (CommonMark reads no escapes inside them, so an added one would show
+      its backslash): angle autolinks (`<https://…>`) and, since fix round 1, the links Foundation makes without
+      brackets (GitHub's extended autolinks) — a bare `http(s)://`, `ftp://` or `www.` address with its whole
+      space-delimited token, except while a "[" is open (fix round 2: Foundation links no bare URL inside a link
+      label, bracket or image, so there it is text and escaped as usual), and email addresses, found after the other
+      spans as Foundation does (also inside brackets). An escape the source already wrote is kept. A Markdown link
+      around a bare URL is still rewritten to "label (url)": Foundation lets the link win and would drop the
+      address. Known limit: a delimiter pair *touching* a verbatim link or email address is left to the parser and
+      can lose both delimiters, because a backslash added inside a link's token would join the link and Foundation
+      pairs an address's delimiters before it finds the address — a pair inside a link's trailing punctuation
+      (`~~www./a_b~~)~.~` shows `~~www./a_b~~).`), a pair with one delimiter there and the other after the link
+      (`https://example.com/a.*. /*` shows `…/a.. /`), and a letter-free pair inside an address's local part
+      (`_._@x.com` shows `.@x.com`); pinned in `MarkdownInlineTests.testDelimiterPairsTouchingALinkOrAddressAreLeftToTheParser`.
+    HTML entity references (`&lt;`, `&#8805;`) are decoded, as CommonMark requires, so the screen, Copy and the
+    exports all show the same character (known item K3, ruling: keep decoding).
   - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line
     plus a blank line after; a bullet becomes `PlainTextFlattener.bulletMarker` ("- ", not "•": it pastes
     identically everywhere an EMR field might mangle a glyph) at every nesting level; a numbered item keeps its own
-    number; paragraphs are separated by one blank line; code is shown as plain text. Every word of the source
-    survives, in order — pinned as a property test, not just fixed examples.
+    number and delimiter ("2)" stays "2)"); paragraphs are separated by one blank line; code is shown as plain
+    text. Every word, number and symbol of the source survives, in order — pinned as a property test
+    (`PlainTextFlattenerPropertyTests`: every content token verbatim and in order, plus whole clinical lines such
+    as "# of doses given: 3", "2) second item", "metoprolol 25~50 mg q8~12h" and "+ fever" copied exactly), not
+    just fixed examples.
   - `MarkdownDocument.swift`: the SwiftUI renderer, plus `MarkdownDocumentStyle` (fonts/colors are all overridable;
     the default is Dynamic-Type-following system text styles, since this module cannot import the App target's
     `chirpFont`, and a fixed `.system(size:)` font would not track the user's text-size setting the way a relative
     style does). `.textSelection(.enabled)` once at the top; a heading carries `.isHeader` and
-    `.accessibilityHeading(_:)` for VoiceOver's rotor.
+    `.accessibilityHeading(_:)` for VoiceOver's rotor. A numbered item shows its own marker ("2)"); a bullet is
+    drawn "•".
 - `TranscriptPromptText.swift`: model input shaping (M4). `TranscriptPromptFormatter.timestampedText(for:)`
   (`[mm:ss] Speaker: text` per segment with the roster's current labels, else the display text), `TextChunker`
   (ported upstream split: paragraph, then line, then sentence boundaries; never loses text) and

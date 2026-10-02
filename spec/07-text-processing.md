@@ -60,6 +60,34 @@ wins and is preserved if made while a job runs.
 | `TranscriptParagraphBuilder` | Paragraphs of at most 3 sentences or 80 words; break on a pause of 2.5 s or more | Transcript view, TXT, Markdown |
 | `TranscriptCueBuilder` | New cue on speaker change, on sentence end once the cue has at least 2 words, on a gap over 800 ms, at 12 words, or past 7 s | SRT, VTT |
 
+## Generated documents: screen, Copy, PDF and Word (`ChirpText/Markdown`)
+
+A generated document (a SOAP note, summary, agenda, transform result) is Markdown. One parser reads it for all four
+places it appears (UX audit F23, plan 023; review R1-6, plan 024 Task 4): `MarkdownBlockParser` splits it into
+headings, paragraphs, lists and code, and `MarkdownInline` resolves each line's bold, italics, inline code and links.
+The screen draws the result (`MarkdownDocument`), Copy flattens it to plain text (`PlainTextFlattener`), and the PDF
+and Word exports lay it out (`ChirpExport.ExportDocument.text`), so all four show the same characters.
+
+The invariant, pinned by property tests (`PlainTextFlattenerPropertyTests`, `DocumentExportTests`): only Markdown
+syntax may be removed; every word, number and symbol the source wrote survives, in order. Where a character is both
+Markdown syntax and clinical shorthand, the person's reading wins (plan 024 rulings):
+
+| Source | Read as | Why |
+|---|---|---|
+| `## Plan`, `**Subjective**` (a whole-line bold run) | Heading | Models write `##`/`###`; every built-in template names its sections with a bold line |
+| `# SOAP Note` (one `#`, on the document's first non-empty line) | Heading, level 1 (controller ruling, fix round 1) | Where a model writes its title; the PDF/Word export skips it when it repeats the document's title |
+| `# of doses given: 3`, `# L radius` (one `#`, any later line) | Text, "#" kept (known item K1) | "#" means "number of", "fracture" or a problem-list entry; cost: a document whose very first line is such shorthand reads it as its title |
+| `2) second item`, `07. item` | List item, marker kept exactly (K2) | Copy used to write "2." and "7." |
+| `+ fever` | Text, "+" kept | As a bullet it was drawn "•" and copied "- fever", the opposite finding |
+| `25~50 mg q8~12h`, `~~text~~` | Text, every `~` kept (R2-8) | Strikethrough paired tilde ranges ("2550 mg q812h"); struck text pasted as plain text would read as live |
+| `2*3`, `2**10`, `x*2`, `` 5`10 `` | Text | A delimiter between two letters or digits paired across the words and merged the numbers |
+| `BP: ___/___`, `Date: __/__/____` | Text | The parser paired the blanks as emphasis around "/"; delimiters it would pair around content with no letter or digit stay (decided by CommonMark's own pairing, so `**Fever**, **chills**` still renders) |
+| `&lt;`, `&amp;`, `&#8805;` | The character named (`<`, `&`, `≥`) (K3) | CommonMark decodes entities; the screen shows that character, so Copy and the exports do too |
+| `https://example.com/~ward`, `www.example.com/a_b`, `name@example.com` | A link; nothing in it is escaped (inside an open `[` a bare URL is text and is escaped as usual) | Foundation links bare addresses (no bare URL while a `[` is open) and shows any backslash added inside them. Limit: a delimiter pair touching a link or address is left to the parser and can lose both delimiters (`…/a.*. /*`, `_._@x.com`) |
+
+Copy writes a heading's text on its own line, `- ` for every bullet (`-`, `*`, `•`), each numbered item's own marker,
+and code as plain text; the PDF and Word files use real heading styles, bullets and nesting.
+
 ## Exports (`ChirpExport`)
 
 | Format | Content | Notes |
@@ -68,11 +96,18 @@ wins and is preserved if made while a job runs.
 | Markdown | Title, then paragraphs with speaker labels when present | Ported from upstream `formatMarkdown` |
 | SRT | Numbered cues, `HH:MM:SS,mmm` | Throws `noTimestamps` without words |
 | VTT | `WEBVTT` header, cues with `HH:MM:SS.mmm` | Throws `noTimestamps` without words |
-| JSON | `ichirp.transcript/v1` | Contract: [`contracts/transcript-json-v1.md`](contracts/transcript-json-v1.md) |
+| JSON | `ichirp.transcript/v1`, with `privacyClass` and always-present `speakers`/`segments`/`words` arrays | Contract: [`contracts/transcript-json-v1.md`](contracts/transcript-json-v1.md) |
+
+A clinical item (its own class or the effective class the caller passes) says so in every format that can carry a
+line (review R1-13): TXT starts with "Privacy: Clinical: contains patient information", Markdown has that line under
+its title, VTT has it as a `NOTE` block (players never show it), PDF and Word list it under the title, and JSON says
+`"privacyClass": "clinical"`. SRT has no comment syntax, so it carries no marker.
 
 With no words, TXT and Markdown fall back to `displayText`. The exported file name is the sanitized display title
-plus the extension. PDF and DOCX are M8 (UIKit / Core Text and an OOXML writer; the Gemini stand-ins that wrote
-plain text into a `.docx` are rejected).
+plus the extension, cut on a character boundary to at most 200 UTF-8 bytes so it fits every file system's 255-unit
+name limit (`ExportFileName`, one rule for every export; review R1-9). PDF and Word (`DocumentExporter`, plan 022: Core Text and a minimal OOXML writer; the Gemini
+stand-ins that wrote plain text into a `.docx` are rejected) lay out a transcript's paragraphs, or a generated
+document read as described in the section above.
 
 ## How to verify
 

@@ -122,12 +122,12 @@ public struct PDFDocumentRenderer: Sendable {
 
     static func attributes(
         size: CGFloat, weight: Weight, color: CGColor, monospaced: Bool = false, spacingBefore: CGFloat = 0,
-        spacingAfter: CGFloat = 0, headIndent: CGFloat = 0, lineSpacing: CGFloat = 0
+        spacingAfter: CGFloat = 0, headIndent: CGFloat = 0, firstLineHeadIndent: CGFloat = 0, lineSpacing: CGFloat = 0
     ) -> [NSAttributedString.Key: Any] {
         let specifiers: [CTParagraphStyleSpecifier] = [
-            .paragraphSpacingBefore, .paragraphSpacing, .headIndent, .lineSpacingAdjustment,
+            .paragraphSpacingBefore, .paragraphSpacing, .headIndent, .firstLineHeadIndent, .lineSpacingAdjustment,
         ]
-        let values: [CGFloat] = [spacingBefore, spacingAfter, headIndent, lineSpacing]
+        let values: [CGFloat] = [spacingBefore, spacingAfter, headIndent, firstLineHeadIndent, lineSpacing]
         // A list item's text starts at its hanging indent: one tab stop there.
         let tabs = headIndent > 0 ? [CTTextTabCreate(.left, Double(headIndent), nil)] as CFArray : [] as CFArray
         let style = values.withUnsafeBufferPointer { buffer in
@@ -194,20 +194,33 @@ public struct PDFDocumentRenderer: Sendable {
                     }
                 }
                 append(Self.safe(words) + "\n", body)
-            case .bullet(let item):
+            case .bullet(let item, let level):
+                let indent = Self.listIndent(level)
                 append(
                     "•\t" + Self.safe(item) + "\n",
-                    attributes(size: 11, weight: .regular, color: ink, spacingAfter: 3, headIndent: 18))
-            case .numbered(let number, let item):
+                    attributes(
+                        size: 11, weight: .regular, color: ink, spacingAfter: 3, headIndent: indent + 18,
+                        firstLineHeadIndent: indent))
+            case .numbered(let marker, let item, let level):
+                let indent = Self.listIndent(level)
                 append(
-                    "\(number).\t" + Self.safe(item) + "\n",
-                    attributes(size: 11, weight: .regular, color: ink, spacingAfter: 3, headIndent: 22))
+                    "\(marker)\t" + Self.safe(item) + "\n",
+                    attributes(
+                        size: 11, weight: .regular, color: ink, spacingAfter: 3, headIndent: indent + 22,
+                        firstLineHeadIndent: indent))
             }
         }
         if let footer = document.footer {
             append("\n" + footer + "\n", attributes(size: 8.5, weight: .regular, color: gray, spacingBefore: 8))
         }
         return text
+    }
+
+    /// A nested list item starts 18 points further in per level (level 0 is where every item started before
+    /// nesting was kept); capped at level 8, the deepest of Word's nine list levels, so a deep list never runs off
+    /// the page.
+    static func listIndent(_ level: Int) -> CGFloat {
+        CGFloat(min(max(level, 0), 8)) * 18
     }
 
     /// Keeps a paragraph's own line breaks as line breaks inside it.

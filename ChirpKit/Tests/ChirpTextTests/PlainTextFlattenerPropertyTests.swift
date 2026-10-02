@@ -3,6 +3,11 @@
 // numbered lists, code blocks, links, and the plan 023 edge tokens), `PlainTextFlattener.flatten` must keep every
 // word of the source, in the same order — it may drop only Markdown's own structural syntax (`#`, `*`, `_`,
 // backticks, list markers, fences), never a letter or digit the source actually wrote.
+//
+// Plan 024 Task 4 (review fixes 2026-10-01): comparing alphanumeric words alone could not see a changed *symbol* —
+// "2) second item" copied as "2. second item", "# of doses given: 3" lost its "#", "25~50 mg" lost its tilde. The
+// generator now records every content token it writes (each word, number and clinical symbol, and whole clinical
+// lines whose first character is the point), and every one must appear in the copied text verbatim and in order.
 
 @testable import ChirpText
 import Foundation
@@ -21,16 +26,162 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         }
     }
 
+    /// Source lines plus the content tokens they hold, in reading order: what Copy must keep verbatim.
+    private struct Generated {
+        var lines: [String] = []
+        var tokens: [String] = []
+        /// Whole lines the copied text must contain exactly: a token check alone cannot see a leaked "**".
+        var exactLines: [String] = []
+
+        mutating func append(_ other: Generated) {
+            lines += other.lines
+            tokens += other.tokens
+            exactLines += other.exactLines
+        }
+    }
+
     func testFlattenedTextKeepsEveryWordOfTheSourceInOrder() {
         var generator = SeededGenerator(seed: 0xC0FFEE)
         for iteration in 0..<200 {
-            let markdown = Self.randomDocument(blockCount: Int.random(in: 2...8, using: &generator), using: &generator)
+            let document = Self.randomDocument(blockCount: Int.random(in: 2...8, using: &generator), using: &generator)
+            let markdown = document.lines.joined(separator: "\n")
             let flattened = PlainTextFlattener.flatten(markdown)
             XCTAssertEqual(
                 Self.words(in: flattened), Self.words(in: markdown),
                 "iteration \(iteration) lost or reordered a word.\n--- source ---\n\(markdown)\n--- flattened ---\n\(flattened)"
             )
         }
+    }
+
+    /// The symbol-aware property: every token the generator wrote as content (not as Markdown decoration) is in the
+    /// copied text exactly as written — no character dropped, swapped or added inside it — and in order.
+    func testFlattenedTextKeepsEveryTokenVerbatimInOrder() {
+        var generator = SeededGenerator(seed: 0x5EED_0024)
+        for iteration in 0..<300 {
+            let document = Self.randomDocument(blockCount: Int.random(in: 2...8, using: &generator), using: &generator)
+            let markdown = document.lines.joined(separator: "\n")
+            let flattened = PlainTextFlattener.flatten(markdown)
+            if let missing = Self.firstMissingToken(document.tokens, in: flattened) {
+                XCTFail(
+                    "iteration \(iteration) changed or lost \(missing.debugDescription).\n--- source ---\n\(markdown)\n--- flattened ---\n\(flattened)"
+                )
+            }
+            let flattenedLines = Set(flattened.components(separatedBy: "\n"))
+            for line in document.exactLines where !flattenedLines.contains(line) {
+                XCTFail(
+                    "iteration \(iteration) did not copy \(line.debugDescription) exactly.\n--- source ---\n\(markdown)\n--- flattened ---\n\(flattened)"
+                )
+            }
+        }
+    }
+
+    /// Fix round 1, a differential check of `MarkdownInline`'s copy of CommonMark's emphasis algorithm against
+    /// Foundation's parser itself: over random lines of words, digits, punctuation, arrows and `*`/`_` runs, the only
+    /// characters that may disappear are `*` and `_`, and Foundation never draws emphasis around text with no letter
+    /// or digit (a form's blanks and the person's symbols stay as written).
+    func testEmphasisIsNeverDrawnAroundLetterFreeText() {
+        let pieces = ["*", "**", "_", "__", "___", "a", "Pain", "8", "10", "/", " ", " ", ",", "→", "(", ")", ".", "-", ":"]
+        var generator = SeededGenerator(seed: 0xE3_F1_A5)
+        for iteration in 0..<2_000 {
+            let line = (0..<Int.random(in: 3...14, using: &generator))
+                .map { _ in pieces.randomElement(using: &generator)! }.joined()
+            let attributed = MarkdownInline.attributed(line)
+            let shown = String(attributed.characters)
+            XCTAssertTrue(
+                Self.isSubsequence(shown, of: line, droppingOnly: ["*", "_"]),
+                "iteration \(iteration): \(line.debugDescription) showed \(shown.debugDescription)")
+            for span in Self.emphasisSpans(in: attributed) where !span.contains(where: { $0.isLetter || $0.isNumber }) {
+                XCTFail("iteration \(iteration): \(line.debugDescription) emphasized \(span.debugDescription)")
+            }
+        }
+    }
+
+    /// The text of each stretch Foundation draws italic or bold, judged whole: a strong span with italics inside
+    /// arrives as several runs, and a run at its edge (like "( ") may hold no letter while the span does.
+    private static func emphasisSpans(in attributed: AttributedString) -> [String] {
+        var spans: [String] = []
+        for intent in [InlinePresentationIntent.emphasized, .stronglyEmphasized] {
+            var current: String?
+            for run in attributed.runs {
+                if run.inlinePresentationIntent?.contains(intent) == true {
+                    current = (current ?? "") + String(attributed[run.range].characters)
+                } else if let finished = current {
+                    spans.append(finished)
+                    current = nil
+                }
+            }
+            if let finished = current { spans.append(finished) }
+        }
+        return spans
+    }
+
+    /// Fix round 1, a differential check of `MarkdownInline`'s link detection against Foundation's parser: over
+    /// random lines of URL and email fragments, brackets, tildes and delimiters, what the person sees never holds a
+    /// backslash the source did not write (an escape added inside a link shows), and never loses a "~" (a
+    /// strikethrough). Spaces never disappear, so the k-th space-separated piece shown comes from the k-th piece of
+    /// the source. Fix round 2 added "[" and "]" (Foundation links no bare URL inside an open bracket) and narrowed
+    /// the excuse that had hidden that regression (any "~" dropped in a link's piece) to exactly the documented
+    /// limit: a "~" after the last letter or digit of a link's piece, i.e. in the trailing punctuation GitHub leaves
+    /// outside the link, where a pair cannot be escaped without the backslash joining the link. A "~" lost inside a
+    /// link's body ("[(_www./~a~/a_b" before the fix) is still a failure. 10,000 lines: at 2,000 this seed never
+    /// produced the bracket regression's shape; at 20,000 it found it (iteration 6576).
+    func testNoBackslashIsAddedAndNoTildeIsLostAroundLinks() {
+        let pieces = [
+            "https://", "http://", "HTTPS://", "www.", "example.com", "my_host.com", "/~a", "~", "~~", "/a_b", "_", "*",
+            "**", "x*y", "?q=1", ")", "(", ".", ",", " ", " ", " ", "user@", "mail.com", "a", "8", ":", "x", "[", "]",
+        ]
+        var generator = SeededGenerator(seed: 0x11_4C_2A)
+        for iteration in 0..<10_000 {
+            let line = (0..<Int.random(in: 2...10, using: &generator))
+                .map { _ in pieces.randomElement(using: &generator)! }.joined()
+            let shown = MarkdownInline.plain(line)
+            let context = "iteration \(iteration): \(line.debugDescription) showed \(shown.debugDescription)"
+            XCTAssertFalse(shown.contains("\\"), context)
+            let sourcePieces = line.split(separator: " ", omittingEmptySubsequences: false)
+            let shownPieces = shown.split(separator: " ", omittingEmptySubsequences: false)
+            XCTAssertEqual(sourcePieces.count, shownPieces.count, context)
+            for (source, piece) in zip(sourcePieces.map(String.init), shownPieces.map(String.init)) {
+                let isLinkPiece = source.contains("://") || source.contains("www.")
+                let lastWordCharacter = source.lastIndex { $0.isLetter || $0.isNumber }
+                let tailStart =
+                    isLinkPiece
+                    ? lastWordCharacter.map { source.distance(from: source.startIndex, to: $0) + 1 } ?? 0 : Int.max
+                let kept = Self.isSubsequence(piece, of: source) { position, character in
+                    character == "*" || character == "_" || (character == "~" && position >= tailStart)
+                }
+                XCTAssertTrue(kept, context)
+            }
+        }
+    }
+
+    /// True when `shown` is `source` with some characters removed, each one allowed by `mayDrop` (its position in
+    /// `source` and the character), and nothing else changed.
+    private static func isSubsequence(_ shown: String, of source: String, mayDrop: (Int, Character) -> Bool) -> Bool {
+        let shownCharacters = Array(shown)
+        var shownIndex = 0
+        for (position, character) in source.enumerated() {
+            if shownIndex < shownCharacters.count, shownCharacters[shownIndex] == character {
+                shownIndex += 1
+            } else if !mayDrop(position, character) {
+                return false
+            }
+        }
+        return shownIndex == shownCharacters.count
+    }
+
+    /// True when `shown` is `source` with some of the `droppable` characters removed and nothing else changed.
+    private static func isSubsequence(_ shown: String, of source: String, droppingOnly droppable: Set<Character>)
+        -> Bool
+    {
+        var shownIndex = shown.startIndex
+        for character in source {
+            if shownIndex < shown.endIndex, shown[shownIndex] == character {
+                shownIndex = shown.index(after: shownIndex)
+            } else if !droppable.contains(character) {
+                return false
+            }
+        }
+        return shownIndex == shown.endIndex
     }
 
     /// The same property, pinned against the real representative shapes (`PlainTextFlattenerTests`), not just
@@ -92,6 +243,15 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         }
     }
 
+    /// Clinical lines whose every character is the point: each must come back from Copy exactly as written.
+    func testClinicalLinesCopyExactlyAsWritten() {
+        // In a document's body: on the very first line a single "#" is the title (controller ruling, fix round 1).
+        for line in Self.clinicalInlineLines {
+            XCTAssertEqual(
+                PlainTextFlattener.flatten("Synthetic note.\n\n\(line)"), "Synthetic note.\n\n\(line)", line)
+        }
+    }
+
     // MARK: - Generator
 
     private static let vocabulary = [
@@ -101,77 +261,163 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         "Speaker", "team", "launch", "readiness", "beta", "internal", "testers", "legal", "sign-off",
         "co-worker's", "TCCC_v2", "review", "backlog", "planning", "assessment", "plan", "vitals", "dose",
     ]
-    /// The plan 023 edge tokens (a vital sign, a decimal dose, a multiplication) mixed into the fuzz corpus, not
-    /// just their own dedicated tests.
-    private static let specialTokens = ["120/80", "mmHg", "98.6°F", "3.5", "2*3", "[ ]", "[x]"]
+    /// The plan 023 edge tokens (a vital sign, a decimal dose, a multiplication) and the plan 024 clinical symbols
+    /// (tilde ranges, exponent and letter-times-number asterisks, comparison and plus-minus signs), mixed into the
+    /// fuzz corpus, not just their own dedicated tests.
+    private static let specialTokens = [
+        "120/80", "mmHg", "98.6°F", "3.5", "2*3", "[ ]", "[x]",
+        "25~50", "q8~12h", "~5", "2**10", "x*2", "≥", "38.0", "<5", ">90%", "q4-6h", "±2", "BP", "1/2", "10^9/L",
+    ]
+    /// Whole clinical lines that must copy exactly as written, character for character: known items K1 ("#" plus a
+    /// space plus prose) and K2 ("2)"), review R2-8 (tilde ranges), the "+" finding and the plan 024 symbols.
+    private static let clinicalInlineLines = [
+        "metoprolol 25~50 mg q8~12h", "Temp ≥ 38.0 for 2 days", "BP 120/80", "<5 mg daily", "q4-6h as needed",
+        "WBC 5 x 10^9/L", "Dose 2*3 then 2*3 again", "Exponent 2**10 and 3**4", "Titrate x*2 then y*3",
+        "#1 priority is the BP", "Signature: ________", "# of doses given: 3", "# L radius", "2) second item",
+        "+ fever", "_____", "BP: ___/___ mmHg", "Date: __/__/____",
+    ]
 
     private static func randomWord(using generator: inout SeededGenerator) -> String {
         (vocabulary + specialTokens).randomElement(using: &generator)!
     }
 
-    private static func randomSentence(wordCount: Int, using generator: inout SeededGenerator) -> String {
-        (0..<wordCount).map { _ in randomWord(using: &generator) }.joined(separator: " ")
+    private static func randomSentence(wordCount: Int, using generator: inout SeededGenerator) -> [String] {
+        (0..<wordCount).map { _ in randomWord(using: &generator) }
     }
 
-    private static func randomHeadingLine(using generator: inout SeededGenerator) -> String {
-        let text = randomSentence(wordCount: Int.random(in: 1...3, using: &generator), using: &generator)
-        return Bool.random(using: &generator) ? "## \(text)" : "**\(text)**"
+    private static func randomHeadingLine(using generator: inout SeededGenerator) -> Generated {
+        let words = randomSentence(wordCount: Int.random(in: 1...3, using: &generator), using: &generator)
+        let text = words.joined(separator: " ")
+        return Generated(lines: [Bool.random(using: &generator) ? "## \(text)" : "**\(text)**"], tokens: words)
     }
 
-    private static func randomParagraph(using generator: inout SeededGenerator) -> String {
-        let sentence = randomSentence(wordCount: Int.random(in: 3...8, using: &generator), using: &generator)
-        guard Bool.random(using: &generator) else { return sentence }
-        // Sprinkle inline emphasis around one random word.
-        var words = sentence.components(separatedBy: " ")
-        let index = Int.random(in: 0..<words.count, using: &generator)
-        words[index] = Bool.random(using: &generator) ? "**\(words[index])**" : "*\(words[index])*"
-        return words.joined(separator: " ")
+    private static func randomParagraph(using generator: inout SeededGenerator) -> Generated {
+        var words = randomSentence(wordCount: Int.random(in: 3...8, using: &generator), using: &generator)
+        let tokens = words
+        if Bool.random(using: &generator) {
+            // Sprinkle inline emphasis around one random word.
+            let index = Int.random(in: 0..<words.count, using: &generator)
+            words[index] = Bool.random(using: &generator) ? "**\(words[index])**" : "*\(words[index])*"
+        }
+        return Generated(lines: [words.joined(separator: " ")], tokens: tokens)
     }
 
-    private static func randomList(using generator: inout SeededGenerator) -> [String] {
+    private static func randomList(using generator: inout SeededGenerator) -> Generated {
         let itemCount = Int.random(in: 2...4, using: &generator)
         let ordered = Bool.random(using: &generator)
-        var lines: [String] = []
+        let delimiter = Bool.random(using: &generator) ? "." : ")"
+        var generated = Generated()
         for index in 0..<itemCount {
             let level = Int.random(in: 0...1, using: &generator)
             let indent = String(repeating: "  ", count: level)
-            let text = randomSentence(wordCount: Int.random(in: 2...5, using: &generator), using: &generator)
-            let marker = ordered ? "\(index + 1). " : "- "
-            lines.append(indent + marker + text)
+            let words = randomSentence(wordCount: Int.random(in: 2...5, using: &generator), using: &generator)
+            let marker = ordered ? "\(index + 1)\(delimiter) " : "- "
+            generated.lines.append(indent + marker + words.joined(separator: " "))
+            // A numbered item keeps its own number and delimiter on Copy (known item K2), so the marker is content.
+            if ordered { generated.tokens.append("\(index + 1)\(delimiter)") }
+            generated.tokens += words
         }
-        return lines
+        return generated
     }
 
-    private static func randomCodeBlock(using generator: inout SeededGenerator) -> [String] {
-        ["```", randomSentence(wordCount: 4, using: &generator), "```"]
+    private static func randomCodeBlock(using generator: inout SeededGenerator) -> Generated {
+        let words = randomSentence(wordCount: 4, using: &generator)
+        return Generated(lines: ["```", words.joined(separator: " "), "```"], tokens: [words.joined(separator: " ")])
     }
 
-    private static func randomLinkSentence(using generator: inout SeededGenerator) -> String {
+    private static func randomLinkSentence(using generator: inout SeededGenerator) -> Generated {
         // Plain vocabulary only: a real generated document never nests "[ ]"/"[x]" inside a link's own label, and
         // a label that itself contains "[" or "]" needs real bracket-nesting support this parser doesn't claim.
-        let label = (0..<2).map { _ in vocabulary.randomElement(using: &generator)! }.joined(separator: " ")
+        let label = (0..<2).map { _ in vocabulary.randomElement(using: &generator)! }
         let id = Int.random(in: 1...999, using: &generator)
-        return "See [\(label)](https://example.com/\(id)) for details"
+        switch Int.random(in: 0..<3, using: &generator) {
+        case 0:
+            // An autolink: its angle brackets are syntax, its address (with "~", "_" and "*") is kept verbatim.
+            let address = "https://example.com/~ward_\(id)?q=a*b*c"
+            return Generated(lines: ["See <\(address)> for details"], tokens: ["See", address, "for", "details"])
+        case 1:
+            // A bare address (fix round 1): Foundation links it too, and nothing in it may gain a backslash.
+            let address = "https://example.com/~ward_\(id)/a_-_b?q=x*y*z"
+            return Generated(lines: ["See \(address) for details"], tokens: ["See", address, "for", "details"])
+        default:
+            break
+        }
+        let address = "https://example.com/\(id)"
+        return Generated(
+            lines: ["See [\(label.joined(separator: " "))](\(address)) for details"],
+            tokens: ["See"] + label + ["(\(address))", "for", "details"])
     }
 
-    private static func randomDocument(blockCount: Int, using generator: inout SeededGenerator) -> String {
-        var lines: [String] = []
-        for _ in 0..<blockCount {
-            switch Int.random(in: 0..<5, using: &generator) {
-            case 0:
-                lines.append(randomHeadingLine(using: &generator))
-            case 1:
-                lines.append(randomParagraph(using: &generator))
-            case 2:
-                lines.append(contentsOf: randomList(using: &generator))
-            case 3:
-                lines.append(contentsOf: randomCodeBlock(using: &generator))
-            default:
-                lines.append(randomLinkSentence(using: &generator))
+    /// A clinical line; never a "#" line as the document's first line, where a single "#" is the title.
+    private static func randomClinicalLine(first: Bool, using generator: inout SeededGenerator) -> Generated {
+        let line = clinicalInlineLines.filter { !first || !$0.hasPrefix("# ") }.randomElement(using: &generator)!
+        return Generated(lines: [line], tokens: [line])
+    }
+
+    /// A model's single-"#" title on the document's first line (controller ruling, fix round 1): its words copy as
+    /// the title's own line, without the "#".
+    private static func randomTitleLine(using generator: inout SeededGenerator) -> Generated {
+        let words = randomSentence(wordCount: Int.random(in: 1...3, using: &generator), using: &generator)
+            .filter { $0.allSatisfy { $0.isLetter || $0.isNumber } }
+        let title = (words.isEmpty ? ["Summary"] : words).joined(separator: " ")
+        return Generated(lines: ["# \(title)"], tokens: [title], exactLines: [title])
+    }
+
+    /// Fix round 1: two to four emphasized words separated only by punctuation ("**Fever**, **chills** / *cough*"):
+    /// every marker drops and nothing else changes, so the copied line is known exactly. An arrow with no spaces
+    /// ("**8/10**→**3/10**") makes each middle run able to open and close; it is generated for asterisks only,
+    /// because CommonMark never lets an underscore between a letter and a non-punctuation symbol open or close.
+    private static func randomPunctuatedEmphasis(using generator: inout SeededGenerator) -> Generated {
+        let plainWords = vocabulary.filter { $0.allSatisfy { $0.isLetter || $0 == "-" || $0 == "'" } }
+        let underscores = Bool.random(using: &generator)
+        let delimiters = underscores ? ["__", "_"] : ["**", "*"]
+        let separators = [", ", " / ", "/", " → ", " | ", "; ", ": ", " - "] + (underscores ? [] : ["→"])
+        var source = ""
+        var expected = ""
+        var words: [String] = []
+        for index in 0..<Int.random(in: 2...4, using: &generator) {
+            if index > 0 {
+                let separator = separators.randomElement(using: &generator)!
+                source += separator
+                expected += separator
             }
-            lines.append("")  // a blank line between blocks
+            let word = plainWords.randomElement(using: &generator)!
+            let delimiter = delimiters.randomElement(using: &generator)!
+            source += delimiter + word + delimiter
+            expected += word
+            words.append(word)
         }
-        return lines.joined(separator: "\n")
+        let line = "Findings " + source + " today"
+        let copied = "Findings " + expected + " today"
+        return Generated(lines: [line], tokens: ["Findings"] + words + ["today"], exactLines: [copied])
+    }
+
+    private static func randomDocument(blockCount: Int, using generator: inout SeededGenerator) -> Generated {
+        var document = Generated()
+        if Int.random(in: 0..<3, using: &generator) == 0 {
+            document.append(randomTitleLine(using: &generator))
+            document.lines.append("")
+        }
+        for _ in 0..<blockCount {
+            switch Int.random(in: 0..<7, using: &generator) {
+            case 0:
+                document.append(randomHeadingLine(using: &generator))
+            case 1:
+                document.append(randomParagraph(using: &generator))
+            case 2:
+                document.append(randomList(using: &generator))
+            case 3:
+                document.append(randomCodeBlock(using: &generator))
+            case 4:
+                document.append(randomClinicalLine(first: document.lines.isEmpty, using: &generator))
+            case 5:
+                document.append(randomPunctuatedEmphasis(using: &generator))
+            default:
+                document.append(randomLinkSentence(using: &generator))
+            }
+            document.lines.append("")  // a blank line between blocks
+        }
+        return document
     }
 
     /// Lowercased, split on every non-alphanumeric character (so `**`, `#`, `-`, `.`, `°`, `/` and Markdown's other
@@ -180,5 +426,15 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         text.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
+    }
+
+    /// The first token that is not in `text` verbatim after the previous one, or nil when all are, in order.
+    private static func firstMissingToken(_ tokens: [String], in text: String) -> String? {
+        var searchStart = text.startIndex
+        for token in tokens {
+            guard let found = text.range(of: token, range: searchStart..<text.endIndex) else { return token }
+            searchStart = found.upperBound
+        }
+        return nil
     }
 }

@@ -214,4 +214,63 @@ final class PlainTextFlattenerTests: XCTestCase {
         // Documents the choice plan 023 asked us to pick and record: "-" over "•".
         XCTAssertEqual(PlainTextFlattener.bulletMarker, "- ")
     }
+
+    // MARK: - Review fixes 2026-10-01 (plan 024 Task 4)
+
+    /// Known item K3, ruling: an HTML entity reference is decoded on Copy exactly as the screen shows it (CommonMark
+    /// behavior, kept deliberately) — the copied note never says "&#8805;" where the screen said "≥".
+    func testHTMLEntitiesDecodeOnCopyAsOnScreen() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("- Threshold &#8805; 38.0\n- 5 &amp; 3 &lt; 9"),
+            "- Threshold ≥ 38.0\n- 5 & 3 < 9")
+    }
+
+    /// Known item K1 (controller ruling, fix round 1): below the document's first line, a single "#" plus a space
+    /// plus prose is the person's "#" ("number of", "fracture") and copies with it; on the first line it is the
+    /// document's title.
+    func testSingleHashLineKeepsItsHash() {
+        XCTAssertEqual(PlainTextFlattener.flatten("**Plan**\n# of doses given: 3"), "Plan\n\n# of doses given: 3")
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("**Assessment**\n# L radius\n# HTN, controlled"),
+            "Assessment\n\n# L radius\n# HTN, controlled")
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("# SOAP Note\n**Subjective**\n# of doses given: 3"),
+            "SOAP Note\n\nSubjective\n\n# of doses given: 3")
+    }
+
+    /// Known item K2: "2) second item" copied as "2. second item"; the source delimiter is kept.
+    func testCloseParenNumberKeepsItsDelimiter() {
+        XCTAssertEqual(PlainTextFlattener.flatten("2) second item"), "2) second item")
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("1) Start metoprolol\n2) Recheck BP in 2 weeks\n  3. Nested item"),
+            "1) Start metoprolol\n2) Recheck BP in 2 weeks\n  3. Nested item")
+    }
+
+    /// A "+" finding copies as "+", never as the "-" bullet marker (the opposite finding).
+    func testPlusAndMinusFindingsKeepTheirSigns() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("ROS\n+ fever\n+ cough\n- chills"),
+            "ROS\n+ fever\n+ cough\n\n- chills")
+    }
+
+    /// Fix round 1: emphasized findings separated only by punctuation copy without any "**" (plan 023's promise).
+    func testEmphasizedFindingsSeparatedByPunctuationCopyWithoutMarkers() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("- **Fever**, **chills**, and **cough** for 3 days\n- Pain **8/10** → **3/10**"),
+            "- Fever, chills, and cough for 3 days\n- Pain 8/10 → 3/10")
+    }
+
+    /// Fix round 2: a bare URL inside brackets is text to Foundation, so Copy keeps every character of it.
+    func testBareURLInsideBracketsCopiesExactly() {
+        for text in MarkdownInlineTests.bracketedURLs {
+            XCTAssertEqual(PlainTextFlattener.flatten("Synthetic note.\n\n\(text)"), "Synthetic note.\n\n\(text)", text)
+        }
+    }
+
+    /// Review R2-8: a dose range written with tildes copies exactly as written, never as a strikethrough.
+    func testTildeDoseRangeCopiesExactly() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("**Plan**\n- metoprolol 25~50 mg q8~12h"),
+            "Plan\n\n- metoprolol 25~50 mg q8~12h")
+    }
 }
