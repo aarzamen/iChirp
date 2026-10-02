@@ -84,6 +84,8 @@ public enum UnsupportedLink: Sendable, Equatable {
     case platform(name: String)
     /// A media format AVFoundation cannot decode on iPhone.
     case format(name: String)
+    /// A link that carries a user name or password (`https://name:secret@host/…`): never sent.
+    case credentials
 
     public var message: String {
         switch self {
@@ -97,6 +99,8 @@ public enum UnsupportedLink: Sendable, Equatable {
             "Parakeet can’t download from \(name). Save the video or audio to Files, then share it to Parakeet."
         case .format(let name):
             "Parakeet can’t decode \(name) audio on iPhone. Convert it to MP3 or M4A, then import it."
+        case .credentials:
+            "This link contains a user name or password, which Parakeet won’t send. Copy the link without it."
         }
     }
 }
@@ -153,6 +157,10 @@ public enum LinkClassifier {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return .unsupported(.notWeb)
         }
+        // A user name or password in the link would be sent to the server: never use such a link.
+        if url.user(percentEncoded: false) != nil || url.password(percentEncoded: false) != nil {
+            return .unsupported(.credentials)
+        }
         guard let host = url.host()?.lowercased(), !host.isEmpty else { return .unsupported(.notALink) }
         let absolute = url.absoluteString
 
@@ -188,14 +196,16 @@ public enum LinkClassifier {
 
     /// The first http(s)-looking link in `text`: the whole text when it is one; a bare host ("cdn.example.com/a.mp3")
     /// with `https://` added, before the data detector, which would add `http://` (iOS blocks plain http to internet
-    /// hosts); else the first link a data detector finds (so "Listen: https://…" works).
+    /// hosts); else the first link a data detector finds (so "Listen: https://…" works). Text with an "@" never gets
+    /// a scheme added: "jane.doe@clinic.example.org" is an e-mail address (the detector reads it as `mailto:`), not a
+    /// web link to the clinic's server.
     static func firstLink(in text: String) -> URL? {
         let isOneWord = !text.contains(where: \.isWhitespace)
         if isOneWord, let url = URL(string: text), url.scheme != nil, url.host() != nil {
             return url
         }
-        if isOneWord, text.contains("."), URL(string: text)?.scheme == nil, let url = URL(string: "https://\(text)"),
-            url.host() != nil
+        if isOneWord, text.contains("."), !text.contains("@"), URL(string: text)?.scheme == nil,
+            let url = URL(string: "https://\(text)"), url.host() != nil
         {
             return url
         }

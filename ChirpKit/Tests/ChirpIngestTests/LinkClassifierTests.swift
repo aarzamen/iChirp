@@ -68,6 +68,22 @@ final class LinkClassifierTests: XCTestCase {
         XCTAssertFalse(UnsupportedLink.notWeb.message.contains("(https)"), "http links are accepted too")
     }
 
+    /// Fix round 1: a pasted e-mail address is never turned into a web link (Transcribe would send a request to its
+    /// domain), and a link that carries a user name or password is refused rather than sent.
+    func testEmailAddressesAndLinksWithCredentialsAreNotUsable() {
+        XCTAssertEqual(LinkClassifier.classify("jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        XCTAssertEqual(LinkClassifier.classify("Contact jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        for link in ["https://jane@cdn.example.com/a.mp3", "https://jane:secret@cdn.example.com/a.mp3"] {
+            XCTAssertEqual(LinkClassifier.classify(link), .unsupported(.credentials), link)
+            XCTAssertFalse(LinkClassifier.classify(link).isActionable, link)
+        }
+        XCTAssertFalse(UnsupportedLink.credentials.message.isEmpty)
+        // An "@" in the path is not user info.
+        XCTAssertEqual(
+            LinkClassifier.classify("https://media.example.com/@synthetic/talk.mp3"),
+            .directMedia(URL(string: "https://media.example.com/@synthetic/talk.mp3")!))
+    }
+
     /// Review R2-19: the "YouTube page" refusal applies to youtube.com and its subdomains only, the same host rule as
     /// the other platforms.
     func testOnlyYouTubeHostsAreTreatedAsYouTubePages() {
