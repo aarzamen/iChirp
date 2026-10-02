@@ -95,8 +95,14 @@ pipeline directly.
       3" rule), not by adjacency, so "**Fever**, **chills**" and "**8/10**→**3/10**" still render (fix round 1:
       an adjacency rule leaked "**" there); `PlainTextFlattenerPropertyTests.testEmphasisIsNeverDrawnAroundLetterFreeText`
       checks it against Foundation's parser on random lines;
-    - inline code and autolinks (`<https://…>`) are never touched (CommonMark reads no escapes inside them, so an
-      added one would show its backslash) and an escape the source already wrote is kept.
+    - inline code and links are never touched (CommonMark reads no escapes inside them, so an added one would show
+      its backslash): angle autolinks (`<https://…>`) and, since fix round 1, the links Foundation makes without
+      brackets (GitHub's extended autolinks) — a bare `http(s)://`, `ftp://` or `www.` address with its whole
+      space-delimited token, and email addresses, found after the other spans as Foundation does. An escape the
+      source already wrote is kept. A Markdown link around a bare URL is still rewritten to "label (url)": Foundation
+      lets the link win and would drop the address. Known limit: a delimiter pair entirely inside a link's trailing
+      punctuation (`…/a_b)~.~`) is left to the parser, because GitHub trims that tail by its characters and an added
+      backslash would join the link.
     HTML entity references (`&lt;`, `&#8805;`) are decoded, as CommonMark requires, so the screen, Copy and the
     exports all show the same character (known item K3, ruling: keep decoding).
   - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line

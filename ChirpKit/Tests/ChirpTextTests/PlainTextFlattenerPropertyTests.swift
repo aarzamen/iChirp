@@ -115,6 +115,38 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         return spans
     }
 
+    /// Fix round 1, a differential check of `MarkdownInline`'s link detection against Foundation's parser: over
+    /// random lines of URL and email fragments, tildes and delimiters, what the person sees never holds a backslash
+    /// the source did not write (an escape added inside a link shows), and never loses a "~" outside a link (a
+    /// strikethrough). Spaces never disappear, so the k-th space-separated piece shown comes from the k-th piece of
+    /// the source. Inside a link's own piece a "~" may drop: GitHub trims a link's trailing punctuation by its
+    /// characters, so a pair entirely in that tail (")~.~") cannot be escaped without the backslash joining the
+    /// link — a documented limit.
+    func testNoBackslashIsAddedAndNoTildeIsLostAroundLinks() {
+        let pieces = [
+            "https://", "http://", "HTTPS://", "www.", "example.com", "my_host.com", "/~a", "~", "~~", "/a_b", "_", "*",
+            "**", "x*y", "?q=1", ")", "(", ".", ",", " ", " ", " ", "user@", "mail.com", "a", "8", ":", "x",
+        ]
+        var generator = SeededGenerator(seed: 0x11_4C_2A)
+        for iteration in 0..<2_000 {
+            let line = (0..<Int.random(in: 2...10, using: &generator))
+                .map { _ in pieces.randomElement(using: &generator)! }.joined()
+            let shown = MarkdownInline.plain(line)
+            let context = "iteration \(iteration): \(line.debugDescription) showed \(shown.debugDescription)"
+            XCTAssertFalse(shown.contains("\\"), context)
+            let sourcePieces = line.split(separator: " ", omittingEmptySubsequences: false)
+            let shownPieces = shown.split(separator: " ", omittingEmptySubsequences: false)
+            XCTAssertEqual(sourcePieces.count, shownPieces.count, context)
+            for (source, piece) in zip(sourcePieces, shownPieces) {
+                let isLinkPiece = source.contains("://") || source.contains("www.")
+                XCTAssertTrue(
+                    Self.isSubsequence(
+                        String(piece), of: String(source), droppingOnly: isLinkPiece ? ["*", "_", "~"] : ["*", "_"]),
+                    context)
+            }
+        }
+    }
+
     /// True when `shown` is `source` with some of the `droppable` characters removed and nothing else changed.
     private static func isSubsequence(_ shown: String, of source: String, droppingOnly droppable: Set<Character>)
         -> Bool
@@ -274,10 +306,17 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         // a label that itself contains "[" or "]" needs real bracket-nesting support this parser doesn't claim.
         let label = (0..<2).map { _ in vocabulary.randomElement(using: &generator)! }
         let id = Int.random(in: 1...999, using: &generator)
-        if Bool.random(using: &generator) {
+        switch Int.random(in: 0..<3, using: &generator) {
+        case 0:
             // An autolink: its angle brackets are syntax, its address (with "~", "_" and "*") is kept verbatim.
             let address = "https://example.com/~ward_\(id)?q=a*b*c"
             return Generated(lines: ["See <\(address)> for details"], tokens: ["See", address, "for", "details"])
+        case 1:
+            // A bare address (fix round 1): Foundation links it too, and nothing in it may gain a backslash.
+            let address = "https://example.com/~ward_\(id)/a_-_b?q=x*y*z"
+            return Generated(lines: ["See \(address) for details"], tokens: ["See", address, "for", "details"])
+        default:
+            break
         }
         let address = "https://example.com/\(id)"
         return Generated(

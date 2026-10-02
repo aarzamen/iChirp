@@ -52,10 +52,12 @@ public enum MarkdownInline {
     /// link is rewritten to "label (url)" before parsing; `MarkdownDocument`, `PlainTextFlattener` and the PDF/Word
     /// exports all see the same rewritten text; the app does not otherwise use Markdown links so nothing "goes
     /// plain-text" that used to be tappable. A link inside inline code or an autolink, or one whose "[" the source
-    /// escaped, is not a link and stays exactly as written.
+    /// escaped, is not a link and stays exactly as written. A bare URL in a link's label or address does not stop
+    /// the rewrite: Foundation lets the link win there and would drop the address (measured:
+    /// "[https://a.com](https://b.com)" showed only "https://a.com").
     private static func neutralizeLinks(_ chars: [Character]) -> [Character] {
         guard chars.contains("]") else { return chars }
-        let verbatim = verbatimSpans(in: chars)
+        let verbatim = verbatimSpans(in: chars, bareLinks: false)
         func isVerbatim(_ index: Int) -> Bool { verbatim.contains { $0.contains(index) } }
         var result: [Character] = []
         result.reserveCapacity(chars.count + 4)
@@ -116,11 +118,12 @@ public enum MarkdownInline {
     ///   and the next one opens a new span, so emphasis around words is unaffected (fix round 1 of plan 024 Task 4:
     ///   an adjacency rule leaked "**" there).
     ///
-    /// Inline code and autolinks are copied untouched: CommonMark reads no escapes inside them, so an added backslash
-    /// would show ("`2*3`" copied as "2\*3", "<https://example.com/~user>" as ".../\~user"). An escape the source
-    /// already wrote ("25\~50") is kept as written.
+    /// Inline code and links are copied untouched: CommonMark reads no escapes inside them, so an added backslash
+    /// would show ("`2*3`" copied as "2\*3", "<https://example.com/~user>" and the bare
+    /// "https://example.com/~user" as ".../\~user"). An escape the source already wrote ("25\~50") is kept as
+    /// written.
     private static func protectLiterals(_ chars: [Character]) -> String {
-        let verbatim = verbatimSpans(in: chars)
+        let verbatim = verbatimSpans(in: chars, bareLinks: true)
         var escaped = Set<Int>()
         var index = 0
         while index < chars.count {
@@ -293,13 +296,15 @@ public enum MarkdownInline {
 
     // MARK: - Scanning helpers
 
-    /// The spans of one line CommonMark reads verbatim, escapes included, so nothing may be escaped inside them:
+    /// The spans of one line Foundation reads verbatim, escapes included, so nothing may be escaped inside them:
     /// inline code (a backtick run opens a span that the next run of exactly the same length closes) and autolinks
     /// (`<https://…>`, `<name@example.com>`), whichever starts first, as CommonMark decides; a backslash-escaped
     /// backtick or "<" opens neither. One deliberate difference: a backtick run between two Latin letters or digits
-    /// never opens a code span.
-    private static func verbatimSpans(in chars: [Character]) -> [Range<Int>] {
-        guard chars.contains("`") || chars.contains("<") else { return [] }
+    /// never opens a code span. With `bareLinks`, also GitHub's extended autolinks, which Foundation links without
+    /// angle brackets (fix round 1): a bare URL with all of its space-delimited token (`bareLinkEnd`), and then, in
+    /// the text those spans leave, email addresses (`emailEnd`) — Foundation finds addresses last, after its inline
+    /// parsing, so a URL or inline code wins over an address it touches ("user@www.http://…" links the URL).
+    private static func verbatimSpans(in chars: [Character], bareLinks: Bool) -> [Range<Int>] {
         var spans: [Range<Int>] = []
         var index = 0
         while index < chars.count {
@@ -308,6 +313,11 @@ public enum MarkdownInline {
                 continue
             }
             if chars[index] == "<", let end = autolinkEnd(in: chars, at: index) {
+                spans.append(index..<end)
+                index = end
+                continue
+            }
+            if bareLinks, let end = bareLinkEnd(in: chars, at: index) {
                 spans.append(index..<end)
                 index = end
                 continue
@@ -326,7 +336,96 @@ public enum MarkdownInline {
                 index += run
             }
         }
-        return spans
+        guard bareLinks else { return spans }
+        var emails: [Range<Int>] = []
+        var gapStart = 0
+        for span in spans + [chars.count..<chars.count] {
+            var index = gapStart
+            while index < span.lowerBound {
+                if let end = emailEnd(in: chars, at: index, gap: gapStart..<span.lowerBound) {
+                    emails.append(index..<end)
+                    index = end
+                } else {
+                    index += 1
+                }
+            }
+            gapStart = span.upperBound
+        }
+        return (spans + emails).sorted { $0.lowerBound < $1.lowerBound }
+    }
+
+    /// The end of the bare URL starting at `start`, as cmark-gfm (Foundation's parser) finds one, measured against
+    /// Foundation: `http://`, `https://` or `ftp://` in any case, not right after an ASCII letter ("xhttps://" is not
+    /// one), or a lowercase `www.` at the line's start or after a space or one of `*_~(`; then a host that starts
+    /// with a letter or digit and has no "_" in its last two labels ("my_host.com" is not one). The span runs to the
+    /// next space or "<", including the trailing punctuation GitHub leaves outside the link (`…/a~`, `…/b.`, a
+    /// closing ")"): GitHub trims that tail by its characters, and a backslash added in it would stop the trim and
+    /// become part of the link.
+    private static func bareLinkEnd(in chars: [Character], at start: Int) -> Int? {
+        var hostStart: Int?
+        let scheme = ["https://", "http://", "ftp://"].first { matches($0, in: chars, at: start, ignoringCase: true) }
+        if let scheme, start == 0 || !(chars[start - 1].isASCII && chars[start - 1].isLetter) {
+            hostStart = start + scheme.count
+        }
+        if hostStart == nil, matches("www.", in: chars, at: start, ignoringCase: false),
+            start == 0 || chars[start - 1].isWhitespace || "*_~(".contains(chars[start - 1])
+        {
+            hostStart = start
+        }
+        guard let hostStart, hostStart < chars.count, chars[hostStart].isLetter || chars[hostStart].isNumber else {
+            return nil
+        }
+        var hostEnd = hostStart
+        while hostEnd < chars.count,
+            chars[hostEnd].isLetter || chars[hostEnd].isNumber || "-_.".contains(chars[hostEnd])
+        {
+            hostEnd += 1
+        }
+        let labels = String(chars[hostStart..<hostEnd]).split(separator: ".", omittingEmptySubsequences: false)
+        guard !labels.suffix(2).contains(where: { $0.contains("_") }) else { return nil }
+        var end = hostEnd
+        while end < chars.count, !chars[end].isWhitespace, chars[end] != "<" { end += 1 }
+        return end
+    }
+
+    /// GitHub's extended email autolink starting at `start` (the first character of the address) within `gap` (the
+    /// text the other spans leave): ASCII letters, digits and `.+-_` before one "@", then letters, digits, `-`, `_`
+    /// and "." (a "." only before a letter or digit, at least one), ending on a letter ("user@example.com_" is not
+    /// one).
+    private static func emailEnd(in chars: [Character], at start: Int, gap: Range<Int>) -> Int? {
+        func isLocal(_ character: Character) -> Bool {
+            character.isASCII && (character.isLetter || character.isNumber || ".+-_".contains(character))
+        }
+        func isAlphanumeric(_ character: Character) -> Bool {
+            character.isASCII && (character.isLetter || character.isNumber)
+        }
+        guard isLocal(chars[start]), start == gap.lowerBound || !isLocal(chars[start - 1]) else { return nil }
+        var at = start
+        while at < gap.upperBound, isLocal(chars[at]) { at += 1 }
+        guard at < gap.upperBound, chars[at] == "@" else { return nil }
+        var end = at + 1
+        var periods = 0
+        while end < gap.upperBound {
+            let character = chars[end]
+            if isAlphanumeric(character) || character == "-" || character == "_" {
+                end += 1
+            } else if character == ".", end + 1 < gap.upperBound, isAlphanumeric(chars[end + 1]) {
+                periods += 1
+                end += 1
+            } else {
+                break
+            }
+        }
+        guard periods > 0, chars[end - 1].isASCII, chars[end - 1].isLetter else { return nil }
+        return end
+    }
+
+    private static func matches(_ prefix: String, in chars: [Character], at start: Int, ignoringCase: Bool) -> Bool {
+        let wanted = Array(prefix)
+        guard start + wanted.count <= chars.count else { return false }
+        return zip(chars[start..<(start + wanted.count)], wanted).allSatisfy { have, want in
+            ignoringCase ? have.lowercased() == want.lowercased() : have == want
+        }
     }
 
     /// CommonMark's URI autolink (a 2–32 character scheme, ":", then no space, "<" or ">") and email autolink.

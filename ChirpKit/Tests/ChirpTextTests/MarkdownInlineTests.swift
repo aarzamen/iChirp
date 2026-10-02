@@ -146,6 +146,51 @@ final class MarkdownInlineTests: XCTestCase {
             MarkdownInline.plain("<5 mg> and 25~50 stay text"), "<5 mg> and 25~50 stay text", "not an autolink")
     }
 
+    /// Fix round 1, Important 2: Foundation also links bare `http(s)://`, `ftp://` and `www.` addresses and email
+    /// addresses (GitHub's extended autolinks) and shows any backslash inside them, so they are never escaped
+    /// either — up to the trailing punctuation GitHub leaves outside the link, which is escaped as usual.
+    func testBareURLsAndEmailsAreNeverEscaped() {
+        for text in [
+            "Source: https://youtu.be/ab_-_cd and https://example.com/~ward",
+            "See https://example.com/~user/a_b?q=x*y*z now",
+            "www.example.com/~a~b",
+            "(https://example.com/~a) and https://example.com/b.",
+            "HTTPS://EXAMPLE.com/~a and 1https://example.com/~b",
+            "http://localhost/~a and ftp://example.com/~b",
+            "mail synthetic.user@example.com and a_b@example.org.",
+        ] {
+            XCTAssertEqual(MarkdownInline.plain(text), text, text)
+        }
+        // The "~" GitHub leaves outside the link still never pairs with an earlier "~" as strikethrough.
+        XCTAssertEqual(
+            MarkdownInline.plain("dose ~5 mg see https://example.com/a~"), "dose ~5 mg see https://example.com/a~")
+        // Not links: a letter right before the scheme, an underscore in the host's last two labels.
+        XCTAssertEqual(MarkdownInline.plain("xhttps://example.com/~a~b"), "xhttps://example.com/~a~b")
+        XCTAssertEqual(MarkdownInline.plain("https://my_host.com/~a~b"), "https://my_host.com/~a~b")
+    }
+
+    /// Foundation finds email addresses last, in the text its other links leave, so a URL whose scheme follows an
+    /// "@"-word ("user@www.http://…") is still a link and nothing in it may be escaped (found by the differential
+    /// property test).
+    func testAURLWinsOverAnEmailItTouches() {
+        for text in [
+            "auser@www.http://x*y", "HTTPS://./~auser@www.http://x*y",
+            "user@example.commail.comwww.http://user@HTTPS:///~a",
+        ] {
+            XCTAssertEqual(MarkdownInline.plain(text), text, text)
+        }
+    }
+
+    /// A Markdown link still becomes "label (address)" when its label or address is a bare URL: Foundation lets the
+    /// link win and would drop the address.
+    func testLinksAroundBareURLsKeepTheirAddress() {
+        XCTAssertEqual(MarkdownInline.plain("[https://a.com](https://b.com)"), "https://a.com (https://b.com)")
+        XCTAssertEqual(
+            MarkdownInline.plain("[label](https://example.com/~a~b)"), "label (https://example.com/~a~b)")
+        XCTAssertEqual(
+            MarkdownInline.plain("[label](https://example.com/a_(b))"), "label (https://example.com/a_(b))")
+    }
+
     /// A backtick between two digits is the person's character, not a code span that pairs across the words.
     func testBacktickBetweenDigitsStaysLiteral() {
         XCTAssertEqual(MarkdownInline.plain("5`10 and 6`12"), "5`10 and 6`12")
