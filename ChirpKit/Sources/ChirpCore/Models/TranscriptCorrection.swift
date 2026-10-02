@@ -183,7 +183,9 @@ public struct TranscriptCorrections: Codable, Sendable, Equatable {
     /// added item replaces the stored items it covers whole; one whose text equals its heard words only removes them (a
     /// revert by retyping). Returns the new envelope (`changedAt` = `now`, `baseline` = the words' fingerprint) and the
     /// inverse plan, which restores the previous items exactly.
-    public func applying(_ plan: TranscriptCorrectionPlan, words: [WordTimestamp], now: Date) throws -> (
+    public func applying(
+        _ plan: TranscriptCorrectionPlan, words: [WordTimestamp], now: Date, strict: Bool = false
+    ) throws -> (
         corrections: TranscriptCorrections, inverse: TranscriptCorrectionPlan
     ) {
         guard !isFromNewerBuild else { throw TranscriptCorrectionsError.newerVersion }

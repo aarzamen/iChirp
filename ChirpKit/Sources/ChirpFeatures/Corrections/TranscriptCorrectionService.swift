@@ -104,6 +104,13 @@ public struct TranscriptCorrectionService: Sendable {
         try await apply(id, baseline: baseline) { _ in plan }
     }
 
+    /// SCAFFOLD (red run): applies an undo plan.
+    public func undo(_ id: UUID, plan: TranscriptCorrectionPlan, baseline: String?) async throws
+        -> CorrectionOutcome
+    {
+        try await apply(id, plan: plan, baseline: baseline)
+    }
+
     /// Reverts the given corrections (Show Original's Revert, a passage, a Replace-all batch). Ids no longer stored
     /// are skipped; when none is left, nothing is written (`changedAt` does not move).
     public func revert(_ id: UUID, corrections: Set<UUID>) async throws -> CorrectionOutcome {

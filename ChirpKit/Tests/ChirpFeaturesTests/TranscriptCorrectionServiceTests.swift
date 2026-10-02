@@ -285,6 +285,51 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
                 "still here") ?? true)
     }
 
+    /// App fix round 2 (N2, clinical safety): revert "metformin", correct the same words again (the same span, fewer
+    /// words, a sub-span), then Undo. The Undo fails with the corrected-again message and the newer correction stays.
+    func testAnUndoNeverOverwritesANewerCorrectionInsideTheRevertedWords() async throws {
+        let newerTexts = [
+            "The patient takes metoprolol daily. She feels well today.",  // the same words, 3..<6
+            "The patient takes metfor men daily. She feels well today.",  // fewer words, 3..<5
+            "The patient takes met four men daily. She feels well today.",  // a sub-span, 4..<5
+        ]
+        for newerText in newerTexts {
+            let original = row()
+            let store = FakeStore(rows: [original])
+            let corrections = service(store)
+            let loaded = original.text(.heard)
+            let first = try await corrections.correct(
+                original.id, line: 0, in: loaded, baseline: baseline(original),
+                text: "The patient takes metformin daily. She feels well today.")
+            let reverted = try await corrections.revert(original.id, corrections: Set(first.created))
+            let newer = try await corrections.correct(
+                original.id, line: 0, in: loaded, baseline: baseline(original), text: newerText)
+            let newerItems = try XCTUnwrap(newer.row.textCorrections?.items)
+            XCTAssertEqual(newerItems.count, 1, newerText)
+
+            await assertThrows(.correctedAgain) {
+                _ = try await corrections.undo(original.id, plan: reverted.undo, baseline: self.baseline(original))
+            }
+            let stored = await store.row(original.id)
+            XCTAssertEqual(stored?.textCorrections?.items, newerItems, "the newer correction is intact: \(newerText)")
+            XCTAssertEqual(stored?.text(.heard).lines.first?.text, newerText)
+        }
+    }
+
+    /// The strict undo still restores what a revert took when nothing was corrected since.
+    func testAStrictUndoRestoresARevertWhenNothingChanged() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let corrections = service(store)
+        let corrected = try await corrections.correct(
+            original.id, line: 0, in: original.text(.heard), baseline: baseline(original),
+            text: "The patient takes metformin daily. She feels great today.")
+        let items = try XCTUnwrap(corrected.row.textCorrections?.items)
+        let reverted = try await corrections.revertAll(original.id)
+        let undone = try await corrections.undo(original.id, plan: reverted.undo, baseline: baseline(original))
+        XCTAssertEqual(undone.row.textCorrections?.items, items)
+    }
+
     func testDetachedCorrectionsAreKeptUntilDeletedOnRequest() async throws {
         let original = row()
         let store = FakeStore(rows: [original])
