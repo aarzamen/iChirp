@@ -50,9 +50,12 @@ final class TranscriptCorrectionsTourUITests: XCTestCase {
         let editor = app.textViews["Passage"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         shot("correct-sheet")
-        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
+        editor.tap()
+        // The editor scrolls at large text sizes, so a tap may land mid-text: a triple tap selects the passage (one
+        // paragraph), and typing replaces it.
         let original = (editor.value as? String) ?? ""
-        editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: original.count + 4))
+        editor.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        sleep(1)
         editor.typeText(original.replacingOccurrences(of: "met for men", with: "metformin"))
         shot("correct-sheet-edited")
         app.buttons["Save"].tap()
@@ -100,6 +103,8 @@ final class TranscriptCorrectionsTourUITests: XCTestCase {
         confirm.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'No corrections'")).firstMatch
             .waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 3), "the sheet offers its own Undo")
+        shot("corrections-reverted-undo")
         app.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(line.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Corrected"].exists)

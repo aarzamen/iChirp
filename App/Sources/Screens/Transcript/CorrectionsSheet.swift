@@ -74,9 +74,12 @@ struct CorrectionsSheet: View {
                         ForEach(detached) { item in detachedRow(item) }
                     }
                 }
+                // Full width, so a short empty-state line does not leave bare bands at the sheet's sides.
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Tokens.Spacing.sheetGutter)
                 .padding(.vertical, Tokens.Spacing.s)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Tokens.Color.ground)
             .navigationTitle("Corrections")
             .navigationBarTitleDisplayMode(.inline)

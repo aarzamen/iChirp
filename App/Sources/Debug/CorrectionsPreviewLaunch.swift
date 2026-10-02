@@ -1,5 +1,6 @@
 #if DEBUG
 import ChirpCore
+import ChirpFeatures
 import ChirpText
 import Foundation
 
@@ -21,7 +22,13 @@ enum CorrectionsPreviewLaunch {
     {
         guard arguments.contains(seedArgument) else { return }
         let rows = (try? await environment.store.fetchAll()) ?? []
-        guard !rows.contains(where: { $0.fileName == fileName }) else { return }
+        if let existing = rows.first(where: { $0.fileName == fileName }) {
+            // A tour stopped half way: put the sample's words back as heard (through the one writer), so the tour
+            // starts from the same state. The row and its words are kept.
+            _ = try? await TranscriptCorrectionService(store: environment.store, context: { .none })
+                .revertAll(existing.id)
+            return
+        }
         try? await environment.store.insert(sample())
     }
 
