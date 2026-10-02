@@ -280,9 +280,18 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
     /// Apple Speech's do: `WordTimingBuilder` (kept identical to ChirpText's) merges the tokens, then every start is at
     /// least the previous word's start and never negative, every end at least its own start, and confidence lies in
     /// 0…1 (a confidence that is not a number counts 0). FluidAudio's chunk merge is not relied on to never go back.
-    static func contractWords(from tokenTimings: [TokenTiming]?) -> [WordTimestamp] {
+    /// Token times the builder cannot count in milliseconds are repaired before it (review M8, `usableTokenTimings`);
+    /// `logRepairs` gets how many, never which.
+    static func contractWords(
+        from tokenTimings: [TokenTiming]?,
+        logRepairs: (Int) -> Void = ParakeetEngine.logRepairedTokenTimes
+    ) -> [WordTimestamp] {
+        let usable = usableTokenTimings(tokenTimings)
+        if usable.repairedCount > 0 {
+            logRepairs(usable.repairedCount)
+        }
         var lastStart = 0
-        return WordTimingBuilder.words(from: tokenTimings).map { word in
+        return WordTimingBuilder.words(from: usable.timings).map { word in
             var word = word
             let start = max(lastStart, word.startMs)
             word.startMs = start
@@ -291,6 +300,46 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
             lastStart = start
             return word
         }
+    }
+
+    /// Seconds past which a token time is not a time: far beyond any recording, and far inside what an `Int` of
+    /// milliseconds can hold.
+    static let maximumTokenSeconds: TimeInterval = 1e9
+
+    /// `tokenTimings` with every start and end `WordTimingBuilder` can count in milliseconds (review M8: a time that
+    /// is not a finite number of seconds, or too large, trapped there in `Int(_:)`). The builder stays parity-pinned
+    /// and untouched. A token is repaired, never dropped, because a word's text feeds the stored segments and exports:
+    /// a start it cannot use takes the last usable time before it (0 at the beginning), and an end it cannot use takes
+    /// the token's start. `contractWords` then puts the words in order.
+    static func usableTokenTimings(_ tokenTimings: [TokenTiming]?) -> (timings: [TokenTiming]?, repairedCount: Int) {
+        guard let tokenTimings else { return (nil, 0) }
+        func isUsable(_ seconds: TimeInterval) -> Bool {
+            seconds.isFinite && abs(seconds) < maximumTokenSeconds
+        }
+        var lastUsable: TimeInterval = 0
+        var repairedCount = 0
+        let timings = tokenTimings.map { timing in
+            guard isUsable(timing.startTime), isUsable(timing.endTime) else {
+                repairedCount += 1
+                let start = isUsable(timing.startTime) ? timing.startTime : lastUsable
+                let end = isUsable(timing.endTime) ? timing.endTime : start
+                lastUsable = end
+                return TokenTiming(
+                    token: timing.token, tokenId: timing.tokenId, startTime: start, endTime: end,
+                    confidence: timing.confidence)
+            }
+            lastUsable = timing.endTime
+            return timing
+        }
+        return (timings, repairedCount)
+    }
+
+    private static let wordLogger = Log.logger("parakeet")
+
+    /// Logs how many token times were repaired. The tokens are the user's words (a dictation can be clinical), so
+    /// they are never logged.
+    static func logRepairedTokenTimes(_ count: Int) {
+        wordLogger.notice("parakeet_token_times_repaired count=\(count, privacy: .public)")
     }
 
     // MARK: - Live preview (M2)
@@ -333,14 +382,33 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
             file.processingFormat.sampleRate == Double(ASRConstants.sampleRate),
             file.processingFormat.channelCount == 1,
             file.length > 0, file.length + Int64(padCount) <= Int64(ASRConstants.maxModelSamples),
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
-            (try? file.read(into: buffer)) != nil,
-            let data = buffer.floatChannelData?[0], buffer.frameLength > 0
+            var samples = everySample(of: file)
         else { return nil }
-        var samples = Array(UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
         samples.append(contentsOf: repeatElement(0, count: padCount))
         return samples
+    }
+
+    /// Every frame of `file` (mono), or nil when none could be read or a read failed. One `read(into:)` can return
+    /// fewer frames than asked: a 32-bit float WAV, which `DictationRecorder` writes, comes back in whole 1,024-frame
+    /// blocks, so a single read dropped up to 64 ms from the end of a dictation (plan 024 follow-up). Reading repeats
+    /// until the file's length is consumed or a read returns nothing (a header that promises more than the file holds).
+    static func everySample(of file: AVAudioFile) -> [Float]? {
+        let total = Int(file.length)
+        guard total > 0,
+            let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(total))
+        else { return nil }
+        var samples: [Float] = []
+        samples.reserveCapacity(total)
+        while samples.count < total {
+            do {
+                try file.read(into: buffer, frameCount: AVAudioFrameCount(total - samples.count))
+            } catch {
+                return nil
+            }
+            guard buffer.frameLength > 0, let data = buffer.floatChannelData?[0] else { break }
+            samples.append(contentsOf: UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
+        }
+        return samples.isEmpty ? nil : samples
     }
 
     // MARK: - Worker pool

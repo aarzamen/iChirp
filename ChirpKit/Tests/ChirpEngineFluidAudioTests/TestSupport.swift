@@ -23,6 +23,12 @@ extension DownloadNetworkPolicy {
     }
 }
 
+/// The sample format `writeRampWAV` stores: `DictationRecorder`'s 32-bit float, or 16-bit integer.
+enum WAVSampleFormat {
+    case float32
+    case int16
+}
+
 /// A thread-safe append-only log, for recording events from `@Sendable` hooks and progress callbacks.
 final class LockedLog<Element: Sendable>: @unchecked Sendable {
     // @unchecked Sendable: `storage` is only touched while `lock` is held.
@@ -142,6 +148,43 @@ extension XCTestCase {
             forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
         try file.write(from: buffer)
         return url
+    }
+
+    /// Writes `frames` samples of a synthetic ramp as a 16 kHz mono WAV in 100 ms writes, as `DictationRecorder` does:
+    /// `.float32` with its 32-bit float settings, `.int16` as 16-bit integers. Every value is a multiple of 1/32,768,
+    /// so both read back exactly. Returns the file and the samples it holds.
+    func writeRampWAV(
+        frames: Int, sampleFormat: WAVSampleFormat, in directory: URL
+    ) throws -> (url: URL, samples: [Float]) {
+        let url = directory.appendingPathComponent("ramp-\(frames)-\(sampleFormat).wav")
+        let isFloat = sampleFormat == .float32
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16_000.0,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: isFloat ? 32 : 16,
+            AVLinearPCMIsFloatKey: isFloat,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
+        let format = try XCTUnwrap(
+            AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let samples = (0..<frames).map { Float($0 % 2_000 - 1_000) / 32_768 }
+        let file = try AVAudioFile(
+            forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        var written = 0
+        while written < frames {
+            let count = min(1_600, frames - written)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)))
+            buffer.frameLength = AVAudioFrameCount(count)
+            let channel = try XCTUnwrap(buffer.floatChannelData?[0])
+            for index in 0..<count {
+                channel[index] = samples[written + index]
+            }
+            try file.write(from: buffer)
+            written += count
+        }
+        file.close()
+        return (url, samples)
     }
 
     /// `source` repeated `times` times into a new 16 kHz mono 16-bit WAV.
