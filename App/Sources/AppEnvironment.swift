@@ -8,6 +8,7 @@ import ChirpFeatures
 import ChirpIngest
 import ChirpKeychain
 import ChirpStore
+import ChirpText
 import Foundation
 import Observation
 
@@ -22,6 +23,9 @@ import Observation
     let diarizer: FluidAudioDiarizer
     let scheduler: SpeechJobScheduler
     let settings: UserDefaultsSettingsStore
+    /// Plan 025 R6: the person's clean-up rules (manual custom words, snippets, "remove um") as the one transcript
+    /// accessor needs them; read at every use, so a corrected transcript's Clean text follows Settings → Text.
+    let textContext: @Sendable () async -> TranscriptTextContext
     /// The one owner of the audio session: dictation and the transcript player go through it (M2).
     let audioSession: AudioSessionController
     /// The one microphone stream per process (M2).
@@ -132,6 +136,8 @@ import Observation
         let store = GRDBTranscriptionStore(database: database)
         let textRulesStore = GRDBTextRulesStore(database: database)
         let settings = UserDefaultsSettingsStore()
+        let textContext = TranscriptTextContext.provider(textRules: textRulesStore, settings: settings)
+        self.textContext = textContext
         let settingsValue = settings.load()
         // fix/speech-memory-fit: every speech model load first checks what iOS lets the app use now
         // (`os_proc_available_memory`), so a model that does not fit is refused with a sentence instead of iOS
@@ -303,7 +309,7 @@ import Observation
         // Plan 024 Task 8: the models read the text the person sees in their clean-up mode, as Copy does.
         self.deliverables = DeliverableService(
             transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() },
-            cleanupMode: { settings.load().cleanupMode })
+            cleanupMode: { settings.load().cleanupMode }, textContext: textContext)
         // M7 (ADR-015): small models on this iPhone (llama.cpp), files next to Needle's under Models/llm/.
         let localLanguageModels = AppLocalLanguageModels(
             modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true))
@@ -318,7 +324,8 @@ import Observation
         self.jevSettings = jevSettings
         self.decisions = DecisionService(
             transcripts: store, ledger: deliverableStore, routingPolicy: { providerStore.routingPolicy() },
-            settings: jevSettings, factory: decisionFactory, cleanupMode: { settings.load().cleanupMode })
+            settings: jevSettings, factory: decisionFactory, cleanupMode: { settings.load().cleanupMode },
+            textContext: textContext)
         self.jevSettingsModel = JevSettingsViewModel(store: jevSettings, factory: decisionFactory)
         // Plan 020. Routing reads the companion's trust at every chunk.
         // Plan 019's Settings → Mac companion store is the voices' companion configuration (DEBUG: the voice tour's
@@ -688,7 +695,9 @@ import Observation
     }
 
     func makeTranscriptViewModel(id: UUID) -> TranscriptViewModel {
-        TranscriptViewModel(id: id, store: store, paths: paths, settings: settings, deliverables: deliverableStore)
+        TranscriptViewModel(
+            id: id, store: store, paths: paths, settings: settings, deliverables: deliverableStore,
+            textContext: textContext)
     }
 
     /// M4: one generated document (Transforms tab, or a finished Transform run).
