@@ -74,7 +74,12 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   - `SpeechRoute`: `.live` is display-only text; `.final` is every kept transcript.
   - `SpeechRouteSelection` decodes forgivingly.
   - `SpeechEngineRouter` is a `SpeechEngine` for the final route and a `LiveSpeechSessionProviding` for the live
-    route. A live engine without its own live mode gets a tail preview over a temporary WAV.
+    route. A live engine without its own live mode gets a tail preview over a temporary WAV. Review R1-5: each window
+    is written into `<tmp>/live-preview/` only after the engine is prepared and deleted after its pass, and
+    `sweepStaleLivePreviewAudio()` (the app calls it at launch) deletes the windows a killed launch left there, never
+    one this router is transcribing. Fix round 1: a window is written in place at its registered name, not atomically
+    (an atomic write stages it under a hidden name of its own), and the sweep counts hidden files too, since the
+    folder is the router's own.
   - Leases block route changes during a meeting.
   - Memory (review I3): `select` returns the routes it changed. Two different engines on the routes must fit the
     model budget together (`SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes`); a Transcripts choice that
@@ -152,7 +157,13 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   writes nothing, mute writes silence, `stop` and `cancel` never delete audio), implemented by ChirpAudio's
   `MeetingRecorder`.
 - `Pipeline/SpeechWAVFile.swift` (M3): a Foundation-only 16 kHz mono Float32 WAV writer for a meeting's temporary
-  live-preview chunks.
+  live-preview chunks (`atomically: false` writes the file itself, for the router's preview windows). Review R5-4:
+  `repairHeader(at:)` rewrites the RIFF and `data` sizes (and a `fact` count) of a WAV whose writer was killed before
+  closing it (AVFoundation writes them only on close, so it reads as 0 s), from the file's length; a header that
+  already describes its audio, or one with a chunk after its audio, is never changed (a closed header proves the file
+  was closed, not that the recording ran to its end). Fix round 1: the `data` size, which says "finished", is written
+  last (after any partial frame is cut, the `fact` count and the RIFF size), and a `fact` count that disagrees with
+  the data counts as unfinished, so a repair killed after any step is finished by the next one.
 - `Pipeline/VoiceMessageWriting.swift` (plan 022): the seam between ChirpFeatures' `VoiceMessageExporter` and
   ChirpAudio's `VoiceMessageWriter` (chunk files in, one `.m4a` out), plus `SynthesizedAudio.Format.fileExtension`.
 - `Pipeline/SpeechAudioPlaying.swift` (plan 020): the speech output seam (`SpeechAudioPlaying`,

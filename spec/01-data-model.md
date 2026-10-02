@@ -14,6 +14,7 @@ Application Support/iChirp/
     ├── source.<ext>              the imported file, copied in; kept for playback
     ├── dictation.wav             M2: a dictation's recording (16 kHz mono Float32); kept unless the person turned
     │                             off "Keep dictation audio"
+    ├── dictation.json            the class a dictation was started with, only until its row exists (review R5-1)
     ├── download.part(.json)      M5: an unfinished link download and its resume record; gone once it completes
     └── normalized-16k.wav        temporary decode for the engine; deleted when the job finishes
 ```
@@ -65,7 +66,7 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 | `isFavorite` | bool | Star in Library and Transcript |
 | `privacyClass` | text enum | `general` · `personal` (default) · `clinical` ([`12-privacy.md`](12-privacy.md)) |
 | `userNotes` | text, nullable | M3 (`v5-meetings`): the Notes tab; typed while a meeting records (kept in `recording.lock` until Stop) or later. A user field, like `titleOverride` |
-| `isPartialAudio` | bool, default false | M3: a meeting recovered after the app was killed while recording; the Library shows "Partial audio" |
+| `isPartialAudio` | bool, default false | Its audio ends early, and the Library shows "Partial audio". M3: a meeting recovered after the app was killed while recording. M2 (review R2-6, fix rounds 2 and 3): a dictation that stopped on its own (a full disk, a microphone that could not restart), every dictation adopted at launch without a row, and one whose final pass had to repair its header. Never cleared once set |
 | `audioRemovedAt` | date, nullable | M3: when the meeting-audio retention setting deleted the audio (`mediaRelativePath` is nil since) ([contract](contracts/meeting-session-v1.md)) |
 | `sourceURL` | text, nullable | M5 (`v6-documents`): the pasted or shared link of a podcast, media or YouTube item |
 | `sourceTitle` | text, nullable | M5: the title the source published (episode, video, document metadata); wins over `derivedTitle` |

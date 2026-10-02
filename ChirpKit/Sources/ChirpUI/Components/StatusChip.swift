@@ -101,7 +101,7 @@ extension StatusChip {
         )
     }
 
-    /// Library's "Partial audio" badge on a recovered meeting.
+    /// Library's "Partial audio" badge on an item whose audio ends early (`Transcription.isPartialAudio`).
     public static func partialAudio() -> StatusChip {
         StatusChip(
             "Partial audio", ink: Tokens.Color.partialAudioInk, fill: Tokens.Color.partialAudioFill, border: .clear)

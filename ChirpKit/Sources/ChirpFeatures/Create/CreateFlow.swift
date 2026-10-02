@@ -88,8 +88,9 @@ public enum CreateSpeechOutcome: Sendable, Equatable {
 
 /// The existing services a chain uses. The app wires them to its composition root; tests pass fakes.
 public struct CreateFlowDependencies {
-    /// Starts a dictation and returns once it is saved, failed or discarded.
-    public var recordSpeech: @MainActor () async -> CreateSpeechOutcome
+    /// Starts a dictation **with the given class** (its row is written with it from the first write, review R5-1) and
+    /// returns once it is saved, failed or discarded.
+    public var recordSpeech: @MainActor (PrivacyClass) async -> CreateSpeechOutcome
     /// Saves a text item (`TextItemService`) and returns it.
     public var saveText: @MainActor (String, PrivacyClass) async throws -> Transcription
     /// Resolves a link and creates its row **with the given class** (the one the person chose: the row is never
@@ -110,7 +111,7 @@ public struct CreateFlowDependencies {
     public var makeVoiceMessage: @MainActor () -> any VoiceMessageProducing
 
     public init(
-        recordSpeech: @escaping @MainActor () async -> CreateSpeechOutcome,
+        recordSpeech: @escaping @MainActor (PrivacyClass) async -> CreateSpeechOutcome,
         saveText: @escaping @MainActor (String, PrivacyClass) async throws -> Transcription,
         startLink: @escaping @MainActor (String, PrivacyClass) async throws -> UUID,
         startFile: @escaping @MainActor (URL, PrivacyClass) async throws -> UUID,
@@ -137,9 +138,10 @@ public struct CreateFlowDependencies {
 /// - Each stage waits on the real completion of the service it calls; progress is the service's own (the job
 ///   center's `progress[itemID]`, the run's streamed text, the voice message's chunks). Nothing is simulated.
 /// - A failure stops the chain at that stage with a sentence; `retry()` starts again at that stage.
-/// - **Privacy:** a new item gets the requested class before any later step (link and file rows are created with it;
-///   a dictation's row, made by the Dictating screen, is raised the moment the chain learns its id, even after a
-///   Stop, since raising only ever makes it more private); the operation routes through
+/// - **Privacy:** a new item gets the requested class before any later step (link, file and dictation rows are
+///   created with it: the dictation is started with the chain's class, review R5-1; the raise the moment the chain
+///   learns an item's id stays as a backstop, even after a Stop, since raising only ever makes it more private); the
+///   operation routes through
 ///   `DeliverableService` on the item's effective class as stored at every call, and the voice message on the source's
 ///   class as stored before every chunk. A clinical step bound off the phone waits for the existing per-run question,
 ///   which only the dialog answers (`onAnswered` resumes the chain). Jev is never called here.
@@ -326,7 +328,9 @@ public struct CreateFlowDependencies {
             do {
                 switch request.input {
                 case .speak:
-                    switch await dependencies.recordSpeech() {
+                    // Review R5-1: the dictation is started with the chain's class, so its row has it from the first
+                    // write (a kill before the raise below can never leave it Personal).
+                    switch await dependencies.recordSpeech(request.privacyClass) {
                     case .saved(let id):
                         madeID = id
                     case .failed(let id, let message):

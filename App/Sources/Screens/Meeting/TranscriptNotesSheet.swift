@@ -65,7 +65,11 @@ struct TranscriptNotesSheet: View {
             "Something went wrong",
             isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.dismissError() } })
         ) {
-            if model.hasUnsavedNotes {
+            if model.loadFailed {
+                // Review R5-8: the notes were not read, so the editor stays off until they are.
+                Button("Retry") { Task { await model.load() } }
+                Button("Close", role: .cancel) { dismiss() }
+            } else if model.hasUnsavedNotes {
                 Button("Keep editing", role: .cancel) {}
                 Button("Close without saving", role: .destructive) {
                     model.discardUnsavedNotes()
@@ -99,6 +103,8 @@ struct TranscriptNotesSheet: View {
                     }
                 }
                 .accessibilityLabel("Notes")
+                // Review R5-8: nothing can be typed (or autosaved over the stored notes) before they were read.
+                .disabled(!model.hasLoaded)
             Text("Saves as you type, with this transcript on this iPhone.")
                 .chirpFont(12)
                 .foregroundStyle(Tokens.Color.secondary)

@@ -194,9 +194,119 @@ final class SpeechEngineRouterTests: XCTestCase {
         XCTAssertEqual(text, "tail text")
         let existed = await whisper.fileExistedAtTranscribe
         XCTAssertEqual(existed, [true])
-        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let folder = directory.appendingPathComponent(SpeechEngineRouter.livePreviewFolderName)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: folder.path)
         XCTAssertEqual(leftovers, [], "each pass deletes its WAV")
         await session.finish()
+    }
+
+    // MARK: - Review R1-5: preview windows on disk
+
+    /// Records, when it is prepared, how many WAVs exist anywhere under `directory`; runs `duringTranscribe` while a
+    /// window is being transcribed and records whether that window still exists after it.
+    actor PreviewWatchingEngine: SpeechEngine {
+        nonisolated let descriptor: EngineDescriptor
+        private let directory: URL
+        private var duringTranscribe: (@Sendable () -> Void)?
+        private(set) var wavsAtPrepare: [Int] = []
+        private(set) var transcribedFiles: [URL] = []
+        private(set) var windowSurvived: [Bool] = []
+
+        init(id: String, directory: URL) {
+            descriptor = EngineDescriptor(
+                id: id, kind: .speech, provider: "Test", displayName: id, locality: .onDevice, license: "MIT")
+            self.directory = directory
+        }
+
+        func setDuringTranscribe(_ body: @escaping @Sendable () -> Void) { duringTranscribe = body }
+
+        func assetStatus() async -> ModelAssetStatus { .ready(bytesOnDisk: 1) }
+        func downloadAssets(progress: @escaping @Sendable (Double) -> Void) async throws {}
+        func deleteAssets() async throws {}
+        func prepare() async throws {
+            let all = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.allObjects ?? []
+            wavsAtPrepare.append(all.compactMap { $0 as? URL }.filter { $0.pathExtension == "wav" }.count)
+        }
+        func transcribe(
+            fileAt url: URL, options: SpeechTranscriptionOptions, progress: @escaping @Sendable (Double) -> Void
+        ) async throws -> SpeechResult {
+            transcribedFiles.append(url)
+            if let duringTranscribe {
+                duringTranscribe()
+                windowSurvived.append(FileManager.default.fileExists(atPath: url.path))
+            }
+            return SpeechResult(text: "tail", words: [], language: nil, engineID: descriptor.id, engineVariant: nil)
+        }
+    }
+
+    /// A window is written into `<tmp>/live-preview/`, and only once the engine is prepared: a model load is where a
+    /// jetsam kill is likeliest, and a window written before it would be left behind.
+    func testAPreviewWindowIsWrittenIntoItsOwnFolderOnlyOnceTheEngineIsPrepared() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "router-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let whisper = PreviewWatchingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, directory: directory)
+        let router = SpeechEngineRouter(
+            engines: [
+                .init(key: parakeetKey, engine: RecordingEngine(id: "p")), .init(key: whisperKey, engine: whisper),
+            ],
+            selection: SpeechRouteSelection(live: whisperKey, final: parakeetKey), temporaryDirectory: directory)
+        let made = await router.makeLiveSession(scheduler: SpeechJobScheduler(), options: .init())
+        let session = try XCTUnwrap(made as? TailWindowPreviewSession)
+        var updates = session.updates.makeAsyncIterator()
+        await session.append([Float](repeating: 0.1, count: 16_000))
+        await session.tick()
+        _ = await updates.next()
+        await session.finish()
+
+        let atPrepare = await whisper.wavsAtPrepare
+        XCTAssertEqual(atPrepare, [0], "nothing of the person's speech is on disk while the model loads")
+        let folder = directory.appendingPathComponent(SpeechEngineRouter.livePreviewFolderName, isDirectory: true)
+        let transcribed = await whisper.transcribedFiles
+        XCTAssertEqual(
+            transcribed.map { $0.deletingLastPathComponent().resolvingSymlinksInPath().path },
+            [folder.resolvingSymlinksInPath().path])
+    }
+
+    /// The launch sweep removes the windows a killed launch left in `<tmp>/live-preview/`, never a window this router
+    /// is transcribing, and nothing outside that folder.
+    func testTheLaunchSweepRemovesOnlyPreviewWindowsAKilledLaunchLeft() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "router-\(UUID().uuidString)", isDirectory: true)
+        let folder = directory.appendingPathComponent(SpeechEngineRouter.livePreviewFolderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stale = folder.appendingPathComponent("live-preview-\(UUID().uuidString).wav")
+        try Data(repeating: 1, count: 64).write(to: stale)
+        // Fix round 1 (minor 4): a hidden leftover in its own folder (a staging file a kill can leave) goes too.
+        let hidden = folder.appendingPathComponent(".live-preview-staging-\(UUID().uuidString)")
+        try Data(repeating: 4, count: 64).write(to: hidden)
+        let sibling = directory.appendingPathComponent("live-preview-not-in-the-folder.wav")
+        try Data(repeating: 2, count: 64).write(to: sibling)
+        let whisper = PreviewWatchingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, directory: directory)
+        let router = SpeechEngineRouter(
+            engines: [
+                .init(key: parakeetKey, engine: RecordingEngine(id: "p")), .init(key: whisperKey, engine: whisper),
+            ],
+            selection: SpeechRouteSelection(live: whisperKey, final: parakeetKey), temporaryDirectory: directory)
+
+        XCTAssertEqual(router.sweepStaleLivePreviewAudio(), 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path), "a killed launch's window goes")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hidden.path), "hidden files in its own folder go too")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sibling.path), "nothing outside the folder is touched")
+
+        // A sweep while this router transcribes a window leaves that window alone.
+        await whisper.setDuringTranscribe { _ = router.sweepStaleLivePreviewAudio() }
+        let made = await router.makeLiveSession(scheduler: SpeechJobScheduler(), options: .init())
+        let session = try XCTUnwrap(made as? TailWindowPreviewSession)
+        var updates = session.updates.makeAsyncIterator()
+        await session.append([Float](repeating: 0.1, count: 16_000))
+        await session.tick()
+        _ = await updates.next()
+        await session.finish()
+        let survived = await whisper.windowSurvived
+        XCTAssertEqual(survived, [true], "the window being transcribed stays")
     }
 
     func testNoLiveSessionWhileTheLiveEnginesModelIsMissing() async throws {

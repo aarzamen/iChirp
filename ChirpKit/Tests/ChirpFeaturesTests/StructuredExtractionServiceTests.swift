@@ -23,6 +23,7 @@ final class StructuredExtractionServiceTests: XCTestCase {
     @MainActor private struct Harness {
         let store = FakeStore()
         let results = FakeStructuredResultStore()
+        let deliverables = FakeDeliverableStore()
         let settings: InMemoryStructureSettingsStore
         let service: StructuredExtractionService
         let id = UUID()
@@ -37,7 +38,8 @@ final class StructuredExtractionServiceTests: XCTestCase {
             settings = InMemoryStructureSettingsStore(value)
             service = StructuredExtractionService(
                 transcripts: store, results: results, settings: settings,
-                engines: StructureEngines(needle: needle, needleAvailability: { needleAvailability }))
+                engines: StructureEngines(needle: needle, needleAvailability: { needleAvailability }),
+                deliverables: deliverables)
             self.privacy = privacy
         }
 
@@ -105,6 +107,57 @@ final class StructuredExtractionServiceTests: XCTestCase {
             id: "x", kind: .structure, provider: "x", displayName: "x", locality: .localNetwork, license: "x")
         XCTAssertFalse(StructuredExtractionService.mayRun(lan, on: .clinical))
         XCTAssertTrue(StructuredExtractionService.mayRun(StubStructureModel().descriptor, on: .clinical))
+    }
+
+    // MARK: - Review R5-14: the effective class
+
+    /// Structure extraction routes on the effective class ("the one rule"): a Personal transcript that already has a
+    /// clinical document counts as clinical, so an engine that is not on this phone is refused before anything is sent.
+    func testAPersonalTranscriptWithAClinicalDocumentIsRoutedAsClinical() async throws {
+        let lan = RecordingStructureModel(locality: .localNetwork)
+        let h = Harness(privacy: .personal, choice: .needle, needle: lan, needleAvailability: .ready)
+        try await h.insertEncounter()
+        try await h.deliverables.insertDeliverable(Self.clinicalDocument(for: h.id))
+        do {
+            _ = try await h.service.extractSOAP(transcriptionID: h.id)
+            XCTFail("the clinical document makes this transcript clinical")
+        } catch let error as StructuredExtractionService.ExtractionError {
+            guard case .privacyRoutingRefused = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(lan.callCount, 0, "nothing was sent")
+    }
+
+    /// The class is read again before every sentence, like a voice reading before every chunk: a clinical document
+    /// made while a run goes stops it before the next sentence leaves the phone.
+    func testAClinicalDocumentMadeDuringARunStopsTheNextSentence() async throws {
+        let lan = RecordingStructureModel(locality: .localNetwork)
+        let h = Harness(privacy: .personal, choice: .needle, needle: lan, needleAvailability: .ready)
+        try await h.insertEncounter()
+        let deliverables = h.deliverables
+        let id = h.id
+        lan.onCall = { number in
+            if number == 1 { try? await deliverables.insertDeliverable(Self.clinicalDocument(for: id)) }
+        }
+        do {
+            _ = try await h.service.extractSOAP(transcriptionID: h.id)
+            XCTFail("the run must stop once the transcript counts as clinical")
+        } catch let error as StructuredExtractionService.ExtractionError {
+            guard case .privacyRoutingRefused = error else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(lan.callCount, 1, "only the sentence sent before the document existed")
+
+        let ordinary = RecordingStructureModel(locality: .localNetwork)
+        let personal = Harness(privacy: .personal, choice: .needle, needle: ordinary, needleAvailability: .ready)
+        try await personal.insertEncounter()
+        _ = try await personal.service.extractSOAP(transcriptionID: personal.id)
+        XCTAssertGreaterThan(ordinary.callCount, 1, "a Personal transcript with no clinical document is not refused")
+    }
+
+    nonisolated static func clinicalDocument(for transcriptionID: UUID) -> Deliverable {
+        Deliverable(
+            transcriptionID: transcriptionID, promptID: nil, promptVersionID: nil, title: "SOAP note",
+            engineID: "fake", provider: "Fake", model: nil, locality: .onDevice, text: "Synthetic SOAP.",
+            privacyClass: .clinical)
     }
 
     func testNeedleChosenButUnavailableFallsBackToTheStubAndSaysSo() async throws {
@@ -466,9 +519,19 @@ final class RecordingStructureModel: StructureModel, @unchecked Sendable {
 
     var callCount: Int { lock.withLock { texts.count } }
     var receivedTexts: [String] { lock.withLock { texts } }
+    /// Runs after each call is recorded, with its 1-based number (review R5-14: change the store mid-run).
+    var onCall: (@Sendable (Int) async -> Void)? {
+        get { lock.withLock { hook } }
+        set { lock.withLock { hook = newValue } }
+    }
+    private var hook: (@Sendable (Int) async -> Void)?
 
     func extract(jsonSchema: String, from text: String, privacyClass: PrivacyClass) async throws -> StructuredOutput {
-        lock.withLock { texts.append(text) }
+        let (number, hook) = lock.withLock { () -> (Int, (@Sendable (Int) async -> Void)?) in
+            texts.append(text)
+            return (texts.count, self.hook)
+        }
+        await hook?(number)
         if let error { throw error }
         return StructuredOutput(json: reply, confidence: confidence, modelSHA256: "fakehash")
     }

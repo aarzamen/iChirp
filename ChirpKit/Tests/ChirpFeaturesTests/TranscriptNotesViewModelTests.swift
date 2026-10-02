@@ -132,6 +132,35 @@ final class TranscriptNotesViewModelTests: XCTestCase {
         XCTAssertEqual(writes, 0)
     }
 
+    /// Review R5-8: a failed load leaves the notes not loaded. Nothing typed is ever written over the stored notes (the
+    /// ones taken during the meeting); the person is told, and Retry (`load()` again) reads them.
+    func testAFailedLoadNeverWritesOverTheStoredNotes() async throws {
+        let row = meetingRow()
+        let store = FakeStore(rows: [row])
+        await store.failNextFetch(with: FakeError(message: "database is busy"))
+        let model = TranscriptNotesViewModel(id: row.id, store: store, autosaveDelay: .milliseconds(1))
+        await model.load()
+        XCTAssertFalse(model.hasLoaded)
+        XCTAssertTrue(model.loadFailed)
+        XCTAssertNotNil(model.lastError)
+
+        model.notes = "typed into an editor that never loaded"
+        let saved = await model.save()
+        let flushed = await model.flush()
+        XCTAssertFalse(saved)
+        XCTAssertFalse(flushed)
+        let untouched = try await store.fetch(id: row.id)
+        XCTAssertEqual(untouched?.userNotes, "typed while recording", "the meeting's notes are never overwritten")
+        let writes = await store.wholeRowUpdates
+        XCTAssertEqual(writes, 0)
+
+        await model.load()
+        XCTAssertTrue(model.hasLoaded)
+        XCTAssertFalse(model.loadFailed)
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(model.notes, "typed while recording")
+    }
+
     func testAFailedWriteKeepsTheTextUntilThePersonDiscardsIt() async throws {
         let row = meetingRow()
         let store = FakeStore(rows: [])  // the transcript is gone

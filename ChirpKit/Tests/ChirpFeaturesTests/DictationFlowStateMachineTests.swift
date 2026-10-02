@@ -267,6 +267,58 @@ final class DictationFlowStateMachineTests: XCTestCase {
         XCTAssertEqual(machine.state, .idle)
     }
 
+    // MARK: - Review R5-10: capture events while the start is still finishing
+
+    /// A call (or Siri) taking the microphone while the start still finishes pauses the dictation; the start finishing
+    /// afterwards does not resume it.
+    func testAnInterruptionWhileStartingPausesAndTheStartFinishingKeepsItPaused() {
+        var machine = DictationFlowStateMachine()
+        _ = machine.handle(.startRequested)
+        let generation = machine.generation
+        XCTAssertEqual(machine.handle(.captureInterrupted(generation: generation)), [])
+        XCTAssertEqual(machine.state, .paused(.interrupted))
+        XCTAssertEqual(machine.handle(.recordingStarted(generation: generation)), [])
+        XCTAssertEqual(machine.state, .paused(.interrupted), "the start finishing does not resume it")
+        XCTAssertEqual(machine.handle(.captureResumed(generation: generation)), [])
+        XCTAssertEqual(machine.state, .recording)
+
+        var waiting = DictationFlowStateMachine()
+        _ = waiting.handle(.startRequested)
+        XCTAssertEqual(waiting.handle(.captureWaitingForResume(generation: waiting.generation)), [])
+        XCTAssertEqual(waiting.state, .paused(.waitingForResume))
+    }
+
+    /// A microphone that dies while the start still finishes stops and transcribes what was recorded, once.
+    func testAFailureWhileStartingOrPendingStopFinishesWithWhatWasRecorded() {
+        var starting = DictationFlowStateMachine()
+        _ = starting.handle(.startRequested)
+        XCTAssertEqual(starting.handle(.captureFailed(generation: starting.generation)), [.stopRecordingAndTranscribe])
+        XCTAssertEqual(starting.state, .stopping)
+        XCTAssertEqual(starting.handle(.recordingStarted(generation: starting.generation)), [])
+        XCTAssertEqual(starting.state, .stopping, "one final pass, not two")
+
+        var pending = DictationFlowStateMachine()
+        _ = pending.handle(.startRequested)
+        _ = pending.handle(.stopRequested)
+        XCTAssertEqual(pending.handle(.captureFailed(generation: pending.generation)), [.stopRecordingAndTranscribe])
+        XCTAssertEqual(pending.state, .stopping)
+        XCTAssertEqual(pending.handle(.recordingStarted(generation: pending.generation)), [])
+        XCTAssertEqual(pending.state, .stopping)
+    }
+
+    func testStaleCaptureEventsWhileStartingAreIgnored() {
+        var machine = DictationFlowStateMachine()
+        _ = machine.handle(.startRequested)
+        let stale = machine.generation - 1
+        for event: DictationFlowEvent in [
+            .captureInterrupted(generation: stale), .captureWaitingForResume(generation: stale),
+            .captureFailed(generation: stale),
+        ] {
+            XCTAssertEqual(machine.handle(event), [], "\(event)")
+            XCTAssertEqual(machine.state, .starting, "\(event)")
+        }
+    }
+
     func testAllAsyncEventsRejectedWithStaleGeneration() {
         let stale = 0
         let events: [DictationFlowEvent] = [

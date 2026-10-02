@@ -136,12 +136,28 @@ actor FakeLiveSession: LiveSpeechSession {
 final class FakeLiveProvider: LiveSpeechSessionProviding {
     let session = FakeLiveSession()
     private let made = Mutex(0)
+    private let pendingHold = Mutex<Hold?>(nil)
     var makeCount: Int { made.withLock { $0 } }
+
+    /// Parks the next `makeLiveSession` (the last step before a dictation's start finishes) until `release`.
+    func holdNextSession() -> Hold {
+        let hold = Hold()
+        pendingHold.withLock { $0 = hold }
+        return hold
+    }
 
     func makeLiveSession(
         scheduler: SpeechJobScheduler, options: SpeechTranscriptionOptions
     ) async -> (any LiveSpeechSession)? {
         made.withLock { $0 += 1 }
+        let hold = pendingHold.withLock { held -> Hold? in
+            defer { held = nil }
+            return held
+        }
+        if let hold {
+            hold.entered.fire()
+            await hold.release.wait()
+        }
         return session
     }
 }

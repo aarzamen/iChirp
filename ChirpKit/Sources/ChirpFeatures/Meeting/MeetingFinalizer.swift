@@ -25,6 +25,9 @@ public actor MeetingFinalizer {
     public enum FinalizeError: Error, Equatable, LocalizedError {
         case audioMissing
         case noAudio
+        /// Review R5-5: the recording holds audio, but preparing it for the engine failed (a full disk while the
+        /// 16 kHz copy is written, a decode error); the reason is the normalizer's own sentence.
+        case preparationFailed(String)
 
         public var errorDescription: String? {
             switch self {
@@ -32,6 +35,8 @@ public actor MeetingFinalizer {
                 "This meeting's recording is missing, so it cannot be transcribed."
             case .noAudio:
                 "No audio was saved for this meeting (it stopped within the first moment)."
+            case .preparationFailed(let reason):
+                "The recording is saved. \(reason) If the iPhone is low on storage, free up some space, then tap Retry."
             }
         }
     }
@@ -166,8 +171,12 @@ public actor MeetingFinalizer {
             normalized = try await normalizer.normalize(sourceURL: source, outputURL: normalizedURL)
         } catch {
             if Self.isCancellation(error) { throw error }
-            // A recording killed in its first moment can hold a header and no samples.
-            throw FinalizeError.noAudio
+            // Review R5-5: only a recording with no samples is "no audio" (one killed in its first moment holds a
+            // header and nothing else, and reads as 0 ms). Anything else failed on audio that is there: say what.
+            if let sourceMs = try? await normalizer.durationMs(of: source), sourceMs == 0 {
+                throw FinalizeError.noAudio
+            }
+            throw FinalizeError.preparationFailed(Self.userMessage(for: error))
         }
         guard normalized.sampleCount >= SpeechAudio.minimumSamples else { throw FinalizeError.noAudio }
         try Task.checkCancellation()

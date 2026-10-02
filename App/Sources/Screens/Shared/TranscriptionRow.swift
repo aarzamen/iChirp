@@ -138,7 +138,9 @@ struct TranscriptionRow: View {
             statusOrMeta
                 .padding(.top, style == .full ? 5 : 2)
             if item.isPartialAudio {
-                StatusChip.partialAudio()  // M3: a meeting recovered after the app was killed while recording
+                // Audio that ends early: a meeting recovered after a kill (M3), or a dictation that stopped on its own
+                // or was adopted after a kill (review R2-6).
+                StatusChip.partialAudio()
                     .padding(.top, 5)
             }
         }

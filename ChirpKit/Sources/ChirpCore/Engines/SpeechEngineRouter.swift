@@ -152,7 +152,8 @@ public enum SpeechRouting {
 /// As a `SpeechEngine` it is the **final** route (descriptor, assets, `prepare`, `transcribe`); as a
 /// `LiveSpeechSessionProviding` it is the **live** route.
 public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable {
-    // @unchecked Sendable: `current` and `leases` are only touched while `lock` is held; the rest is immutable.
+    // @unchecked Sendable: `current`, `leases` and `livePreviewWindows` are only touched while `lock` is held; the rest
+    // is immutable.
 
     /// One engine instance and the registry key it answers to.
     public struct Registration: Sendable {
@@ -169,6 +170,8 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
     private let lock = NSLock()
     private var current: SpeechRouteSelection
     private var leases: [UUID: SpeechEngineLease] = [:]
+    /// The preview windows on disk right now (review R1-5: the launch sweep leaves them alone).
+    private var livePreviewWindows: Set<URL> = []
     private let onSelectionChange: @Sendable (SpeechRouteSelection) -> Void
     private let temporaryDirectory: URL
     /// The model budget two different engines on the routes must fit together (the registry's estimates).
@@ -370,8 +373,8 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
     // MARK: - LiveSpeechSessionProviding (the live route)
 
     /// The live engine's own session when it has one; otherwise a tail-window preview that writes each window to a
-    /// temporary WAV (deleted after the pass) and transcribes it. Nil while the live engine's model is not on disk;
-    /// never downloads.
+    /// temporary WAV in `<tmp>/live-preview/` (deleted after the pass) and transcribes it. Nil while the live engine's
+    /// model is not on disk; never downloads.
     public func makeLiveSession(
         scheduler: SpeechJobScheduler, options: SpeechTranscriptionOptions
     ) async -> (any LiveSpeechSession)? {
@@ -380,17 +383,52 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
             return await provider.makeLiveSession(scheduler: scheduler, options: options)
         }
         guard case .ready = await live.assetStatus() else { return nil }
-        let directory = temporaryDirectory
+        let folder = livePreviewFolder
         let passOptions = SpeechTranscriptionOptions(languageHint: options.languageHint, purpose: .dictation)
-        let session = TailWindowPreviewSession(scheduler: scheduler) { window in
-            let url = directory.appendingPathComponent("live-preview-\(UUID().uuidString).wav", isDirectory: false)
-            try SpeechWAVFile.write(window, to: url)
-            defer { try? FileManager.default.removeItem(at: url) }
+        let session = TailWindowPreviewSession(scheduler: scheduler) { [self] window in
+            // Review R1-5: the window (the person's speech) is written only once the model is loaded, the step where
+            // a jetsam kill is likeliest; one a kill still leaves behind is swept at the next launch.
             try await live.prepare()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appendingPathComponent("live-preview-\(UUID().uuidString).wav", isDirectory: false)
+            lock.withLock { _ = livePreviewWindows.insert(url) }
+            defer {
+                try? FileManager.default.removeItem(at: url)
+                lock.withLock { _ = livePreviewWindows.remove(url) }
+            }
+            // Written in place, not atomically (fix round 1): an atomic write stages the speech under a hidden name of
+            // its own choosing, which a kill could leave behind where nothing tracks it.
+            try SpeechWAVFile.write(window, to: url, atomically: false)
             return try await live.transcribe(fileAt: url, options: passOptions, progress: { _ in }).text
         }
         await session.startTicking()
         return session
+    }
+
+    /// Review R1-5: the folder in the temporary directory that holds the tail-window preview's windows.
+    public static let livePreviewFolderName = "live-preview"
+
+    private var livePreviewFolder: URL {
+        temporaryDirectory.appendingPathComponent(Self.livePreviewFolderName, isDirectory: true)
+    }
+
+    /// Deletes the preview windows a killed launch left in `<tmp>/live-preview/` (a kill between writing a window and
+    /// deleting it leaves the person's speech on disk). Hidden files count too: the folder is the router's own, so
+    /// anything in it is a window or a write of one. A window this router is transcribing is never touched, and
+    /// nothing outside the folder is. Call once at launch. Returns how many files it removed.
+    @discardableResult
+    public func sweepStaleLivePreviewAudio() -> Int {
+        let folder = livePreviewFolder
+        guard
+            let names = try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil, options: [])
+        else { return 0 }
+        let inUse = lock.withLock { Set(livePreviewWindows.map(\.lastPathComponent)) }
+        var removed = 0
+        for url in names where !inUse.contains(url.lastPathComponent) {
+            if (try? FileManager.default.removeItem(at: url)) != nil { removed += 1 }
+        }
+        return removed
     }
 
     // MARK: - Helpers

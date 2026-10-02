@@ -269,6 +269,7 @@ struct DictatingScreen: View {
             Label("Copied to your clipboard", systemImage: "checkmark.circle.fill")
                 .chirpFont(15, .semibold)
                 .foregroundStyle(Tokens.Color.success)
+            captureNoticeText
             ScrollView {
                 Text(dictation.copiedText ?? "")
                     .chirpFont(19)
@@ -286,6 +287,17 @@ struct DictatingScreen: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Review R2-6: why the recording stopped on its own (a full disk, a microphone that could not restart), so a
+    /// shortened dictation is never copied without a word.
+    @ViewBuilder private var captureNoticeText: some View {
+        if let notice = dictation.captureNotice {
+            Text(notice)
+                .chirpFont(13)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Tokens.Color.dictationAccent)
+        }
+    }
+
     private func failure(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Nothing was copied", systemImage: "exclamationmark.circle.fill")
@@ -295,6 +307,7 @@ struct DictatingScreen: View {
                 .chirpFont(17)
                 .foregroundStyle(.white.opacity(0.94))
                 .fixedSize(horizontal: false, vertical: true)
+            captureNoticeText
             if dictation.canRetry {
                 Text("The recording is kept in your Library.")
                     .chirpFont(13)

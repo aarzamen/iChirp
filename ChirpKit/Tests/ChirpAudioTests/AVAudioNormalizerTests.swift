@@ -68,6 +68,92 @@ final class AVAudioNormalizerTests: XCTestCase {
         XCTAssertEqual(result.durationMs, expectedDurationMs, accuracy: max(Int(sourceDurationSeconds * 10), 1))
     }
 
+    /// Review R2-14: both channels of a stereo recording reach the mono file (call recorders often put each party on
+    /// its own channel). A tone on the left only, then on the right only: both come out clearly audible.
+    func testBothChannelsOfAStereoFileSurviveNormalization() async throws {
+        for toneChannel in 0..<2 {
+            let source = tmpDir.appendingPathComponent("stereo-source-\(toneChannel).wav")
+            try Self.writeStereoTone(to: source, onChannel: toneChannel)
+            let result = try await AVAudioNormalizer().normalize(
+                sourceURL: source, outputURL: outputURL("stereo-tone-on-\(toneChannel)"))
+            try assertNormalizedFormat(result.url)
+            let samples = try Self.samples(of: result.url)
+            XCTAssertEqual(Double(samples.count), 16_000, accuracy: 160)
+            let rms = (samples.reduce(Float(0)) { $0 + $1 * $1 } / Float(max(samples.count, 1))).squareRoot()
+            XCTAssertGreaterThan(rms, 0.1, "the tone on channel \(toneChannel) is in the mono file (RMS \(rms))")
+        }
+    }
+
+    // MARK: - Review R2-13: a decoded buffer that cannot be read
+
+    /// A decoded buffer that holds samples but cannot be copied fails the normalization with a sentence. Skipping it
+    /// would shorten the audio and move every later word's time against what the player plays.
+    func testADecodedBufferThatCannotBeReadFailsInsteadOfBeingSkipped() throws {
+        let format = try XCTUnwrap(
+            AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let notReady = try Self.sampleBufferWithoutData(sampleCount: 160, format: format)
+        XCTAssertThrowsError(try AVAudioNormalizer.pcmBuffer(from: notReady, format: format)) { error in
+            guard case .readerFailed = error as? AudioNormalizationError else { return XCTFail("\(error)") }
+        }
+        let empty = try Self.sampleBufferWithoutData(sampleCount: 0, format: format)
+        XCTAssertNil(try AVAudioNormalizer.pcmBuffer(from: empty, format: format), "no samples: nothing to keep")
+    }
+
+    /// A sample buffer that promises `sampleCount` samples with no data behind them (CoreMedia's "not ready").
+    static func sampleBufferWithoutData(sampleCount: Int, format: AVAudioFormat) throws -> CMSampleBuffer {
+        var asbd = format.streamDescription.pointee
+        var description: CMAudioFormatDescription?
+        guard
+            CMAudioFormatDescriptionCreate(
+                allocator: kCFAllocatorDefault, asbd: &asbd, layoutSize: 0, layout: nil, magicCookieSize: 0,
+                magicCookie: nil, extensions: nil, formatDescriptionOut: &description) == noErr
+        else { throw MovieFixture.FixtureError.couldNotBuildSampleBuffer }
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: 16_000), presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+        var sampleSize = 4
+        var buffer: CMSampleBuffer?
+        let status = CMSampleBufferCreate(
+            allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: sampleCount == 0, makeDataReadyCallback: nil,
+            refcon: nil, formatDescription: description, sampleCount: sampleCount, sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing, sampleSizeEntryCount: sampleCount == 0 ? 0 : 1,
+            sampleSizeArray: &sampleSize, sampleBufferOut: &buffer)
+        guard status == noErr, let buffer else { throw MovieFixture.FixtureError.couldNotBuildSampleBuffer }
+        return buffer
+    }
+
+    /// One second of a 440 Hz tone at 0.5 on `onChannel` of a 44.1 kHz stereo WAV, silence on the other channel.
+    static func writeStereoTone(to url: URL, onChannel: Int) throws {
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 44_100.0, AVNumberOfChannelsKey: 2,
+            AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false,
+        ]
+        let file = try AVAudioFile(
+            forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 44_100))
+        buffer.frameLength = 44_100
+        let channels = try XCTUnwrap(buffer.floatChannelData)
+        for frame in 0..<44_100 {
+            channels[onChannel][frame] = Float(sin(2 * Double.pi * 440 * Double(frame) / 44_100)) * 0.5
+            channels[1 - onChannel][frame] = 0
+        }
+        try file.write(from: buffer)
+        file.close()  // a WAV's sizes are written only on close (review R5-4)
+    }
+
+    /// Every sample of a mono file, read in 4096-frame steps.
+    static func samples(of url: URL) throws -> [Float] {
+        let file = try AVAudioFile(forReading: url)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4_096))
+        var all: [Float] = []
+        while file.framePosition < file.length {
+            try file.read(into: buffer, frameCount: 4_096)
+            guard buffer.frameLength > 0 else { break }
+            all.append(
+                contentsOf: UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+        }
+        return all
+    }
+
     func testNormalizesMono22kAIFFToMonoFloat16k() async throws {
         let source = try fixtureURL("speech-22k", extension: "aiff")
         let sourceDurationSeconds = try await CMTimeGetSeconds(AVURLAsset(url: source).load(.duration))

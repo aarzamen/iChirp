@@ -111,6 +111,18 @@ public final class DictationRecorder: AudioCapturing {
         }
     }
 
+    /// Runs `change` on the active writer from the processing queue (so it lands between two buffers). Internal so
+    /// tests can stand in for a full disk.
+    func onProcessingQueue(_ change: @escaping @Sendable (RecordingWriter) -> Void) async {
+        guard let writer = active.withLock({ $0?.writer }) else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            processingQueue.async {
+                change(writer)
+                continuation.resume()
+            }
+        }
+    }
+
     /// Unsubscribes (no more taps), drains the processing queue, closes the file and ends the update stream.
     private func finish(_ current: Active) async -> RecordedAudio {
         await stream.unsubscribe(current.token)
@@ -136,11 +148,14 @@ final class RecordingWriter: @unchecked Sendable {
 
     let url: URL
     var continuation: AsyncStream<CaptureUpdate>.Continuation?
+    /// Writes one buffer to the file. Tests replace it to stand in for a full disk.
+    var writeBuffer: (AVAudioFile, AVAudioPCMBuffer) throws -> Void = { try $0.write(from: $1) }
     private var file: AVAudioFile?
     private let converter = SpeechRateConverter(outputFormat: RecordingWriter.outputFormat)
     private let extractChannelZero: Bool
     private var sampleCount = 0
     private var level: Float = 0
+    private var writeFailed = false
     private let logger = Log.logger("recorder")
 
     init(url: URL, extractChannelZero: Bool) throws {
@@ -160,15 +175,23 @@ final class RecordingWriter: @unchecked Sendable {
     }
 
     func process(_ buffer: AVAudioPCMBuffer) {
-        guard let file,
+        guard let file, !writeFailed,
             let mono = microphoneCaptureMonoBuffer(from: buffer, extractVoiceProcessingChannelZero: extractChannelZero),
             let converted = converter.convert(mono), converted.frameLength > 0,
             let data = converted.floatChannelData?[0]
         else { return }
         do {
-            try file.write(from: converted)
+            try writeBuffer(file, converted)
         } catch {
+            // Review R2-6: usually a full disk. What was written stays readable; say so once (the dictation then stops
+            // and transcribes it) and write nothing more. The reason leads: the Lock Screen shows it in two lines.
+            writeFailed = true
             logger.error("write_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
+            continuation?.yield(
+                .event(
+                    .failed(
+                        message:
+                            "Stopped early: the iPhone may be out of storage, so Parakeet could not save more audio.")))
             return
         }
         let count = Int(converted.frameLength)

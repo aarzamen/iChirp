@@ -86,9 +86,8 @@ public struct VoiceCommandChip: Sendable, Equatable {
 
 /// The dictation coordinator's voice-command hooks. `DictationVoiceCommands` in the app; nil when unused.
 @MainActor public protocol DictationVoiceCommanding: AnyObject {
-    /// Kept for the coordinator's hook; since review L3 minor 6 a live "stop" only shows a chip and never calls it.
-    var onLiveStop: (@MainActor () -> Void)? { get set }
-    /// A new dictation starts.
+    /// A new dictation starts. (Review R5-17: the live check is chip-only, review L3 minor 6, so there is no live
+    /// "stop" hook; the final pass applies a spoken "stop".)
     func reset()
     /// The live preview changed (display text only).
     func observeLive(_ text: String)
@@ -110,7 +109,6 @@ public struct VoiceCommandChip: Sendable, Equatable {
     public private(set) var pendingTransform: PendingDictationTransform?
     /// Set when "read back" was said but no voice is set up.
     public private(set) var readBackUnavailable = false
-    @ObservationIgnored public var onLiveStop: (@MainActor () -> Void)?
 
     @ObservationIgnored private let settings: any StructureSettingsStoring
     @ObservationIgnored private let engines: StructureEngines

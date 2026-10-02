@@ -44,6 +44,7 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
     └── <UUID>/                                AppPaths.mediaDirectory(for: id); <UUID> = id.uuidString
         ├── source.<ext>                       the imported file; <ext> is the original file's extension
         ├── dictation.wav                      M2 (additive): a dictation recording, 16 kHz mono Float32 WAV
+        ├── dictation.json                     Review R5-1 (additive): the class a dictation was started with, until its row exists
         ├── meeting.caf                        M3 (additive): a meeting recording, 16 kHz mono 16-bit PCM CAF
         ├── recording.lock                     M3 (additive): the meeting session lock (meeting-session-v1)
         ├── chunks/                            M3 (additive): temporary live-preview chunks of a recording meeting
@@ -64,8 +65,22 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 - `dictation.wav` (M2, additive) is the dictation's source: `mediaRelativePath` points at it, playback and Retry read
   it, and it is written at 16 kHz already, so the file pipeline never has to normalize it for the final pass. It is
   kept until the person deletes the transcript, unless they turned off "Keep dictation audio" (Settings → Capture),
-  in which case it is deleted right after a successful final pass and `mediaRelativePath` becomes nil. A dictation
+  in which case it is deleted right after the final pass's transcript is saved (never before: a failed save keeps it
+  for Retry, review R5-7), and then `mediaRelativePath` becomes nil (`markAudioRemoved`). A dictation
   the person cancels leaves no row and no folder. Recordings shorter than 0.3 s are rejected and their file removed.
+- `dictation.json` (review R5-1, additive) is written before the recorder starts and holds
+  `{"privacyClass": "<general|personal|clinical>"}`, the class the dictation was started with (Create passes the
+  chain's class). The row is inserted with that class, and the file is deleted once the row exists. A `dictation.wav`
+  that a killed process left without a row is adopted at launch with the class in this file; when the file is
+  missing, unreadable or names an unknown class, it is adopted **clinical** (the most protective reading).
+- A `dictation.wav` its writer never closed (the app was killed while recording) holds its samples, but its RIFF and
+  `data` sizes say 0 s. Adoption and every final pass rewrite them from the file's length first (review R5-4,
+  `SpeechWAVFile.repairHeader`); the samples are not changed (only a partial last frame is cut), and a header that
+  already describes its audio is not touched. A `dictation.wav` adopted without a row is always adopted as partial
+  audio (`isPartialAudio`), because nothing proves an orphan ran to its end: a closed one may have been stopped early
+  by a full disk (the recorder still closes it) or repaired by an earlier launch whose insert failed, and its sentence
+  does not claim it is complete. A final pass whose repair had to rewrite the header marks its row partial audio too
+  (a row an older build adopted), at once, so a pass that then fails keeps it; the mark is never cleared.
 - M5 (additive, [document-items-v1](document-items-v1.md)): `source.<ext>` is also a document's copy (`.pdf`,
   `.docx`, …) or a downloaded episode. `download.part` / `download.part.json` exist only while a link download is
   unfinished; Retry resumes from them, and completing the download removes both.
@@ -108,7 +123,9 @@ recoverable step.
   cancel; temporary chunks removed and swept) and `VoiceMessageWriterTests` (one AAC file with the pauses).
 - `IncomingFileInboxTests` (only files inside `Documents/Inbox/` are deleted; the imported copy stays).
 - `DictationRecorderTests` (the WAV's format and duration; a too-short recording and a cancelled one leave no file)
-  and `DictationCoordinatorTests` (cancel leaves no row or folder; failure keeps the audio; the keep-audio setting).
+  and `DictationCoordinatorTests` (cancel leaves no row or folder; failure keeps the audio; the keep-audio setting;
+  `testAClinicalDictationIsStoredClinicalFromItsFirstWrite` and
+  `testLaunchAdoptsAKilledRecordingWithTheClassItWasStartedWith` for `dictation.json`).
 
 ## When this changes
 

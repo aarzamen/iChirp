@@ -196,8 +196,10 @@ import Observation
         self.structureEval = StructureEvalViewModel(
             engines: structureEngines, settings: structureStore, store: structuredResults,
             appBuild: BuildIdentity.current.summary, runtime: "needle-rs \(NeedleRuntimeInfo.pinnedCommit.prefix(8))")
+        // Review R5-14: extraction routes on the effective class, so it reads the documents too.
         self.structuredExtraction = StructuredExtractionService(
-            transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines)
+            transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines,
+            deliverables: GRDBDeliverableStore(database: database))
         // "Read back" speaks through plan 020's voice player; the relay is connected once the player exists (below).
         let readBackRelay = ReadBackRelay()
         let dictationVoiceCommands = DictationVoiceCommands(
@@ -267,7 +269,9 @@ import Observation
             speech: engines.speech, diarizer: engines.diarizer, settings: settings)
         let dictation = self.dictation
         dictation.onStateChange = { [weak liveActivity, weak dictation] state in
-            liveActivity?.update(for: state, recordedSeconds: dictation?.recordedSeconds ?? 0)
+            // Review R2-6: why a recording stopped on its own reaches the Lock Screen with the outcome.
+            liveActivity?.update(
+                for: state, recordedSeconds: dictation?.recordedSeconds ?? 0, notice: dictation?.captureNotice)
         }
         let ingestHTTP = IngestHTTPClient()
         let companionSettings = CompanionSettingsStore(secrets: KeychainSecretStore())
@@ -405,6 +409,7 @@ import Observation
         ExportTempFiles.sweepStale()
         VoiceMessageExporter.sweepStaleWork()  // plan 022: chunks a killed voice message left in tmp
         SpokenInstructionRecorder.sweepStaleRecordings()  // plan 022 review M3: a killed Edit by voice's recording
+        speechRouter.sweepStaleLivePreviewAudio()  // review R1-5: live-preview windows of speech a kill left in tmp
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
         await capture.start()

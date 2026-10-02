@@ -48,9 +48,12 @@ public struct DictationTextRules: Sendable {
 /// (`testCopiedTextIsTheFinalPassWithVoiceCommandsAppliedNeverTheLivePreview`).
 ///
 /// Data rules: the row is inserted when recording stops (status `.processing`), so a process killed during the final
-/// pass leaves an `.interrupted` row with its audio for Retry. A failed pass keeps the audio and offers Retry. Cancel
-/// is the explicit discard: while recording it deletes the recording (no row); during the final pass it deletes the
-/// row and its folder. A recording under 0.3 s is rejected by the recorder and leaves nothing.
+/// pass leaves an `.interrupted` row with its audio for Retry. The row has the class the dictation was started with
+/// from its first write (`start(privacyClass:)`, review R5-1); while recording, that class sits next to the audio
+/// (`sessionFileName`), so a recording a kill leaves behind is adopted with it (Clinical when unknown). A failed pass
+/// keeps the audio and offers Retry. Cancel is the explicit discard: while recording it deletes the recording (no
+/// row); during the final pass it deletes the row and its folder. A recording under 0.3 s is rejected by the recorder
+/// and leaves nothing.
 @MainActor @Observable public final class DictationCoordinator {
     /// Where the flow is.
     public private(set) var state: DictationFlowState = .idle
@@ -71,6 +74,9 @@ public struct DictationTextRules: Sendable {
     public private(set) var isBusyNoticeVisible = false
     /// A Resume that failed, in words.
     public private(set) var resumeError: String?
+    /// Why the recording stopped on its own (the microphone could not restart, or no more audio could be saved),
+    /// shown with the outcome; nil after an ordinary stop.
+    public private(set) var captureNotice: String?
     /// Why the last dictation failed, for the screen's second button; nil unless the flow failed.
     public private(set) var failureKind: DictationFailureKind?
     /// "Polish after": run Clean on this dictation's copied text. Remembered in settings.
@@ -83,7 +89,10 @@ public struct DictationTextRules: Sendable {
     }
 
     public static let levelHistoryCount = 48
-    public static let fileName = "dictation.wav"
+    public nonisolated static let fileName = "dictation.wav"
+    /// Review R5-1: next to `dictation.wav` while it records, the class the dictation was started with, so a recording
+    /// a killed process leaves behind is adopted with that class. Removed once the row (which carries it) exists.
+    public nonisolated static let sessionFileName = "dictation.json"
 
     /// Called on every state change (the app forwards it to the Live Activity).
     @ObservationIgnored public var onStateChange: (@MainActor (DictationFlowState) -> Void)?
@@ -104,8 +113,12 @@ public struct DictationTextRules: Sendable {
     @ObservationIgnored private let voiceCommands: (any DictationVoiceCommanding)?
     @ObservationIgnored private let logger = Log.logger("dictation")
 
-    /// The current recording: its row id and WAV. Set when recording starts, kept after a failure for Retry.
-    @ObservationIgnored private var recording: (id: UUID, url: URL)?
+    /// The current recording: its row id, WAV and class. Set when recording starts, kept after a failure for Retry.
+    @ObservationIgnored private var recording: (id: UUID, url: URL, privacyClass: PrivacyClass)?
+    /// The class the next start was asked for (read when the start is accepted).
+    @ObservationIgnored private var requestedPrivacyClass: PrivacyClass = .personal
+    /// What the recorder returned at Stop (its length), kept for a Retry that still has to insert the row.
+    @ObservationIgnored private var recordedAudio: RecordedAudio?
     @ObservationIgnored private var rowInserted = false
     @ObservationIgnored private var live: (any LiveSpeechSession)?
     @ObservationIgnored private var startTask: Task<Void, Never>?
@@ -143,16 +156,18 @@ public struct DictationTextRules: Sendable {
         self.textRules = textRules
         self.voiceCommands = voiceCommands
         self.polishAfter = settings.load().dictationPolishAfter
-        // M6: a live "stop" command at the act threshold stops like the Stop button (the final pass still decides).
-        voiceCommands?.onLiveStop = { [weak self] in
-            guard let self, self.state.isCapturing else { return }
-            self.stop()
-        }
     }
 
     // MARK: - Person's actions
 
-    public func start() { send(.startRequested) }
+    /// Starts a dictation whose row is written with `privacyClass` from its first write (review R5-1): Create passes
+    /// the chain's class (Clinical when the person said it holds patient information); everything else starts
+    /// Personal, the default for a new item.
+    public func start(privacyClass: PrivacyClass = .personal) {
+        requestedPrivacyClass = privacyClass
+        send(.startRequested)
+    }
+
     public func stop() { send(.stopRequested) }
     public func cancel() { send(.cancelRequested) }
     public func resume() { send(.resumeRequested) }
@@ -219,9 +234,10 @@ public struct DictationTextRules: Sendable {
         case .startRecording:
             resetForNewDictation()
             let cleanup = cleanupTask
+            let privacyClass = requestedPrivacyClass
             startTask = Task {
                 await cleanup?.value
-                await self.beginRecording(generation: generation)
+                await self.beginRecording(generation: generation, privacyClass: privacyClass)
             }
         case .stopRecordingAndTranscribe:
             let starting = startTask
@@ -264,15 +280,17 @@ public struct DictationTextRules: Sendable {
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
+        captureNotice = nil
         failureKind = nil
         voiceCommands?.reset()
     }
 
     // MARK: - Start
 
-    private func beginRecording(generation: Int) async {
+    private func beginRecording(generation: Int, privacyClass: PrivacyClass) async {
         // The previous dictation's discard (if any) has finished; this one starts clean.
         recording = nil
+        recordedAudio = nil
         rowInserted = false
         transcriptionID = nil
         // M7 (review I2): the final route's engine must have its model; the sentence names that engine.
@@ -296,6 +314,13 @@ public struct DictationTextRules: Sendable {
         let updates: AsyncStream<CaptureUpdate>
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Review R5-1: the class is on disk before any audio, so a recording a kill leaves behind is adopted with
+            // it. A failed write only costs precision: an orphan of unknown class is adopted Clinical.
+            do {
+                try Self.writeSessionMarker(privacyClass, in: directory)
+            } catch {
+                logger.error("dictation_class_write_failed error_type=\(error.logTypeName, privacy: .public)")
+            }
             updates = try await capture.start(recordingTo: url)
         } catch {
             try? FileManager.default.removeItem(at: directory)
@@ -304,15 +329,16 @@ public struct DictationTextRules: Sendable {
             send(.startFailed(generation: generation, message: Self.message(for: error)))
             return
         }
-        recording = (id, url)
+        recording = (id, url, privacyClass)
         transcriptionID = id
         updatesTask = Task { await self.consume(updates, generation: generation) }
 
         // The final engine loads while the person speaks, so the final pass does not pay for it.
         Task.detached(priority: .utility) { try? await finalEngine.prepare() }
 
-        // M7: the live route may be a different engine from the final one; routing checks the one that gets audio.
-        if privacyRouting.allows(SpeechRouting.resolve(self.speech, for: .live).descriptor, for: .personal),
+        // M7: the live route may be a different engine from the final one; routing checks the one that gets audio,
+        // against this dictation's own class (review R5-1).
+        if privacyRouting.allows(SpeechRouting.resolve(self.speech, for: .live).descriptor, for: privacyClass),
             let session = await liveSessions?.makeLiveSession(
                 scheduler: scheduler, options: SpeechTranscriptionOptions(purpose: .dictation))
         {
@@ -362,7 +388,8 @@ public struct DictationTextRules: Sendable {
             break
         case .failed(let message):
             logger.error("dictation_capture_failed; finishing with what was recorded")
-            resumeError = message
+            // Review R2-6: the dictation stops here; the outcome says why, so a shortened text is never silent.
+            captureNotice = message
             send(.captureFailed(generation: generation))
         }
     }
@@ -399,7 +426,8 @@ public struct DictationTextRules: Sendable {
         } catch {
             await finishLiveSession()
             if (error as? AudioCaptureError) == .tooShort {
-                // The recorder removed the tiny file; drop the empty folder so nothing is left.
+                // The recorder removed the tiny file; drop its class file and the empty folder so nothing is left.
+                Self.removeSessionMarker(in: recording.url.deletingLastPathComponent())
                 removeFolder(of: recording.url)
                 self.recording = nil
             }
@@ -409,28 +437,62 @@ public struct DictationTextRules: Sendable {
         }
         // Display-only: the live session ends (and its work drains) before the final pass may start.
         await finishLiveSession()
+        recordedAudio = recorded
 
-        let row = Transcription(
+        guard let row = await insertRow(for: recording, generation: generation) else { return }
+        await finalize(row: row, url: recorded.url, generation: generation, copy: true)
+    }
+
+    /// Inserts the `.processing` row of the stopped recording, with its class (review R5-1), and then removes the class
+    /// file. When the insert fails, the dictation fails with a sentence that says the audio is kept: Retry inserts it
+    /// again, and the next launch adopts it otherwise (review R5-13). Nil when it was not inserted.
+    ///
+    /// Fix round 2 (review R2-6): a recording that stopped on its own (`captureNotice`: a full disk, a microphone that
+    /// could not restart) is inserted as partial audio, so the Library keeps saying it was cut short after the
+    /// outcome's notice is gone. The recorder has stopped by now, so nothing can change that afterwards: the insert
+    /// itself carries it, and the final pass saves it on.
+    private func insertRow(
+        for recording: (id: UUID, url: URL, privacyClass: PrivacyClass), generation: Int
+    ) async -> Transcription? {
+        let recorded = recordedAudio
+        var stopped = Transcription(
             id: recording.id,
             sourceType: .dictation,
             fileName: "Dictation.wav",
-            mediaRelativePath: paths.relativePath(for: recorded.url),
-            fileSizeBytes: Self.fileSize(recorded.url),
-            durationMs: recorded.durationMs,
-            status: .processing
+            mediaRelativePath: paths.relativePath(for: recording.url),
+            fileSizeBytes: Self.fileSize(recording.url),
+            durationMs: recorded?.durationMs,
+            status: .processing,
+            privacyClass: recording.privacyClass
         )
+        stopped.isPartialAudio = captureNotice != nil
+        let row = stopped
         do {
             let store = self.store
             try await Self.detached { try await store.insert(row) }
             rowInserted = true
+            Self.removeSessionMarker(in: recording.url.deletingLastPathComponent())
+            return row
         } catch {
             logger.error("dictation_row_insert_failed error_type=\(error.logTypeName, privacy: .public)")
-            failureKind = Self.failureKind(for: error)
-            send(.transcriptionFailed(generation: generation, message: Self.message(for: error)))
-            return
+            failureKind = .other
+            send(.transcriptionFailed(generation: generation, message: Self.rowNotAddedMessage))
+            return nil
         }
-        await finalize(row: row, url: recorded.url, generation: generation, copy: true)
     }
+
+    /// Launch adoption of a recording a kill cut short (its WAV was never closed).
+    static let adoptedAfterKillMessage =
+        "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
+    /// Launch adoption of a closed recording that never got its Library row (review R5-13). Fix round 2: closed does
+    /// not mean whole (a full disk stops a recording early, review R2-6), so this never says the recording is complete.
+    static let adoptedSavedRecordingMessage =
+        "The recording is saved, but Parakeet couldn’t add it to your Library then. Retry to transcribe what was saved."
+
+    /// Review R5-13: the recording is on disk but has no Library row yet.
+    static let rowNotAddedMessage =
+        "The recording is saved, but Parakeet couldn’t add it to your Library. Tap Retry, or it appears in your Library "
+        + "the next time Parakeet opens."
 
     private func retryFinalPass(generation: Int) async {
         failureKind = nil
@@ -439,20 +501,24 @@ public struct DictationTextRules: Sendable {
             send(.transcriptionFailed(generation: generation, message: "There is no recording to retry."))
             return
         }
-        let store = self.store
-        let row: Transcription?
-        do {
-            row = try await Self.detached {
+        let row: Transcription
+        if rowInserted {
+            let store = self.store
+            let moved = try? await Self.detached {
                 try await store.transitionStatus(
                     id: recording.id, from: [.failed, .cancelled, .interrupted], to: .processing, errorMessage: nil)
             }
-        } catch {
-            row = nil
-        }
-        guard let row else {
-            failureKind = .other
-            send(.transcriptionFailed(generation: generation, message: "This dictation can no longer be retried."))
-            return
+            guard let moved else {
+                failureKind = .other
+                send(.transcriptionFailed(generation: generation, message: "This dictation can no longer be retried."))
+                return
+            }
+            row = moved
+        } else {
+            // Review R5-13: the row could not be added when the recording stopped (or the stop itself failed): the
+            // audio is here, so add the row now.
+            guard let inserted = await insertRow(for: recording, generation: generation) else { return }
+            row = inserted
         }
         await finalize(row: row, url: recording.url, generation: generation, copy: true)
     }
@@ -534,7 +600,8 @@ public struct DictationTextRules: Sendable {
         let store = self.store
         let outcome: Result<FinalText, any Error>
         do {
-            let privacyClass = try await store.fetch(id: row.id)?.privacyClass ?? row.privacyClass
+            let stored = try await store.fetch(id: row.id)
+            let privacyClass = stored?.privacyClass ?? row.privacyClass
             guard routing.allows(speech.descriptor, for: privacyClass) else {
                 throw FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(
                     engineName: speech.descriptor.displayName)
@@ -544,6 +611,15 @@ public struct DictationTextRules: Sendable {
             }
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw FileTranscriptionPipeline.PipelineError.sourceFileMissing
+            }
+            // Review R5-4: a recording a kill left behind (adopted now or by an older build) reads as 0 s until its
+            // header describes the samples on disk. A header that already describes them is not touched.
+            let repaired = await repairInterruptedRecording(url)
+            // Fix round 3: a header this repair had to rewrite was never closed, so the recording was cut short (a row
+            // an older build adopted without the repair). The flag is never cleared.
+            let isPartialAudio = row.isPartialAudio || stored?.isPartialAudio == true || repaired?.didRepair == true
+            if isPartialAudio, stored?.isPartialAudio == false {
+                await markPartialAudio(row)
             }
             let result = try await scheduler.run(.dictation) {
                 try await speech.prepare()
@@ -573,8 +649,9 @@ public struct DictationTextRules: Sendable {
             completed.language = result.language ?? completed.language
             completed.engine = speech.descriptor.id
             completed.engineVariant = result.engineVariant
+            completed.isPartialAudio = isPartialAudio
             // The recording's length is authoritative (the 0.5 s pad can put a last word's end past it).
-            completed.durationMs = completed.durationMs ?? result.words.map(\.endMs).max()
+            completed.durationMs = completed.durationMs ?? repaired?.durationMs ?? result.words.map(\.endMs).max()
             let title = TitleDeriver.derive(from: text) ?? ""
             completed.derivedTitle = title
             completed.derivedSnippet = SnippetDeriver.derive(from: text, excluding: title) ?? ""
@@ -583,13 +660,13 @@ public struct DictationTextRules: Sendable {
             completed.status = .completed
             completed.errorMessage = nil
             completed.updatedAt = Date()
-            if !settingsValue.keepDictationAudio {
-                try? FileManager.default.removeItem(at: url)
-                removeFolder(of: url)
-                completed.mediaRelativePath = nil
-            }
             let finished = completed
-            let saved = try await Self.detached { try await store.savePreservingUserMetadata(finished) }
+            var saved = try await Self.detached { try await store.savePreservingUserMetadata(finished) }
+            // Review R5-7: with "Keep dictation audio" off, the audio goes only once its transcript is saved, so a
+            // failed save keeps it for Retry.
+            if !settingsValue.keepDictationAudio, let stored = saved {
+                saved = await removeAudio(of: stored.id, at: url) ?? stored
+            }
             outcome = .success(FinalText(text: text, row: saved))
         } catch {
             logger.error("dictation_final_pass_failed error_type=\(error.logTypeName, privacy: .public)")
@@ -601,6 +678,42 @@ public struct DictationTextRules: Sendable {
         // here now that the pass has released the engine, in case it is still on no route.
         await SpeechRouting.releaseUnroutedModels(on: self.speech)
         return outcome
+    }
+
+    /// Fix round 3: saves `isPartialAudio` on the row the final pass is working on as soon as the pass knows it, so a
+    /// pass that fails after its repair still leaves the row marked (the repaired file no longer shows the kill). It is
+    /// the pass's own save of the row it moved to `.processing` (user fields are kept, a deleted row stays deleted); a
+    /// failure is logged, and the pass's final save carries the flag again.
+    private func markPartialAudio(_ row: Transcription) async {
+        var marked = row
+        marked.isPartialAudio = true
+        marked.updatedAt = Date()
+        let partial = marked
+        let store = self.store
+        let id = row.id
+        do {
+            _ = try await Self.detached { try await store.savePreservingUserMetadata(partial) }
+        } catch {
+            logger.error(
+                "dictation_partial_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
+        }
+    }
+
+    /// "Keep dictation audio" off: deletes the recording after its transcript was saved, then clears the row's media
+    /// path in one field-level write (`markAudioRemoved`). Returns the row as updated, or nil when that write failed
+    /// (the transcript is saved either way; the row keeps a path to a file that is gone, so it shows no player).
+    private func removeAudio(of id: UUID, at url: URL) async -> Transcription? {
+        try? FileManager.default.removeItem(at: url)
+        removeFolder(of: url)
+        let store = self.store
+        do {
+            return try await Self.detached { try await store.markAudioRemoved(id: id, at: Date()) }
+        } catch {
+            logger.error(
+                "dictation_audio_mark_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     /// Moves the row to `.failed` with a readable message; the audio stays for Retry.
@@ -618,9 +731,17 @@ public struct DictationTextRules: Sendable {
     // MARK: - Launch recovery
 
     /// Adopts recordings a killed process left behind: a `media/<id>/dictation.wav` whose row was never inserted
-    /// (the app died while recording) becomes an `.interrupted` dictation row, so the Library shows it with Retry
-    /// instead of the audio sitting unseen. Never deletes anything. Call once at launch, before any dictation starts.
-    /// Returns how many rows it added.
+    /// (the app died while recording, or the row could not be added) becomes an `.interrupted` dictation row, so the
+    /// Library shows it with Retry instead of the audio sitting unseen. Never deletes anything. Call once at launch,
+    /// before any dictation starts. Returns how many rows it added.
+    ///
+    /// The row claims no more than the file shows (fix rounds 2 and 3). A header the repair had to rewrite was never
+    /// closed: Parakeet closed while recording, and the row says so. A header that already described its audio was
+    /// closed, but that does not prove the dictation is whole: a full disk stops a recording early and the recorder
+    /// still closes it (review R2-6), and an earlier launch may have repaired a killed one before its own insert
+    /// failed. Its sentence never says the recording is complete. Either way the row is partial audio (like a meeting
+    /// recovered after a kill), because nothing proves an orphan ran to its end; the cost, a recording that did finish
+    /// shown as "Partial audio", is the safe direction.
     @discardableResult
     public func recoverOrphanedRecordings() async -> Int {
         guard state.isFinished, recording == nil else { return 0 }
@@ -631,18 +752,29 @@ public struct DictationTextRules: Sendable {
         var added = 0
         for name in names {
             guard let id = UUID(uuidString: name), !known.contains(id) else { continue }
-            let wav = paths.mediaDirectory(for: id).appendingPathComponent(Self.fileName, isDirectory: false)
+            let folder = paths.mediaDirectory(for: id)
+            let wav = folder.appendingPathComponent(Self.fileName, isDirectory: false)
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
+            // Review R5-4: the kill left the samples with a header that says 0 s; make it describe them first.
+            let repaired = await repairInterruptedRecording(wav)
+            let cutShortByAKill = repaired?.didRepair == true
+            // Review R5-1: the class the dictation was started with; Clinical when it is unknown.
+            let privacyClass = Self.recordedPrivacyClass(in: folder)
             var row = Transcription(
                 id: id, sourceType: .dictation, fileName: "Dictation.wav",
                 mediaRelativePath: paths.relativePath(for: wav), fileSizeBytes: Self.fileSize(wav),
-                status: .interrupted)
-            row.errorMessage = "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
+                durationMs: repaired?.durationMs, status: .interrupted, privacyClass: privacyClass)
+            row.errorMessage = cutShortByAKill ? Self.adoptedAfterKillMessage : Self.adoptedSavedRecordingMessage
+            // Fix round 3: nothing proves an orphan ran to its end, so every one is partial audio.
+            row.isPartialAudio = true
             let orphan = row
             do {
                 try await Self.detached { try await store.insert(orphan) }
+                Self.removeSessionMarker(in: folder)
                 added += 1
-                logger.notice("dictation_orphan_adopted id=\(id, privacy: .public)")
+                logger.notice(
+                    "dictation_orphan_adopted id=\(id, privacy: .public) class=\(privacyClass.rawValue, privacy: .public)"
+                )
             } catch {
                 logger.error("dictation_orphan_adopt_failed error_type=\(error.logTypeName, privacy: .public)")
             }
@@ -678,6 +810,50 @@ public struct DictationTextRules: Sendable {
         await session?.finish()
         liveTextTask?.cancel()
         liveTextTask = nil
+    }
+
+    /// Review R5-4: makes a WAV a kill left behind readable to its last frame (`SpeechWAVFile.repairHeader`), off the
+    /// main actor. Nil when the file is not a WAV it can read; the final pass then fails with the engine's own words.
+    private func repairInterruptedRecording(_ url: URL) async -> SpeechWAVFile.HeaderRepair? {
+        do {
+            let repair = try await Task.detached(priority: .userInitiated) {
+                try SpeechWAVFile.repairHeader(at: url)
+            }.value
+            if repair.didRepair {
+                logger.notice("dictation_header_repaired frames=\(repair.frameCount, privacy: .public)")
+            }
+            return repair
+        } catch {
+            logger.error("dictation_header_unreadable error_type=\(error.logTypeName, privacy: .public)")
+            return nil
+        }
+    }
+
+    // MARK: - The class on disk (review R5-1)
+
+    /// `dictation.json`: `{"privacyClass": "<raw value>"}`.
+    private struct SessionMarker: Codable {
+        var privacyClass: String
+    }
+
+    /// Writes the class next to the recording (`sessionFileName`).
+    nonisolated static func writeSessionMarker(_ privacyClass: PrivacyClass, in folder: URL) throws {
+        let data = try JSONEncoder().encode(SessionMarker(privacyClass: privacyClass.rawValue))
+        try data.write(to: folder.appendingPathComponent(sessionFileName, isDirectory: false), options: .atomic)
+    }
+
+    /// The class the recording in `folder` was started with. Clinical when it is unknown (no file, an unreadable one,
+    /// or a class this build does not know): the most protective reading, as `VoiceSourcePrivacy` reads an unknown row.
+    nonisolated static func recordedPrivacyClass(in folder: URL) -> PrivacyClass {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent(sessionFileName, isDirectory: false)),
+            let marker = try? JSONDecoder().decode(SessionMarker.self, from: data),
+            let privacyClass = PrivacyClass(rawValue: marker.privacyClass)
+        else { return .clinical }
+        return privacyClass
+    }
+
+    nonisolated static func removeSessionMarker(in folder: URL) {
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent(sessionFileName, isDirectory: false))
     }
 
     // MARK: - Helpers

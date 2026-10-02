@@ -37,6 +37,11 @@ Since M2 it also owns microphone capture and the audio session (see
   straight into an `AVAudioFile` opened on `outputURL`. `AudioNormalizationError`
   has two cases: `.noAudioTrack` (no audio track found) and `.readerFailed`
   (any `AVAssetReader`/`AVAudioFile` failure, with AVFoundation's own message).
+  Review R2-13: a decoded buffer that holds samples but cannot be copied is a
+  `.readerFailed`, never skipped (a skip would shorten the audio and move every
+  later word against the source); only a buffer with no samples is passed over.
+  Review R2-14: `testBothChannelsOfAStereoFileSurviveNormalization` proves a
+  tone on either channel of a stereo file reaches the mono output.
 - **Audio tracks (M1.5).** `audioTracks(in:)` lists the file's audio tracks
   (ordinal, container track id, language code, default marker) from
   metadata only. `normalize(sourceURL:outputURL:audioTrackOrdinal:)` decodes
@@ -157,6 +162,13 @@ read).
   `stop()` unsubscribes, drains the queue and closes the file, then rejects
   anything under 0.3 s (`AudioCaptureError.tooShort`, file removed);
   `cancel()` deletes the file. Helpers: `Capture/CaptureBuffers.swift`.
+  Review R2-6: a write failure (a full disk) is reported once as
+  `CaptureEvent.failed` and nothing more is written or yielded; the dictation
+  then stops and transcribes what was saved. A WAV is only finished on close: a dictation the app was killed while
+  writing reads as 0 s until ChirpCore's `SpeechWAVFile.repairHeader`
+  rewrites its sizes, which the dictation coordinator does before adopting or
+  transcribing it (review R5-4, `DictationRecorderTests` proves it on a real
+  `RecordingWriter` file).
 
 - `Capture/MeetingRecorder.swift` (M3) — port of upstream's
   `MeetingAudioStorageWriter` for one microphone. Same capture plumbing as the
@@ -170,7 +182,20 @@ read).
   they land between two buffers. It refuses to overwrite an existing file and
   never deletes one: `stop` keeps even a short recording and `cancel` only
   closes it. A write failure (a full disk) is reported once as
-  `CaptureEvent.failed`; what was written stays readable.
+  `CaptureEvent.failed`; what was written stays readable. Review R5-3:
+  writing starts again only after a test write next to the recording
+  (`MeetingAudioWriter.probeFreeSpace`, 1 MB, deleted at once) succeeds.
+  `resume()` throws `MeetingRecordingError.cannotSaveAudio` until then, and
+  the microphone stream's own events reach the meeting through the writer on
+  the processing queue (fix round 1): when the stream says `.resumed` by
+  itself (a call ending with `shouldResume`, a media-services reset) after a
+  failed write, the writer runs the same test write, and while it still fails
+  `.failed` with that reason follows the `.resumed`. ChirpFeatures'
+  `MeetingCoordinator` also waits for its own `resume()` to succeed before it
+  says Recording. The file goes on where it
+  stopped: measured with a forced write failure, AVAudioFile writes the next
+  whole frame after the last one saved, so the lost buffers are simply
+  missing, like a pause.
 
 **Rules to keep.** Never restart an old engine: rebuild and re-tap (a
 restarted engine can run without delivering buffers — upstream's silent

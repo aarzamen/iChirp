@@ -60,11 +60,17 @@ final class FakeMeetingRecorder: MeetingAudioCapturing, @unchecked Sendable {
         var stopCalls = 0
         var cancelCalls = 0
         var resumeCalls = 0
+        /// Thrown by `resume()` while set (a recorder that still cannot save, review R5-3).
+        var resumeError: (any Error)?
         var isRecording = false
         /// When true, the next `setPaused(true)` waits until `releaseHeldPause()`: lets a test prove commands reach the
         /// recorder in order even when one of them is slow.
         var holdNextPause = false
         var heldPause: CheckedContinuation<Void, Never>?
+        /// When true, the next `stop()` waits until `releaseHeldStop()` (review R5-12: what is on disk while the
+        /// recorder is still stopping).
+        var holdNextStop = false
+        var heldStop: CheckedContinuation<Void, Never>?
     }
 
     let state = Mutex(State())
@@ -120,9 +126,34 @@ final class FakeMeetingRecorder: MeetingAudioCapturing, @unchecked Sendable {
 
     var isHoldingPause: Bool { state.withLock { $0.heldPause != nil } }
     func setMuted(_ muted: Bool) async { state.withLock { $0.muted.append(muted) } }
-    func resume() async throws { state.withLock { $0.resumeCalls += 1 } }
+    func resume() async throws {
+        let error = state.withLock { state -> (any Error)? in
+            state.resumeCalls += 1
+            return state.resumeError
+        }
+        if let error { throw error }
+    }
+
+    var isHoldingStop: Bool { state.withLock { $0.heldStop != nil } }
+
+    /// Lets a held `stop()` finish.
+    func releaseHeldStop() {
+        let held = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            defer { state.heldStop = nil }
+            return state.heldStop
+        }
+        held?.resume()
+    }
 
     func stop() async throws -> RecordedAudio {
+        if state.withLock({ $0.holdNextStop }) {
+            await withCheckedContinuation { continuation in
+                state.withLock {
+                    $0.holdNextStop = false
+                    $0.heldStop = continuation
+                }
+            }
+        }
         let (url, count, continuation) = try state.withLock { state in
             guard state.isRecording, let url = state.url else { throw AudioCaptureError.notRecording }
             state.isRecording = false

@@ -179,6 +179,30 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertNotNil(flow.voiceMessageFile)
     }
 
+    /// Review R5-1: Speak with Clinical on. The chain's class reaches the dictation, whose row is Clinical from its
+    /// first write, so a kill before the chain catches up can never leave a Personal row (and nothing that reads the
+    /// row meanwhile, such as "read back", sees Personal).
+    func testASpokenClinicalItemIsClinicalFromItsFirstWrite() async throws {
+        let harness = try await CreateHarness()
+        let flow = harness.makeFlow()
+        await flow.start(
+            CreateRequest(input: .speak, output: .transcript, privacyClass: .clinical),
+            makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        XCTAssertEqual(flow.phase, .finished)
+        XCTAssertEqual(harness.spokenClasses, [.clinical], "the dictation is started with the chain's class")
+        let id = try XCTUnwrap(flow.itemID)
+        let history = await harness.transcripts.classHistory(id)
+        XCTAssertEqual(history.first, .clinical, "clinical at insert")
+        XCTAssertEqual(Set(history), [.clinical], "never Personal, not even for a moment")
+
+        let personal = try await CreateHarness()
+        let ordinary = personal.makeFlow()
+        await ordinary.start(
+            CreateRequest(input: .speak, output: .transcript),
+            makeModel: { RecordingLanguageModel(locality: .onDevice) })
+        XCTAssertEqual(personal.spokenClasses, [.personal])
+    }
+
     func testSpeechDiscardedEndsTheChainWithoutAnItem() async throws {
         let harness = try await CreateHarness()
         harness.speechOutcome = .discarded
@@ -520,6 +544,8 @@ final class CreateHarness {
     let deliverables = FakeDeliverableStore()
     let service: DeliverableService
     var speechOutcome: CreateSpeechOutcome?
+    /// The class each dictation was started with (review R5-1).
+    private(set) var spokenClasses: [PrivacyClass] = []
     var linkError: Error?
     var failNextJobs = 0
     private(set) var retried: [UUID] = []
@@ -550,10 +576,14 @@ final class CreateHarness {
     func makeFlow() -> CreateFlow {
         CreateFlow(
             dependencies: CreateFlowDependencies(
-                recordSpeech: { [unowned self] in
+                recordSpeech: { [unowned self] privacyClass in
+                    spokenClasses.append(privacyClass)
                     await parkIfHeld(.input)
                     if let outcome = speechOutcome { return outcome }
-                    var row = Transcription(sourceType: .dictation, fileName: "Dictation.wav", status: .completed)
+                    // Like the Dictating screen: the row is written with the class the dictation was started with.
+                    var row = Transcription(
+                        sourceType: .dictation, fileName: "Dictation.wav", status: .completed,
+                        privacyClass: privacyClass)
                     row.rawTranscript = Self.dictationText
                     try? await transcripts.insert(row)
                     return .saved(row.id)

@@ -3,7 +3,8 @@
 // of a large ingest instead of one per call). The VAD chunker keeps upstream's contiguous sample accounting,
 // lockstep VAD buffering, 2–10 s cuts on speech end, 0.25 s overlap after a forced cut, silence-window drops and the
 // fixed fallback after 3 consecutive VAD errors; it talks to a `ChirpCore.VoiceActivityStream` instead of
-// `MeetingVoiceActivityDetecting` + an opaque state, and uses OSLog through `Log`.
+// `MeetingVoiceActivityDetecting` + an opaque state, and uses OSLog through `Log`. `flush()` is not part of the protocol
+// (review R5-18: the preview drops its tail at Stop); it stays internal for the ported tests.
 
 import ChirpCore
 import Foundation
@@ -35,10 +36,13 @@ public struct MeetingLiveChunkingDiagnostics: Sendable, Equatable {
 }
 
 /// Cuts the live sample stream into chunks. One caller at a time (the live transcriber's serial feed).
+///
+/// Review R5-18: there is no `flush()` here. The live text is display-only and the final pass covers everything, so
+/// `MeetingLiveTranscriber.finish()` drops the unfinished tail at Stop instead of transcribing it (that would only
+/// delay the final pass, for text nobody sees). The two chunkers keep upstream's `flush()` as an internal method, used
+/// only by their tests to check the chunkers' sample accounting.
 public protocol MeetingLiveAudioChunking: Actor {
     func addSamples(_ samples: [Float]) async -> [MeetingAudioChunk]
-    /// The unfinished tail at stop, if it is worth transcribing.
-    func flush() async -> MeetingAudioChunk?
     var diagnostics: MeetingLiveChunkingDiagnostics { get }
 }
 
@@ -71,7 +75,8 @@ public actor FixedMeetingLiveAudioChunker: MeetingLiveAudioChunking {
         return out
     }
 
-    public func flush() -> MeetingAudioChunk? {
+    /// The unfinished tail, if at least 0.5 s (upstream; tests only, see `MeetingLiveAudioChunking`).
+    func flush() -> MeetingAudioChunk? {
         guard buffer.count >= Self.flushMinimum else {
             bufferStartSample += buffer.count
             buffer = []
@@ -154,7 +159,8 @@ public actor SpeechBoundaryMeetingLiveAudioChunker: MeetingLiveAudioChunking {
         return emitted
     }
 
-    public func flush() async -> MeetingAudioChunk? {
+    /// The unfinished tail when speech was heard in it (upstream; tests only, see `MeetingLiveAudioChunking`).
+    func flush() async -> MeetingAudioChunk? {
         if fellBackToFixed {
             return flushFixed()
         }

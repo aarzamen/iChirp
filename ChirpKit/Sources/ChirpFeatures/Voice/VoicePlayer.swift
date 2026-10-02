@@ -183,6 +183,10 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
     @ObservationIgnored private var playingIndex = 0
     @ObservationIgnored private var results: [Int: SynthesizedAudio] = [:]
     @ObservationIgnored private var synthTask: Task<Void, Never>?
+    /// Test hooks (review R5-19), read-only: whether a chunk is being synthesized now, and the newest synthesis task
+    /// (kept after it ends), so a test awaits the player's own work instead of sleeping before "nothing more was sent".
+    var isSynthesizing: Bool { synthTask != nil }
+    @ObservationIgnored private(set) var lastSynthesisTask: Task<Void, Never>?
     @ObservationIgnored private var playerDrained = false
     @ObservationIgnored private var failedIndex: Int?
     @ObservationIgnored private var pendingFailure: String?
@@ -521,6 +525,7 @@ public struct VoiceConfirmationRequest: Sendable, Equatable, Identifiable {
             guard !Task.isCancelled else { return }
             self?.synthesisFailed(lastError, index: index, generation: generation)
         }
+        lastSynthesisTask = synthTask
     }
 
     /// The class to send chunk `index` with, or nil when it must not be sent now: the reading changed, the question is

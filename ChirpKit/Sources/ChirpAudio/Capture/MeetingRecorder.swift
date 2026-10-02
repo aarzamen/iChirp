@@ -60,7 +60,9 @@ public final class MeetingRecorder: MeetingAudioCapturing {
             do {
                 let token = try await stream.subscribe(
                     onEvent: { event in
-                        queue.async { continuation.yield(.event(event)) }
+                        // Through the writer, on the processing queue (review R5-3, fix round 1): it decides whether
+                        // the microphone being back also means audio is saved again.
+                        queue.async { writer.handle(event) }
                     },
                     handler: { buffer, _ in
                         guard let copy = copyPCMBufferForAsyncUse(buffer) else { return }
@@ -87,8 +89,16 @@ public final class MeetingRecorder: MeetingAudioCapturing {
         await onProcessingQueue { $0.isMuted = muted }
     }
 
+    /// Restarts the microphone, and after a write failure (a full disk) the writing too, but only once a test write
+    /// proves the iPhone takes writes again (review R5-3): until then it throws `MeetingRecordingError.cannotSaveAudio`,
+    /// so a Resume never shows Recording while nothing is saved.
     public func resume() async throws {
-        guard active.withLock({ $0 != nil }) else { throw AudioCaptureError.notRecording }
+        guard let writer = active.withLock({ $0?.writer }) else { throw AudioCaptureError.notRecording }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            processingQueue.async {
+                continuation.resume(with: Result { try writer.resumeWriting() })
+            }
+        }
         try await stream.resume()
     }
 
@@ -111,8 +121,9 @@ public final class MeetingRecorder: MeetingAudioCapturing {
         }
     }
 
-    /// Runs `change` on the active writer from the processing queue (so it lands between two buffers).
-    private func onProcessingQueue(_ change: @escaping @Sendable (MeetingAudioWriter) -> Void) async {
+    /// Runs `change` on the active writer from the processing queue (so it lands between two buffers). Internal so
+    /// tests can stand in for a full disk.
+    func onProcessingQueue(_ change: @escaping @Sendable (MeetingAudioWriter) -> Void) async {
         guard let writer = active.withLock({ $0?.writer }) else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             processingQueue.async {
@@ -159,6 +170,10 @@ final class MeetingAudioWriter: @unchecked Sendable {
     var continuation: AsyncStream<CaptureUpdate>.Continuation?
     var isPaused = false
     var isMuted = false
+    /// Writes one buffer to the file. Tests replace it to stand in for a full disk.
+    var writeBuffer: (AVAudioFile, AVAudioPCMBuffer) throws -> Void = { try $0.write(from: $1) }
+    /// Proves the volume takes writes again before a failed writer is re-armed. Tests replace it.
+    var probeWrite: (URL) throws -> Void = { try MeetingAudioWriter.probeFreeSpace(nextTo: $0) }
     private var file: AVAudioFile?
     private let converter = SpeechRateConverter(outputFormat: RecordingWriter.outputFormat)
     private let extractChannelZero: Bool
@@ -190,9 +205,10 @@ final class MeetingAudioWriter: @unchecked Sendable {
             data.update(repeating: 0, count: count)
         }
         do {
-            try file.write(from: converted)
+            try writeBuffer(file, converted)
         } catch {
-            // Usually a full disk. Everything written so far stays readable; say so once and stop writing.
+            // Usually a full disk. Everything written so far stays readable; say so once and stop writing until a
+            // Resume proves writes work again (`resumeWriting`).
             writeFailed = true
             logger.error("meeting_write_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
             continuation?.yield(
@@ -200,7 +216,7 @@ final class MeetingAudioWriter: @unchecked Sendable {
                     .failed(
                         message:
                             "Parakeet could not save more audio (the iPhone may be out of storage). Everything up to "
-                            + "now is saved. Stop to transcribe it.")))
+                            + "now is saved. Free up some space and tap Resume, or Stop & save to transcribe it.")))
             return
         }
         sampleCount += count
@@ -219,5 +235,61 @@ final class MeetingAudioWriter: @unchecked Sendable {
         file = nil
         let durationMs = Int((Double(sampleCount) * 1000 / Double(SpeechAudio.sampleRate)).rounded())
         return RecordedAudio(url: url, durationMs: durationMs, sampleCount: sampleCount)
+    }
+
+    /// Passes a microphone event on, in order with the audio around it. Review R5-3, fix round 1: the stream's own
+    /// `.resumed` (a call ending with `shouldResume`, a media-services reset) does not mean audio is saved again after
+    /// a write failure. On `.resumed` the writer tries to re-arm (`resumeWriting`); when the test write still fails,
+    /// `.failed` follows with the reason, so the meeting goes back to waiting instead of saying Recording.
+    func handle(_ event: CaptureEvent) {
+        continuation?.yield(.event(event))
+        guard event == .resumed, writeFailed else { return }
+        do {
+            try resumeWriting()
+        } catch {
+            continuation?.yield(.event(.failed(message: MeetingRecordingError.cannotSaveAudio.errorDescription ?? "")))
+        }
+    }
+
+    /// Re-arms a writer whose write failed (review R5-3) once a test write next to the recording succeeds; throws
+    /// `MeetingRecordingError.cannotSaveAudio` while it still fails. Does nothing when no write failed. The file goes
+    /// on where it stopped: AVAudioFile writes the next whole frame after the last one saved (measured with a forced
+    /// write failure), so the buffers lost meanwhile are simply missing, like a pause.
+    func resumeWriting() throws {
+        guard writeFailed else { return }
+        do {
+            try probeWrite(url)
+        } catch {
+            logger.error(
+                "meeting_write_still_failing error_type=\(String(describing: type(of: error)), privacy: .public)")
+            throw MeetingRecordingError.cannotSaveAudio
+        }
+        writeFailed = false
+        logger.notice("meeting_write_resumed")
+    }
+
+    /// How much a write probe writes: about 30 s of meeting audio.
+    static let probeBytes = 1_048_576
+
+    /// Writes `probeBytes` next to `url` and deletes them: throws when the volume does not take writes.
+    static func probeFreeSpace(nextTo url: URL) throws {
+        let probe = url.deletingLastPathComponent()
+            .appendingPathComponent(".write-test-\(UUID().uuidString)", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: probe) }
+        try Data(count: probeBytes).write(to: probe)
+    }
+}
+
+/// Why `MeetingRecorder.resume()` refused.
+public enum MeetingRecordingError: Error, Equatable, LocalizedError {
+    /// Writing failed (a full disk) and a test write still fails: nothing would be saved.
+    case cannotSaveAudio
+
+    public var errorDescription: String? {
+        switch self {
+        case .cannotSaveAudio:
+            "Parakeet still can't save audio (the iPhone may be out of storage). Free up some space and tap Resume, "
+                + "or Stop & save what was recorded."
+        }
     }
 }

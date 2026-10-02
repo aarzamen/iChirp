@@ -197,12 +197,9 @@ final class VoiceCommandResolverTests: XCTestCase {
         let commands = DictationVoiceCommands(
             settings: InMemoryStructureSettingsStore(settings),
             engines: StructureEngines(needle: nil, needleAvailability: { .unavailable("x") }), pauseSeconds: 0)
-        var stopped = false
-        commands.onLiveStop = { stopped = true }
         commands.observeLive("Patient is well. Stop dictation")
         for _ in 0..<200 where commands.chip == nil { try await Task.sleep(for: .milliseconds(10)) }
-        XCTAssertEqual(commands.chip?.command, "stop")
-        XCTAssertFalse(stopped, "the live check is chip-only: the person keeps talking, nothing is lost")
+        XCTAssertEqual(commands.chip?.command, "stop", "a chip only (the dictation keeps recording: review R5-17)")
 
         commands.perform([.sendToSOAP], copiedText: "Synthetic.", transcriptionID: UUID())
         commands.reset()

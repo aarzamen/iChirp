@@ -195,7 +195,9 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
   done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
-  cancels nothing, Retry from `failed`.
+  cancels nothing, Retry from `failed`. Review R5-10: an interruption, a wait for Resume or a microphone failure that
+  arrives while `starting` (the microphone runs before the live preview is set up) pauses or stops the dictation
+  instead of being dropped; a failure in `pendingStop` stops at once.
 - `Dictation/DictationCoordinator.swift` (M2; M6 voice-command hooks): the `@MainActor @Observable` dictation
   coordinator and view model.
   Start checks the model and the microphone permission, records into `media/<id>/dictation.wav` through
@@ -212,6 +214,33 @@ pipeline's `Task`s and publishes its progress to the UI.
   (review N4). Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
+  Review R5-1: `start(privacyClass:)` (Create passes the chain's class; everything else starts Personal) writes the
+  class to `media/<id>/dictation.json` before the recorder starts, inserts the row with it (so a Clinical dictation is
+  never Personal, not even for a moment), routes the live preview on it, and deletes the file once the row exists.
+  An orphan is adopted with the class in that file, or Clinical when it is missing or unreadable.
+  Review R5-13: a row that could not be added at Stop says the recording is saved, and Retry adds it (with its class)
+  before the final pass. Review R5-7: with "Keep dictation audio" off, the WAV is deleted only after the transcript
+  is saved, then `markAudioRemoved` clears the row's media path (a failed save keeps the audio for Retry).
+  Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) finishes with
+  what was saved and `captureNotice` says why; the Dictating screen and the Lock Screen's Live Activity show it with
+  the outcome. Its row is inserted with `isPartialAudio` (fix round 2), so the Library's "Partial audio" chip keeps
+  saying so after the notice is gone, also when only Retry could add the row.
+  Review R5-4: a WAV the app was killed while writing holds its samples but its header says 0 s; adoption and every
+  final pass first run `SpeechWAVFile.repairHeader` (off the main actor; a header that already describes its audio
+  is not touched), so Retry transcribes what was kept and the adopted row gets its length. The adopted row claims no
+  more than the file shows (fix rounds 1 to 3): a header that needed the repair means Parakeet closed while
+  recording (`adoptedAfterKillMessage`); a closed header proves no more than that the file was closed, since a full
+  disk stops a recording early and the recorder still closes it, and an earlier launch may have repaired a killed
+  one before its insert failed. That row gets `adoptedSavedRecordingMessage`, which never says the recording is
+  complete. Every adopted row is `isPartialAudio` (fix round 3), like a meeting recovered after a kill, because
+  nothing proves an orphan ran to its end; a recording that did finish but whose insert failed shows "Partial audio",
+  the safe direction. A final pass whose repair had to rewrite the header marks its row too (a row an older build
+  adopted without the repair), saved as soon as the pass knows it so a pass that then fails keeps it; the flag is
+  never cleared. This closes the two double failures fix round 2 left: a full-disk early stop whose row could not be
+  added (adopted at the next launch) and a killed recording an earlier launch repaired before its insert failed both
+  end as "Partial audio", also after a successful Retry. With "Keep dictation audio" off, a failed
+  `markAudioRemoved` is logged (ids only): the transcript is saved and the row shows no player, since its file is
+  gone.
 - `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
   (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
   ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final
@@ -314,8 +343,16 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `recording.lock` **before** the recorder starts; Stop closes the audio, moves the lock to
   `awaitingTranscription`, inserts the `.processing` meeting row with the notes, and runs the finalizer. Pause and
   mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
-  after typing stops and at Stop. The only deletes: `discard()` (the screen confirms first), a start that failed
-  before any audio, and a recording under 0.3 s (the dictation rule). Low storage refuses to start under 200 MB and
+  after typing stops and, at Stop, first, before the recorder stops (review R5-12). A full disk shows
+  `captureProblem` in `waitingForResume`; Resume returns to Recording only once the recorder's `resume()` succeeds
+  (review R5-3: it refuses while a test write still fails). A `.resumed` event while a problem is outstanding (the
+  microphone back by itself after a call) is not enough either: the coordinator stays in `waitingForResume`, asks the
+  recorder as Resume does, and says Recording only when that succeeds (fix round 1). The final pass's progress is
+  clamped, never goes backwards and is
+  ignored after the pass (review R5-16, as dictation). The only deletes: `discard()` (the screen confirms first), a
+  start that failed before any audio, and a recording under 0.3 s (the dictation rule), whose typed notes are first
+  saved as a text item (review R5-6; if that fails nothing is deleted and the lock keeps them for the next launch's
+  recovery). Low storage refuses to start under 200 MB and
   warns under 1 GB. `liveSpeechEngine` (review N6) is the live route's own engine name and whether it is Parakeet,
   for the "no live text" message: a restored backup or a revoked Apple Speech permission can leave a non-Parakeet
   engine on Live text, and the Meeting screen names that engine instead of assuming Parakeet.
@@ -330,11 +367,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `MeetingTranscriptAssembler.swift` (words offset by the chunk start, de-duplicated by absolute `endMs`).
   Display-only; a backpressure drop marks the preview lagging, published as soon as the drop applies (outcomes can
   arrive out of order, so a later result may clear the flag in the same pass). `finish()` cancels and awaits every
-  chunk.
+  chunk and drops the unfinished tail (review R5-18: the final pass covers it; the chunkers' upstream `flush()` is
+  internal, for their tests only).
 - `MeetingFinalizer.swift`: normalize `meeting.caf` → one `.meetingFinalize` job (transcribe, then diarize; a
   diarization failure is not fatal) → `SpeakerMerger` → custom words only → title, snippet, segments →
   `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the
-  row (`.failed`, Retry), the lock and the audio. Privacy routing is checked before any audio is prepared and again
+  row (`.failed`, Retry), the lock and the audio. Review R5-5: only a recording whose duration reads 0 ms (killed in
+  its first moment) fails as "No audio was saved"; any other normalization failure says "The recording is saved." with
+  the normalizer's own sentence and Retry (`FinalizeError.preparationFailed`). Privacy routing is checked before any
+  audio is prepared and again
   inside the slot. Diarization shares the background slot with the final pass, so dictation's interactive slot is
   never blocked; its cost is part of the finalize time. A meeting's own lease blocks a route change for its whole
   final pass, but `MeetingRecoveryService` runs `finalize` with no lease at all, so `finalize` also retries
@@ -351,7 +392,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   speaker rename with `renameSpeaker`, blank names refused). UX audit F59: the notes save as you type, one write
   `autosaveDelay` (0.8 s) after the last keystroke; `flush()` writes at once (Done, the sheet going away); writes run
   one after another with the text as it is when each runs, so the newest text always lands last;
-  `discardUnsavedNotes()` is the explicit "Close without saving" after a failed write.
+  `discardUnsavedNotes()` is the explicit "Close without saving" after a failed write. Review R5-8: nothing is ever
+  written before a successful read; after a failed read `hasLoaded` stays false (no autosave, `save` refuses),
+  `loadFailed` is set, and the sheet keeps the editor off and offers Retry (`load()` again).
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 
@@ -464,7 +507,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator; then
   the gate's one `review` of the whole run (allow-list proof, thresholds, STUB cap, a correction in the next
   sentence) → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
-  (`mayRun`); engine failures become needs-review items, never silent gaps.
+  (`mayRun`), judged on the `EffectivePrivacyClass` (review R5-14: the app passes the deliverable store) at the start
+  and again before every sentence; engine failures become needs-review items, never silent gaps.
 - `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
   editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
   bin, skipped sentences), `SOAPDraftHandoff` (**only reviewed fields** as `{{userNotes}}` for the SOAP template,
@@ -779,10 +823,11 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   report `pending/running/done/skipped/failed`; `phase` is `running`, `waitingForAnswer(stage)`, `finished`,
   `failed(stage, sentence)` or `cancelled`; `retry()` restarts at the failed stage and reuses an item already made.
   **The chain never confirms a clinical question:** the operation's `DeliverableRunViewModel` and the voice message
-  ask through their own dialogs, and `onAnswered` resumes the chain. **Class (review I1):** link, file and text rows
-  are created with the chosen class (`startLink` / `startFile` / `saveText` take it), so no row is ever stored less
-  private, not even for a moment; a dictation's row is raised (`DeliverableService.setPrivacyClass`) the moment the
-  chain learns its id, before the Stop check, since raising only ever makes it more private. A Stop while a lookup or
+  ask through their own dialogs, and `onAnswered` resumes the chain. **Class (review I1, R5-1):** link, file, text
+  and dictation rows are created with the chosen class (`startLink` / `startFile` / `saveText` / `recordSpeech` take
+  it; the dictation is started with it), so no row is ever stored less private, not even for a moment; the raise
+  (`DeliverableService.setPrivacyClass`) the moment the chain learns an item's id stays as a backstop, before the
+  Stop check, since raising only ever makes it more private. A Stop while a lookup or
   copy runs lets it finish: the item it makes stays in the Library with its class, `itemID` names it and
   `isMakingInput` says one may still come (the run view says so and offers Open). `reset()` also cancels a
   finished or failed chain's model run and voice message (review M2), and the app resets a chain whenever it drops

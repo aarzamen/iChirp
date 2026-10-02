@@ -1,3 +1,4 @@
+import AVFoundation
 import ChirpCore
 import ChirpText
 import Foundation
@@ -142,6 +143,20 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(h.coordinator.copiedText, expected)
         let row = try await h.row()
         XCTAssertEqual(row.rawTranscript, finalPass, "the saved transcript keeps every word")
+    }
+
+    /// Review R5-17 (and L3 minor 6): a "stop" heard in the live preview is a chip only. The dictation keeps
+    /// recording, so nothing said after a misheard "stop" is lost.
+    func testALiveStopIsAChipAndTheDictationKeepsRecording() async throws {
+        let commands = Self.voiceCommands(enabled: true)
+        let h = Harness(testCase: self, voiceCommands: commands)
+        await h.startRecording()
+        h.live.session.publish("Patient is well. Stop dictation")
+        await waitUntil { commands.chip != nil }
+        XCTAssertEqual(commands.chip?.command, "stop")
+        XCTAssertEqual(h.coordinator.state, .recording)
+        XCTAssertEqual(h.capture.stops, 0)
+        await h.stopAndWait()
     }
 
     func testVoiceCommandsOffLeaveTheFinalPassUntouched() async throws {
@@ -324,6 +339,106 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(h.capture.stops, 1)
     }
 
+    /// Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) says why
+    /// next to its outcome, so a shortened dictation is never copied without a word; the next dictation starts clean.
+    func testARecordingThatStoppedOnItsOwnSaysWhyWithTheOutcome() async throws {
+        let h = Harness(testCase: self)
+        await h.startRecording()
+        let reason = "Parakeet could not save more audio (the iPhone may be out of storage)."
+        h.capture.send(.event(.failed(message: reason)))
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        XCTAssertEqual(h.coordinator.captureNotice, reason)
+        XCTAssertEqual(h.clipboard.copies, [FakeSpeech.helloText], "what was saved is still transcribed and copied")
+
+        h.coordinator.dismiss()
+        await h.startRecording()
+        XCTAssertNil(h.coordinator.captureNotice)
+        await h.stopAndWait()
+        XCTAssertNil(h.coordinator.captureNotice, "an ordinary stop says nothing extra")
+    }
+
+    /// Review R5-10: a call that takes the microphone while the start still finishes (the live preview is being set
+    /// up) pauses the dictation; it is never dropped, so the screen never says Recording while the call has the
+    /// microphone.
+    func testAnInterruptionWhileTheStartFinishesPausesTheDictation() async throws {
+        let h = Harness(testCase: self)
+        let hold = h.live.holdNextSession()
+        h.coordinator.start()
+        await hold.entered.wait()
+        XCTAssertEqual(h.coordinator.state, .starting)
+        h.capture.send(.event(.interrupted))
+        h.capture.send(.samples([Float](repeating: 0, count: 1_600)))  // handled after the event, in order
+        await waitUntil { h.coordinator.recordedSeconds > 0 }
+        hold.release.fire()
+        // Stop waits for the start to finish, so the state log below holds everything the start did.
+        h.coordinator.stop()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertTrue(h.states.all.contains(.paused(.interrupted)), "\(h.states.all)")
+        XCTAssertFalse(h.states.all.contains(.recording), "never Recording while the call has it: \(h.states.all)")
+        XCTAssertEqual(h.coordinator.state, .done)
+    }
+
+    // MARK: - Review R5-13: a row that could not be added
+
+    /// The row could not be added when the recording stopped (a database error). The message says the recording is
+    /// kept, and Retry adds the row (with its class) and transcribes, never "can no longer be retried".
+    func testARowThatCouldNotBeAddedIsAddedByRetry() async throws {
+        let h = Harness(testCase: self)
+        await h.store.failNextInsert(with: FakeError(message: "database is locked"))
+        h.coordinator.start(privacyClass: .clinical)
+        await waitUntil { h.coordinator.state == .recording }
+        let folder = try XCTUnwrap(h.wavURL).deletingLastPathComponent()
+        await h.stopAndWait()
+
+        guard case .failed(let message) = h.coordinator.state else { return XCTFail("\(h.coordinator.state)") }
+        XCTAssertTrue(message.contains("The recording is saved"), message)
+        XCTAssertFalse(message.contains("no longer"), message)
+        XCTAssertTrue(h.coordinator.canRetry)
+        let none = try await h.store.fetchAll()
+        XCTAssertEqual(none, [])
+        XCTAssertEqual(
+            DictationCoordinator.recordedPrivacyClass(in: folder), .clinical,
+            "until a row exists the class stays next to the audio, for the next launch")
+
+        h.coordinator.retry()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        let row = try await h.row()
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.privacyClass, .clinical)
+        XCTAssertEqual(row.durationMs, FakeCapture.recordedMs)
+        XCTAssertEqual(h.clipboard.copies, [FakeSpeech.helloText])
+        XCTAssertFalse(fileExists(folder.appendingPathComponent(DictationCoordinator.sessionFileName)))
+    }
+
+    // MARK: - Review R5-7: "Keep dictation audio" off
+
+    /// The recording goes only after the transcript is saved: a failed save keeps the audio, so Retry still works.
+    func testKeepAudioOffKeepsTheRecordingUntilTheTranscriptIsSaved() async throws {
+        var settings = Harness.defaultSettings
+        settings.keepDictationAudio = false
+        let h = Harness(testCase: self, settings: settings)
+        await h.store.failNextSave(with: FakeError(message: "disk full"))
+        await h.startRecording()
+        let wav = try XCTUnwrap(h.wavURL)
+        await h.stopAndWait()
+
+        guard case .failed = h.coordinator.state else { return XCTFail("\(h.coordinator.state)") }
+        XCTAssertTrue(fileExists(wav), "the audio stays until its transcript is saved")
+        XCTAssertTrue(h.coordinator.canRetry)
+
+        h.coordinator.retry()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        XCTAssertFalse(fileExists(wav))
+        XCTAssertFalse(fileExists(wav.deletingLastPathComponent()))
+        let row = try await h.row()
+        XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText)
+        XCTAssertNil(row.mediaRelativePath)
+        XCTAssertEqual(h.clipboard.copies, [FakeSpeech.helloText])
+    }
+
     // MARK: - Settings and display
 
     func testKeepAudioOffDeletesTheRecordingAfterASuccessfulPass() async throws {
@@ -416,6 +531,358 @@ final class DictationCoordinatorTests: XCTestCase {
 
         let retried = await h.coordinator.retry(transcriptionID: orphan)
         XCTAssertEqual(retried?.status, .completed)
+    }
+
+    // MARK: - Review R5-1: the class from the first write
+
+    /// A dictation started Clinical (Create → Speak with Clinical on, a clinical recipe) is stored Clinical by its first
+    /// write, never Personal, not even for a moment. While it records, the class sits next to its audio; once the row
+    /// carries it, that file goes.
+    func testAClinicalDictationIsStoredClinicalFromItsFirstWrite() async throws {
+        let h = Harness(testCase: self)
+        h.coordinator.start(privacyClass: .clinical)
+        await waitUntil { h.coordinator.state == .recording }
+        let folder = try XCTUnwrap(h.wavURL).deletingLastPathComponent()
+        let marker = folder.appendingPathComponent(DictationCoordinator.sessionFileName)
+        XCTAssertTrue(fileExists(marker), "the class is on disk while recording")
+        XCTAssertEqual(DictationCoordinator.recordedPrivacyClass(in: folder), .clinical)
+
+        await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.state, .done)
+        let row = try await h.row()
+        XCTAssertEqual(row.privacyClass, .clinical)
+        let history = await h.store.classHistory(row.id)
+        XCTAssertEqual(history.first, .clinical, "the insert itself is clinical")
+        XCTAssertEqual(Set(history), [.clinical], "never Personal, not even for a moment")
+        XCTAssertFalse(fileExists(marker), "the row carries the class now")
+        XCTAssertTrue(fileExists(try XCTUnwrap(h.wavURL)))
+    }
+
+    func testAnOrdinaryDictationStaysPersonalAndAShortOneLeavesNoFolder() async throws {
+        let h = Harness(testCase: self)
+        await h.startRecording()
+        await h.stopAndWait()
+        let row = try await h.row()
+        XCTAssertEqual(row.privacyClass, .personal)
+
+        let short = Harness(testCase: self)
+        short.capture.failStop(with: .tooShort)
+        short.coordinator.start(privacyClass: .clinical)
+        await waitUntil { short.coordinator.state == .recording }
+        let folder = try XCTUnwrap(short.wavURL).deletingLastPathComponent()
+        await short.stopAndWait()
+        XCTAssertFalse(fileExists(folder), "the class file goes with the too-short recording")
+    }
+
+    /// A recording a killed process left behind is adopted with the class it was started with. An unknown class (an
+    /// older build wrote none, the file is unreadable, or names a class this build does not know) reads as Clinical,
+    /// the most protective class.
+    func testLaunchAdoptsAKilledRecordingWithTheClassItWasStartedWith() async throws {
+        let h = Harness(testCase: self)
+        func orphan(_ privacyClass: PrivacyClass?, rawMarker: String? = nil) throws -> UUID {
+            let id = UUID()
+            let folder = h.paths.mediaDirectory(for: id)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(repeating: 3, count: 128).write(to: folder.appendingPathComponent(DictationCoordinator.fileName))
+            if let privacyClass {
+                try DictationCoordinator.writeSessionMarker(privacyClass, in: folder)
+            } else if let rawMarker {
+                try Data(rawMarker.utf8).write(
+                    to: folder.appendingPathComponent(DictationCoordinator.sessionFileName))
+            }
+            return id
+        }
+        let expectations: [(UUID, PrivacyClass)] = [
+            (try orphan(.clinical), .clinical),
+            (try orphan(.personal), .personal),
+            (try orphan(.general), .general),
+            (try orphan(nil), .clinical),
+            (try orphan(nil, rawMarker: "not json"), .clinical),
+            (try orphan(nil, rawMarker: #"{"privacyClass":"top-secret"}"#), .clinical),
+        ]
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, expectations.count)
+        for (id, expected) in expectations {
+            let row = try await h.row(id)
+            XCTAssertEqual(row.privacyClass, expected, "\(id)")
+            let history = await h.store.classHistory(id)
+            XCTAssertEqual(history, [expected], "adopted with its class by the insert itself")
+            XCTAssertFalse(
+                fileExists(h.paths.mediaDirectory(for: id).appendingPathComponent(DictationCoordinator.sessionFileName))
+            )
+        }
+    }
+
+    // MARK: - Review R5-4: a killed recording is transcribed whole
+
+    /// A dictation killed while recording leaves a WAV that holds its samples but whose header says 0 s (real file
+    /// bytes, written through AVAudioFile like the recorder). Adoption repairs the header first: the file reads back
+    /// whole and the Library row has its length.
+    func testLaunchAdoptsAKilledRecordingThatReadsBackWhole() async throws {
+        let h = Harness(testCase: self)
+        let id = UUID()
+        let folder = h.paths.mediaDirectory(for: id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+        try Self.writeKilledRecording(frames: 24_000, to: wav)
+        XCTAssertEqual(try AVAudioFile(forReading: wav).length, 0, "what a kill leaves reads as 0 s")
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, 1)
+        XCTAssertEqual(try AVAudioFile(forReading: wav).length, 24_000, "every sample the kill left is readable")
+        let row = try await h.row(id)
+        XCTAssertEqual(row.status, .interrupted)
+        XCTAssertEqual(row.durationMs, 1_500)
+    }
+
+    /// An older build adopted such a recording without the repair: Retry repairs it before the final pass reads it.
+    func testRetryRepairsARecordingAnOlderBuildAdoptedBeforeTheFinalPassReadsIt() async throws {
+        let h = Harness(testCase: self)
+        let id = UUID()
+        let folder = h.paths.mediaDirectory(for: id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+        try Self.writeKilledRecording(frames: 16_000, to: wav)
+        let adopted = Transcription(
+            id: id, sourceType: .dictation, fileName: "Dictation.wav",
+            mediaRelativePath: h.paths.relativePath(for: wav),
+            status: .interrupted)
+        try await h.store.insert(adopted)
+
+        let hold = await h.speech.holdNextTranscription()
+        let retry = Task { await h.coordinator.retry(transcriptionID: id) }
+        await hold.entered.wait()
+        XCTAssertEqual(try AVAudioFile(forReading: wav).length, 16_000, "repaired before the engine reads it")
+        hold.release.fire()
+        let saved = await retry.value
+        XCTAssertEqual(saved?.status, .completed)
+        XCTAssertEqual(saved?.durationMs, 1_000, "the recording's own length")
+        XCTAssertEqual(saved?.isPartialAudio, true, "fix round 3: the header the pass rewrote was never closed")
+    }
+
+    /// Fix round 3: a final pass whose repair had to rewrite the header (an older build adopted the recording without
+    /// the repair) marks the row partial audio at once, so a pass that then fails keeps the mark: the repaired file no
+    /// longer shows it. A later pass never clears it.
+    func testAFinalPassThatRewritesTheHeaderMarksTheRowPartialEvenWhenItFails() async throws {
+        let h = Harness(testCase: self)
+        let id = UUID()
+        let folder = h.paths.mediaDirectory(for: id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+        try Self.writeKilledRecording(frames: 16_000, to: wav)
+        try await h.store.insert(
+            Transcription(
+                id: id, sourceType: .dictation, fileName: "Dictation.wav",
+                mediaRelativePath: h.paths.relativePath(for: wav), status: .interrupted))
+
+        await h.speech.failTranscription(with: FakeError(message: "engine stopped"))
+        let failed = await h.coordinator.retry(transcriptionID: id)
+        XCTAssertEqual(failed?.status, .failed)
+        XCTAssertEqual(failed?.isPartialAudio, true, "kept although the pass failed after the repair")
+        XCTAssertFalse(try SpeechWAVFile.repairHeader(at: wav).didRepair, "the file no longer shows the kill")
+
+        await h.speech.failTranscription(with: nil)
+        let saved = await h.coordinator.retry(transcriptionID: id)
+        XCTAssertEqual(saved?.status, .completed)
+        XCTAssertEqual(saved?.isPartialAudio, true, "never cleared")
+    }
+
+    /// Fix rounds 1 to 3 (minor 11): every orphan is adopted as partial audio, because nothing proves an orphan ran to
+    /// its end: a WAV the recorder closed may still have stopped early (a full disk, review R2-6). Its sentence says
+    /// only what is known. One whose header a kill left at 0 s was cut short by Parakeet closing, and says so. Both
+    /// stay partial after a successful Retry.
+    func testLaunchAdoptionMarksEveryOrphanPartialAndSaysOnlyWhatIsKnown() async throws {
+        let h = Harness(testCase: self)
+        let closed = UUID()
+        let closedFolder = h.paths.mediaDirectory(for: closed)
+        try FileManager.default.createDirectory(at: closedFolder, withIntermediateDirectories: true)
+        try Self.writeRecording(
+            frames: 16_000, to: closedFolder.appendingPathComponent(DictationCoordinator.fileName), killed: false)
+        let killed = UUID()
+        let killedFolder = h.paths.mediaDirectory(for: killed)
+        try FileManager.default.createDirectory(at: killedFolder, withIntermediateDirectories: true)
+        try Self.writeKilledRecording(
+            frames: 16_000, to: killedFolder.appendingPathComponent(DictationCoordinator.fileName))
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, 2)
+        XCTAssertEqual(
+            DictationCoordinator.adoptedSavedRecordingMessage,
+            "The recording is saved, but Parakeet couldn’t add it to your Library then. Retry to transcribe what was saved."
+        )
+        XCTAssertEqual(
+            DictationCoordinator.adoptedAfterKillMessage,
+            "Parakeet closed while this dictation was recording. Retry to transcribe what was kept.")
+        let closedRow = try await h.row(closed)
+        XCTAssertEqual(closedRow.errorMessage, DictationCoordinator.adoptedSavedRecordingMessage)
+        XCTAssertTrue(closedRow.isPartialAudio, "nothing proves an orphan ran to its end")
+        let killedRow = try await h.row(killed)
+        XCTAssertEqual(killedRow.errorMessage, DictationCoordinator.adoptedAfterKillMessage)
+        XCTAssertTrue(killedRow.isPartialAudio, "its audio ends where Parakeet closed")
+        XCTAssertEqual(closedRow.status, .interrupted)
+        XCTAssertEqual(killedRow.status, .interrupted)
+
+        for id in [closed, killed] {
+            let retried = await h.coordinator.retry(transcriptionID: id)
+            XCTAssertEqual(retried?.status, .completed)
+            XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
+        }
+    }
+
+    /// Fix rounds 2 and 3, the first double failure: a full disk stopped the dictation early (review R2-6), the
+    /// recorder closed what it had saved, the row could not be added on that same disk (R5-13), and Parakeet then
+    /// closed. The next launch adopts the recording with the saved sentence, as partial audio, and it stays partial
+    /// after a successful Retry.
+    func testAnEarlyStopWhoseRowCouldNotBeAddedEndsPartialAfterARelaunch() async throws {
+        let h = Harness(testCase: self)
+        await h.store.failNextInsert(with: FakeError(message: "disk full"))
+        await h.startRecording()
+        let wav = try XCTUnwrap(h.wavURL)
+        let id = try XCTUnwrap(UUID(uuidString: wav.deletingLastPathComponent().lastPathComponent))
+        // What the recorder saved before the disk filled, closed at its stop (real file bytes).
+        try FileManager.default.removeItem(at: wav)
+        try Self.writeRecording(frames: 8_000, to: wav, killed: false)
+        h.capture.send(.event(.failed(message: Self.storageNotice)))
+        await waitUntil { h.coordinator.state.isFinished }
+        guard case .failed = h.coordinator.state else { return XCTFail("\(h.coordinator.state)") }
+        let none = try await h.store.fetchAll()
+        XCTAssertEqual(none, [], "the row could not be added")
+
+        let relaunched = DictationCoordinator(
+            capture: FakeCapture(), speech: h.speech, liveSessions: FakeLiveProvider(), scheduler: SpeechJobScheduler(),
+            store: h.store, paths: h.paths, settings: h.settings, clipboard: FakeClipboard(),
+            textRules: { DictationTextRules() }, voiceCommands: nil)
+        let added = await relaunched.recoverOrphanedRecordings()
+        XCTAssertEqual(added, 1)
+        let row = try await h.row(id)
+        XCTAssertEqual(row.errorMessage, DictationCoordinator.adoptedSavedRecordingMessage)
+        XCTAssertTrue(row.isPartialAudio)
+        XCTAssertEqual(row.status, .interrupted)
+        XCTAssertEqual(row.durationMs, 500, "what was saved")
+
+        let retried = await relaunched.retry(transcriptionID: id)
+        XCTAssertEqual(retried?.status, .completed)
+        XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
+    }
+
+    /// Fix rounds 2 and 3, the second double failure: a launch repaired a killed recording's header, and then its row
+    /// could not be added, or Parakeet was killed before the insert. The next launch finds a closed header: the saved
+    /// sentence, as partial audio, and it stays partial after a successful Retry.
+    func testAKilledRecordingWhoseAdoptionFailedEndsPartial() async throws {
+        let h = Harness(testCase: self)
+        func killedRecording() throws -> (id: UUID, wav: URL) {
+            let id = UUID()
+            let folder = h.paths.mediaDirectory(for: id)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+            try Self.writeKilledRecording(frames: 16_000, to: wav)
+            return (id, wav)
+        }
+        // The launch repaired the header, then the insert failed.
+        let insertFailed = try killedRecording()
+        await h.store.failNextInsert(with: FakeError(message: "disk full"))
+        let first = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(first, 0)
+        // The launch repaired the header and was killed before the insert.
+        let killedBeforeInsert = try killedRecording()
+        try SpeechWAVFile.repairHeader(at: killedBeforeInsert.wav)
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, 2)
+        for id in [insertFailed.id, killedBeforeInsert.id] {
+            let row = try await h.row(id)
+            XCTAssertEqual(row.errorMessage, DictationCoordinator.adoptedSavedRecordingMessage)
+            XCTAssertTrue(row.isPartialAudio)
+            XCTAssertEqual(row.status, .interrupted)
+            XCTAssertEqual(row.durationMs, 1_000)
+
+            let retried = await h.coordinator.retry(transcriptionID: id)
+            XCTAssertEqual(retried?.status, .completed)
+            XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
+        }
+    }
+
+    // MARK: - Fix round 2: a dictation that stopped on its own stays marked
+
+    /// The notice the recorder sends when a write fails (a full disk, review R2-6).
+    private static let storageNotice =
+        "Stopped early: the iPhone may be out of storage, so Parakeet could not save more audio."
+
+    /// Review R2-6: a dictation that stopped on its own (here a full disk) is saved as partial audio, so the Library
+    /// still says it was cut short once the outcome's notice and the Lock Screen activity are gone. An ordinary
+    /// dictation is not.
+    func testADictationThatStoppedOnItsOwnIsSavedAsPartialAudio() async throws {
+        let h = Harness(testCase: self)
+        await h.startRecording()
+        h.capture.send(.event(.failed(message: Self.storageNotice)))
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        let partial = try await h.row()
+        XCTAssertEqual(partial.status, .completed)
+        XCTAssertNil(partial.errorMessage)
+        XCTAssertTrue(partial.isPartialAudio, "the Library says it was cut short")
+
+        h.coordinator.dismiss()
+        await h.startRecording()
+        // What the recorder leaves at an ordinary Stop: a closed WAV (real file bytes), which the final pass's repair
+        // leaves alone.
+        let wav = try XCTUnwrap(h.wavURL)
+        try FileManager.default.removeItem(at: wav)
+        try Self.writeRecording(frames: 16_000, to: wav, killed: false)
+        await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.state, .done)
+        let whole = try await h.row()
+        XCTAssertNotEqual(whole.id, partial.id)
+        XCTAssertFalse(whole.isPartialAudio, "an ordinary stop is not partial audio")
+    }
+
+    /// The same when only Retry could add the row (review R5-13).
+    func testAPartialDictationWhoseRowRetryAddedIsStillPartial() async throws {
+        let h = Harness(testCase: self)
+        await h.store.failNextInsert(with: FakeError(message: "disk full"))
+        await h.startRecording()
+        h.capture.send(.event(.failed(message: "The microphone stopped and could not restart.")))
+        await waitUntil { h.coordinator.state.isFinished }
+        guard case .failed = h.coordinator.state else { return XCTFail("\(h.coordinator.state)") }
+
+        h.coordinator.retry()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        let row = try await h.row()
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertTrue(row.isPartialAudio)
+    }
+
+    /// Writes `frames` of a synthetic tone as the recorder does (AVAudioFile, 16 kHz mono Float32 WAV) and leaves at
+    /// `url` exactly what a kill leaves: the file as it is before `close()`.
+    static func writeKilledRecording(frames: Int, to url: URL) throws {
+        try writeRecording(frames: frames, to: url, killed: true)
+    }
+
+    /// `writeKilledRecording`, or with `killed` false the closed file a normal stop leaves.
+    static func writeRecording(frames: Int, to url: URL, killed: Bool) throws {
+        let open =
+            killed ? url.deletingLastPathComponent().appendingPathComponent("open-\(UUID().uuidString).wav") : url
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000.0, AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false,
+        ]
+        let file = try AVAudioFile(
+            forWriting: open, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        let format = try XCTUnwrap(
+            AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
+        buffer.frameLength = AVAudioFrameCount(frames)
+        for index in 0..<frames { buffer.floatChannelData![0][index] = 0.3 * sinf(Float(index) * 0.06) }
+        try file.write(from: buffer)
+        guard killed else {
+            file.close()
+            return
+        }
+        try FileManager.default.copyItem(at: open, to: url)
+        file.close()
+        try FileManager.default.removeItem(at: open)
     }
 
     /// Cancel, then start again at once: the new dictation waits for the discard, keeps its own recording, and the
