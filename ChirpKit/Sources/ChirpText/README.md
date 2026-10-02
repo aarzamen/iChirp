@@ -24,7 +24,8 @@ pipeline directly.
   most time overlap, then smooths isolated one-word speaker flips.
 - `TranscriptSegmenter.swift`: groups words into presentation segments (punctuation / long gap / speaker
   change / 40-word cap) and durable `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats,
-  and `sanitizedExportStem` (reused by `ChirpExport` for export file names).
+  and `sanitizedExportStem(from:)` for a real file name (it strips the extension first, so exports do not use it:
+  they name their files with `ChirpExport.ExportFileName`).
 - `TranscriptParagraphBuilder.swift`: reading-oriented paragraphs (up to 3 sentences / 80 words / 2.5s
   pause).
 - `TranscriptCueBuilder.swift`: subtitle-style cues (up to 12 words / 800ms gap / 7s / speaker change);

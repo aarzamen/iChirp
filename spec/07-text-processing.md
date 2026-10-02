@@ -102,7 +102,8 @@ its title, VTT has it as a `NOTE` block (players never show it), PDF and Word li
 `"privacyClass": "clinical"`. SRT has no comment syntax, so it carries no marker.
 
 With no words, TXT and Markdown fall back to `displayText`. The exported file name is the sanitized display title
-plus the extension. PDF and Word (`DocumentExporter`, plan 022: Core Text and a minimal OOXML writer; the Gemini
+plus the extension, cut on a character boundary to at most 200 UTF-8 bytes so it fits every file system's 255-unit
+name limit (`ExportFileName`, one rule for every export; review R1-9). PDF and Word (`DocumentExporter`, plan 022: Core Text and a minimal OOXML writer; the Gemini
 stand-ins that wrote plain text into a `.docx` are rejected) lay out a transcript's paragraphs, or a generated
 document read as described in the section above.
 

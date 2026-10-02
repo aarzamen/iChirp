@@ -19,6 +19,8 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
   use, like `ExportDocument.transcript` (nil: the row's own; never lower than it); a clinical item's TXT starts with
   `ExportDocument.clinicalPrivacyLine` ("Privacy: Clinical: contains patient information"), its Markdown has the
   line under the title and its VTT a `NOTE` block; SRT, which has no comment syntax, has none.
+- `ExportFileName.swift`: the one file-name rule every export uses (`stem(fromTitle:fallback:)`, see "What to know
+  before editing").
 - `ExportTempFiles.swift`: where a share-sheet export lives on disk (`<tmp>/export-<id>/`, the same path
   `ChirpFeatures.TranscriptViewModel.exportFile(_:)` writes into) and how it is cleaned up —
   `remove(for:)` deletes one id's folder (`LibraryViewModel.delete` calls this so a deleted row's export
@@ -88,17 +90,17 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 - The JSON encoder uses `.withoutEscapingSlashes` — without it, Foundation's `JSONEncoder` escapes the
   `/` in the `"ichirp.transcript/v1"` schema string as `\/`, which the pinned `testJSONSchemaKey` test
   case (and the schema string on disk) must not contain.
-- `write(_:as:to:)` names the file with the private `sanitizedExportStem(fromTitle:)` helper, **not**
-  `TranscriptSegmenter.sanitizedExportStem(from:)` (ChirpText). That ChirpText helper expects a real
-  file name and calls `.deletingPathExtension` before sanitizing; `transcription.displayTitle` is
-  already extension-stripped (or may have no real extension at all — it can be a user-entered title),
-  so running it through `.deletingPathExtension` a second time corrupts any title that merely looks
-  like it ends in a file extension: `"Client Q&A v2.1"` lost its `.1` and became `"Client Q&A v2"`
-  (regression fixed and pinned by
-  `testWritePreservesDottedTitleWithoutStrippingExtensionLikeSuffix`). ChirpText's
-  `sanitizedExportStem(from:)` is left unchanged — it is still correct, and pinned, for its own
-  file-name inputs (`ChirpTextTests.TranscriptSegmenterTests`) — `sanitizedExportStem(fromTitle:)` only
-  replaces disallowed characters (`/:\␀`) and trims, with the same `"transcript"` empty-fallback.
+- Every export file is named by `ExportFileName.stem(fromTitle:fallback:)` (review R1-9: the two exporters had two
+  rules, one with no length limit, so a long title made Share fail with "file name too long"): `/:\␀` become
+  spaces, the result is trimmed and cut on a character boundary to at most `ExportFileName.maxStemBytes` (200)
+  UTF-8 bytes of each character's larger form, composed or decomposed — Apple's file systems count UTF-16 units
+  of the decomposed name (measured: 251 kanji fit, 251 Hangul syllables do not), Linux counts UTF-8 bytes, and
+  this bound fits both with room for the extension. The fallback word stays each exporter's own ("transcript" for
+  the text formats, "document" for PDF/Word). It is **not** `TranscriptSegmenter.sanitizedExportStem(from:)`
+  (ChirpText): that helper expects a real file name and calls `.deletingPathExtension` first;
+  `transcription.displayTitle` is already extension-stripped (or a user-entered title), so a second strip
+  corrupted any title that merely looks like it ends in an extension (`"Client Q&A v2.1"` lost its `.1`; pinned by
+  `testWritePreservesDottedTitleWithoutStrippingExtensionLikeSuffix` and `ExportFileNameTests`).
 - (PDF and DOCX now exist as `DocumentExporter`, above.) Upstream's PDF, DOCX, and DAPT formats, `TranscriptExportOptions` (per-export include/exclude
   timestamps/speakers/metadata toggles), and the speaker-correction/projection pipeline
   (`SpeakerAttributionProjection`, `SpeakerCorrection`) were not ported — PDF/DOCX are AppKit-only, DAPT

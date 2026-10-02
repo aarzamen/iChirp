@@ -420,9 +420,11 @@ final class DocumentExportTests: XCTestCase {
         XCTAssertEqual(CRC32.checksum(Data("123456789".utf8)), 0xCBF4_3926)
     }
 
-    func testFileNamesComeFromTheTitle() {
-        XCTAssertEqual(DocumentExporter.fileStem("Plan: Q3/Q4"), "Plan  Q3 Q4")
-        XCTAssertEqual(DocumentExporter.fileStem("  "), "document")
+    func testFileNamesComeFromTheTitle() throws {
+        let url = try DocumentExporter().write(ExportDocument.text(title: "Plan: Q3/Q4", body: "x"), as: .pdf, to: folder)
+        XCTAssertEqual(url.lastPathComponent, "Plan  Q3 Q4.pdf")
+        let untitled = try DocumentExporter().write(ExportDocument.text(title: "  ", body: "x"), as: .docx, to: folder)
+        XCTAssertEqual(untitled.lastPathComponent, "document.docx")
     }
 
     // MARK: - Helpers

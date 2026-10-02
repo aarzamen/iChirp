@@ -32,19 +32,13 @@ public struct DocumentExporter: Sendable {
         }
     }
 
-    /// Writes `<title>.<pdf|docx>` into `directory` (created when missing) and returns its URL.
+    /// Writes `<title>.<pdf|docx>` into `directory` (created when missing) and returns its URL. The name follows the
+    /// text exports' rule (`ExportFileName`), "document" when nothing is left of the title.
     public func write(_ document: ExportDocument, as format: DocumentExportFormat, to directory: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("\(Self.fileStem(document.title)).\(format.fileExtension)")
+        let stem = ExportFileName.stem(fromTitle: document.title, fallback: "document")
+        let url = directory.appendingPathComponent("\(stem).\(format.fileExtension)")
         try render(document, as: format).write(to: url, options: .atomic)
         return url
-    }
-
-    /// The title without `/ : \` and NUL, trimmed; "document" when nothing is left (the rule of the text exports).
-    static func fileStem(_ title: String) -> String {
-        let cleaned = title.components(separatedBy: CharacterSet(charactersIn: "/:\\\0"))
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? "document" : String(cleaned.prefix(120))
     }
 }

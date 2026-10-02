@@ -73,31 +73,14 @@ public struct TranscriptExporter: Sendable {
     }
 
     /// Renders `transcription` as `format` and writes it to `directory`, named after the
-    /// transcription's sanitized `displayTitle` plus the format's extension. Returns the written file's
-    /// URL.
+    /// transcription's `displayTitle` (`ExportFileName`, "transcript" when nothing is left) plus the format's
+    /// extension. Returns the written file's URL.
     public func write(_ transcription: Transcription, as format: ExportFormat, to directory: URL) throws -> URL {
         let content = try render(transcription, as: format)
-        let stem = Self.sanitizedExportStem(fromTitle: transcription.displayTitle)
+        let stem = ExportFileName.stem(fromTitle: transcription.displayTitle, fallback: "transcript")
         let url = directory.appendingPathComponent("\(stem).\(format.fileExtension)")
         try content.write(to: url, atomically: true, encoding: .utf8)
         return url
-    }
-
-    /// Sanitizes a display title for use as an export file stem: replaces disallowed characters
-    /// (`/:\␀`) with spaces and trims, falling back to `"transcript"` when the result is empty.
-    ///
-    /// This is deliberately **not** `TranscriptSegmenter.sanitizedExportStem(from:)` (ChirpText):
-    /// that helper expects a real file name and calls `.deletingPathExtension` to strip a trailing
-    /// extension before sanitizing. `Transcription.displayTitle` is already extension-stripped (or
-    /// has no file extension at all — it may be a user-entered title), so running it through
-    /// `.deletingPathExtension` again corrupts any title that merely *looks* like it ends in an
-    /// extension: `"Client Q&A v2.1"` would lose its `.1` and become `"Client Q&A v2"`. This helper
-    /// only replaces disallowed characters — it never touches a trailing `.something`.
-    private static func sanitizedExportStem(fromTitle title: String) -> String {
-        let disallowed = CharacterSet(charactersIn: "/:\\\0")
-        let parts = title.components(separatedBy: disallowed)
-        let normalized = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? "transcript" : normalized
     }
 
     // MARK: - Text used when there is nothing timed to build from
