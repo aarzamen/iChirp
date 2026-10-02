@@ -26,9 +26,12 @@ ChirpStore depends on ChirpText.
   `v6-documents` (M5: four nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`,
   `documentPages` JSON), then `v7-structured-results` (M6: the `structured_runs`, `structured_fields` and
   `structured_eval_runs` tables; new tables only), then `v8-text-items` (plan 022: the append-only
-  `deliverable_versions` table of Edit by voice; text items themselves need no column). Every migration has an
-  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests`, which
-  uses the internal `DatabaseManager(writer:)` on a v7 queue).
+  `deliverable_versions` table of Edit by voice; text items themselves need no column), then
+  `v9-llm-runs-deliverable-index` (review R1-17: `idx_llm_runs_deliverable_id`, so a document's delete nulls its
+  ledger rows without a full scan; an index only). Every migration has an
+  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests` and
+  for v9 `LLMRunsDeliverableIndexMigrationTests`, which use the internal `DatabaseManager(writer:)` on an older
+  queue).
 - `DeliverableVersionStore.swift` (plan 022) — `DeliverableVersionSchema` (the `v8-text-items` table, cascade-deleted
   with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
