@@ -2,7 +2,7 @@
 
 The contract layer of ChirpKit. Every other module (store, audio, engines, text, export, features, UI) codes
 against the types and protocols here, and ChirpCore depends on nothing but Foundation and OSLog (plus `os` on iOS,
-for `os_proc_available_memory`).
+for `os_proc_available_memory`, and the CryptoKit system framework for `TranscriptFingerprint`'s SHA-256).
 
 ## Entry point
 
@@ -13,12 +13,21 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 ## What's here
 
 - `Models/Transcript.swift`: word, speaker, diarization and transcript segment value types, ported from
-  MacParakeet without the correction-only fields.
+  MacParakeet; `TranscriptSegmentRecord.isTextEdited` (optional) marks a corrected segment of the JSON export only.
+- `Models/TranscriptCorrection.swift` (plan 025): `TranscriptCorrection` (a word span `[a, b)` of the engine's words
+  replaced by the person's text, with `heard`, `origin` (`edit`, `replace`, `replaceAll`, `rule`, `voiceCommand`; an
+  unknown one reads as `edit`), `batchID`, `ruleID`), `TranscriptCorrectionPlan` (remove by id, add) and
+  `TranscriptCorrections`, the `textCorrections` envelope (`schema`, `baseline`, `changedAt`, `items`, `detached`):
+  `applying(_:words:now:)` checks the invariants and returns the inverse plan (undo), `validItems(in:)` is what a reader
+  may apply, `preserved(acrossNewWords:now:)` is what a pipeline save keeps (same words: attached; other words:
+  detached). A newer `schema` decodes to a placeholder that applies nothing. `Models/TranscriptFingerprint.swift`:
+  `"w1:"` + SHA-256 of the words' text and times. Contract: `spec/contracts/transcript-corrections-v1.md`.
 - `Models/Transcription.swift`: the `Transcription` record, with `displayText` (and `displayTitle` from
   `TranscriptionRowFields`); the static `displayTitle(titleOverride:sourceTitle:derivedTitle:fileName:)` and
   `displayText(cleanTranscript:rawTranscript:)` are the one rule for both, also for a store reading only those
   columns. M3 adds
   `userNotes`, `isPartialAudio`, `audioRemovedAt` and `renameSpeaker(_:to:)` (roster and segment labels together);
+  plan 025 adds `textCorrections` (a user field: pipeline saves keep it);
   M5 adds `sourceURL`, `sourceTitle` (wins over the derived title), `documentFormat` and `documentPages`
   ([contract](../../../spec/contracts/document-items-v1.md)).
 - `Models/TranscriptionSummary.swift` (review R1-1): `TranscriptionRowFields`, the fields a row, a status line or a

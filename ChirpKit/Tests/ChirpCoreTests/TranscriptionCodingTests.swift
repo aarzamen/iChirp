@@ -35,8 +35,16 @@ final class TranscriptionCodingTests: XCTestCase {
                 wordRange: TranscriptSegmentWordRange(startIndex: 0, endIndexExclusive: 1)),
             TranscriptSegmentRecord(
                 startMs: 450, endMs: 900, speakerId: "S2", speakerLabel: "Speaker 2", text: "world.",
-                wordRange: TranscriptSegmentWordRange(startIndex: 1, endIndexExclusive: 2)),
+                wordRange: TranscriptSegmentWordRange(startIndex: 1, endIndexExclusive: 2), isTextEdited: true),
         ]
+        // Plan 025: a correction envelope round-trips with the row.
+        t.textCorrections = try? TranscriptCorrections.empty.applying(
+            TranscriptCorrectionPlan(add: [
+                TranscriptCorrection(
+                    wordRange: 1..<2, heard: "", text: "world!", origin: .edit,
+                    createdAt: Date(timeIntervalSinceReferenceDate: 780_000_050), updatedAt: Date(timeIntervalSinceReferenceDate: 780_000_060))
+            ]), words: t.wordTimestamps ?? [], now: Date(timeIntervalSinceReferenceDate: 780_000_070)
+        ).corrections
         t.engine = "fluidaudio.parakeet-tdt"
         t.engineVariant = "v3"
         t.derivedTitle = "Hello world"
@@ -52,6 +60,8 @@ final class TranscriptionCodingTests: XCTestCase {
         XCTAssertEqual(decoded, original)
         XCTAssertEqual(decoded.wordTimestamps?.count, 2)
         XCTAssertEqual(decoded.transcriptSegments?.map(\.wordRange.endIndexExclusive), [1, 2])
+        XCTAssertEqual(decoded.transcriptSegments?.map(\.isTextEdited), [nil, true])
+        XCTAssertEqual(decoded.textCorrections?.items.map(\.text), ["world!"])
     }
 
     func testJSONRoundTripWithDefaultNowDates() throws {
