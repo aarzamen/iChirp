@@ -72,9 +72,12 @@ extension SpeechWAVFile {
     /// `docs/research/2026-09-22-meeting-crash-format.md`, review R5-4). This rewrites those sizes (and a `fact` chunk's
     /// frame count, when there is one) from the file's length and cuts off a partial last frame, nothing else.
     ///
-    /// It changes only a header that cannot be right: a `data` size of 0 or 0xFFFFFFFF ("still being written"), one
-    /// larger than the file, or one that ends before the file does with no chunk after it. A finished file, or one
-    /// with a chunk after its audio, is left exactly as it is, so this is safe to call before every read.
+    /// It changes only a header that does not describe the audio on disk: a `data` size of 0 or 0xFFFFFFFF ("still
+    /// being written"), one larger than the file, one that ends before the file does with no chunk after it, or a
+    /// `fact` frame count that disagrees with the data (what a repair killed between its writes leaves, fix round 1).
+    /// A header that already describes its audio, or one with a chunk after its audio, is left exactly as it is, so
+    /// this is safe to call before every read. `didRepair` says which it was; a closed header proves only that the
+    /// writer (or an earlier repair) finished the file, not that the recording ran to its end.
     @discardableResult
     public static func repairHeader(at url: URL) throws -> HeaderRepair {
         let handle = try FileHandle(forReadingFrom: url)

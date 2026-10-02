@@ -66,7 +66,7 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 | `isFavorite` | bool | Star in Library and Transcript |
 | `privacyClass` | text enum | `general` · `personal` (default) · `clinical` ([`12-privacy.md`](12-privacy.md)) |
 | `userNotes` | text, nullable | M3 (`v5-meetings`): the Notes tab; typed while a meeting records (kept in `recording.lock` until Stop) or later. A user field, like `titleOverride` |
-| `isPartialAudio` | bool, default false | M3: a meeting recovered after the app was killed while recording; the Library shows "Partial audio" |
+| `isPartialAudio` | bool, default false | Its audio ends early, and the Library shows "Partial audio". M3: a meeting recovered after the app was killed while recording. M2 (review R2-6, fix round 2): a dictation that stopped on its own (a full disk, a microphone that could not restart), or one adopted at launch after a kill |
 | `audioRemovedAt` | date, nullable | M3: when the meeting-audio retention setting deleted the audio (`mediaRelativePath` is nil since) ([contract](contracts/meeting-session-v1.md)) |
 | `sourceURL` | text, nullable | M5 (`v6-documents`): the pasted or shared link of a podcast, media or YouTube item |
 | `sourceTitle` | text, nullable | M5: the title the source published (episode, video, document metadata); wins over `derivedTitle` |

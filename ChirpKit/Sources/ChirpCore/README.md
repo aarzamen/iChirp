@@ -133,8 +133,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Pipeline/SpeechWAVFile.swift` (M3): a Foundation-only 16 kHz mono Float32 WAV writer for a meeting's temporary
   live-preview chunks (`atomically: false` writes the file itself, for the router's preview windows). Review R5-4:
   `repairHeader(at:)` rewrites the RIFF and `data` sizes (and a `fact` count) of a WAV whose writer was killed before
-  closing it (AVFoundation writes them only on close, so it reads as 0 s), from the file's length; a finished file, or
-  one with a chunk after its audio, is never changed. Fix round 1: the `data` size, which says "finished", is written
+  closing it (AVFoundation writes them only on close, so it reads as 0 s), from the file's length; a header that
+  already describes its audio, or one with a chunk after its audio, is never changed (a closed header proves the file
+  was closed, not that the recording ran to its end). Fix round 1: the `data` size, which says "finished", is written
   last (after any partial frame is cut, the `fact` count and the RIFF size), and a `fact` count that disagrees with
   the data counts as unfinished, so a repair killed after any step is finished by the next one.
 - `Pipeline/VoiceMessageWriting.swift` (plan 022): the seam between ChirpFeatures' `VoiceMessageExporter` and

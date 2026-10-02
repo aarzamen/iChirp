@@ -186,14 +186,18 @@ pipeline's `Task`s and publishes its progress to the UI.
   is saved, then `markAudioRemoved` clears the row's media path (a failed save keeps the audio for Retry).
   Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) finishes with
   what was saved and `captureNotice` says why; the Dictating screen and the Lock Screen's Live Activity show it with
-  the outcome.
+  the outcome. Its row is inserted with `isPartialAudio` (fix round 2), so the Library's "Partial audio" chip keeps
+  saying so after the notice is gone, also when only Retry could add the row.
   Review R5-4: a WAV the app was killed while writing holds its samples but its header says 0 s; adoption and every
-  final pass first run `SpeechWAVFile.repairHeader` (off the main actor; a finished file is not touched), so Retry
-  transcribes what was kept and the adopted row gets its length. The adopted row says what happened (fix round 1): a
-  header the recorder had already closed means the dictation stopped normally and only its row was missing (R5-13,
-  `adoptedAfterStopMessage`); a header that needed the repair means Parakeet closed while recording
-  (`adoptedAfterKillMessage`). With "Keep dictation audio" off, a failed `markAudioRemoved` is logged (ids only): the
-  transcript is saved and the row shows no player, since its file is gone.
+  final pass first run `SpeechWAVFile.repairHeader` (off the main actor; a header that already describes its audio
+  is not touched), so Retry transcribes what was kept and the adopted row gets its length. The adopted row claims no
+  more than the file shows (fix rounds 1 and 2): a header that needed the repair means Parakeet closed while
+  recording (`adoptedAfterKillMessage`, and `isPartialAudio`, like a meeting recovered after a kill); a closed
+  header proves no more than that the file was closed, since a full disk stops a recording early and the recorder
+  still closes it, and an earlier launch may have repaired a killed one before its insert failed. That row gets
+  `adoptedSavedRecordingMessage`, which never says the recording is complete. With "Keep dictation audio" off, a
+  failed `markAudioRemoved` is logged (ids only): the transcript is saved and the row shows no player, since its file
+  is gone.
 - `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
   (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
   ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final

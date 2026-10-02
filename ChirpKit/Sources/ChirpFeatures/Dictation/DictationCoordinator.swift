@@ -446,11 +446,16 @@ public struct DictationTextRules: Sendable {
     /// Inserts the `.processing` row of the stopped recording, with its class (review R5-1), and then removes the class
     /// file. When the insert fails, the dictation fails with a sentence that says the audio is kept: Retry inserts it
     /// again, and the next launch adopts it otherwise (review R5-13). Nil when it was not inserted.
+    ///
+    /// Fix round 2 (review R2-6): a recording that stopped on its own (`captureNotice`: a full disk, a microphone that
+    /// could not restart) is inserted as partial audio, so the Library keeps saying it was cut short after the
+    /// outcome's notice is gone. The recorder has stopped by now, so nothing can change that afterwards: the insert
+    /// itself carries it, and the final pass saves it on.
     private func insertRow(
         for recording: (id: UUID, url: URL, privacyClass: PrivacyClass), generation: Int
     ) async -> Transcription? {
         let recorded = recordedAudio
-        let row = Transcription(
+        var stopped = Transcription(
             id: recording.id,
             sourceType: .dictation,
             fileName: "Dictation.wav",
@@ -460,6 +465,8 @@ public struct DictationTextRules: Sendable {
             status: .processing,
             privacyClass: recording.privacyClass
         )
+        stopped.isPartialAudio = captureNotice != nil
+        let row = stopped
         do {
             let store = self.store
             try await Self.detached { try await store.insert(row) }
@@ -477,9 +484,10 @@ public struct DictationTextRules: Sendable {
     /// Launch adoption of a recording a kill cut short (its WAV was never closed).
     static let adoptedAfterKillMessage =
         "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
-    /// Fix round 1: launch adoption of a recording that stopped normally but never got its Library row (review R5-13).
-    static let adoptedAfterStopMessage =
-        "This dictation finished recording, but Parakeet couldn’t add it to your Library then. Retry to transcribe it."
+    /// Launch adoption of a closed recording that never got its Library row (review R5-13). Fix round 2: closed does
+    /// not mean whole (a full disk stops a recording early, review R2-6), so this never says the recording is complete.
+    static let adoptedSavedRecordingMessage =
+        "The recording is saved, but Parakeet couldn’t add it to your Library then. Retry to transcribe what was saved."
 
     /// Review R5-13: the recording is on disk but has no Library row yet.
     static let rowNotAddedMessage =
@@ -604,7 +612,7 @@ public struct DictationTextRules: Sendable {
                 throw FileTranscriptionPipeline.PipelineError.sourceFileMissing
             }
             // Review R5-4: a recording a kill left behind (adopted now or by an older build) reads as 0 s until its
-            // header describes the samples on disk. A finished file is not touched.
+            // header describes the samples on disk. A header that already describes them is not touched.
             let repaired = await repairInterruptedRecording(url)
             let result = try await scheduler.run(.dictation) {
                 try await speech.prepare()
@@ -696,9 +704,15 @@ public struct DictationTextRules: Sendable {
     // MARK: - Launch recovery
 
     /// Adopts recordings a killed process left behind: a `media/<id>/dictation.wav` whose row was never inserted
-    /// (the app died while recording) becomes an `.interrupted` dictation row, so the Library shows it with Retry
-    /// instead of the audio sitting unseen. Never deletes anything. Call once at launch, before any dictation starts.
-    /// Returns how many rows it added.
+    /// (the app died while recording, or the row could not be added) becomes an `.interrupted` dictation row, so the
+    /// Library shows it with Retry instead of the audio sitting unseen. Never deletes anything. Call once at launch,
+    /// before any dictation starts. Returns how many rows it added.
+    ///
+    /// The row claims no more than the file shows (fix round 2). A header the repair had to rewrite was never closed:
+    /// Parakeet closed while recording, so the row says so and is partial audio (like a meeting recovered after a
+    /// kill). A header that already described its audio was closed, but that does not prove the dictation is whole: a
+    /// full disk stops a recording early and the recorder still closes it (review R2-6), and an earlier launch may have
+    /// repaired a killed one before its own insert failed. Its sentence never says the recording is complete.
     @discardableResult
     public func recoverOrphanedRecordings() async -> Int {
         guard state.isFinished, recording == nil else { return 0 }
@@ -714,16 +728,15 @@ public struct DictationTextRules: Sendable {
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
             // Review R5-4: the kill left the samples with a header that says 0 s; make it describe them first.
             let repaired = await repairInterruptedRecording(wav)
-            // Fix round 1: a header that already described its audio was closed by the recorder, so the dictation
-            // stopped normally and only its row is missing (review R5-13); anything else was cut short by a kill.
-            let stoppedNormally = repaired.map { !$0.didRepair && $0.frameCount > 0 } ?? false
+            let cutShortByAKill = repaired?.didRepair == true
             // Review R5-1: the class the dictation was started with; Clinical when it is unknown.
             let privacyClass = Self.recordedPrivacyClass(in: folder)
             var row = Transcription(
                 id: id, sourceType: .dictation, fileName: "Dictation.wav",
                 mediaRelativePath: paths.relativePath(for: wav), fileSizeBytes: Self.fileSize(wav),
                 durationMs: repaired?.durationMs, status: .interrupted, privacyClass: privacyClass)
-            row.errorMessage = stoppedNormally ? Self.adoptedAfterStopMessage : Self.adoptedAfterKillMessage
+            row.errorMessage = cutShortByAKill ? Self.adoptedAfterKillMessage : Self.adoptedSavedRecordingMessage
+            row.isPartialAudio = cutShortByAKill
             let orphan = row
             do {
                 try await Self.detached { try await store.insert(orphan) }
