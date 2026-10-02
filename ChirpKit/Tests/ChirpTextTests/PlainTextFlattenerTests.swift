@@ -225,6 +225,30 @@ final class PlainTextFlattenerTests: XCTestCase {
             "- Threshold ≥ 38.0\n- 5 & 3 < 9")
     }
 
+    /// Known item K1: a single "#" plus a space plus prose is the person's "#" ("number of", "fracture"), never a
+    /// heading marker to drop.
+    func testSingleHashLineKeepsItsHash() {
+        XCTAssertEqual(PlainTextFlattener.flatten("# of doses given: 3"), "# of doses given: 3")
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("**Assessment**\n# L radius\n# HTN, controlled"),
+            "Assessment\n\n# L radius\n# HTN, controlled")
+    }
+
+    /// Known item K2: "2) second item" copied as "2. second item"; the source delimiter is kept.
+    func testCloseParenNumberKeepsItsDelimiter() {
+        XCTAssertEqual(PlainTextFlattener.flatten("2) second item"), "2) second item")
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("1) Start metoprolol\n2) Recheck BP in 2 weeks\n  3. Nested item"),
+            "1) Start metoprolol\n2) Recheck BP in 2 weeks\n  3. Nested item")
+    }
+
+    /// A "+" finding copies as "+", never as the "-" bullet marker (the opposite finding).
+    func testPlusAndMinusFindingsKeepTheirSigns() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("ROS\n+ fever\n+ cough\n- chills"),
+            "ROS\n+ fever\n+ cough\n\n- chills")
+    }
+
     /// Review R2-8: a dose range written with tildes copies exactly as written, never as a strikethrough.
     func testTildeDoseRangeCopiesExactly() {
         XCTAssertEqual(

@@ -9,12 +9,33 @@ final class MarkdownBlockParserTests: XCTestCase {
 
     func testHashHeadingsKeepTheirLevel() {
         XCTAssertEqual(
-            MarkdownBlockParser.parse("# Title\n\n## Subsection\n\n###### Deep"),
+            MarkdownBlockParser.parse("## Subsection\n\n### Part\n\n###### Deep"),
             [
-                .heading(level: 1, text: "Title"),
                 .heading(level: 2, text: "Subsection"),
+                .heading(level: 3, text: "Part"),
                 .heading(level: 6, text: "Deep"),
             ])
+    }
+
+    /// Known item K1, ruling (plan 024 Task 4): a single "#" is never a heading. In clinical shorthand "#" means
+    /// "number of" ("# of doses given: 3"), "fracture" ("# L radius") or a problem-list entry ("# HTN"); reading it
+    /// as a heading dropped the "#" on screen, on Copy and in the PDF/Word exports. Two or more hashes still make a
+    /// heading, and every built-in template names its sections with a bold line, which is unaffected.
+    func testSingleHashLineIsTextThatKeepsItsHash() {
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("# of doses given: 3"), [.paragraph("# of doses given: 3")])
+        XCTAssertEqual(MarkdownBlockParser.parse("# L radius"), [.paragraph("# L radius")])
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("# SOAP Note\n**Subjective**"),
+            [.paragraph("# SOAP Note"), .heading(level: 2, text: "Subjective")],
+            "a model's single-# title line shows its # as written (the ruling's cosmetic cost)")
+    }
+
+    /// A line of only underscores or asterisks (a signature blank, a divider) is not a bold-only heading: "_____"
+    /// used to become a heading whose text was "_", dropping four characters.
+    func testDelimiterOnlyLineIsNotAHeading() {
+        XCTAssertEqual(MarkdownBlockParser.parse("_____"), [.paragraph("_____")])
+        XCTAssertEqual(MarkdownBlockParser.parse("*****"), [.paragraph("*****")])
     }
 
     func testBoldOnlyLineIsAHeading() {
@@ -44,7 +65,7 @@ final class MarkdownBlockParserTests: XCTestCase {
     // MARK: - Lists
 
     func testBulletMarkers() {
-        for marker in ["- ", "* ", "+ ", "• "] {
+        for marker in ["- ", "* ", "• "] {
             XCTAssertEqual(
                 MarkdownBlockParser.parse("\(marker)Task one\n\(marker)Task two"),
                 [.list([
@@ -65,13 +86,28 @@ final class MarkdownBlockParserTests: XCTestCase {
             ])])
     }
 
-    func testNumberedListAcceptsCloseParenMarker() {
+    /// Known item K2: the item keeps the delimiter it was written with, so "2)" is never shown or copied as "2.".
+    func testNumberedListAcceptsCloseParenMarkerAndKeepsIt() {
         XCTAssertEqual(
             MarkdownBlockParser.parse("1) First\n2) Second"),
             [.list([
-                MarkdownListItem(level: 0, number: 1, text: "First"),
-                MarkdownListItem(level: 0, number: 2, text: "Second"),
+                MarkdownListItem(level: 0, number: 1, text: "First", marker: "1)"),
+                MarkdownListItem(level: 0, number: 2, text: "Second", marker: "2)"),
             ])])
+    }
+
+    func testNumberedMarkerIsKeptExactlyAsWritten() {
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("07. Seventh"),
+            [.list([MarkdownListItem(level: 0, number: 7, text: "Seventh", marker: "07.")])])
+        XCTAssertEqual(MarkdownListItem(level: 0, number: 3, text: "Third").marker, "3.", "the default delimiter")
+        XCTAssertNil(MarkdownListItem(level: 0, number: nil, text: "Bullet").marker)
+    }
+
+    /// Ruling (plan 024 Task 4): "+" is not a bullet marker. In clinical writing "+" means present or positive and
+    /// "-" absent or negative; as a bullet, "+ fever" was drawn "•" and copied "- fever", the opposite finding.
+    func testPlusLineIsTextNotABullet() {
+        XCTAssertEqual(MarkdownBlockParser.parse("+ fever\n+ cough"), [.paragraph("+ fever\n+ cough")])
     }
 
     func testChecklistItemKeepsItsCheckbox() {

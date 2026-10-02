@@ -5,12 +5,15 @@ import Foundation
 
 /// Turns a generated document's Markdown into clean plain text for the clipboard.
 ///
-/// - A heading (`#`…`######`, or a line that is a single bold run — every built-in template's section-name style,
-///   `**Subjective**`) becomes its text on its own line, followed by a blank line.
-/// - A bullet becomes `"- "` (`PlainTextFlattener.bulletMarker`) at every nesting level, each level indented two
-///   more spaces. `"- "` was chosen over `"• "`: a hyphen types and pastes identically everywhere, where a bullet
-///   glyph can arrive as `?` or get stripped by a strict EMR field.
-/// - A numbered item keeps its own number, exactly as written (never renumbered).
+/// - A heading (`##`…`######`, or a line that is a single bold run — every built-in template's section-name style,
+///   `**Subjective**`) becomes its text on its own line, followed by a blank line. A single `#` is not a heading:
+///   "# of doses given: 3" copies with its "#" (known item K1, ruling in `MarkdownBlockParser`).
+/// - A bullet (`-`, `*` or `•`) becomes `"- "` (`PlainTextFlattener.bulletMarker`) at every nesting level, each
+///   level indented two more spaces. `"- "` was chosen over `"• "`: a hyphen types and pastes identically
+///   everywhere, where a bullet glyph can arrive as `?` or get stripped by a strict EMR field. A `+` line is not a
+///   bullet and copies with its "+" (a "+" finding is never turned into "-").
+/// - A numbered item keeps its own number and delimiter, exactly as written ("2)" stays "2)", never renumbered;
+///   known item K2).
 /// - Paragraphs are separated by one blank line.
 /// - Code is shown as plain text — its fence markers are dropped and its content is never re-parsed as Markdown.
 ///
@@ -52,7 +55,7 @@ public enum PlainTextFlattener {
 
     private static func renderItem(_ item: MarkdownListItem) -> String {
         let indent = String(repeating: indentUnit, count: item.level)
-        let marker = item.number.map { "\($0). " } ?? bulletMarker
+        let marker = item.marker.map { "\($0) " } ?? bulletMarker
         return indent + marker + MarkdownInline.plain(item.text)
     }
 }

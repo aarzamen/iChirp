@@ -66,12 +66,17 @@ pipeline directly.
   render empty and are logged `.private`.
 - `Markdown/` (UX audit F23, plan 023 — "formatted view, plain copy"): a generated document's Markdown, rendered on
   screen and flattened for Copy from the same parse.
-  - `MarkdownBlock.swift`: `MarkdownBlockParser.parse(_:)`, a pure, deterministic line-based block parser —
-    `.heading` (a real `#`…`######` line, or a line that is a single bold run and nothing else, the shape every
-    built-in template uses for its section names, e.g. `**Subjective**`), `.paragraph`, `.list` (bulleted,
-    numbered or a mix, with a `MarkdownListItem.level` for nesting), `.code` (a fenced ```` ``` ```` block). A
-    numbered marker needs a digit run followed by ". "/") " (so "120/80 mmHg" and "3.5 mg" are never read as list
-    items); each two leading spaces of indentation is one more nesting level.
+  - `MarkdownBlock.swift`: `MarkdownBlockParser.parse(_:)`, a pure, deterministic line-based block parser shared
+    by the screen, Copy and the PDF/Word exports — `.heading` (a real `##`…`######` line, or a line that is a
+    single bold run holding a letter or digit and nothing else, the shape every built-in template uses for its
+    section names, e.g. `**Subjective**`), `.paragraph`, `.list` (bulleted with `-`, `*` or `•`, numbered, or a
+    mix, with a `MarkdownListItem.level` for nesting and, for a numbered item, its `marker` exactly as written:
+    "2)", "07."), `.code` (a fenced ```` ``` ```` block). A numbered marker needs a digit run followed by ". "/") "
+    (so "120/80 mmHg" and "3.5 mg" are never read as list items); each two leading spaces of indentation is one
+    more nesting level. Rulings (plan 024 Task 4), each keeping a character the person wrote: a single `#` is
+    never a heading ("# of doses given: 3", "# L radius" keep their "#"; known item K1), `+` is never a bullet
+    ("+ fever" is never drawn "•" or copied "- fever"), and a numbered item keeps its own delimiter ("2)" never
+    becomes "2."; known item K2).
   - `MarkdownInline.swift`: resolves bold/italic/inline-code/links within one block's text via
     `AttributedString(markdown:options: .inlineOnlyPreservingWhitespace)`, one line at a time, shared by the
     renderer (`attributed`, keeps the attributes), the flattener and the PDF/Word exports (`plain`, public, keeps
@@ -90,13 +95,17 @@ pipeline directly.
   - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line
     plus a blank line after; a bullet becomes `PlainTextFlattener.bulletMarker` ("- ", not "•": it pastes
     identically everywhere an EMR field might mangle a glyph) at every nesting level; a numbered item keeps its own
-    number; paragraphs are separated by one blank line; code is shown as plain text. Every word of the source
-    survives, in order — pinned as a property test, not just fixed examples.
+    number and delimiter ("2)" stays "2)"); paragraphs are separated by one blank line; code is shown as plain
+    text. Every word, number and symbol of the source survives, in order — pinned as a property test
+    (`PlainTextFlattenerPropertyTests`: every content token verbatim and in order, plus whole clinical lines such
+    as "# of doses given: 3", "2) second item", "metoprolol 25~50 mg q8~12h" and "+ fever" copied exactly), not
+    just fixed examples.
   - `MarkdownDocument.swift`: the SwiftUI renderer, plus `MarkdownDocumentStyle` (fonts/colors are all overridable;
     the default is Dynamic-Type-following system text styles, since this module cannot import the App target's
     `chirpFont`, and a fixed `.system(size:)` font would not track the user's text-size setting the way a relative
     style does). `.textSelection(.enabled)` once at the top; a heading carries `.isHeader` and
-    `.accessibilityHeading(_:)` for VoiceOver's rotor.
+    `.accessibilityHeading(_:)` for VoiceOver's rotor. A numbered item shows its own marker ("2)"); a bullet is
+    drawn "•".
 - `TranscriptPromptText.swift`: model input shaping (M4). `TranscriptPromptFormatter.timestampedText(for:)`
   (`[mm:ss] Speaker: text` per segment with the roster's current labels, else the display text), `TextChunker`
   (ported upstream split: paragraph, then line, then sentence boundaries; never loses text) and

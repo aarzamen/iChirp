@@ -126,7 +126,8 @@ private struct MarkdownListItemRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(item.number.map { "\($0)." } ?? "•")
+            // A numbered item shows its own marker as written ("2)" stays "2)", known item K2).
+            Text(item.marker ?? "•")
                 .font(style.bodyFont)
                 .foregroundStyle(style.secondaryColor)
                 .frame(minWidth: 18, alignment: .trailing)

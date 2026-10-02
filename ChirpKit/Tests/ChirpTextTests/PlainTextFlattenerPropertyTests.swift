@@ -148,11 +148,13 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         "120/80", "mmHg", "98.6°F", "3.5", "2*3", "[ ]", "[x]",
         "25~50", "q8~12h", "~5", "2**10", "x*2", "≥", "38.0", "<5", ">90%", "q4-6h", "±2", "BP", "1/2", "10^9/L",
     ]
-    /// Whole clinical lines that must copy exactly as written, character for character.
+    /// Whole clinical lines that must copy exactly as written, character for character: known items K1 ("#" plus a
+    /// space plus prose) and K2 ("2)"), review R2-8 (tilde ranges), the "+" finding and the plan 024 symbols.
     private static let clinicalInlineLines = [
         "metoprolol 25~50 mg q8~12h", "Temp ≥ 38.0 for 2 days", "BP 120/80", "<5 mg daily", "q4-6h as needed",
         "WBC 5 x 10^9/L", "Dose 2*3 then 2*3 again", "Exponent 2**10 and 3**4", "Titrate x*2 then y*3",
-        "#1 priority is the BP", "Signature: ________",
+        "#1 priority is the BP", "Signature: ________", "# of doses given: 3", "# L radius", "2) second item",
+        "+ fever", "_____",
     ]
 
     private static func randomWord(using generator: inout SeededGenerator) -> String {
@@ -183,15 +185,16 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
     private static func randomList(using generator: inout SeededGenerator) -> Generated {
         let itemCount = Int.random(in: 2...4, using: &generator)
         let ordered = Bool.random(using: &generator)
+        let delimiter = Bool.random(using: &generator) ? "." : ")"
         var generated = Generated()
         for index in 0..<itemCount {
             let level = Int.random(in: 0...1, using: &generator)
             let indent = String(repeating: "  ", count: level)
             let words = randomSentence(wordCount: Int.random(in: 2...5, using: &generator), using: &generator)
-            let marker = ordered ? "\(index + 1). " : "- "
+            let marker = ordered ? "\(index + 1)\(delimiter) " : "- "
             generated.lines.append(indent + marker + words.joined(separator: " "))
-            // A numbered item keeps its own number and delimiter on Copy, so the marker is content too.
-            if ordered { generated.tokens.append("\(index + 1).") }
+            // A numbered item keeps its own number and delimiter on Copy (known item K2), so the marker is content.
+            if ordered { generated.tokens.append("\(index + 1)\(delimiter)") }
             generated.tokens += words
         }
         return generated
