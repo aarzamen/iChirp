@@ -331,6 +331,9 @@ struct DictatingScreen: View {
         default:
             VStack(spacing: 0) {
                 controls
+                    // The three circles are fixed columns: their labels stop at AX2 so "Cancel" never breaks
+                    // mid-word (the app itself has no cap since R6a-12; only parts that cannot grow cap themselves).
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                 Text(footerText)
                     .chirpFont(12.5)
                     .lineSpacing(3)

@@ -4,7 +4,7 @@ import XCTest
 @testable import iChirp
 
 /// Polish lane u3: the Dictating screen cannot be run in the simulator (no microphone path may start there), so this
-/// renders its idle state off screen at the default size and at the largest size the app allows (AX2), and checks that
+/// renders its idle state off screen at the default size and at AX2, AX3 and AX5 (the app has no Dynamic Type cap since plan 024, R6a-12), and checks that
 /// it lays out. (The Meeting screen is a ScrollView, which `ImageRenderer` does not draw, so it is not rendered here.) With `CHIRP_RENDER_DIR` set (`TEST_RUNNER_CHIRP_RENDER_DIR=<dir>` through
 /// xcodebuild) the images are written there for review. Nothing here records or starts a session.
 @MainActor
@@ -36,7 +36,10 @@ final class DictatingScreenRenderTests: XCTestCase {
 
     func testDictatingScreenRendersAtDefaultAndAccessibilitySizes() throws {
         let environment = try environment()
-        for (size, suffix) in [(DynamicTypeSize.large, "default"), (.accessibility2, "ax2")] {
+        for (size, suffix) in [
+            (DynamicTypeSize.large, "default"), (.accessibility2, "ax2"), (.accessibility3, "ax3"),
+            (.accessibility5, "ax5"),
+        ] {
             try render(
                 DictatingScreen(openTab: { _ in }).environment(environment),
                 name: "render-dictating-idle-\(suffix)", dynamicTypeSize: size)

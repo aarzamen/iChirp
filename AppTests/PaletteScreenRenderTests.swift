@@ -6,7 +6,7 @@ import XCTest
 
 /// Plan 023 (F6, the dark palette): the Dictating and Meeting screens cannot be opened in the simulator (no microphone
 /// path may start there), so this renders both in their idle state, each presented as a real full-screen cover over a
-/// Light-mode and a Dark-mode window, at the default text size and at AX2 (the app's largest). That checks that the
+/// Light-mode and a Dark-mode window, at the default text size, AX2 and AX5 (no app-wide cap since plan 024, R6a-12). That checks that the
 /// Dictating screen, dark by design, looks the same whatever the system scheme, and gives the owner light and dark
 /// images of both. A window is drawn with `drawHierarchy`, which (unlike `ImageRenderer`) draws the Meeting screen's
 /// ScrollView. Nothing records: both screens read the idle coordinators and start nothing on appear. With
@@ -28,7 +28,9 @@ final class PaletteScreenRenderTests: XCTestCase {
         let environment = try environment()
         var dictatingImages: [UIUserInterfaceStyle: UIImage] = [:]
         for style in [UIUserInterfaceStyle.light, .dark] {
-            for (typeSize, suffix) in [(DynamicTypeSize.large, "default"), (.accessibility2, "ax2")] {
+            for (typeSize, suffix) in [
+                (DynamicTypeSize.large, "default"), (.accessibility2, "ax2"), (.accessibility5, "ax5"),
+            ] {
                 let scheme = style == .dark ? "dark" : "light"
                 let dictating = try await render(
                     DictatingScreen(openTab: { _ in }).environment(environment)
