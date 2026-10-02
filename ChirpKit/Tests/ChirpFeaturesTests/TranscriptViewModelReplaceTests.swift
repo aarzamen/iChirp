@@ -252,7 +252,7 @@ final class TranscriptViewModelReplaceTests: XCTestCase {
         XCTAssertNil(outcome.ruleSuggestion)
         XCTAssertEqual(outcome.ruleWithheld, LearnedRuleSuggestion.numbersReason)
         XCTAssertEqual(
-            LearnedRuleSuggestion.numbersReason, "Rules can’t contain numbers, so a dose is never changed automatically.")
+            LearnedRuleSuggestion.numbersReason, "Rules can’t contain numbers or dose units, so a dose is never changed automatically.")
         XCTAssertNil(
             LearnedRuleSuggestion.make(
                 query: "takes", replacement: "takes 2", replaced: [(Self.first, NSRange(location: 12, length: 5))]))
@@ -265,5 +265,18 @@ final class TranscriptViewModelReplaceTests: XCTestCase {
             find("met for men", in: model), query: "met for men", with: "metformin")
         XCTAssertNotNil(plain.ruleSuggestion)
         XCTAssertNil(plain.ruleWithheld)
+    }
+
+    /// U1: a dose unit on either side withholds the offer, with the one reason line.
+    func testRuleOfferWithheldForDoseUnits() {
+        let reason = "Rules can’t contain numbers or dose units, so a dose is never changed automatically."
+        let text = "Give the mg dose bid"
+        for (query, replacement, range) in [
+            ("mg", "mcg", NSRange(location: 9, length: 2)), ("bid", "tid", NSRange(location: 17, length: 3)),
+        ] {
+            XCTAssertNil(LearnedRuleSuggestion.make(query: query, replacement: replacement, replaced: [(text, range)]))
+            XCTAssertEqual(LearnedRuleSuggestion.withheldReason(query: query, replacement: replacement), reason)
+        }
+        XCTAssertNil(LearnedRuleSuggestion.withheldReason(query: "metoprolol", replacement: "metformin"))
     }
 }

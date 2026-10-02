@@ -123,4 +123,35 @@ final class LearnedRuleMatcherTests: XCTestCase {
         XCTAssertTrue(LearnedRuleMatcher.containsNumber("½ tablet"))
         XCTAssertFalse(LearnedRuleMatcher.containsNumber("metformin"))
     }
+
+    /// Fix round 2, U1: a rule with a dose or measurement unit word on either side (whole word, any case) is never
+    /// applied: "mg" → "mcg" changes a dose without any digit. Drug-name rules stay allowed.
+    func testRulesWithDoseUnitsAreNeverApplied() {
+        let row = transcription("Take metoprolol milligrams bid with mg doses")
+        let plan = LearnedRuleMatcher.plan(
+            row.text(.heard),
+            rules: [
+                rule("mg", "mcg"), rule("milligrams", "micrograms"), rule("bid", "tid"),
+                rule("metoprolol", "metformin"),
+            ], now: now)
+        XCTAssertEqual(plan.add.map(\.text), ["metformin"])
+    }
+
+    func testDoseUnitWordsAreWholeWordsInAnyCase() {
+        for text in [
+            "mg", "MCG", "µg", "ug", "5 g", "gm", "Grams", "kg", "milligram", "Micrograms", "ng", "nanogram", "mL",
+            "cc", "L", "litres", "liter", "milliliters", "millilitre", "units", "IU", "international units", "mEq",
+            "mmol", "mol", "percent", "50%", "qd", "BID", "tid", "qid", "q.d.", "b.i.d.", "t.i.d.", "q.i.d.", "qhs",
+            "prn", "daily", "weekly", "hourly",
+        ] {
+            XCTAssertTrue(LearnedRuleMatcher.containsDoseUnit(text), text)
+        }
+        for text in ["metformin", "magnesium", "bidding", "lisinopril", "gram stain", "Smith", "met for men"] {
+            let expected = text == "gram stain"
+            XCTAssertEqual(LearnedRuleMatcher.containsDoseUnit(text), expected, text)
+        }
+        XCTAssertTrue(LearnedRuleMatcher.containsNumberOrDoseUnit("0.5"))
+        XCTAssertTrue(LearnedRuleMatcher.containsNumberOrDoseUnit("mcg"))
+        XCTAssertFalse(LearnedRuleMatcher.containsNumberOrDoseUnit("metoprolol"))
+    }
 }

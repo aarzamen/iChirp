@@ -114,7 +114,7 @@ final class TranscriptFindTourUITests: XCTestCase {
         replaceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12) + "metformin 500")
         app.buttons["Replace"].tap()
         XCTAssertTrue(
-            app.staticTexts["Rules can’t contain numbers, so a dose is never changed automatically."]
+            app.staticTexts["Rules can’t contain numbers or dose units, so a dose is never changed automatically."]
                 .waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Add Rule"].exists)
         shot("rule-withheld-numbers")

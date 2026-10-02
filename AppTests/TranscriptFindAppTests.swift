@@ -156,7 +156,7 @@ final class TranscriptFindAppTests: XCTestCase {
         XCTAssertEqual(result.message, "Replaced 3. 2 in a corrected passage were left as they are.")
         XCTAssertTrue(result.canUndo)
         XCTAssertNil(result.suggestion)
-        XCTAssertEqual(result.withheld, "Rules can’t contain numbers, so a dose is never changed automatically.")
+        XCTAssertEqual(result.withheld, "Rules can’t contain numbers or dose units, so a dose is never changed automatically.")
         XCTAssertEqual(
             ReplaceResult.make(ReplaceOutcome(undo: plan, count: 1, skipped: 1), privacyClass: .personal).message,
             "Replaced. 1 place had changed, so it was left as it is.")
@@ -202,5 +202,26 @@ final class TranscriptFindAppTests: XCTestCase {
         XCTAssertTrue(TextRuleEditorSheet.canSave(.word(learned), first: "met for men", second: "metformin"))
         XCTAssertTrue(TextRuleEditorSheet.canSave(.word(manual), first: "Kenobi", second: ""))
         XCTAssertFalse(TextRuleEditorSheet.canSave(.newSnippet, first: "my sig", second: ""))
+    }
+
+    // MARK: - Fix round 2
+
+    /// N1: a replace that changed nothing says why when matches were left alone.
+    func testNothingChangedSaysWhy() {
+        let inCorrections = ReplaceResult.make(
+            ReplaceOutcome(undo: .init(), count: 0, skipped: 2, skippedInCorrections: 2), privacyClass: .personal)
+        XCTAssertEqual(inCorrections.message, "Nothing changed. 2 in a corrected passage were left as they are.")
+        let stale = ReplaceResult.make(ReplaceOutcome(undo: .init(), count: 0, skipped: 1), privacyClass: .personal)
+        XCTAssertEqual(stale.message, "Nothing changed. 1 place had changed, so it was left as it is.")
+    }
+
+    /// N4: a withheld offer is announced as "No rule offer." (no content).
+    func testWithheldOfferIsAnnounced() {
+        let result = ReplaceResult.make(
+            ReplaceOutcome(
+                undo: TranscriptCorrectionPlan(remove: [UUID()]), count: 1,
+                ruleWithheld: LearnedRuleSuggestion.numbersReason),
+            privacyClass: .personal)
+        XCTAssertEqual(result.announcement(matchesLeft: 0), "Replaced. No matches left. Undo available. No rule offer.")
     }
 }

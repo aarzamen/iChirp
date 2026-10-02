@@ -159,9 +159,9 @@ final class TextRulesViewModelTests: XCTestCase {
         let store = FakeTextRulesStore()
         let model = TextRulesViewModel(store: store)
         let dose = await model.addLearnedRule(word: "0.5 mg", replacement: "5 mg")
-        XCTAssertEqual(dose, .refused("Rules can’t contain numbers, so a dose is never changed automatically."))
+        XCTAssertEqual(dose, .refused("Rules can’t contain numbers or dose units, so a dose is never changed automatically."))
         let count = await model.addLearnedRule(word: "twice", replacement: "2 times")
-        XCTAssertEqual(count, .refused("Rules can’t contain numbers, so a dose is never changed automatically."))
+        XCTAssertEqual(count, .refused("Rules can’t contain numbers or dose units, so a dose is never changed automatically."))
         let stored = try await store.customWords()
         XCTAssertEqual(stored.count, 0)
 
@@ -170,7 +170,7 @@ final class TextRulesViewModelTests: XCTestCase {
         rule.replacement = "metformin 500"
         let numbered = await model.update(rule)
         XCTAssertFalse(numbered)
-        XCTAssertEqual(model.lastError, "Rules can’t contain numbers, so a dose is never changed automatically.")
+        XCTAssertEqual(model.lastError, "Rules can’t contain numbers or dose units, so a dose is never changed automatically.")
         model.dismissError()
         rule.replacement = "  "
         let blank = await model.update(rule)
@@ -181,5 +181,43 @@ final class TextRulesViewModelTests: XCTestCase {
         // Manual words may still hold numbers ("COVID-19").
         let manual = await model.addWord("covid 19", replacement: "COVID-19")
         XCTAssertTrue(manual)
+    }
+
+    // MARK: - Fix round 2
+
+    /// U1: unit-only rules change a dose's meaning without a digit; they are refused like numbers. Drug names stay.
+    func testLearnedRulesCannotContainDoseUnits() async throws {
+        let store = FakeTextRulesStore()
+        let model = TextRulesViewModel(store: store)
+        let reason = "Rules can’t contain numbers or dose units, so a dose is never changed automatically."
+        for (word, replacement) in [("mg", "mcg"), ("milligrams", "micrograms"), ("bid", "tid")] {
+            let outcome = await model.addLearnedRule(word: word, replacement: replacement)
+            XCTAssertEqual(outcome, .refused(reason), word)
+        }
+        let drug = await model.addLearnedRule(word: "metoprolol", replacement: "metformin")
+        XCTAssertEqual(drug, .added)
+        var rule = try XCTUnwrap(model.learnedRules.first)
+        rule.replacement = "metformin daily"
+        let edited = await model.update(rule)
+        XCTAssertFalse(edited)
+        XCTAssertEqual(model.lastError, reason)
+    }
+
+    /// N2: turning a rule off (or on) is never refused by the text checks, even for a rule saved before them.
+    func testTogglingALearnedRuleIsNeverRefused() async throws {
+        let store = FakeTextRulesStore()
+        try await store.save(CustomWord(word: "0.5 mg", replacement: "5 mg", source: .learned))
+        let model = TextRulesViewModel(store: store)
+        await model.load()
+        var rule = try XCTUnwrap(model.learnedRules.first)
+        rule.isEnabled = false
+        let toggled = await model.update(rule)
+        XCTAssertTrue(toggled)
+        XCTAssertNil(model.lastError)
+        let stored = try await store.customWords()
+        XCTAssertEqual(stored.map(\.isEnabled), [false])
+        await model.deleteWords([rule.id])
+        let gone = try await store.customWords()
+        XCTAssertEqual(gone.count, 0)
     }
 }

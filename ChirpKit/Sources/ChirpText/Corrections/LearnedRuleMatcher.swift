@@ -82,6 +82,9 @@ public enum LearnedRuleMatcher {
         text.contains(where: \.isNumber)
     }
 
+    public static func containsDoseUnit(_ text: String) -> Bool { false }  // STUB
+    public static func containsNumberOrDoseUnit(_ text: String) -> Bool { containsNumber(text) }  // STUB
+
     /// `CustomWordReplacer`'s pattern for one word.
     private static func regex(for word: String) -> NSRegularExpression? {
         let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
