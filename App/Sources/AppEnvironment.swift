@@ -283,9 +283,9 @@ import Observation
             meetingLiveActivity?.update(
                 for: state, recordedSeconds: meeting?.recordedSeconds ?? 0, title: meeting?.displayName ?? "Meeting")
         }
-        meeting.onFinalPass = { [weak meetingBackground, weak meeting] id, running in
+        meeting.onFinalPass = { [weak meetingBackground] id, running in
             if running {
-                meetingBackground?.begin(id, title: meeting?.displayName ?? "Meeting")
+                meetingBackground?.begin(id)
             } else {
                 meetingBackground?.end(id, succeeded: true)
             }
@@ -469,56 +469,56 @@ import Observation
     /// a speech-scheduler slot), then the unchanged file pipeline.
     func makeLinkImportViewModel() -> LinkImportViewModel {
         LinkImportViewModel(service: linkIngest) { [weak self] id, source in
-            self?.startLinkJob(id, title: source.title ?? "Download") { linkIngest in
+            self?.startLinkJob(id) { linkIngest in
                 await linkIngest.download(id: id, source: source)
             }
         }
     }
 
     /// Runs `download` then, once the file is in place, the transcription, as one tracked job with its own background
-    /// request.
+    /// request ("Transcribing a link": never the link's title, review R4-3).
     private func startLinkJob(
-        _ id: UUID, title: String, download: @escaping @Sendable (LinkIngestService) async -> LinkDownloadResult
+        _ id: UUID, download: @escaping @Sendable (LinkIngestService) async -> LinkDownloadResult
     ) {
         let linkIngest = self.linkIngest
         let pipeline = self.pipeline
-        jobCenter.startTracked(id, title: title) {
+        jobCenter.startTracked(id, subject: .link) {
             await LinkIngestService.downloadThenTranscribe(await download(linkIngest)) {
                 await pipeline.process(id: id)
             }
         }
     }
 
-    /// Re-runs a failed, cancelled or interrupted row (a person's tap, so it also gets a background request titled
-    /// after the row).
+    /// Re-runs a failed, cancelled or interrupted row (a person's tap, so it also gets a background request, titled by
+    /// what the work is and never by the row's name: review R4-3).
     func retry(_ id: UUID) {
         let item = library.items.first { $0.id == id }
         if let item, item.isDocument {
             // M5: a document re-reads its kept source.
-            jobCenter.retry(id, title: item.displayTitle, importer: documents)
+            jobCenter.retry(id, importer: documents)
             return
         }
         if let item, LinkIngestService.needsDownload(item) {
             // M5: a link whose download never finished downloads again (resuming when the server allows), then
             // transcribes. A YouTube link goes to the Mac companion: ask first when it was not confirmed for that Mac.
-            let title = item.displayTitle
             guard let link = item.sourceURL, YouTubeURLValidator.isYouTubeURL(link) else {
-                startLinkJob(id, title: title) { linkIngest in await linkIngest.retryDownload(id: id) }
+                startLinkJob(id) { linkIngest in await linkIngest.retryDownload(id: id) }
                 return
             }
+            let title = item.displayTitle
             let linkIngest = self.linkIngest
             Task {
                 if let host = await linkIngest.companionRetryConfirmationHost(id: id) {
                     pendingCompanionRetry = PendingCompanionRetry(id: id, host: host, title: title)
                 } else {
-                    startLinkJob(id, title: title) { linkIngest in await linkIngest.retryDownload(id: id) }
+                    startLinkJob(id) { linkIngest in await linkIngest.retryDownload(id: id) }
                 }
             }
             return
         }
         if item?.sourceType == .meeting {
             // A meeting's retry is its own final pass (`.meetingFinalize`, custom words only, lock settlement).
-            retryMeeting(id, title: item?.displayTitle ?? "Meeting")
+            retryMeeting(id)
             return
         }
         if item?.sourceType == .dictation {
@@ -527,8 +527,7 @@ import Observation
             Task { await dictation.retry(transcriptionID: id) }
             return
         }
-        let title = item?.displayTitle ?? "Transcription"
-        jobCenter.retry(id, title: title, pipeline: pipeline)
+        jobCenter.retry(id, pipeline: pipeline)
     }
 
     /// The person tapped "Send link to my Mac" on the Retry question: that row's link, to the Mac set up now.
@@ -538,7 +537,7 @@ import Observation
         let linkIngest = self.linkIngest
         Task {
             await linkIngest.confirmCompanionRetry(id: pending.id)
-            startLinkJob(pending.id, title: pending.title) { linkIngest in
+            startLinkJob(pending.id) { linkIngest in
                 await linkIngest.retryDownload(id: pending.id)
             }
         }
@@ -565,7 +564,7 @@ import Observation
         guard !recoveringMeetings.contains(id) else { return }
         let title = pendingMeetingRecoveries.first { $0.id == id }?.displayName ?? "Meeting"
         recoveringMeetings.insert(id)
-        meetingBackground.begin(id, title: title)
+        meetingBackground.begin(id)
         let recovery = meetingRecovery
         Task {
             let saved = await recovery.recover(id)
@@ -590,8 +589,8 @@ import Observation
         await refreshMeetingRecoveries()
     }
 
-    private func retryMeeting(_ id: UUID, title: String) {
-        meetingBackground.begin(id, title: title)
+    private func retryMeeting(_ id: UUID) {
+        meetingBackground.begin(id)
         let finalizer = meetingFinalizer
         Task {
             let saved = await finalizer.retry(id: id)

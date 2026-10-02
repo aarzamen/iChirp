@@ -21,7 +21,8 @@ final class BackgroundContinuationTests: XCTestCase {
         XCTAssertEqual(scheduler.submissions.count, 1, "one request per user action, submitted at once")
         let submission = try XCTUnwrap(scheduler.submissions.first)
         XCTAssertEqual(submission.kind, .transcription)
-        XCTAssertEqual(submission.title, "Ward round", "titled after the file")
+        XCTAssertEqual(
+            submission.title, "Transcribing a recording", "review R4-3: the Lock Screen never shows the file's name")
         let task = try XCTUnwrap(scheduler.start(submission.id))
         XCTAssertEqual(task.progress.totalUnitCount, BackgroundContinuation.totalUnits)
 
@@ -76,7 +77,7 @@ final class BackgroundContinuationTests: XCTestCase {
         let urls = [try h.makeSourceFile(named: "one.m4a"), try h.makeSourceFile(named: "two.m4a")]
 
         center.start(filesAt: urls, pipeline: h.pipeline)
-        XCTAssertEqual(scheduler.submissions.map(\.title), ["2 files"])
+        XCTAssertEqual(scheduler.submissions.map(\.title), ["Transcribing 2 recordings"])
         let task = try XCTUnwrap(scheduler.startLast())
         await center.waitUntilIdle()
 
@@ -154,8 +155,10 @@ final class BackgroundContinuationTests: XCTestCase {
         let id = try XCTUnwrap(fetchedId)
 
         await h.speech.failTranscription(with: nil)
-        center.retry(id, title: "Interview", pipeline: h.pipeline)
-        XCTAssertEqual(scheduler.submissions.map(\.title), ["Interview", "Interview"])
+        center.retry(id, pipeline: h.pipeline)
+        XCTAssertEqual(
+            scheduler.submissions.map(\.title), ["Transcribing a recording", "Transcribing a recording"],
+            "review R4-3: a Retry never shows the item's title")
         let task = try XCTUnwrap(scheduler.startLast())
         await center.waitUntilIdle()
 
@@ -273,10 +276,80 @@ final class BackgroundContinuationTests: XCTestCase {
         XCTAssertTrue(scheduler.submissions.isEmpty)
     }
 
-    func testTitleForFiles() {
-        XCTAssertEqual(TranscriptionJobCenter.title(for: [URL(fileURLWithPath: "/tmp/Ward round.m4a")]), "Ward round")
+    // MARK: - Review R4-3: the system's progress UI never names the item
+
+    /// The Live Activity is readable on the Lock Screen and in the Dynamic Island without unlocking the iPhone, so no
+    /// request title carries a file name, a rename or a title taken from the content, whatever the item's class.
+    func testNoRequestTitleNamesTheItemWhateverItsClass() async throws {
+        let scheduler = FakeContinuedProcessingScheduler()
+        let center = TranscriptionJobCenter(continuedProcessing: scheduler)
+        let h = try PipelineHarness(testCase: self, onProgress: center.progressHandler)
+        let extractor = FakeExtractor(.fail(.passwordProtected))
+        let documents = DocumentImportPipeline(
+            paths: h.paths, store: h.store, extractor: extractor, onProgress: center.progressHandler)
+        let name = "Doe_Jane_followup"  // synthetic; a file name can hold a patient's name
+
+        // An audio file whose job fails, then its Retry once the person marked it clinical and renamed it.
+        await h.speech.failTranscription(with: FakeError(message: "engine hiccup"))
+        center.start(filesAt: [try h.makeSourceFile(named: "\(name).m4a")], pipeline: h.pipeline)
+        await center.waitUntilIdle()
+        let fetchedAudio = try await h.store.fetchAll().first?.id
+        let audio = try XCTUnwrap(fetchedAudio)
+        _ = try await h.store.updatePrivacyClass(id: audio, privacyClass: .clinical)
+        _ = try await h.store.updateTitleOverride(id: audio, titleOverride: name)
+        await h.speech.failTranscription(with: nil)
+        center.retry(audio, pipeline: h.pipeline)
+        await center.waitUntilIdle()
+
+        // A document that fails, its Retry, then a batch of two.
+        center.start(filesAt: [try h.makeSourceFile(named: "\(name).pdf")], importer: documents)
+        await center.waitUntilIdle()
+        let fetchedDocument = try await h.store.fetchAll().first { $0.sourceType == .document }?.id
+        let document = try XCTUnwrap(fetchedDocument)
+        extractor.setBehavior(.succeed(DocumentImportPipelineTests.extracted))
+        center.retry(document, importer: documents)
+        await center.waitUntilIdle()
+        center.start(
+            filesAt: [try h.makeSourceFile(named: "\(name) 2.md"), try h.makeSourceFile(named: "\(name) 3.txt")],
+            importer: documents)
+        await center.waitUntilIdle()
+
+        // Tracked work for an existing row: a link's download, then Create's audio and document files.
+        for subject in [ContinuedProcessingSubject.link, .recording, .document] {
+            center.startTracked(UUID(), subject: subject) { nil }
+        }
+        await center.waitUntilIdle()
+
+        let titles = scheduler.submissions.map(\.title)
         XCTAssertEqual(
-            TranscriptionJobCenter.title(for: [URL(fileURLWithPath: "/a.m4a"), URL(fileURLWithPath: "/b.mov")]),
-            "2 files")
+            titles,
+            [
+                "Transcribing a recording", "Transcribing a recording", "Reading a document", "Reading a document",
+                "Reading 2 documents", "Transcribing a link", "Transcribing a recording", "Reading a document",
+            ])
+        for title in titles {
+            XCTAssertFalse(title.contains("Doe"), "an item's name reached the Lock Screen: \(title)")
+        }
+        let rows = try await h.store.fetchAll()
+        XCTAssertEqual(rows.count, 4)
+        XCTAssertTrue(rows.allSatisfy { $0.status == .completed }, "\(rows.map(\.status))")
+    }
+
+    func testSubjectTitlesSayWhatTheWorkIsAndNothingElse() throws {
+        XCTAssertEqual(ContinuedProcessingSubject.recording.title(), "Transcribing a recording")
+        XCTAssertEqual(ContinuedProcessingSubject.recording.title(count: 3), "Transcribing 3 recordings")
+        XCTAssertEqual(ContinuedProcessingSubject.document.title(), "Reading a document")
+        XCTAssertEqual(ContinuedProcessingSubject.document.title(count: 2), "Reading 2 documents")
+        XCTAssertEqual(ContinuedProcessingSubject.link.title(), "Transcribing a link")
+        XCTAssertEqual(ContinuedProcessingSubject.meeting.title(), "Transcribing a meeting")
+
+        // A meeting's final pass (the app's `MeetingBackgroundWork`) goes through the same initializer.
+        let scheduler = FakeContinuedProcessingScheduler()
+        let continuation = BackgroundContinuation(scheduler: scheduler, subject: .meeting, items: [UUID()])
+        XCTAssertTrue(continuation.begin())
+        XCTAssertEqual(continuation.kind, .transcription)
+        let submission = try XCTUnwrap(scheduler.submissions.first)
+        XCTAssertEqual(submission.title, "Transcribing a meeting")
+        XCTAssertEqual(submission.subtitle, "Waiting to start")
     }
 }

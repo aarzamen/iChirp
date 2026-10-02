@@ -42,13 +42,17 @@ pipeline's `Task`s and publishes its progress to the UI.
   `onImportSettled` is called once per incoming file after its import attempt ends (imported or not); the app uses
   it to delete iOS's temporary Inbox copy. Given a `ContinuedProcessingScheduling` at init, each `start(filesAt:)`
   and each `retry` (a person's action) also submits one background request; its expiration cancels that action's
-  jobs. With a track probe, `start(filesAt:)` first lists every file's audio tracks; a batch with a multi-track file
-  waits in `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
+  jobs. Review R4-3: the request's title says only what the work is (`ContinuedProcessingSubject`: "Transcribing a
+  recording", "Transcribing 3 recordings", "Reading a document", "Transcribing a link"), never a file name, a rename
+  or a derived title, for every privacy class (general, personal and clinical alike): the system shows it on the
+  Lock Screen and in the Dynamic Island without unlocking. No job-center API takes an item's name. With a track
+  probe, `start(filesAt:)` first lists every file's audio tracks; a batch with a multi-track file waits in
+  `pendingAudioTrackSelection` (`AudioTrackSelectionRequest`) until `selectAudioTrack(_:for:)` starts it
   (the choice for multi-track files, automatic for the rest) or `cancelAudioTrackSelection(_:)` drops it (its files
   count as settled). Later batches queue behind it. Contract: `spec/contracts/file-transcription-audio-tracks-v1.md`.
-  M5 (additive): `start(filesAt:importer:)` and `retry(_:title:importer:)` run any `ItemImporting` (documents) the
-  same way, and `startTracked(_:title:work:)` tracks work for an existing row (a link's download, then its
-  transcription) with its own background request, cancellable by `cancel(id)`.
+  M5 (additive): `start(filesAt:importer:)` and `retry(_:importer:)` run any `ItemImporting` (documents) the
+  same way, and `startTracked(_:subject:work:)` tracks work for an existing row (a link's download, then its
+  transcription; Create's file) with its own background request, cancellable by `cancel(id)`.
 - `DocumentImportPipeline.swift` (M5): documents, an `ItemImporting` the job center runs. `importItem(from:)` copies
   the file into `media/<id>/source.<ext>` and inserts a `.processing` `.document` row with its `documentFormat`
   (`importItem(from:privacyClass:)` gives the row Create's chosen class from its first write)
@@ -96,7 +100,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   user action: `update(_:fraction:stage:)` feeds the mean of its items' real fractions to the task (never
   decreasing), `end(_:succeeded:)` completes the task when every item ended (success only if all succeeded) or
   withdraws a request the system never started, and expiration calls `onExpiration` (the owner cancels the work)
-  and completes once the items end or after `expirationGrace`.
+  and completes once the items end or after `expirationGrace`. Transcription work is built with
+  `init(scheduler:subject:items:)`, whose title is `ContinuedProcessingSubject.title(count:)` (the job center and the
+  app's `MeetingBackgroundWork`, "Transcribing a meeting"); only a model download passes its own title (the model's
+  name). The subtitle names only the stage.
 - `IncomingFileInbox.swift`: the app's `Documents/Inbox/`, where iOS copies a file another app hands to Parakeet
   (Share sheet → Parakeet, Files → Open in; M1.5). `contains(_:)` and `removeIfInside(_:)` only ever touch files
   strictly inside that folder, never a file the user picked with the document picker.

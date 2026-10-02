@@ -54,7 +54,7 @@ final class AudioTrackSelectionFlowTests: XCTestCase {
 
         center.selectAudioTrack(1, for: request.id)
         XCTAssertNil(center.pendingAudioTrackSelection)
-        XCTAssertEqual(scheduler.submissions.map(\.title), ["Clinic talk"])
+        XCTAssertEqual(scheduler.submissions.map(\.title), ["Transcribing a recording"], "never the file's name (R4-3)")
         await center.waitUntilIdle()
 
         let rows = try await h.store.fetchAll()

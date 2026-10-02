@@ -114,7 +114,7 @@ extension AppEnvironment {
             }
             let linkIngest = self.linkIngest
             let pipeline = self.pipeline
-            jobCenter.startTracked(id, title: source.title ?? "Download") {
+            jobCenter.startTracked(id, subject: .link) {
                 await LinkIngestService.downloadThenTranscribe(await linkIngest.download(id: id, source: source)) {
                     await pipeline.process(id: id)
                 }
@@ -133,22 +133,22 @@ extension AppEnvironment {
     }
 
     /// File: audio and video go to the transcription pipeline (automatic audio track), documents to the reader; both
-    /// as tracked jobs with their own background request, exactly like the Import tiles. The row is created with the
-    /// chain's class (review I1), so a Stop during the copy never leaves it less private.
+    /// as tracked jobs with their own background request, exactly like the Import tiles (titled by what the work is,
+    /// never by the file's name: review R4-3). The row is created with the chain's class (review I1), so a Stop during
+    /// the copy never leaves it less private.
     private func startFileForCreate(_ url: URL, privacyClass: PrivacyClass) async throws -> UUID {
         await launch()
-        let title = url.deletingPathExtension().lastPathComponent
         do {
             switch IncomingFileInbox.kind(of: url) {
             case .document:
                 let documents = self.documents
                 let id = try await documents.importItem(from: url, privacyClass: privacyClass)
-                jobCenter.startTracked(id, title: title) { await documents.process(id: id) }
+                jobCenter.startTracked(id, subject: .document) { await documents.process(id: id) }
                 return id
             case .media:
                 let pipeline = self.pipeline
                 let id = try await pipeline.importFile(from: url, privacyClass: privacyClass)
-                jobCenter.startTracked(id, title: title) { await pipeline.process(id: id) }
+                jobCenter.startTracked(id, subject: .recording) { await pipeline.process(id: id) }
                 return id
             }
         } catch {
@@ -164,7 +164,7 @@ extension AppEnvironment {
         case .dictation:
             _ = await dictation.retry(transcriptionID: id)
         case .document:
-            jobCenter.retry(id, title: row.displayTitle, importer: documents)
+            jobCenter.retry(id, importer: documents)
         default:
             retry(id)
         }

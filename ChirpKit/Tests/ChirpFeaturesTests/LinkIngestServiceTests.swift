@@ -375,7 +375,7 @@ final class TrackedJobTests: XCTestCase {
         let center = TranscriptionJobCenter()
         let id = UUID()
         let entered = Signal()
-        center.startTracked(id, title: "Episode") {
+        center.startTracked(id, subject: .link) {
             entered.fire()
             while !Task.isCancelled {
                 await Task.yield()
