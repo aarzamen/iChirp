@@ -27,6 +27,7 @@ final class DictationCoordinatorTests: XCTestCase {
             settings: TranscriptionSettings = Harness.defaultSettings,
             speech: FakeSpeech = FakeSpeech(),
             rules: DictationTextRules = DictationTextRules(),
+            learnedRules: [CustomWord] = [],
             voiceCommands: DictationVoiceCommands? = nil
         ) {
             let base = FileManager.default.temporaryDirectory
@@ -37,10 +38,15 @@ final class DictationCoordinatorTests: XCTestCase {
             paths = AppPaths(root: root)
             self.speech = speech
             self.settings = InMemorySettingsStore(settings)
+            let store = self.store
             coordinator = DictationCoordinator(
                 capture: capture, speech: speech, liveSessions: live, scheduler: SpeechJobScheduler(), store: store,
                 paths: paths, settings: self.settings, clipboard: clipboard, textRules: { rules },
-                voiceCommands: voiceCommands)
+                voiceCommands: voiceCommands,
+                applyLearnedRules: { id in
+                    await TranscriptCorrectionService(store: store, context: { .none }, learnedRules: { learnedRules })
+                        .applyLearnedRules(id)
+                })
             let states = self.states
             coordinator.onStateChange = { states.append($0) }
         }
@@ -189,6 +195,65 @@ final class DictationCoordinatorTests: XCTestCase {
             XCTAssertTrue(model.everythingReceived.contains("Recheck in two weeks."), "polish \(polish)")
             XCTAssertFalse(model.everythingReceived.contains("aspirin"), "polish \(polish): the scratched order")
             XCTAssertFalse(model.everythingReceived.localizedCaseInsensitiveContains("scratch that"))
+        }
+    }
+
+    // MARK: - Learned rules (plan 025 B4)
+
+    /// A learned rule becomes a `rule` correction right after the final pass saves, and the copied text is the row's
+    /// shown text with it, in Raw and with Polish after.
+    func testCopiedTextIncludesLearnedRuleCorrections() async throws {
+        for polish in [false, true] {
+            var settings = Harness.defaultSettings
+            settings.dictationPolishAfter = polish
+            let rule = CustomWord(word: "kenobi", replacement: "Kenobi-sama", source: .learned)
+            let h = Harness(testCase: self, settings: settings, learnedRules: [rule])
+            await h.startRecording()
+            h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+            await h.stopAndWait()
+
+            XCTAssertEqual(h.clipboard.copies, ["Hello there. General Kenobi-sama."], "polish \(polish)")
+            XCTAssertEqual(h.coordinator.copiedText, "Hello there. General Kenobi-sama.")
+            let row = try await h.row()
+            XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText, "the words as heard are kept")
+            XCTAssertEqual(row.textCorrections?.items.map(\.origin), [.rule])
+            XCTAssertEqual(row.plainText(.shown(.raw)), "Hello there. General Kenobi-sama.")
+        }
+    }
+
+    /// Learned-rule corrections run before the voice commands, so the commands see (and keep) the fixed words.
+    func testVoiceCommandsSeeRuleCorrectedWords() async throws {
+        let cases: [(finalPass: String, copied: String, origins: Set<TranscriptCorrection.Origin>)] = [
+            (
+                "Start met for men daily. Take aspirin now. Scratch that. Recheck in two weeks.",
+                "Start metformin daily. Recheck in two weeks.",
+                [.rule, .voiceCommand]
+            ),
+            // The scratched sentence held the rule's correction: the command's correction replaces it.
+            (
+                "Start met for men 500 mg. Scratch that. Recheck in two weeks.", "Recheck in two weeks.",
+                [.voiceCommand]
+            ),
+        ]
+        for testCase in cases {
+            let commands = Self.voiceCommands(enabled: true)
+            let speech = FakeSpeech()
+            let words = testCase.finalPass.split(separator: " ").enumerated().map { index, word in
+                WordTimestamp(word: String(word), startMs: index * 300, endMs: index * 300 + 250, confidence: 0.9)
+            }
+            await speech.setTranscript(text: testCase.finalPass, words: words)
+            let rule = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
+            let h = Harness(testCase: self, speech: speech, learnedRules: [rule], voiceCommands: commands)
+            await h.startRecording()
+            h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+            await h.stopAndWait()
+
+            XCTAssertEqual(h.clipboard.copies, [testCase.copied], testCase.finalPass)
+            let row = try await h.row()
+            XCTAssertEqual(row.rawTranscript, testCase.finalPass)
+            XCTAssertEqual(row.plainText(.shown(.raw)), testCase.copied, testCase.finalPass)
+            XCTAssertEqual(Set(row.textCorrections?.items.map(\.origin) ?? []), testCase.origins, testCase.finalPass)
+            XCTAssertNil(h.coordinator.voiceCommandsNotSaved)
         }
     }
 

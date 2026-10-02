@@ -145,6 +145,8 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
     @ObservationIgnored private let privacyRouting: PrivacyRoutingPolicy
     /// M6: spoken commands (off by default), resolved on the final pass only; nil when the app wires none.
     @ObservationIgnored private let voiceCommands: (any DictationVoiceCommanding)?
+    /// Plan 025 D8: the person's learned rules, applied as corrections right after the final pass saves.
+    @ObservationIgnored private let applyLearnedRules: @Sendable (UUID) async -> Transcription?
     @ObservationIgnored private let logger = Log.logger("dictation")
 
     /// The current recording: its row id, WAV and class. Set when recording starts, kept after a failure for Retry.
@@ -176,7 +178,8 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
         clipboard: any ClipboardWriting,
         privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
         textRules: @escaping @Sendable () async -> DictationTextRules = { DictationTextRules() },
-        voiceCommands: (any DictationVoiceCommanding)? = nil
+        voiceCommands: (any DictationVoiceCommanding)? = nil,
+        applyLearnedRules: @escaping @Sendable (UUID) async -> Transcription? = { _ in nil }
     ) {
         self.capture = capture
         self.speech = speech
@@ -189,6 +192,7 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
         self.privacyRouting = privacyRouting
         self.textRules = textRules
         self.voiceCommands = voiceCommands
+        self.applyLearnedRules = applyLearnedRules
         self.polishAfter = settings.load().dictationPolishAfter
     }
 
@@ -652,19 +656,18 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
     private func storeVoiceCommands(of row: Transcription?, commanded: String, result: String) async -> Bool {
         guard let row else { return false }
         let now = Date()
+        // Over the word stream as it stands (plan 025 B4: learned-rule corrections came first), so a command's
+        // correction covers whole tokens and replaces a rule correction it scratches.
         guard
             let plan = VoiceCommandCorrections.plan(
-                words: row.wordTimestamps ?? [], commandedText: commanded, resultText: result, batchID: UUID(),
+                tokens: TranscriptTokens.of(row), commandedText: commanded, resultText: result, batchID: UUID(),
                 now: now)
         else {
             logger.error("dictation_commands_not_stored id=\(row.id, privacy: .public) reason=unrepresentable")
             return false
         }
         guard !plan.isEmpty else { return true }
-        let rules = await textRules()
-        let context = TranscriptTextContext(
-            customWords: rules.customWords.filter { $0.isEnabled && $0.source == .manual },
-            snippets: rules.snippets.filter(\.isEnabled), removeUmFiller: settings.load().removeUmFiller)
+        let context = await shownTextContext()
         let service = TranscriptCorrectionService(store: store, context: { context }, now: { now })
         do {
             _ = try await service.apply(row.id, plan: plan, baseline: row.wordsFingerprint)
@@ -675,6 +678,15 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
             )
             return false
         }
+    }
+
+    /// The clean-up rules a dictation's shown text is computed with once it has corrections: the manual, enabled custom
+    /// words, the enabled snippets and the "remove um" setting (`TranscriptTextContext`).
+    private func shownTextContext() async -> TranscriptTextContext {
+        let rules = await textRules()
+        return TranscriptTextContext(
+            customWords: rules.customWords.filter { $0.isEnabled && $0.source == .manual },
+            snippets: rules.snippets.filter(\.isEnabled), removeUmFiller: settings.load().removeUmFiller)
     }
 
     /// The final Parakeet pass on the recorded WAV, clean-up, and the saved row. The returned text is exactly what
@@ -755,7 +767,19 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
             if !settingsValue.keepDictationAudio, let stored = saved {
                 saved = await removeAudio(of: stored.id, at: url) ?? stored
             }
-            outcome = .success(FinalText(text: text, row: saved))
+            // Plan 025 D8: the learned rules become corrections before anything is copied or commanded, so the copied
+            // text is the row's shown text with them (and the voice commands see the fixed words).
+            var copiedText = text
+            if let stored = saved, stored.status == .completed {
+                let applyLearnedRules = self.applyLearnedRules
+                if let corrected = await Task(operation: { await applyLearnedRules(stored.id) }).value {
+                    saved = corrected
+                    let shown = corrected.plainText(.shown(.raw), context: await shownTextContext())
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !shown.isEmpty { copiedText = shown }
+                }
+            }
+            outcome = .success(FinalText(text: copiedText, row: saved))
         } catch {
             logger.error("dictation_final_pass_failed error_type=\(error.logTypeName, privacy: .public)")
             // Review I2: a missing model names the engine this pass resolved and what to do.

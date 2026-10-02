@@ -404,6 +404,15 @@ pipeline's `Task`s and publishes its progress to the UI.
   edge spaces, is at least three characters with a letter, the replacement is not blank and differs, and every
   replaced match is a whole-word place the rule would match, `LearnedRuleMatcher.isWholeWord`), with the banner's
   question and the clinical note.
+- **Learned rules in the pipelines (B4).** `FileTranscriptionPipeline` (after `saveCompleted` saves a completed row),
+  `MeetingFinalizer` (in `saveAndSettle`, after a completed meeting is saved), `DictationCoordinator` (after the final
+  pass saves, **before** the voice commands and the copy: the copied text is then the row's `.shown(.raw)` text, and
+  the commands' corrections are planned over the token stream, `VoiceCommandCorrections.plan(tokens:...)`, so a
+  scratched sentence's rule correction is replaced whole) and `LinkIngestService.importCaptions` (after insert) take
+  `applyLearnedRules: @Sendable (UUID) async -> Transcription?` (default: none). The app wires all four to one
+  `TranscriptCorrectionService` with `enabledLearnedRules()`, and gives Clean and the meeting applier
+  `enabledManualCustomWords()` only, so manual words behave exactly as before and learned rules act only as
+  corrections. It never fails a job.
 - `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
   `provider`) builds the accessor's clean-up rules from Settings: manual enabled custom words, enabled snippets,
   `removeUmFiller`. Every consumer that reads a transcript's shown text passes it (a corrected row's Clean view runs
@@ -721,12 +730,14 @@ LibraryViewModel(store: store, paths: paths, documents: deliverableStore)  // pa
 let dictation = DictationCoordinator(                      // M2
     capture: DictationRecorder(stream: microphone, session: audioSession),
     speech: engines.speech, liveSessions: engines.speech, scheduler: scheduler, store: store, paths: paths,
-    settings: settings, clipboard: SystemClipboard(), textRules: { /* custom words + snippets */ })
+    settings: settings, clipboard: SystemClipboard(), textRules: { /* manual custom words + snippets */ },
+    applyLearnedRules: { id in await learnedRuleCorrections.applyLearnedRules(id) })  // plan 025 D8, all four
+                                                           // pipelines (files, dictation, meetings, captions)
 await dictation.recoverOrphanedRecordings()                // at launch, after the interrupted sweep
 let lockStore = MeetingSessionLockStore(paths: paths)      // M3: one per launch
 let finalizer = MeetingFinalizer(paths: paths, store: store, normalizer: normalizer, speech: engines.speech,
     diarizer: engines.diarizer, scheduler: scheduler, settings: settings, lockStore: lockStore,
-    customWords: { /* enabled custom words */ }, onProgress: jobs.progressHandler)
+    customWords: { /* enabled manual custom words */ }, onProgress: jobs.progressHandler)
 let meeting = MeetingCoordinator(recorder: MeetingRecorder(stream: microphone, session: audioSession),
     speech: engines.speech, voiceActivity: FluidAudioEngines.makeVoiceActivity(), scheduler: scheduler,
     store: store, paths: paths, lockStore: lockStore, finalizer: finalizer)

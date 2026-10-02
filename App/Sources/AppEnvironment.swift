@@ -149,6 +149,15 @@ import Observation
         let settings = UserDefaultsSettingsStore()
         let textContext = TranscriptTextContext.provider(textRules: textRulesStore, settings: settings)
         self.textContext = textContext
+        // Plan 025 D8: learned rules ("Also fix future transcripts") reach new transcripts only as corrections, through
+        // the one correction writer, right after each pipeline saves; Clean and the meeting applier get manual words
+        // only.
+        let learnedRuleCorrections = TranscriptCorrectionService(
+            store: store, context: textContext,
+            learnedRules: { (try? await textRulesStore.enabledLearnedRules()) ?? [] })
+        let applyLearnedRules: @Sendable (UUID) async -> Transcription? = { id in
+            await learnedRuleCorrections.applyLearnedRules(id)
+        }
         let settingsValue = settings.load()
         // fix/speech-memory-fit: every speech model load first checks what iOS lets the app use now
         // (`os_proc_available_memory`), so a model that does not fit is refused with a sentence instead of iOS
@@ -188,7 +197,8 @@ import Observation
             diarizer: engines.diarizer,
             scheduler: scheduler,
             settings: settings,
-            customWords: { (try? await textRulesStore.enabledCustomWords()) ?? [] },
+            customWords: { (try? await textRulesStore.enabledManualCustomWords()) ?? [] },
+            applyLearnedRules: applyLearnedRules,
             onProgress: jobCenter.progressHandler
         )
         // M6: Needle's model lives outside the backed-up library folder (it can be downloaded again).
@@ -232,7 +242,8 @@ import Observation
             settings: settings,
             clipboard: SystemClipboard(),
             textRules: { await DictationTextRules.enabled(in: textRulesStore) },
-            voiceCommands: dictationVoiceCommands
+            voiceCommands: dictationVoiceCommands,
+            applyLearnedRules: applyLearnedRules
         )
         self.textRules = TextRulesViewModel(store: textRulesStore)
         let voiceActivity = FluidAudioEngines.makeVoiceActivity()
@@ -248,7 +259,8 @@ import Observation
             scheduler: scheduler,
             settings: settings,
             lockStore: meetingLocks,
-            customWords: { (try? await textRulesStore.enabledCustomWords()) ?? [] },
+            customWords: { (try? await textRulesStore.enabledManualCustomWords()) ?? [] },
+            applyLearnedRules: applyLearnedRules,
             onProgress: { id, progress in
                 jobProgress(id, progress)
                 Task { @MainActor in meetingBackground.progress(id, progress) }
@@ -297,7 +309,8 @@ import Observation
         self.linkIngest = LinkIngestService(
             paths: paths, store: store, http: ingestHTTP, downloader: MediaDownloader(),
             podcasts: PodcastEpisodeResolver(http: ingestHTTP), captions: YouTubeCaptionFetcher(http: ingestHTTP),
-            companion: { companionSettings.makeClient() }, onProgress: jobCenter.progressHandler)
+            companion: { companionSettings.makeClient() }, applyLearnedRules: applyLearnedRules,
+            onProgress: jobCenter.progressHandler)
         self.documents = DocumentImportPipeline(
             paths: paths, store: store, extractor: DocumentTextExtractor(), onProgress: jobCenter.progressHandler)
         let meeting = self.meeting

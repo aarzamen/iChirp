@@ -67,7 +67,9 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   words (case and edge punctuation ignored) and the result to the commanded text (exact, line breaks included);
   between stable points the changed stretch of heard words becomes one correction with the result's text there (a
   scratched sentence or a paragraph break takes the word before it). Falls back to one correction over every word;
-  nil when the change cannot be stored (the caller then sends nothing on).
+  nil when the change cannot be stored (the caller then sends nothing on). `plan(tokens:...)` (plan 025 B4) plans over a
+  row's word stream (each token one word, spans mapped back to engine words), so a dictation's learned-rule corrections,
+  stored first, are covered whole.
 - `Find/TranscriptSearchIndex.swift` (plan 025 B1, semantics from upstream `TranscriptFindModel`): the Transcript
   screen's find matcher. Built once per text change from the lines' texts (blocks); every Character is folded
   (case- and diacritic-insensitive, ASCII fast path) and each folded UTF-16 unit remembers its Character's original

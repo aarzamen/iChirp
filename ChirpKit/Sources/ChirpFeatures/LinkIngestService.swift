@@ -105,6 +105,7 @@ public actor LinkIngestService {
     private let captions: any YouTubeCaptionFetching
     private let companion: @Sendable () -> (any CompanionAudioFetching)?
     private let preferredLanguages: @Sendable () -> [String]
+    private let applyLearnedRules: @Sendable (UUID) async -> Transcription?
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private let logger = Log.logger("links")
     /// Row id → the companion its link was confirmed for, in this launch (the Paste a link sheet's question, or a
@@ -115,6 +116,8 @@ public actor LinkIngestService {
     ///   - preferredLanguages: language codes for choosing a YouTube caption track (the device's languages).
     ///   - onProgress: download progress (`.downloading`), usually `TranscriptionJobCenter.progressHandler`.
     ///   - companion: the Mac companion's client, read at each use (nil when none is set up with a pairing token).
+    ///   - applyLearnedRules: plan 025 D8: the person's learned rules applied to a caption row once it is inserted, as
+    ///     corrections (`TranscriptCorrectionService.applyLearnedRules`); never throws.
     public init(
         paths: AppPaths,
         store: any TranscriptionStoring,
@@ -124,6 +127,7 @@ public actor LinkIngestService {
         captions: any YouTubeCaptionFetching,
         companion: @escaping @Sendable () -> (any CompanionAudioFetching)? = { nil },
         preferredLanguages: @escaping @Sendable () -> [String] = { Locale.preferredLanguages },
+        applyLearnedRules: @escaping @Sendable (UUID) async -> Transcription? = { _ in nil },
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
         self.paths = paths
@@ -134,6 +138,7 @@ public actor LinkIngestService {
         self.captions = captions
         self.companion = companion
         self.preferredLanguages = preferredLanguages
+        self.applyLearnedRules = applyLearnedRules
         self.onProgress = onProgress
     }
 
@@ -448,6 +453,8 @@ public actor LinkIngestService {
         let segments = FileTranscriptSegments.materialize(words: words)
         row.transcriptSegments = segments.isEmpty ? nil : segments
         try await store.insert(row)
+        // Plan 025 D8: the person's learned rules, as corrections of the caption words.
+        _ = await applyLearnedRules(id)
         logger.info(
             "captions_row_created id=\(id, privacy: .public) words=\(words.count, privacy: .public) generated=\(fetched.track.isGenerated, privacy: .public)"
         )

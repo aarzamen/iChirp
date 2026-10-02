@@ -764,6 +764,7 @@ struct PipelineHarness {
         diarizer: FakeDiarizer = FakeDiarizer(),
         includeDiarizer: Bool = true,
         customWords: [CustomWord] = [],
+        learnedRules: [CustomWord] = [],
         trackProbe: (any AudioTrackProbing)? = nil,
         onProgress: (@Sendable (UUID, JobProgress) -> Void)? = nil,
         engine: (any SpeechEngine)? = nil
@@ -787,6 +788,7 @@ struct PipelineHarness {
         recorder = ProgressRecorder()
         scheduler = SpeechJobScheduler()
         let recorder = self.recorder
+        let store = self.store
         pipeline = FileTranscriptionPipeline(
             paths: paths,
             store: store,
@@ -797,6 +799,10 @@ struct PipelineHarness {
             scheduler: scheduler,
             settings: self.settings,
             customWords: { customWords },
+            applyLearnedRules: { id in
+                await TranscriptCorrectionService(store: store, context: { .none }, learnedRules: { learnedRules })
+                    .applyLearnedRules(id)
+            },
             stagingDirectory: staging,
             onProgress: { id, progress in
                 recorder.handler(id, progress)
