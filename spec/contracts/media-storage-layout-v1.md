@@ -60,7 +60,8 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 - `dictation.wav` (M2, additive) is the dictation's source: `mediaRelativePath` points at it, playback and Retry read
   it, and it is written at 16 kHz already, so the file pipeline never has to normalize it for the final pass. It is
   kept until the person deletes the transcript, unless they turned off "Keep dictation audio" (Settings → Capture),
-  in which case it is deleted right after a successful final pass and `mediaRelativePath` becomes nil. A dictation
+  in which case it is deleted right after the final pass's transcript is saved (never before: a failed save keeps it
+  for Retry, review R5-7), and then `mediaRelativePath` becomes nil (`markAudioRemoved`). A dictation
   the person cancels leaves no row and no folder. Recordings shorter than 0.3 s are rejected and their file removed.
 - `dictation.json` (review R5-1, additive) is written before the recorder starts and holds
   `{"privacyClass": "<general|personal|clinical>"}`, the class the dictation was started with (Create passes the

@@ -64,6 +64,9 @@ actor FakeStore: TranscriptionStoring {
     private var observers: [UUID: AsyncStream<[Transcription]>.Continuation] = [:]
     private var pendingHold: (calls: Set<Call>, hold: Hold)?
     private var fetchAllError: FakeError?
+    private var nextInsertError: FakeError?
+    private var nextSaveError: FakeError?
+    private var nextFetchError: FakeError?
     /// Whole-row `update` calls. Code that can race a job must use the field-level methods instead.
     private(set) var wholeRowUpdates = 0
     /// Every privacy class each row has had, in order, from its insert on (review I1 of plan 022: "never, not even for
@@ -78,6 +81,10 @@ actor FakeStore: TranscriptionStoring {
 
     func insert(_ transcription: Transcription) async throws {
         try Task.checkCancellation()
+        if let error = nextInsertError {
+            nextInsertError = nil
+            throw error
+        }
         guard rows[transcription.id] == nil else { throw FakeStoreError.duplicate(transcription.id) }
         rows[transcription.id] = transcription
         recordClass(of: transcription)
@@ -87,6 +94,10 @@ actor FakeStore: TranscriptionStoring {
     func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
         await parkIfHeld(.savePreservingUserMetadata)
         try Task.checkCancellation()
+        if let error = nextSaveError {
+            nextSaveError = nil
+            throw error
+        }
         guard let current = rows[transcription.id] else { return nil }
         var merged = transcription
         merged.titleOverride = current.titleOverride
@@ -155,6 +166,10 @@ actor FakeStore: TranscriptionStoring {
     func fetch(id: UUID) async throws -> Transcription? {
         await parkIfHeld(.fetch)
         try Task.checkCancellation()
+        if let error = nextFetchError {
+            nextFetchError = nil
+            throw error
+        }
         return rows[id]
     }
 
@@ -208,6 +223,13 @@ actor FakeStore: TranscriptionStoring {
     func failFetchAll(with error: FakeError?) {
         fetchAllError = error
     }
+
+    /// The next `insert` throws `error` (once).
+    func failNextInsert(with error: FakeError?) { nextInsertError = error }
+    /// The next `savePreservingUserMetadata` throws `error` (once).
+    func failNextSave(with error: FakeError?) { nextSaveError = error }
+    /// The next `fetch(id:)` throws `error` (once).
+    func failNextFetch(with error: FakeError?) { nextFetchError = error }
 
     /// Sets a row's privacy class directly (the app has no control for it until M4).
     func setPrivacyClass(_ privacyClass: PrivacyClass, for id: UUID) {

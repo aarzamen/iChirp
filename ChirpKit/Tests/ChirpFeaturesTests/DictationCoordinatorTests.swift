@@ -344,6 +344,87 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertNil(h.coordinator.captureNotice, "an ordinary stop says nothing extra")
     }
 
+    /// Review R5-10: a call that takes the microphone while the start still finishes (the live preview is being set
+    /// up) pauses the dictation; it is never dropped, so the screen never says Recording while the call has the
+    /// microphone.
+    func testAnInterruptionWhileTheStartFinishesPausesTheDictation() async throws {
+        let h = Harness(testCase: self)
+        let hold = h.live.holdNextSession()
+        h.coordinator.start()
+        await hold.entered.wait()
+        XCTAssertEqual(h.coordinator.state, .starting)
+        h.capture.send(.event(.interrupted))
+        h.capture.send(.samples([Float](repeating: 0, count: 1_600)))  // handled after the event, in order
+        await waitUntil { h.coordinator.recordedSeconds > 0 }
+        hold.release.fire()
+        // Stop waits for the start to finish, so the state log below holds everything the start did.
+        h.coordinator.stop()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertTrue(h.states.all.contains(.paused(.interrupted)), "\(h.states.all)")
+        XCTAssertFalse(h.states.all.contains(.recording), "never Recording while the call has it: \(h.states.all)")
+        XCTAssertEqual(h.coordinator.state, .done)
+    }
+
+    // MARK: - Review R5-13: a row that could not be added
+
+    /// The row could not be added when the recording stopped (a database error). The message says the recording is
+    /// kept, and Retry adds the row (with its class) and transcribes, never "can no longer be retried".
+    func testARowThatCouldNotBeAddedIsAddedByRetry() async throws {
+        let h = Harness(testCase: self)
+        await h.store.failNextInsert(with: FakeError(message: "database is locked"))
+        h.coordinator.start(privacyClass: .clinical)
+        await waitUntil { h.coordinator.state == .recording }
+        let folder = try XCTUnwrap(h.wavURL).deletingLastPathComponent()
+        await h.stopAndWait()
+
+        guard case .failed(let message) = h.coordinator.state else { return XCTFail("\(h.coordinator.state)") }
+        XCTAssertTrue(message.contains("The recording is saved"), message)
+        XCTAssertFalse(message.contains("no longer"), message)
+        XCTAssertTrue(h.coordinator.canRetry)
+        let none = try await h.store.fetchAll()
+        XCTAssertEqual(none, [])
+        XCTAssertEqual(
+            DictationCoordinator.recordedPrivacyClass(in: folder), .clinical,
+            "until a row exists the class stays next to the audio, for the next launch")
+
+        h.coordinator.retry()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        let row = try await h.row()
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.privacyClass, .clinical)
+        XCTAssertEqual(row.durationMs, FakeCapture.recordedMs)
+        XCTAssertEqual(h.clipboard.copies, [FakeSpeech.helloText])
+        XCTAssertFalse(fileExists(folder.appendingPathComponent(DictationCoordinator.sessionFileName)))
+    }
+
+    // MARK: - Review R5-7: "Keep dictation audio" off
+
+    /// The recording goes only after the transcript is saved: a failed save keeps the audio, so Retry still works.
+    func testKeepAudioOffKeepsTheRecordingUntilTheTranscriptIsSaved() async throws {
+        var settings = Harness.defaultSettings
+        settings.keepDictationAudio = false
+        let h = Harness(testCase: self, settings: settings)
+        await h.store.failNextSave(with: FakeError(message: "disk full"))
+        await h.startRecording()
+        let wav = try XCTUnwrap(h.wavURL)
+        await h.stopAndWait()
+
+        guard case .failed = h.coordinator.state else { return XCTFail("\(h.coordinator.state)") }
+        XCTAssertTrue(fileExists(wav), "the audio stays until its transcript is saved")
+        XCTAssertTrue(h.coordinator.canRetry)
+
+        h.coordinator.retry()
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        XCTAssertFalse(fileExists(wav))
+        XCTAssertFalse(fileExists(wav.deletingLastPathComponent()))
+        let row = try await h.row()
+        XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText)
+        XCTAssertNil(row.mediaRelativePath)
+        XCTAssertEqual(h.clipboard.copies, [FakeSpeech.helloText])
+    }
+
     // MARK: - Settings and display
 
     func testKeepAudioOffDeletesTheRecordingAfterASuccessfulPass() async throws {

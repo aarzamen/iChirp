@@ -117,6 +117,8 @@ public struct DictationTextRules: Sendable {
     @ObservationIgnored private var recording: (id: UUID, url: URL, privacyClass: PrivacyClass)?
     /// The class the next start was asked for (read when the start is accepted).
     @ObservationIgnored private var requestedPrivacyClass: PrivacyClass = .personal
+    /// What the recorder returned at Stop (its length), kept for a Retry that still has to insert the row.
+    @ObservationIgnored private var recordedAudio: RecordedAudio?
     @ObservationIgnored private var rowInserted = false
     @ObservationIgnored private var live: (any LiveSpeechSession)?
     @ObservationIgnored private var startTask: Task<Void, Never>?
@@ -293,6 +295,7 @@ public struct DictationTextRules: Sendable {
     private func beginRecording(generation: Int, privacyClass: PrivacyClass) async {
         // The previous dictation's discard (if any) has finished; this one starts clean.
         recording = nil
+        recordedAudio = nil
         rowInserted = false
         transcriptionID = nil
         // M7 (review I2): the final route's engine must have its model; the sentence names that engine.
@@ -439,14 +442,26 @@ public struct DictationTextRules: Sendable {
         }
         // Display-only: the live session ends (and its work drains) before the final pass may start.
         await finishLiveSession()
+        recordedAudio = recorded
 
+        guard let row = await insertRow(for: recording, generation: generation) else { return }
+        await finalize(row: row, url: recorded.url, generation: generation, copy: true)
+    }
+
+    /// Inserts the `.processing` row of the stopped recording, with its class (review R5-1), and then removes the class
+    /// file. When the insert fails, the dictation fails with a sentence that says the audio is kept: Retry inserts it
+    /// again, and the next launch adopts it otherwise (review R5-13). Nil when it was not inserted.
+    private func insertRow(
+        for recording: (id: UUID, url: URL, privacyClass: PrivacyClass), generation: Int
+    ) async -> Transcription? {
+        let recorded = recordedAudio
         let row = Transcription(
             id: recording.id,
             sourceType: .dictation,
             fileName: "Dictation.wav",
-            mediaRelativePath: paths.relativePath(for: recorded.url),
-            fileSizeBytes: Self.fileSize(recorded.url),
-            durationMs: recorded.durationMs,
+            mediaRelativePath: paths.relativePath(for: recording.url),
+            fileSizeBytes: Self.fileSize(recording.url),
+            durationMs: recorded?.durationMs,
             status: .processing,
             privacyClass: recording.privacyClass
         )
@@ -455,14 +470,19 @@ public struct DictationTextRules: Sendable {
             try await Self.detached { try await store.insert(row) }
             rowInserted = true
             Self.removeSessionMarker(in: recording.url.deletingLastPathComponent())
+            return row
         } catch {
             logger.error("dictation_row_insert_failed error_type=\(error.logTypeName, privacy: .public)")
-            failureKind = Self.failureKind(for: error)
-            send(.transcriptionFailed(generation: generation, message: Self.message(for: error)))
-            return
+            failureKind = .other
+            send(.transcriptionFailed(generation: generation, message: Self.rowNotAddedMessage))
+            return nil
         }
-        await finalize(row: row, url: recorded.url, generation: generation, copy: true)
     }
+
+    /// Review R5-13: the recording is on disk but has no Library row yet.
+    static let rowNotAddedMessage =
+        "The recording is saved, but Parakeet couldn’t add it to your Library. Tap Retry, or it appears in your Library "
+        + "the next time Parakeet opens."
 
     private func retryFinalPass(generation: Int) async {
         failureKind = nil
@@ -471,20 +491,24 @@ public struct DictationTextRules: Sendable {
             send(.transcriptionFailed(generation: generation, message: "There is no recording to retry."))
             return
         }
-        let store = self.store
-        let row: Transcription?
-        do {
-            row = try await Self.detached {
+        let row: Transcription
+        if rowInserted {
+            let store = self.store
+            let moved = try? await Self.detached {
                 try await store.transitionStatus(
                     id: recording.id, from: [.failed, .cancelled, .interrupted], to: .processing, errorMessage: nil)
             }
-        } catch {
-            row = nil
-        }
-        guard let row else {
-            failureKind = .other
-            send(.transcriptionFailed(generation: generation, message: "This dictation can no longer be retried."))
-            return
+            guard let moved else {
+                failureKind = .other
+                send(.transcriptionFailed(generation: generation, message: "This dictation can no longer be retried."))
+                return
+            }
+            row = moved
+        } else {
+            // Review R5-13: the row could not be added when the recording stopped (or the stop itself failed): the
+            // audio is here, so add the row now.
+            guard let inserted = await insertRow(for: recording, generation: generation) else { return }
+            row = inserted
         }
         await finalize(row: row, url: recording.url, generation: generation, copy: true)
     }
@@ -618,13 +642,13 @@ public struct DictationTextRules: Sendable {
             completed.status = .completed
             completed.errorMessage = nil
             completed.updatedAt = Date()
-            if !settingsValue.keepDictationAudio {
-                try? FileManager.default.removeItem(at: url)
-                removeFolder(of: url)
-                completed.mediaRelativePath = nil
-            }
             let finished = completed
-            let saved = try await Self.detached { try await store.savePreservingUserMetadata(finished) }
+            var saved = try await Self.detached { try await store.savePreservingUserMetadata(finished) }
+            // Review R5-7: with "Keep dictation audio" off, the audio goes only once its transcript is saved, so a
+            // failed save keeps it for Retry.
+            if !settingsValue.keepDictationAudio, let stored = saved {
+                saved = await removeAudio(of: stored.id, at: url) ?? stored
+            }
             outcome = .success(FinalText(text: text, row: saved))
         } catch {
             logger.error("dictation_final_pass_failed error_type=\(error.logTypeName, privacy: .public)")
@@ -636,6 +660,16 @@ public struct DictationTextRules: Sendable {
         // here now that the pass has released the engine, in case it is still on no route.
         await SpeechRouting.releaseUnroutedModels(on: self.speech)
         return outcome
+    }
+
+    /// "Keep dictation audio" off: deletes the recording after its transcript was saved, then clears the row's media
+    /// path in one field-level write (`markAudioRemoved`). Returns the row as updated, or nil when that write failed
+    /// (the transcript is saved either way).
+    private func removeAudio(of id: UUID, at url: URL) async -> Transcription? {
+        try? FileManager.default.removeItem(at: url)
+        removeFolder(of: url)
+        let store = self.store
+        return try? await Self.detached { try await store.markAudioRemoved(id: id, at: Date()) }
     }
 
     /// Moves the row to `.failed` with a readable message; the audio stays for Retry.

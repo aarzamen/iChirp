@@ -122,6 +122,21 @@ public struct DictationFlowStateMachine: Sendable, Equatable {
         case (.starting, .cancelRequested), (.pendingStop, .cancelRequested):
             state = .cancelled
             return [.cancelRecording]
+        // Review R5-10: the microphone runs before the start finishes (the live preview is set up last), so its
+        // events can arrive while `.starting`; they are never dropped. `recordingStarted` then leaves a paused or
+        // stopping dictation as it is. In `.pendingStop` an interruption needs nothing (the stop is coming).
+        case (.starting, .captureInterrupted(let gen)):
+            guard gen == generation else { return [] }
+            state = .paused(.interrupted)
+            return []
+        case (.starting, .captureWaitingForResume(let gen)):
+            guard gen == generation else { return [] }
+            state = .paused(.waitingForResume)
+            return []
+        case (.starting, .captureFailed(let gen)), (.pendingStop, .captureFailed(let gen)):
+            guard gen == generation else { return [] }
+            state = .stopping
+            return [.stopRecordingAndTranscribe]
 
         // MARK: Pending stop
         case (.pendingStop, .recordingStarted(let gen)):

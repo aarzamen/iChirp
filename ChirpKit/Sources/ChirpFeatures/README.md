@@ -158,7 +158,9 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
   done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
-  cancels nothing, Retry from `failed`.
+  cancels nothing, Retry from `failed`. Review R5-10: an interruption, a wait for Resume or a microphone failure that
+  arrives while `starting` (the microphone runs before the live preview is set up) pauses or stops the dictation
+  instead of being dropped; a failure in `pendingStop` stops at once.
 - `Dictation/DictationCoordinator.swift` (M2; M6 voice-command hooks): the `@MainActor @Observable` dictation
   coordinator and view model.
   Start checks the model and the microphone permission, records into `media/<id>/dictation.wav` through
@@ -179,6 +181,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   class to `media/<id>/dictation.json` before the recorder starts, inserts the row with it (so a Clinical dictation is
   never Personal, not even for a moment), routes the live preview on it, and deletes the file once the row exists.
   An orphan is adopted with the class in that file, or Clinical when it is missing or unreadable.
+  Review R5-13: a row that could not be added at Stop says the recording is saved, and Retry adds it (with its class)
+  before the final pass. Review R5-7: with "Keep dictation audio" off, the WAV is deleted only after the transcript
+  is saved, then `markAudioRemoved` clears the row's media path (a failed save keeps the audio for Retry).
   Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) finishes with
   what was saved and `captureNotice` says why; the Dictating screen shows it with the outcome.
   Review R5-4: a WAV the app was killed while writing holds its samples but its header says 0 s; adoption and every
