@@ -55,7 +55,16 @@ write them, ChirpCore, ChirpStore and the device smoke.
   the screen and in SRT/VTT/JSON.
 - Pinned by `TranscriptTextTests` and the goldens in `ChirpFeaturesTests/TranscriptTextGoldenTests` (model input,
   Copy, every export and Jev's input for a timed row with and without speakers, a dictation, a typed text and a
-  document, in Raw and Clean).
+  document, in Raw and Clean) and `UncorrectedSurfacesGoldenTests` (plan 025 A0).
+- **Corrections (plan 025, [ADR-016](adr/016-transcript-corrections-over-an-immutable-baseline.md), contract
+  [transcript-corrections-v1](contracts/transcript-corrections-v1.md)).** The person's corrections and a dictation's
+  voice commands enter the word stream here (`TranscriptTokens.of`) and nowhere else: a corrected passage is one token
+  with the time envelope of the words it replaced; line boundaries and ids never move. With corrections, `.heard` and
+  `.shown(.raw)` are the corrected words (joined with upstream's separators), and wherever the stored clean text would
+  show, the view is the clean-up below run over the corrected words with the person's rules
+  (`TranscriptTextContext`: manual custom words, the filler setting, snippets for dictation). A row without
+  corrections returns exactly what it did before. `scripts/check_transcript_text_reads.sh` keeps consumers on the
+  accessor.
 
 ## Clean-up pipeline (`TextRefinement`, Clean mode only)
 
@@ -81,7 +90,8 @@ bundled NeMo text normalizer in FluidAudio 0.16.1 is reserved for dictation numb
 ## Titles and snippets
 
 `TitleDeriver.derive(from:)` and `SnippetDeriver.derive(from:excluding:)` (upstream `TranscriptDerivers`) compute the
-Library title and preview line from `cleanTranscript ?? rawTranscript`. The user's rename (`titleOverride`) always
+Library title and preview line from `cleanTranscript ?? rawTranscript`; every correction write recomputes them from
+the corrected text (`Transcription.titleSource(context:)`), and reverting every correction restores the pipeline's. The user's rename (`titleOverride`) always
 wins and is preserved if made while a job runs.
 
 ## Paragraphs and cues (for the Transcript view and exports)
