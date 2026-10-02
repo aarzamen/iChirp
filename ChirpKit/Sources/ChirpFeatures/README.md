@@ -305,7 +305,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   `{{userNotes}}` placement, Ask citation rules), `GenerationBudget` (from the engine's context window: a quarter
   reserved for output, 3 characters per token, 10% margin) and `MapReduceGenerator` (one call when it fits;
   otherwise extract per part, condense in groups up to 4 levels, combine; never truncates, else
-  `transcriptTooLong`).
+  `transcriptTooLong`). Plan 026: `GenerationTask.author` (`TemplateAuthor.of(version, template)`: `.person(kind)`
+  for a `user` version, `.app` for `builtIn` / `systemUpdate`, set by `DeliverableService.run`). For the person's text
+  the step that writes the result (single or combine) gets the app rules after the preamble — `documentRule` or
+  `rewriteRule`, plus `clinicalRule` when the run's class is clinical — and the reserved source tags in the text are
+  neutralized (`TemplateLimits.neutralizingReservedTags`); map and condense carry the text as `<task>` with no rule.
+  Built-in requests are byte-identical (`UserTemplatePromptTests` pins a SHA-256 of every built-in request).
 - `BuiltInTemplates.swift`: the nine shipped templates (Summary, Meeting notes, Action items, Agenda, SOAP note with
   a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
@@ -893,6 +898,44 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
 - Support hooks (additive): `TranscriptionJobCenter.waitForJob(_:)` waits on a row's real job;
   `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
   `CreateSupportTests`.
+
+## Your own templates (plan 026, `Templates/`; contract [deliverables-v1](../../../spec/contracts/deliverables-v1.md), Template library)
+
+- `Templates/TemplateLibraryViewModel.swift`: the Templates screen. `documents` and `rewrites` in the person's order
+  (hidden ones included and marked; `hiddenCount`), `deleted` (newest delete first), `hasTemplatesOfYourOwn` (else
+  the empty-state card), `startingPoints` (the editor's "Start from" after Blank). `actions(for:)`: built-ins offer
+  Duplicate and edit, Hide/Show, Move up, Move down, View instructions; the person's own Edit, Duplicate, Hide/Show,
+  Move up, Move down, Delete. `setVisible`, `canMoveUp`/`canMoveDown`, `moveUp`/`moveDown`, `move(fromOffsets:
+  toOffset:in:)` (a drag) and `reorder(_:in:)` save the section's whole order. `deleteImpact(of:)` is the question
+  (title "Delete “<name>”?"; the documents that stay, by count; the recipes that stop, by name, from `recipesUsing`,
+  which the app answers with `CreateRecipe.uses(templateID:)`); `delete` is soft, `restore` brings it back and sets
+  `notice` when the name was taken ("Restored as “<name> (restored)”…"). Each change is one store write; success
+  reloads and calls `didChange` (the app reloads the Transforms tab), failure sets `actionError` to one sentence and
+  changes nothing.
+- `Templates/TemplateEditorViewModel.swift`: `Mode.new(startingFrom:)` (Blank, or a copy: "<name> copy", its kind,
+  text and clinical switch) or `.edit` (the person's own; a built-in passed here opens as a copy). `name`, `kind`,
+  `instructions`, `makesClinicalDocuments`; `problem` / `problemSentence` (`TemplateDraft.problem` against the other
+  templates' names), `canSave`, `characterCount`, `hasChanges` (drives "Discard your changes?"), `versions` newest
+  first, `nextVersionNumber` / `versionNote` ("Saving makes version 3. …" only when the text changed), `start(from:)`,
+  `useText(of:)` (an earlier version's text into the draft; history never changes), `save()` (create, or update the
+  row and a version only for new text; then the editor edits what it saved; `saveError` is one sentence and the typed
+  text stays).
+- `Templates/DocumentTemplateProvenance.swift`: a document's Details lines about its template. `made` is the title
+  snapshot and the version that made it ("Clinic SOAP · version 2"); `changes` / `now` say what happened since
+  ("Now called “SOAP (clinic)”.", "Edited since: now version 3." or, for a built-in, "Updated by the app since: …",
+  "Deleted. Restore it in Templates to use it again."); nil for an Ask answer. `DeliverableDocumentViewModel` fills
+  `provenance` on `load()` (through `fetchTemplate(id:)`, which includes deleted rows) and `loadInstructionsUsed()`
+  returns the document's own immutable version ("Show the instructions used").
+- Consumers: `DeliverableLibraryViewModel.templates`, `documentTemplates` and `transformTemplates` keep **every**
+  template that is not deleted, hidden ones included (recipes, Create's validation, Jev and the SOAP hand-off look
+  templates up there); pickers use `visibleDocumentTemplates`, `visibleRewriteTemplates` and
+  `pickerTemplates(_:keeping:)` (a selected hidden template stays choosable in its place); `hiddenTemplateCount`.
+  A recipe of a hidden template runs; a deleted one blocks with "… no longer exists. Restore it in Templates, make
+  the recipe again in Create, or delete it." (`CreateRecipeCheck`), and runs again once restored (ids never change).
+- Tests: `DeliverableLibraryViewModelTests` (pickers vs the library, provenance after a rename, an edit and a delete,
+  the instructions used), `CreateRecipeTests` (hidden and restored recipes, the sentence),
+  `TemplateLibraryViewModelTests`, `TemplateEditorViewModelTests` (over `FakeDeliverableStore`, whose
+  `TemplateLibraryStoring` extension keeps the store's rules), `CreateRecipeTests.testARecipeUsesATemplateOnlyWhenItMakesThatDocument`.
 
 ## How to verify
 

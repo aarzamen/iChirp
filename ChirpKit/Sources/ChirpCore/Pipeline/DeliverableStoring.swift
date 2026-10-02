@@ -6,7 +6,8 @@ public protocol DeliverableStoring: Sendable {
     // MARK: Templates
 
     /// Inserts missing built-ins (with version 1) and, for a built-in the user has not customized, appends a
-    /// `systemUpdate` version when the definition's `revision` is newer. Never touches user templates or edits.
+    /// `systemUpdate` version when the definition's `revision` is newer. Never touches user templates or edits, and
+    /// never rewrites an existing row's `sortOrder` or `isVisible` (the person's order and choice, plan 026).
     func installBuiltInTemplates(_ templates: [BuiltInPromptTemplate]) async throws
     /// Templates not soft-deleted, ordered by `sortOrder` then name.
     func fetchTemplates() async throws -> [PromptTemplate]

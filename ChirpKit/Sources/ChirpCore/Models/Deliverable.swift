@@ -24,7 +24,13 @@ public struct PromptTemplate: Codable, Sendable, Equatable, Identifiable {
     /// The class the output is raised to at least (SOAP note → `.clinical`). The run's routing class is the stricter
     /// of the transcript's class and this.
     public var outputPrivacyClass: PrivacyClass?
+    /// Position within its section (Documents, Rewrites). The person's order once they reorder (plan 026); the
+    /// built-in installer sets it only when it first inserts a row.
     public var sortOrder: Int
+    /// Plan 026 (`v12-template-library`): false keeps the template out of the pickers (Transforms, the Transform sheet,
+    /// Create's menu). A hidden template is still listed in Templates, still runs by id (recipes, Jev, Extract fields)
+    /// and still receives built-in updates. Hiding never marks a built-in customized.
+    public var isVisible: Bool
     /// The `PromptVersion` a run uses.
     public var activeVersionID: UUID
     /// Set when the user edits a built-in; later built-in revisions then leave it alone.
@@ -43,6 +49,7 @@ public struct PromptTemplate: Codable, Sendable, Equatable, Identifiable {
         canonicalRevision: Int? = nil,
         outputPrivacyClass: PrivacyClass? = nil,
         sortOrder: Int = 0,
+        isVisible: Bool = true,
         activeVersionID: UUID,
         userCustomizedAt: Date? = nil,
         deletedAt: Date? = nil,
@@ -57,11 +64,31 @@ public struct PromptTemplate: Codable, Sendable, Equatable, Identifiable {
         self.canonicalRevision = canonicalRevision
         self.outputPrivacyClass = outputPrivacyClass
         self.sortOrder = sortOrder
+        self.isVisible = isVisible
         self.activeVersionID = activeVersionID
         self.userCustomizedAt = userCustomizedAt
         self.deletedAt = deletedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    /// Decodes `isVisible` when present and treats its absence (a value encoded before plan 026) as shown.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        category = try container.decode(Category.self, forKey: .category)
+        isBuiltIn = try container.decode(Bool.self, forKey: .isBuiltIn)
+        canonicalKey = try container.decodeIfPresent(String.self, forKey: .canonicalKey)
+        canonicalRevision = try container.decodeIfPresent(Int.self, forKey: .canonicalRevision)
+        outputPrivacyClass = try container.decodeIfPresent(PrivacyClass.self, forKey: .outputPrivacyClass)
+        sortOrder = try container.decode(Int.self, forKey: .sortOrder)
+        isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        activeVersionID = try container.decode(UUID.self, forKey: .activeVersionID)
+        userCustomizedAt = try container.decodeIfPresent(Date.self, forKey: .userCustomizedAt)
+        deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 }
 
