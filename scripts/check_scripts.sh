@@ -41,23 +41,8 @@ for script in scripts/*.py; do
   fi
 done
 
-# 2. run_device.sh tells a locked phone, a signing problem and any other failure apart (R8-2). xcodebuild's log always
-#    carries signing words (the environment dump of the Stamp Build Identity phases, CodeSign lines), so a Swift compile
-#    error must not be called a signing failure. Fixture logs are named <kind>--<expected>--<what>.log.
-for log in scripts/fixtures/device-logs/*.log; do
-  name=$(basename "$log" .log)
-  kind=${name%%--*}
-  rest=${name#*--}
-  expected=${rest%%--*}
-  actual=$(scripts/run_device.sh --classify-log "$kind" "$log")
-  if [ "$actual" = "$expected" ]; then
-    pass "run_device.sh classifies $name as $expected"
-  else
-    fail "run_device.sh classifies $name as $actual, expected $expected"
-  fi
-done
-
-# 3. run_device.sh device selection never reads or writes the real Config/Device.local: the script runs from a copy.
+# run_device.sh is only ever run from a copy in the sandbox, with a stub `xcrun` first on PATH: it never reaches
+# xcodebuild, devicectl, a phone or the real Config/Device.local (sections 2 and 3).
 mkdir -p "$SANDBOX/rd/scripts" "$SANDBOX/rd/Config" "$SANDBOX/rd/bin"
 cp scripts/run_device.sh "$SANDBOX/rd/scripts/run_device.sh"
 cat >"$SANDBOX/rd/bin/xcrun" <<'STUB'
@@ -85,6 +70,24 @@ run_in_sandbox() { # run_in_sandbox <args...>: the sandboxed run_device.sh with 
   env -u DEVICE_ID -u PINNED_DEVICE_ONLY PATH="$SANDBOX/rd/bin:$PATH" "$SANDBOX/rd/scripts/run_device.sh" "$@"
 }
 
+# 2. run_device.sh tells a locked phone, a signing problem and any other failure apart (R8-2). xcodebuild's log always
+#    carries signing words (the environment dump of the Stamp Build Identity phases, CodeSign lines), so a Swift compile
+#    error must not be called a signing failure. Fixture logs are named <kind>--<expected>--<what>.log; --classify-log
+#    only reads the file.
+for log in scripts/fixtures/device-logs/*.log; do
+  name=$(basename "$log" .log)
+  kind=${name%%--*}
+  rest=${name#*--}
+  expected=${rest%%--*}
+  actual=$(run_in_sandbox --classify-log "$kind" "$PWD/$log")  # absolute: the copy changes into the sandbox folder
+  if [ "$actual" = "$expected" ]; then
+    pass "run_device.sh classifies $name as $expected"
+  else
+    fail "run_device.sh classifies $name as $actual, expected $expected"
+  fi
+done
+
+# 3. run_device.sh device selection reads the sandbox's Config/Device.local, never the real one.
 # The example copied as it stands: older versions of bootstrap.sh created exactly this file.
 cp Config/Device.local.example "$SANDBOX/rd/Config/Device.local"
 if run_in_sandbox --print-pinned-device >"$SANDBOX/out" 2>"$SANDBOX/err"; then
