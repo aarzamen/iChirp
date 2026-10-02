@@ -4,19 +4,42 @@ import XCTest
 final class SpeechJobSchedulerTests: XCTestCase {
     actor Log { var items: [String] = []; func add(_ s: String) { items.append(s) } }
 
+    // The four tests below order their jobs with signals, never fixed sleeps (review R1-11, R8-12): the blocking job
+    // says it holds the slot, and each queued job is counted in `pendingCount()` before the next one starts.
+
+    /// Starts a job that holds `kind`'s slot until `gate` opens; returns once the job is running.
+    private func occupySlot(
+        _ scheduler: SpeechJobScheduler, _ kind: SpeechJobKind, until gate: AsyncStream<Void>, log: Log? = nil
+    ) async -> Task<Void, any Error> {
+        let started = AsyncStream<Void>.makeStream()
+        let blocker = Task {
+            try await scheduler.run(kind) {
+                started.continuation.yield(())
+                for await _ in gate { break }
+                await log?.add("blocker")
+            }
+        }
+        for await _ in started.stream { break }
+        return blocker
+    }
+
+    /// Returns once `count` jobs wait in the scheduler's queue.
+    private func waitForPending(_ scheduler: SpeechJobScheduler, _ count: Int) async {
+        await waitUntil { await scheduler.pendingCount() == count }
+    }
+
     func testBackgroundJobsRunByPriorityThenFIFO() async throws {
         let scheduler = SpeechJobScheduler()
         let log = Log()
         let gate = AsyncStream<Void>.makeStream()
-        // Occupy the background slot so the next three queue up.
-        let blocker = Task { try await scheduler.run(.fileTranscription) { for await _ in gate.stream { break }; await log.add("blocker") } }
-        try await Task.sleep(for: .milliseconds(50))
+        // Occupy the background slot so the next three queue up, in this order.
+        let blocker = await occupySlot(scheduler, .fileTranscription, until: gate.stream, log: log)
         let f2 = Task { try await scheduler.run(.fileTranscription) { await log.add("file2") } }
-        try await Task.sleep(for: .milliseconds(20))
+        await waitForPending(scheduler, 1)
         let live = Task { try await scheduler.run(.meetingLiveChunk) { await log.add("live") } }
-        try await Task.sleep(for: .milliseconds(20))
+        await waitForPending(scheduler, 2)
         let fin = Task { try await scheduler.run(.meetingFinalize) { await log.add("finalize") } }
-        try await Task.sleep(for: .milliseconds(20))
+        await waitForPending(scheduler, 3)
         gate.continuation.yield(())
         _ = try await (blocker.value, f2.value, live.value, fin.value)
         let order = await log.items
@@ -26,38 +49,47 @@ final class SpeechJobSchedulerTests: XCTestCase {
     func testDictationUsesInteractiveSlotAndIsNotBlockedByBackground() async throws {
         let scheduler = SpeechJobScheduler()
         let gate = AsyncStream<Void>.makeStream()
-        let background = Task { try await scheduler.run(.fileTranscription) { for await _ in gate.stream { break } } }
-        try await Task.sleep(for: .milliseconds(50))
+        let background = await occupySlot(scheduler, .fileTranscription, until: gate.stream)
         let result = try await scheduler.run(.dictation) { "dictated" }
         XCTAssertEqual(result, "dictated")
-        gate.continuation.yield(()); _ = try await background.value
+        gate.continuation.yield(())
+        _ = try await background.value
     }
 
     func testCancellingPendingJobRemovesIt() async throws {
         let scheduler = SpeechJobScheduler()
         let gate = AsyncStream<Void>.makeStream()
-        let blocker = Task { try await scheduler.run(.fileTranscription) { for await _ in gate.stream { break } } }
-        try await Task.sleep(for: .milliseconds(50))
+        let blocker = await occupySlot(scheduler, .fileTranscription, until: gate.stream)
         let pending = Task { try await scheduler.run(.fileTranscription) { XCTFail("must not run") } }
-        try await Task.sleep(for: .milliseconds(20))
+        await waitForPending(scheduler, 1)
         pending.cancel()
-        do { _ = try await pending.value; XCTFail("expected cancellation") } catch is CancellationError {}
+        do {
+            _ = try await pending.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {}
         let count = await scheduler.pendingCount()
         XCTAssertEqual(count, 0)
-        gate.continuation.yield(()); _ = try await blocker.value
+        gate.continuation.yield(())
+        _ = try await blocker.value
     }
 
     func testLiveChunkBackpressureDropsOldest() async throws {
         let scheduler = SpeechJobScheduler(maxPendingLiveChunks: 1)
         let gate = AsyncStream<Void>.makeStream()
-        let blocker = Task { try await scheduler.run(.fileTranscription) { for await _ in gate.stream { break } } }
-        try await Task.sleep(for: .milliseconds(50))
+        let blocker = await occupySlot(scheduler, .fileTranscription, until: gate.stream)
         let first = Task { try await scheduler.run(.meetingLiveChunk) { "first" } }
-        try await Task.sleep(for: .milliseconds(20))
+        await waitForPending(scheduler, 1)
         let second = Task { try await scheduler.run(.meetingLiveChunk) { "second" } }
-        try await Task.sleep(for: .milliseconds(20))
+        // Queuing the second chunk drops the first, which ends it at once; the slot is still held.
+        do {
+            _ = try await first.value
+            XCTFail("oldest must be dropped")
+        } catch let error as SpeechJobError {
+            XCTAssertEqual(error, .droppedDueToBackpressure)
+        }
+        let pending = await scheduler.pendingCount()
+        XCTAssertEqual(pending, 1, "only the newest chunk waits")
         gate.continuation.yield(())
-        do { _ = try await first.value; XCTFail("oldest must be dropped") } catch let e as SpeechJobError { XCTAssertEqual(e, .droppedDueToBackpressure) }
         let s = try await second.value
         XCTAssertEqual(s, "second")
         _ = try await blocker.value

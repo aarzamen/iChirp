@@ -195,7 +195,9 @@ scripts/check.sh ChirpCoreTests
 ```
 
 This runs the package build, the focused ChirpCore tests and the strict `swift format` lint. The scheduler
-tests use timing, so after touching `SpeechJobScheduler.swift` run them repeatedly:
+tests order their jobs with signals (a blocking job's start signal, then `pendingCount()`), never fixed sleeps
+(review R1-11); concurrency bugs still show up only now and then, so after touching `SpeechJobScheduler.swift` run
+them repeatedly:
 
 ```bash
 for i in $(seq 1 20); do swift test --package-path ChirpKit --filter SpeechJobSchedulerTests || break; done
