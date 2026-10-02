@@ -74,7 +74,7 @@
   [plan 023](2026-09-23-023-owner-design-decisions.md) (F44 and F45 stay open).
 - **Planned at:** commit `53bc2cc6`, 2026-10-01 (re-checked at `1276dfc3`: only review documents and plan 024 were
   added; no code changed)
-- **Status:** IN PROGRESS — core half (Steps 0–3, 5, 6) started 2026-10-01 at `928a8074`.
+- **Status:** IN PROGRESS — Steps 0–3 and 5–11 built (core half merged at `6e365a7b`; app half on its lane, Step 12 gates green except `device_smoke.sh`, which the controller runs). Step 4 and the Make-again half of Step 9 are deferred (ruling 1). The UI tour runs without a model (no stub needed); light, dark and AX3 renders come from `TemplateScreenRenderTests`.
 
 ### Drift check at `928a8074` (2026-10-01, core half)
 
