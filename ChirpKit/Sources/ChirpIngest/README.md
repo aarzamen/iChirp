@@ -52,7 +52,9 @@
 - `Links/YouTubeCaptionFetcher.swift`: captions by the youtube-transcript-api method (credited, re-implemented): watch
   page → `INNERTUBE_API_KEY` (passing the consent page with a one-request cookie) → `/youtubei/v1/player` as the
   ANDROID client → the best track (manual in a preferred language first) → timed text, classic or srv3, unescaped.
-  Errors (`YouTubeCaptionError`) say what happened and suggest sharing the file instead. The InnerTube client is one
+  Errors (`YouTubeCaptionError`) say what happened and suggest sharing the file instead. `LOGIN_REQUIRED` is `blocked`
+  (bot check) or `ageRestricted` only for those reasons, as in youtube-transcript-api; any other reason (a private or
+  members-only video) is `unplayable` with YouTube's sentence, so the app does not offer the Mac companion for it. The InnerTube client is one
   constant (`innertubeClient`, youtube-transcript-api's, checked 2026-09-22) and every YouTube request sends
   youtube-transcript-api's User-Agent (`userAgent`): with Parakeet's own agent YouTube redirects the watch page to an
   "unsupported browser" page. **No audio here**: YouTube audio comes from the Mac companion (below).

@@ -211,6 +211,9 @@ public struct YouTubeCaptionFetcher: YouTubeCaptionFetching {
     }
 
     /// Maps `playabilityStatus` to an error, as youtube-transcript-api does; "OK" (or no status) passes.
+    /// `LOGIN_REQUIRED` is a bot check or an age gate only for those reasons (youtube-transcript-api matches the exact
+    /// sentences; this matches their distinctive phrases, apostrophe-insensitive); any other reason (a private or
+    /// members-only video) is `unplayable` with YouTube's own sentence, which the Mac companion cannot get around.
     static func checkPlayability(_ player: [String: Any]) throws {
         guard let playability = player["playabilityStatus"] as? [String: Any],
             let status = playability["status"] as? String, status != "OK"
@@ -220,12 +223,14 @@ public struct YouTubeCaptionFetcher: YouTubeCaptionFetching {
         let reason = (playability["reason"] as? String) ?? ""
         switch status {
         case "LOGIN_REQUIRED":
-            if reason.localizedCaseInsensitiveContains("inappropriate")
-                || reason.localizedCaseInsensitiveContains("age")
-            {
+            let phrase = reason.replacingOccurrences(of: "\u{2019}", with: "'").lowercased()
+            if phrase.contains("you're not a bot") || phrase.contains("you're not a robot") {
+                throw YouTubeCaptionError.blocked
+            }
+            if phrase.contains("inappropriate for some users") || phrase.contains("confirm your age") {
                 throw YouTubeCaptionError.ageRestricted
             }
-            throw YouTubeCaptionError.blocked
+            throw YouTubeCaptionError.unplayable(reason)
         case "ERROR":
             throw YouTubeCaptionError.videoUnavailable
         default:
