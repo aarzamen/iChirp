@@ -67,6 +67,9 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
   a deliberate behavior change from upstream `ExportService`, which instead falls back to a single cue
   spanning `durationMs`. TXT/Markdown do not throw — with no words they fall back to `preferredText`
   (below).
+- VTT escapes `&`, `<` and `>` in cue text and in the `<v …>` speaker label (review R1-8: "<5 mg" vanished in
+  conforming players, a speaker renamed "A>B" broke the voice tag); a label's line breaks become spaces in SRT and
+  VTT, so a cue line never splits. Upstream did neither.
 - `preferredText(_:)` is what TXT/Markdown use when there are no words to build paragraphs from, and
   what JSON's `text` field always uses. **Raw/Clean fallback rule** (pinned by
   `testRawModeExportsRawTranscriptWhenBothTranscriptsPresent`,

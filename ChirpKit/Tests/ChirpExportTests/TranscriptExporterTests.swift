@@ -190,6 +190,39 @@ final class TranscriptExporterTests: XCTestCase {
         XCTAssertTrue(vtt.contains("<v Bob>Hi.</v>"))
     }
 
+    /// Review R1-8: WebVTT reads "<" plus a digit as a timestamp tag and "&" as an escape, so "<5 mg" vanished in
+    /// conforming players, and a speaker renamed "A>B" ended the voice tag early. Cue text and the voice label are
+    /// escaped (`&amp;`, `&lt;`, `&gt;`).
+    func testVTTEscapesCueTextAndVoiceLabels() throws {
+        var transcription = Transcription(fileName: "visit.m4a", status: .completed)
+        transcription.wordTimestamps = [
+            WordTimestamp(word: "dose", startMs: 0, endMs: 300, confidence: 1, speakerId: "S1"),
+            WordTimestamp(word: "<5", startMs: 350, endMs: 600, confidence: 1, speakerId: "S1"),
+            WordTimestamp(word: "mg,", startMs: 650, endMs: 900, confidence: 1, speakerId: "S1"),
+            WordTimestamp(word: "Q&A", startMs: 950, endMs: 1_200, confidence: 1, speakerId: "S1"),
+        ]
+        transcription.speakers = [SpeakerInfo(id: "S1", label: "A>B")]
+
+        let vtt = try TranscriptExporter(cleanupMode: .raw).render(transcription, as: .vtt)
+        XCTAssertEqual(vtt, "WEBVTT\n\n00:00:00.000 --> 00:00:01.200\n<v A&gt;B>dose &lt;5 mg, Q&amp;A</v>\n")
+
+        transcription.speakers = nil
+        let unlabeled = try TranscriptExporter(cleanupMode: .raw).render(transcription, as: .vtt)
+        XCTAssertEqual(unlabeled, "WEBVTT\n\n00:00:00.000 --> 00:00:01.200\ndose &lt;5 mg, Q&amp;A\n")
+    }
+
+    /// A renamed speaker can hold a line break; inside a cue it would end the cue line (a blank one ends the cue).
+    func testSpeakerLabelWithALineBreakStaysOnTheCueLine() throws {
+        var transcription = Transcription(fileName: "visit.m4a", status: .completed)
+        transcription.wordTimestamps = [
+            WordTimestamp(word: "Hello.", startMs: 0, endMs: 500, confidence: 1, speakerId: "S1")
+        ]
+        transcription.speakers = [SpeakerInfo(id: "S1", label: "Dr\n\nSynthetic")]
+        let exporter = TranscriptExporter(cleanupMode: .raw)
+        XCTAssertTrue(try exporter.render(transcription, as: .vtt).contains("\n<v Dr Synthetic>Hello.</v>\n"))
+        XCTAssertTrue(try exporter.render(transcription, as: .srt).contains("\nDr Synthetic: Hello.\n"))
+    }
+
     func testVTTThrowsWithoutTimestamps() {
         var transcription = Transcription(fileName: "audio.mp3")
         transcription.status = .completed

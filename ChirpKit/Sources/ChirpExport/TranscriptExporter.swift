@@ -206,7 +206,7 @@ public struct TranscriptExporter: Sendable {
             lines.append("\(index + 1)")
             lines.append("\(Self.srtTimestamp(ms: cue.startMs)) --> \(Self.srtTimestamp(ms: cue.endMs))")
             if let label = speakerLabel(for: cue.speakerId, in: transcription.speakers) {
-                lines.append("\(label): \(cue.text)")
+                lines.append("\(Self.singleLine(label)): \(cue.text)")
             } else {
                 lines.append(cue.text)
             }
@@ -224,14 +224,30 @@ public struct TranscriptExporter: Sendable {
         }
         for cue in cues {
             lines.append("\(Self.vttTimestamp(ms: cue.startMs)) --> \(Self.vttTimestamp(ms: cue.endMs))")
+            let text = Self.vttEscaped(Self.singleLine(cue.text))
             if let label = speakerLabel(for: cue.speakerId, in: transcription.speakers) {
-                lines.append("<v \(label)>\(cue.text)</v>")
+                lines.append("<v \(Self.vttEscaped(Self.singleLine(label)))>\(text)</v>")
             } else {
-                lines.append(cue.text)
+                lines.append(text)
             }
             lines.append("")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// WebVTT cue text escapes (review R1-8): "<" opens a tag (followed by a digit, a timestamp tag that runs to the
+    /// next ">", so "<5 mg" vanished in conforming players), ">" closes the voice annotation early (a speaker renamed
+    /// "A>B"), and "&" starts an escape. The words come back unchanged when a player reads the file.
+    private static func vttEscaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    /// A cue line never holds a line break: a renamed speaker's label (or a word) with one would end the cue line,
+    /// and a blank line ends the cue. Each run of line breaks becomes one space.
+    private static func singleLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).joined(separator: " ")
     }
 
     private func subtitleCues(for transcription: Transcription) throws -> [TranscriptCue] {
