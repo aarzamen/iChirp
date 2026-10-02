@@ -270,6 +270,21 @@ final class CreateRecipeTests: XCTestCase {
         }
     }
 
+    // MARK: - Plan 026: which recipes a template's delete stops
+
+    func testARecipeUsesATemplateOnlyWhenItMakesThatDocument() {
+        let mine = UUID()
+        let document = CreateRecipe(
+            name: "Dictate → Clinic SOAP", choices: CreateChoices(input: .speak, output: .document, templateID: mine))
+        XCTAssertTrue(document.uses(templateID: mine))
+        XCTAssertFalse(document.uses(templateID: Self.soap))
+        // A recipe that once had the template but now makes something else does not use it.
+        let summary = CreateRecipe(
+            name: "Dictate → Summary", choices: CreateChoices(input: .speak, output: .summary, templateID: mine))
+        XCTAssertFalse(summary.uses(templateID: mine))
+        XCTAssertFalse(CreateRecipe.starter(.dictate).uses(templateID: mine))
+    }
+
     // MARK: - Something missing: say what, start nothing
 
     func testARecipeWhoseTemplateModelOrVoiceIsGoneSaysWhatAndDoesNotStart() throws {

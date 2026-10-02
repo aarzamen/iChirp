@@ -899,6 +899,30 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   `DeliverableRunViewModel.onAnswered` fires after the dialog's Send or Cancel. Tests: `CreateFlowTests`,
   `CreateSupportTests`.
 
+## Your own templates (plan 026, `Templates/`; contract [deliverables-v1](../../../spec/contracts/deliverables-v1.md), Template library)
+
+- `Templates/TemplateLibraryViewModel.swift`: the Templates screen. `documents` and `rewrites` in the person's order
+  (hidden ones included and marked; `hiddenCount`), `deleted` (newest delete first), `hasTemplatesOfYourOwn` (else
+  the empty-state card), `startingPoints` (the editor's "Start from" after Blank). `actions(for:)`: built-ins offer
+  Duplicate and edit, Hide/Show, Move up, Move down, View instructions; the person's own Edit, Duplicate, Hide/Show,
+  Move up, Move down, Delete. `setVisible`, `canMoveUp`/`canMoveDown`, `moveUp`/`moveDown`, `move(fromOffsets:
+  toOffset:in:)` (a drag) and `reorder(_:in:)` save the section's whole order. `deleteImpact(of:)` is the question
+  (title "Delete “<name>”?"; the documents that stay, by count; the recipes that stop, by name, from `recipesUsing`,
+  which the app answers with `CreateRecipe.uses(templateID:)`); `delete` is soft, `restore` brings it back and sets
+  `notice` when the name was taken ("Restored as “<name> (restored)”…"). Each change is one store write; success
+  reloads and calls `didChange` (the app reloads the Transforms tab), failure sets `actionError` to one sentence and
+  changes nothing.
+- `Templates/TemplateEditorViewModel.swift`: `Mode.new(startingFrom:)` (Blank, or a copy: "<name> copy", its kind,
+  text and clinical switch) or `.edit` (the person's own; a built-in passed here opens as a copy). `name`, `kind`,
+  `instructions`, `makesClinicalDocuments`; `problem` / `problemSentence` (`TemplateDraft.problem` against the other
+  templates' names), `canSave`, `characterCount`, `hasChanges` (drives "Discard your changes?"), `versions` newest
+  first, `nextVersionNumber` / `versionNote` ("Saving makes version 3. …" only when the text changed), `start(from:)`,
+  `useText(of:)` (an earlier version's text into the draft; history never changes), `save()` (create, or update the
+  row and a version only for new text; then the editor edits what it saved; `saveError` is one sentence and the typed
+  text stays).
+- Tests: `TemplateLibraryViewModelTests`, `TemplateEditorViewModelTests` (over `FakeDeliverableStore`, whose
+  `TemplateLibraryStoring` extension keeps the store's rules), `CreateRecipeTests.testARecipeUsesATemplateOnlyWhenItMakesThatDocument`.
+
 ## How to verify
 
 ```bash

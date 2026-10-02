@@ -123,8 +123,14 @@ final class RecordingLanguageModel: LanguageModel {
 
 /// In-memory `DeliverableStoring` with the same rules as `GRDBDeliverableStore` that the service relies on.
 actor FakeDeliverableStore: DeliverableStoring {
-    private var templates: [UUID: PromptTemplate] = [:]
-    private var versions: [UUID: PromptVersion] = [:]
+    // Internal (not private) so the plan 026 `TemplateLibraryStoring` extension (FakeTemplateLibraryStore.swift) can
+    // keep the same rules on the same rows.
+    var templates: [UUID: PromptTemplate] = [:]
+    var versions: [UUID: PromptVersion] = [:]
+    /// Plan 026: the next template-library write throws this before changing anything.
+    var pendingTemplateFailure: (any Error)?
+    /// Plan 026: distinct delete times, one second apart, for "newest delete first".
+    var templateDeleteStamp: TimeInterval = 0
     private(set) var deliverables: [UUID: Deliverable] = [:]
     private(set) var runs: [LanguageModelRun] = []
 
@@ -142,7 +148,9 @@ actor FakeDeliverableStore: DeliverableStoring {
     }
 
     func fetchTemplates() async throws -> [PromptTemplate] {
-        templates.values.filter { $0.deletedAt == nil }.sorted { $0.sortOrder < $1.sortOrder }
+        templates.values.filter { $0.deletedAt == nil }.sorted {
+            ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name)
+        }
     }
 
     func fetchTemplate(id: UUID) async throws -> PromptTemplate? { templates[id] }
