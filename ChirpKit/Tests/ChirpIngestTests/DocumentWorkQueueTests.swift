@@ -48,16 +48,16 @@ final class DocumentWorkQueueTests: XCTestCase {
         XCTAssertEqual(label, Self.documentQueueLabel)
         XCTAssertEqual(BlockingWork.queueLabel, Self.documentQueueLabel)
 
+        // Deterministic: the work waits until the test has cancelled the task, then reads the check once.
+        let cancelled = DispatchSemaphore(value: 0)
         let task = Task {
             try await BlockingWork.run { isCancelled in
-                let deadline = Date().addingTimeInterval(10)
-                while !isCancelled(), Date() < deadline {
-                    usleep(1_000)
-                }
+                cancelled.wait()
                 return isCancelled()
             }
         }
         task.cancel()
+        cancelled.signal()
         let sawCancellation = try await task.value
         XCTAssertTrue(sawCancellation)
     }

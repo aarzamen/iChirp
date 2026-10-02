@@ -119,5 +119,5 @@
   references, all of HTML 4's named ones (Latin-1 letters, Greek, math and arrows) and the HTML5 names clinical text
   uses (`&geq;`, `&leq;`, `&approx;`, `&check;`, fractions); `&nbsp;` becomes a plain space.
 - `Support/BlockingWork.swift`: the ingest document queue (`com.aarzamen.ichirp.ingest.documents`, concurrent,
-  user-initiated) and its async bridge, with a cancellation check for the blocking side (the
-  `AVAudioNormalizer.runOnDecodeQueue` pattern).
+  user-initiated), run through ChirpCore's `BlockingQueueWork` (which hands the blocking side its cancellation check),
+  plus `checkCancellation` for the readers' steps.

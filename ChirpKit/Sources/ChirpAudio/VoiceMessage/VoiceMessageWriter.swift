@@ -5,7 +5,6 @@
 import AVFoundation
 import ChirpCore
 import Foundation
-import Synchronization
 
 public enum VoiceMessageWriterError: Error, Equatable, LocalizedError {
     case noAudio
@@ -25,8 +24,8 @@ public enum VoiceMessageWriterError: Error, Equatable, LocalizedError {
 /// rate or channel count are converted; the silence between chunks is written as real zero samples.
 ///
 /// Decoding and encoding block their thread for as long as the message takes, so they run on the writer's own
-/// dispatch queue (`encodeQueue`), never on Swift's cooperative pool (the `AVAudioNormalizer` pattern). Cancelling the
-/// awaiting task stops the encoding before the next chunk and removes the unfinished file.
+/// dispatch queue (`encodeQueue`, through ChirpCore's `BlockingQueueWork`), never on Swift's cooperative pool.
+/// Cancelling the awaiting task stops the encoding before the next chunk and removes the unfinished file.
 public struct VoiceMessageWriter: VoiceMessageWriting {
     public static let sampleRate: Double = 24_000
     public static let bitRate = 48_000
@@ -44,21 +43,12 @@ public struct VoiceMessageWriter: VoiceMessageWriting {
         }
     }
 
-    /// Runs blocking `work` on `encodeQueue` and returns its result. `work` receives a check that turns true once the
-    /// awaiting task is cancelled (dispatch threads have no current task, so `Task.isCancelled` would stay false).
+    /// Runs blocking `work` on `encodeQueue` (`BlockingQueueWork`) and returns its result. `work` receives a check that
+    /// turns true once the awaiting task is cancelled.
     static func runOnEncodeQueue<T: Sendable>(
         _ work: @escaping @Sendable (_ isCancelled: @escaping @Sendable () -> Bool) throws -> T
     ) async throws -> T {
-        let cancelled = EncodeCancellationFlag()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                encodeQueue.async {
-                    continuation.resume(with: Result { try work { cancelled.isSet } })
-                }
-            }
-        } onCancel: {
-            cancelled.set()
-        }
+        try await BlockingQueueWork.run(on: encodeQueue, work)
     }
 
     /// The blocking encoder. `isCancelled` is checked before each chunk; a cancelled write removes its unfinished file
@@ -157,17 +147,6 @@ public struct VoiceMessageWriter: VoiceMessageWriting {
         }
         try output.write(from: buffer)
         return AVAudioFramePosition(count)
-    }
-}
-
-/// A one-way flag set from a task's cancellation handler and read from the encode queue.
-private final class EncodeCancellationFlag: Sendable {
-    private let state = Mutex(false)
-
-    var isSet: Bool { state.withLock { $0 } }
-
-    func set() {
-        state.withLock { $0 = true }
     }
 }
 

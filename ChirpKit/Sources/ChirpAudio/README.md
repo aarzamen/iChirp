@@ -186,9 +186,9 @@ stall). Resume automatically only on `.shouldResume`. Tests never sleep:
   (48 kbit/s) through `AVAudioFile(forWriting:)`. Returns the length in ms;
   an unreadable chunk throws `unreadableChunk(i)` and leaves no file. The
   blocking decode/encode runs on the writer's own dispatch queue
-  (`com.aarzamen.ichirp.audio.voice-message`), never on Swift's cooperative
-  pool; cancelling stops before the next chunk and removes the unfinished
-  file. Tests: `VoiceMessageWriterTests` (two rates, the pause, AAC mono
+  (`com.aarzamen.ichirp.audio.voice-message`, through ChirpCore's
+  `BlockingQueueWork`), never on Swift's cooperative pool; cancelling stops
+  before the next chunk and removes the unfinished file. Tests: `VoiceMessageWriterTests` (two rates, the pause, AAC mono
   24 kHz, 1.1 s, cancellation, the queue).
 
 ## Speech playback (plan 020, `Playback/`)
