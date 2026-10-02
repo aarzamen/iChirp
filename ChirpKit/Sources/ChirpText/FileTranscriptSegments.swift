@@ -4,7 +4,9 @@
 // `AudioSource` speaker-label fallback (not ported to iChirp), same as `TranscriptSegmenter`. The stored label of a
 // segment without a speaker stays upstream's "Unknown Speaker" (stored data and the JSON export's `segments`); no
 // consumer shows it: model input, Copy and the text exports read `TranscriptText`, which names speakers only when
-// the row has a roster (review R2-1).
+// the row has a roster (review R2-1). Plan 025: also ports `joinedTokenText` (KnowledgeSegmenter.swift:316-324) as
+// `joinedText(_:)`, returning "" where upstream returns nil, so a corrected stream and a corrected segment read the way
+// `materialize` joins words.
 
 import ChirpCore
 import Foundation
@@ -105,6 +107,18 @@ public enum FileTranscriptSegments {
             }
         }
         return result
+    }
+
+    /// Joins tokens the way `materialize` joins a segment's words: each token trimmed, blank ones skipped, upstream's
+    /// separators (no space before closing punctuation, after opening punctuation, or around a quote that came without
+    /// whitespace). "" when nothing is left.
+    public static func joinedText<Tokens: Sequence>(_ rawTokens: Tokens) -> String where Tokens.Element == String {
+        var result = ""
+        for rawToken in rawTokens {
+            guard let token = usableText(rawToken) else { continue }
+            result += tokenSeparator(before: token, rawToken: rawToken, currentText: result) + token
+        }
+        return usableText(result) ?? ""
     }
 
     private static func usableText(_ value: String?) -> String? {

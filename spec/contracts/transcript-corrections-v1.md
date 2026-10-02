@@ -81,6 +81,26 @@ seconds since 2001-01-01, like the other JSON columns):
   a value: one-field writes never touch the column, `savePreservingUserMetadata` keeps the stored text, and
   `updateTextCorrections` returns nil (the service reports `newerVersion`).
 
+## Projection (the one accessor, `ChirpText/TranscriptText.swift`)
+
+- **Stream.** `TranscriptTokens.of`: the engine's words, each valid item replacing its run `[a, b)` by one token with
+  the item's text, `startMs` of word `a`, `endMs` of word `b-1`, the speaker of word `a`, `wordRange` and `editID`.
+  Rows without word timings ignore corrections.
+- **Heard view** (`.heard`: the timed Transcript screen, SRT/VTT, Extract fields, JSON `segments`): lines keep the
+  engine's paragraph boundaries and ids; a line's text is the tokens that start in it joined by single spaces
+  (`tokenUTF16Ranges` says where each sits). Cues and `TranscriptText.words` carry a correction as one word with its
+  envelope; every other word keeps its own time.
+- **Shown Raw** (`.shown(.raw)`): the corrected stream joined with upstream's separators
+  (`FileTranscriptSegments.joinedText`).
+- **Shown Clean** (`.shown(.clean)`, and `.shown(.raw)` of a dictation with stored clean text): the deterministic
+  clean-up over that joined text with the context's manual custom words, filler setting and, for dictation, snippets
+  (R4); never the stored clean text, which has no word mapping. A row that never had clean text shows the joined
+  stream. A correction never edits clean text directly; Clean follows the words.
+- **Fast path.** No applicable item (none, all reverted, detached, invalid, newer build): every view returns exactly
+  what it returned before corrections existed (byte-identical Copy, exports, model input).
+- **Segments** (JSON export): stored segments a correction straddles merge (the first's id, start and speaker, the
+  last's end, the union range); a segment holding a correction gets the corrected text and `isTextEdited: true`.
+
 ## Non-stable fields
 
 Item order inside `detached`; the JSON key order and whitespace; log lines (they carry ids, counts and origin names
@@ -100,6 +120,11 @@ Additive keys inside the envelope or an item are allowed in v1. A change to the 
   nothing; pipeline saves keep or detach; a newer build's envelope survives every write path; an unreadable one never
   hides the row; concurrent writes both land).
 - `ChirpFeaturesTests.FileTranscriptionPipelineTests.testRetryOfACorrectedRowKeepsOrDetachesCorrections`.
+- `ChirpTextTests.TranscriptTextCorrectionsTests` (fast path, envelope token, stable lines, token ranges, segments,
+  cues, Raw and Clean over the corrected stream, dictation snippets, invalid/detached/untimed never applied),
+  `FileTranscriptSegmentsTests`, `TranscriptPromptTextTests.testModelInputUsesCorrectedText` and
+  `testCitationsResolveToCorrectedSegmentStarts`; the uncorrected goldens `ChirpFeaturesTests.TranscriptTextGoldenTests`
+  and `UncorrectedSurfacesGoldenTests`.
 
 ## When this changes
 
