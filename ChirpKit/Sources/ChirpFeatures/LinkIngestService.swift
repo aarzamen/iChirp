@@ -456,7 +456,7 @@ public actor LinkIngestService {
     }
 
     /// Whether Retry for `row` must download again (a link row whose media never arrived) rather than re-transcribe.
-    public static func needsDownload(_ row: Transcription) -> Bool {
+    public static func needsDownload(_ row: some TranscriptionRowFields) -> Bool {
         (row.sourceType == .podcast || row.sourceType == .url) && row.sourceURL != nil && row.mediaRelativePath == nil
     }
 

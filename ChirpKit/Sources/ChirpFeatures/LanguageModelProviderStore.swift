@@ -43,15 +43,111 @@ extension LanguageModelProviderStoring {
 
 /// `LanguageModelProviderStoring` with metadata as one JSON blob in `UserDefaults` and keys in a `SecretStoring`.
 /// `UserDefaults` and the Keychain are documented thread-safe, hence `@unchecked Sendable`.
+///
+/// The owner runs several builds against the same settings, so the blob is read entry by entry and written back
+/// without losing what this build cannot read (review R1-7, R4-6). A provider entry it cannot decode (a kind a newer
+/// build added) is left out of `loadProviders()` but kept, in its place, by every save; keys a newer build added to
+/// an entry or to the blob survive; and a blob that cannot be read at all is copied to `unreadableKey` (a later,
+/// different one to `unreadableKey.2`, and so on) before the first save replaces it.
 public final class UserDefaultsLanguageModelProviderStore: LanguageModelProviderStoring, @unchecked Sendable {
     /// The `UserDefaults` key holding the encoded providers (never a key).
     public static let key = "ichirp.languageModelProviders"
+    /// Where a blob this build cannot read at all is copied before a save replaces it.
+    public static let unreadableKey = "ichirp.languageModelProviders.unreadable"
 
-    struct Stored: Codable, Equatable {
-        var providers: [LanguageModelProviderConfiguration] = []
-        var defaultProviderID: UUID?
-        /// M7; absent in older saves (decodes as nil).
-        var defaultLocalModelID: String?
+    /// The blob as read: the providers this build can decode, and everything else, kept for the next save.
+    struct Stored {
+        static let providersKey = "providers"
+        static let defaultProviderIDKey = "defaultProviderID"
+        /// M7; absent in older saves (reads as nil).
+        static let defaultLocalModelIDKey = "defaultLocalModelID"
+
+        /// One stored provider entry: decoded (with its JSON object, which may hold keys of a newer build), or one
+        /// this build cannot decode, kept exactly as stored.
+        enum Entry {
+            case provider(LanguageModelProviderConfiguration, object: [String: Any])
+            case unreadable(Any)
+        }
+
+        /// Every entry, in stored order.
+        var entries: [Entry] = []
+        /// The blob's top-level object. A save rewrites its known keys and keeps every other one.
+        var object: [String: Any] = [:]
+        /// The stored bytes when the blob could not be read at all; a save copies them aside first.
+        var unreadableData: Data?
+
+        var providers: [LanguageModelProviderConfiguration] {
+            entries.compactMap { entry in
+                if case .provider(let provider, _) = entry { provider } else { nil }
+            }
+        }
+
+        /// Nil when absent or not a UUID; a value this build cannot read stays stored until the person sets another.
+        var defaultProviderID: UUID? {
+            get { (object[Self.defaultProviderIDKey] as? String).flatMap(UUID.init(uuidString:)) }
+            set { set(newValue?.uuidString, for: Self.defaultProviderIDKey) }
+        }
+
+        var defaultLocalModelID: String? {
+            get { object[Self.defaultLocalModelIDKey] as? String }
+            set { set(newValue, for: Self.defaultLocalModelIDKey) }
+        }
+
+        /// Replaces the provider with `provider.id` (keeping the keys of its entry this build does not write), or
+        /// appends it.
+        mutating func upsert(_ provider: LanguageModelProviderConfiguration) throws {
+            let encoded = try Self.object(encoding: provider)
+            let index = entries.firstIndex { entry in
+                if case .provider(let stored, _) = entry { stored.id == provider.id } else { false }
+            }
+            guard let index, case .provider(_, let previous) = entries[index] else {
+                entries.append(.provider(provider, object: encoded))
+                return
+            }
+            let written = Set(LanguageModelProviderConfiguration.CodingKeys.allCases.map(\.stringValue))
+            let kept = previous.filter { !written.contains($0.key) }
+            entries[index] = .provider(provider, object: kept.merging(encoded) { _, new in new })
+        }
+
+        /// Removes the provider with `id`; an entry this build cannot read is never removed.
+        mutating func remove(id: UUID) {
+            entries.removeAll { entry in
+                if case .provider(let provider, _) = entry { provider.id == id } else { false }
+            }
+        }
+
+        /// The blob to store: the kept object with its providers and default ids as they are now.
+        func encoded() throws -> Data {
+            var blob = object
+            blob[Self.providersKey] = entries.map { entry -> Any in
+                switch entry {
+                case .provider(_, let object): object
+                case .unreadable(let raw): raw
+                }
+            }
+            guard JSONSerialization.isValidJSONObject(blob) else {
+                throw EncodingError.invalidValue(
+                    blob, .init(codingPath: [], debugDescription: "The provider settings are not valid JSON."))
+            }
+            return try JSONSerialization.data(withJSONObject: blob)
+        }
+
+        private mutating func set(_ value: String?, for key: String) {
+            if let value {
+                object[key] = value
+            } else {
+                object.removeValue(forKey: key)
+            }
+        }
+
+        private static func object(encoding provider: LanguageModelProviderConfiguration) throws -> [String: Any] {
+            let data = try JSONEncoder().encode(provider)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw EncodingError.invalidValue(
+                    provider, .init(codingPath: [], debugDescription: "A provider did not encode as an object."))
+            }
+            return object
+        }
     }
 
     private let defaults: UserDefaults
@@ -116,11 +212,7 @@ public final class UserDefaultsLanguageModelProviderStore: LanguageModelProvider
                 try secrets.deleteSecret(forAccount: provider.secretAccount)
             }
             var stored = load()
-            if let index = stored.providers.firstIndex(where: { $0.id == provider.id }) {
-                stored.providers[index] = provider
-            } else {
-                stored.providers.append(provider)
-            }
+            try stored.upsert(provider)
             try save(stored)
         }
         logger.info(
@@ -133,7 +225,7 @@ public final class UserDefaultsLanguageModelProviderStore: LanguageModelProvider
             var stored = load()
             guard let provider = stored.providers.first(where: { $0.id == id }) else { return }
             try secrets.deleteSecret(forAccount: provider.secretAccount)
-            stored.providers.removeAll { $0.id == id }
+            stored.remove(id: id)
             if stored.defaultProviderID == id { stored.defaultProviderID = nil }
             try save(stored)
         }
@@ -146,17 +238,57 @@ public final class UserDefaultsLanguageModelProviderStore: LanguageModelProvider
 
     // MARK: - Private (call with the lock held)
 
+    /// Reads the blob entry by entry. Logs carry an entry's index and an error type only, never a field.
     private func load() -> Stored {
         guard let data = defaults.data(forKey: Self.key) else { return Stored() }
-        do {
-            return try JSONDecoder().decode(Stored.self, from: data)
-        } catch {
-            logger.error("providers_decode_failed error_type=\(error.logTypeName, privacy: .public)")
-            return Stored()
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            logger.error("providers_unreadable reason=not_an_object")
+            return Stored(unreadableData: data)
         }
+        let rawEntries: [Any]
+        switch object[Stored.providersKey] {
+        case nil: rawEntries = []
+        case let list as [Any]: rawEntries = list
+        default:
+            logger.error("providers_unreadable reason=providers_not_a_list")
+            return Stored(unreadableData: data)
+        }
+        var stored = Stored(object: object)
+        for (index, raw) in rawEntries.enumerated() {
+            do {
+                guard let entry = raw as? [String: Any], JSONSerialization.isValidJSONObject(entry) else {
+                    throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Not an object."))
+                }
+                let provider = try JSONDecoder().decode(
+                    LanguageModelProviderConfiguration.self, from: JSONSerialization.data(withJSONObject: entry))
+                stored.entries.append(.provider(provider, object: entry))
+            } catch {
+                logger.error(
+                    "provider_entry_unreadable index=\(index, privacy: .public) error_type=\(error.logTypeName, privacy: .public)"
+                )
+                stored.entries.append(.unreadable(raw))
+            }
+        }
+        return stored
     }
 
     private func save(_ stored: Stored) throws {
-        defaults.set(try JSONEncoder().encode(stored), forKey: Self.key)
+        let data = try stored.encoded()
+        if let unreadable = stored.unreadableData { keepUnreadableCopy(unreadable) }
+        defaults.set(data, forKey: Self.key)
+    }
+
+    /// Copies an unreadable blob aside: to `unreadableKey`, or the first free `unreadableKey.<n>` when an earlier,
+    /// different copy is there. A copy is never replaced.
+    private func keepUnreadableCopy(_ data: Data) {
+        var key = Self.unreadableKey
+        var number = 1
+        while let kept = defaults.data(forKey: key) {
+            if kept == data { return }
+            number += 1
+            key = "\(Self.unreadableKey).\(number)"
+        }
+        defaults.set(data, forKey: key)
+        logger.notice("providers_unreadable_copied key=\(key, privacy: .public)")
     }
 }

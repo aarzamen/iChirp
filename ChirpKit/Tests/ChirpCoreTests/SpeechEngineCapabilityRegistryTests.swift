@@ -100,7 +100,8 @@ final class SpeechEngineCapabilityRegistryTests: XCTestCase {
         let shortfall = try XCTUnwrap(
             Registry.memoryShortfall(for: turbo, reader: FixedAvailableMemory(2_100_000_000)))
         XCTAssertEqual(shortfall.neededBytes, needed)
-        XCTAssertEqual(shortfall.settingsMessage, "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)")
+        // Review R1-18: what the model needs first, then what is available now (never one number for the other).
+        XCTAssertEqual(shortfall.settingsMessage, "Needs about 3.5 GB of memory; about 2.1 GB is available now")
         XCTAssertEqual(
             shortfall.refusalMessage,
             "Whisper Large v3 Turbo needs about 3.5 GB of memory while it loads, and Parakeet can use about 2.1 GB "

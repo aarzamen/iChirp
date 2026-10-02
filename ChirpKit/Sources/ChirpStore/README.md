@@ -1,9 +1,14 @@
 # ChirpStore
 
-> GRDB persistence for `Transcription`. One table (`transcriptions`), one
-> repository (`GRDBTranscriptionStore`), migrations registered inline —
-> mirrors the shape of upstream MacParakeet's `Database/` module, trimmed to
-> what M1 needs.
+> GRDB persistence for iChirp: 11 tables behind four stores, migrations
+> registered inline. `GRDBTranscriptionStore` keeps the library
+> (`transcriptions`); `GRDBDeliverableStore` the language-model tables
+> (`prompts`, `prompt_versions`, `deliverables`, `llm_runs`) and the document
+> versions (`deliverable_versions`); `GRDBTextRulesStore` the dictation text
+> rules (`custom_words`, `text_snippets`); `GRDBStructuredResultStore` the
+> structure-model results (`structured_runs`, `structured_fields`,
+> `structured_eval_runs`). Mirrors the shape of upstream MacParakeet's
+> `Database/` module.
 
 ## Entry point
 
@@ -26,14 +31,18 @@ ChirpStore depends on ChirpText.
   `v6-documents` (M5: four nullable TEXT columns on `transcriptions`, `sourceURL`, `sourceTitle`, `documentFormat`,
   `documentPages` JSON), then `v7-structured-results` (M6: the `structured_runs`, `structured_fields` and
   `structured_eval_runs` tables; new tables only), then `v8-text-items` (plan 022: the append-only
-  `deliverable_versions` table of Edit by voice; text items themselves need no column). Every migration has an
-  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests`, which
-  uses the internal `DatabaseManager(writer:)` on a v7 queue).
+  `deliverable_versions` table of Edit by voice; text items themselves need no column), then
+  `v9-llm-runs-deliverable-index` (review R1-17: `idx_llm_runs_deliverable_id`, so a document's delete nulls its
+  ledger rows without a full scan; an index only). Every migration has an
+  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests` and
+  for v9 `LLMRunsDeliverableIndexMigrationTests`, which use the internal `DatabaseManager(writer:)` on an older
+  queue).
 - `DeliverableVersionStore.swift` (plan 022) — `DeliverableVersionSchema` (the `v8-text-items` table, cascade-deleted
   with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
   version when it is not the newest, appends the new one, makes it the document's text and raises its class, all in
-  one transaction). Contract: `spec/contracts/deliverables-v1.md` (Versions).
+  one transaction; a stored class this build cannot read is kept as written on the document and its new versions).
+  Contract: `spec/contracts/deliverables-v1.md` (Versions).
 - `DeliverableListingStore.swift` (plan 023, UX audit F43) — `GRDBDeliverableStore`'s `DeliverableListing`, read
   only, no schema change: `fetchDeliverableSummaries()` (every document, newest first, `createdAt` then id; only
   `substr(text, 1, 320)` of the text is read, and columns are read by position, so 5,000 summaries take about 25 ms in
@@ -49,19 +58,30 @@ ChirpStore depends on ChirpText.
   carry ids and counts only. Contract: `spec/contracts/structured-results-v1.md`.
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
-  `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
+  `speakers`, `diarizationSegments`, `transcriptSegments` and `documentPages` are stored as
   JSON TEXT (manually encoded/decoded, not GRDB's automatic Codable-JSON
   path, so the column contents are predictable and queryable). Converts to
   and from `Transcription` via `init(_:)` / `toTranscription()`; nil is stored
-  as SQL NULL and an empty list as `[]`, and each reads back as it was.
+  as SQL NULL and an empty list as `[]`, and each reads back as it was. `StoredSpeakerRename` renames a speaker
+  inside the stored `speakers` / `transcriptSegments` JSON through `JSONSerialization`, so keys a newer build wrote
+  survive.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
-  insert/update/fetch/fetchAll/delete, `savePreservingUserMetadata`, the
+  insert/fetch/fetchAll/delete, `savePreservingUserMetadata` (the one whole-row write), the
   field-level `updateTitleOverride` / `updateFavorite` / `updatePrivacyClass` /
   `transitionStatus`, and M3's `updateUserNotes` / `renameSpeaker` (the roster label and every segment label of
   that speaker, one transaction) / `markAudioRemoved` (completed rows only); `savePreservingUserMetadata` keeps the
   stored `userNotes`,
   and `observeAll()` bridging a GRDB `ValueObservation` to an `AsyncStream`.
-  `decodeRows` is the one row-by-row decoder behind both list reads.
+  `decodeRows` is the one row-by-row decoder behind both full-row list reads.
+- `TranscriptionListingStore.swift` (review R1-1, R6a-8) — the Library's and Capture's lists, no schema change:
+  `fetchSummaries(limit:)` / `observeSummaries(limit:)` read only the columns a row shows (`TranscriptionSummary`,
+  columns read by position, newest first, `LIMIT` for Capture's three), never `wordTimestamps`, `speakers`,
+  `diarizationSegments` or `transcriptSegments`; a PDF's `documentPages` only for its page and OCR counts (its
+  `method`s are decoded, never its text), and the text only of a document or text item without pages, for its word
+  count. The observation tracks an explicit region (`TranscriptionListingQueries.observedRegions`): the row columns,
+  the text and `speakers` (a rename changes what the Library's search finds), never `userNotes`, `updatedAt` or the
+  timing columns, so a notes keystroke does not re-read the list. `searchTranscriptions(matching:)` applies the
+  shared `TranscriptionSearch` rule to the title, text, file name and speaker columns only.
 - `LanguageModelSchema.swift` — the M4 tables created by migration
   `v3-language-models`: `prompts`, `prompt_versions` (immutable: SQLite triggers
   abort every UPDATE and DELETE), `deliverables` (cascade-deleted with their
@@ -76,7 +96,8 @@ ChirpStore depends on ChirpText.
   (insert, list, field-level text edit, raise-only privacy class), and the run
   ledger.
 - `GRDBTextRulesStore.swift` (M2) — custom words and snippets: sorted
-  case-insensitively, `save` inserts or replaces by id, a unique-index
+  case-insensitively, `save` inserts or replaces by id (keeping a `source` or
+  `action` a newer build wrote that this build cannot read), a unique-index
   violation becomes `TextRulesStoreError.duplicate`, deletes by id set. Private
   `CustomWordRecord` / `TextSnippetRecord` mirror the ChirpText models.
 
@@ -120,14 +141,32 @@ values this build does not know. Two rules keep the Library usable:
   error's type name only. Never log the error's description: GRDB's decoding
   errors quote the whole row, transcript text included. `fetch(id:)` still
   throws for such a row, so a screen opening it can show the error.
+- *The lists read summaries.* `fetchSummaries` / `observeSummaries` never read
+  the timing, speaker or segment JSON, so a row whose JSON this build cannot
+  read still lists (opening it reports the error, and it can be deleted); a
+  PDF whose pages cannot be read lists without counts. Only a row whose own
+  columns (id, date, kind, name, status, class, flags) cannot be read is
+  skipped, logged by id as `row_summary_skipped_unreadable`.
 
-**Writes never overwrite a value this build could not read.** Every write that
-starts from a stored row (`update`, `savePreservingUserMetadata` and the
-field-level methods) calls `TranscriptionRecord.keepingUnknownRawValues(of:)`:
-where the stored row held an unknown raw value and the outgoing row still
-carries the fallback it was read as, the stored raw value is written back
-unchanged. An explicit change (Retry moving the status to `processing`) still
-lands.
+**Writes never overwrite a value this build could not read.** The field-level
+methods write only their own columns (review R1-2): one `UPDATE … SET <their
+columns>, updatedAt` built with `updateAll(Column(...).set(to:))`, so no other
+column is decoded, re-encoded or written — a newer build's JSON (a page `method`
+this build reads as `textLayer`, a key it does not know) stays byte for byte, and
+a notes keystroke never rewrites an hour of word timings. `renameSpeaker` reads
+and writes only `speakers` and `transcriptSegments`, patched as JSON objects.
+Before writing, a field-level method reads only the raw `status` and
+`privacyClass`: moving an unknown value to the fallback it already reads as
+(`updatePrivacyClass(.clinical)` on an unknown class, `transitionStatus(to:
+.interrupted)` on an unknown status) keeps the stored value, and any other
+explicit change (Retry moving the status to `processing`) lands. The one
+whole-row write, `savePreservingUserMetadata`, calls
+`TranscriptionRecord.keepingUnknownRawValues(of:)`: where the stored row held an
+unknown raw value and the outgoing row still carries the fallback it was read
+as, the stored raw value is written back unchanged. `GRDBTextRulesStore.save`
+keeps an unknown custom-word `source` and snippet `action` the same way. Each
+field-level method still decodes the one row it returns (the protocol returns
+the full `Transcription`).
 
 **`savePreservingUserMetadata` is a single write transaction.** It fetches
 the currently stored row and copies the user's fields, `titleOverride`,
@@ -144,14 +183,14 @@ nothing: it never inserts, so a deleted transcript is never resurrected
 
 **Anything that can race a job writes field-level.** `updateTitleOverride`,
 `updateFavorite` and `transitionStatus(id:from:to:errorMessage:)` each run one
-write transaction that reads the current row, changes only their fields plus
-`updatedAt`, saves, and returns the row as stored (nil when the row is gone;
-for `transitionStatus` also when the stored status is not in `from`, leaving
-the row untouched). A fetch → change → whole-row `update` from a view model or
-the pipeline would overwrite whatever landed in between (for example a
-completed transcript reverted to `processing` by a stale favorite write), so
-`update(_:)` is only for rows nothing else can be writing. Ports upstream's
-`updateTitleOverride`, `updateFavorite` and `transitionStatus`.
+write transaction that changes only their columns plus `updatedAt` and returns
+the row as stored (nil when the row is gone; for `transitionStatus` also when
+the stored status is not in `from`, leaving the row untouched). A fetch →
+change → whole-row save from a view model or the pipeline would overwrite
+whatever landed in between (for example a completed transcript reverted to
+`processing` by a stale favorite write), so the store has no whole-row update
+at all (review R1-16). Ports upstream's `updateTitleOverride`, `updateFavorite`
+and `transitionStatus`.
 
 **JSON work never runs on the caller's actor.** Every method encodes
 (`TranscriptionRecord(_:)`) and decodes (`toTranscription()`) inside its GRDB
@@ -160,19 +199,23 @@ Transcript screen therefore never decodes an hour of word timings on the main
 thread, whatever the module's default isolation becomes. Keep new methods the
 same way.
 
-**`observeAll()` owns its `ValueObservation` lifecycle.** It schedules on a
+**`observeAll()` and `observeSummaries(limit:)` own their `ValueObservation` lifecycle.** Each schedules on a
 dedicated serial `DispatchQueue` (GRDB requires a serial queue for
 `.async(onQueue:)`, and this store isn't tied to `@MainActor`) and cancels
 the underlying GRDB observation in the `AsyncStream`'s `onTermination`, so an
-abandoned consumer doesn't leak a live database observation.
+abandoned consumer doesn't leak a live database observation. Both streams
+buffer the newest value only, so a busy main actor gets the latest list
+instead of a queue of old snapshots.
 
 **In-memory databases for tests.** `DatabaseManager.inMemory()` returns a
 `DatabaseQueue` with the same migrator applied. Use this in tests — never
 write to an on-disk file from tests.
 
-**Foreign keys and busy timeout are on.** `Configuration.foreignKeysEnabled =
-true` and `busyMode = .timeout(5)` are set in both `init(url:)` and
-`inMemory()`.
+**Foreign keys are on everywhere; the busy timeout is on the file.**
+`Configuration.foreignKeysEnabled = true` is set in both `init(url:)` and
+`inMemory()`. `busyMode = .timeout(5)` is set only in `init(url:)`, on the
+`DatabasePool` whose connections can wait on each other; the in-memory
+`DatabaseQueue` of the tests has a single connection and never waits.
 
 ## How to verify
 

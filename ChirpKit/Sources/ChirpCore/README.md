@@ -14,17 +14,29 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 
 - `Models/Transcript.swift`: word, speaker, diarization and transcript segment value types, ported from
   MacParakeet without the correction-only fields.
-- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`. M3 adds
+- `Models/Transcription.swift`: the `Transcription` record, with `displayText` (and `displayTitle` from
+  `TranscriptionRowFields`); the static `displayTitle(titleOverride:sourceTitle:derivedTitle:fileName:)` and
+  `displayText(cleanTranscript:rawTranscript:)` are the one rule for both, also for a store reading only those
+  columns. M3 adds
   `userNotes`, `isPartialAudio`, `audioRemovedAt` and `renameSpeaker(_:to:)` (roster and segment labels together);
   M5 adds `sourceURL`, `sourceTitle` (wins over the derived title), `documentFormat` and `documentPages`
   ([contract](../../../spec/contracts/document-items-v1.md)).
+- `Models/TranscriptionSummary.swift` (review R1-1): `TranscriptionRowFields`, the fields a row, a status line or a
+  Retry choice reads (with `displayTitle`, `isDocument`, `isTextItem`, `isTextOnly`), adopted by `Transcription` and
+  by `TranscriptionSummary`, the Library's and Capture's row: those fields plus a PDF's page and OCR counts and a
+  document's or text item's word count, never the transcript's text, word timings, segments or pages (a distinct
+  type, so a row can never stand in for a full transcript). `TranscriptionSearch.matches` is the Library's search
+  rule (title shown, text shown, file name, then speaker labels), with `Transcription.matchesSearch(_:)`.
 - `Models/Document.swift`: M5 `DocumentFormat` (pdf, txt, md, rtf, html, docx; from a file extension) and
-  `DocumentPage` (page number, text, `textLayer` / `ocr` / `empty`), plus `Transcription.isDocument`.
+  `DocumentPage` (page number, text, `textLayer` / `ocr` / `empty`), plus `Transcription.ocrPageCount`
+  (`isDocument` comes from `TranscriptionRowFields`).
 - `Models/PrivacyClass.swift`: `general` / `personal` (default) / `clinical` sensitivity classes, ordered by
   `strictness`, with `stricter(_:)`.
 - `Models/LanguageModelProvider.swift`: `LanguageModelProviderKind` (stable engine ids),
-  `LanguageModelProviderConfiguration` (no secret; locality derived from the base URL's host; `validate()`),
-  `LocalNetworkHost` (the conservative "is this host on the LAN" rule) and
+  `LanguageModelProviderConfiguration` (no secret; locality derived from the base URL's host; `validate()`; its
+  public `CodingKeys` name the keys this build writes, so the provider store keeps any other key a newer build
+  stored), `LocalNetworkHost` (the conservative "is this host on the LAN" rule; dotted-decimal IPv4 only, and an
+  octet with a leading zero, which some resolvers read as octal, is never local) and
   `PrivacyRoutingPolicy(trustingLocalNetworkHostsOf:)`.
 - `Secrets/SecretStoring.swift`: `SecretValue` (a redacted in-memory secret) and `SecretStoring` (Keychain in the
   app via `ChirpKeychain`, a fake in tests).
@@ -55,7 +67,7 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `memoryToLoadBytes` exceeds what the `AvailableMemoryReading` says iOS lets the app use now throws
   `SpeechEngineError.insufficientMemory(key, needed:, available:)`, and the engine loads nothing. A nil reading (the
   Mac, the Simulator) never refuses. `memoryShortfall(for:reader:)` and `SpeechEngineMemoryShortfall` give the
-  Settings line ("Needs more memory than this iPhone gives Parakeet (about 2.1 GB)") and the job's sentence
+  Settings line ("Needs about 3.5 GB of memory; about 2.1 GB is available now", the need first) and the job's sentence
   ("… needs about 3.5 GB of memory while it loads, and Parakeet can use about 2.1 GB right now. Close other apps or
   use Whisper Base."); `combinedLoadMemoryBytes(for:)` is one engine loading while the other is resident.
 - `Engines/SpeechEngineRouter.swift` (M7, ports upstream's live/final routes and engine-session leases):
@@ -108,8 +120,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Engines/StructureModel.swift`: the M6 extraction and embedding contract (`StructuredOutput` with the model hash and
   `isAbstention`, `StructureModelError`); conformers `NeedleStructureModel` and the STUB
   ([structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md)).
-- `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
-  each privacy class.
+- `Engines/PrivacyRoutingPolicy.swift` (renamed from the misleading "engine catalog" name in review R1-15):
+  `PrivacyRoutingPolicy`, which decides which engine localities may process each privacy class
+  (`PrivacyRoutingPolicyTests` pins the full class × locality × host × override matrix).
 - `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`, including the M1.5
   `normalize(sourceURL:outputURL:audioTrackOrdinal:)` requirement (a default implementation keeps other
   normalizers compiling).
@@ -117,8 +130,12 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `AudioTrackProbing` and `AudioTrackSelectionError` (M1.5; contract
   `spec/contracts/file-transcription-audio-tracks-v1.md`).
 - `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore. M3 adds the
-  field-level `updateUserNotes`, `renameSpeaker` and `markAudioRemoved`, with fetch-and-update defaults in a
-  protocol extension so other conformers (fakes) keep compiling; real stores implement them atomically.
+  field-level `updateUserNotes`, `renameSpeaker` and `markAudioRemoved`, which every conformer implements
+  atomically. There is no whole-row update (review R1-16: a fetch → change → save of a whole row races a job);
+  pipeline output goes through `savePreservingUserMetadata`, everything else through a field-level method. The lists
+  (review R1-1, R6a-8) use `fetchSummaries(limit:)`, `observeSummaries(limit:)` (latest value only) and
+  `searchTranscriptions(matching:)`, never `fetchAll()` / `observeAll()`; their extension defaults derive them from
+  the full rows for fakes, and `GRDBTranscriptionStore` reads only the columns a row shows.
 - `Pipeline/AudioCapturing.swift`: the M2 microphone-recording contract (`AudioCapturing`, `CaptureUpdate`,
   `CaptureEvent`, `RecordedAudio`, `MicrophonePermission`, `AudioCaptureError`) implemented by ChirpAudio's
   `DictationRecorder`, and `SpeechAudio` (16 kHz, the 0.3 s minimum).
@@ -179,7 +196,9 @@ scripts/check.sh ChirpCoreTests
 ```
 
 This runs the package build, the focused ChirpCore tests and the strict `swift format` lint. The scheduler
-tests use timing, so after touching `SpeechJobScheduler.swift` run them repeatedly:
+tests order their jobs with signals (a blocking job's start signal, then `pendingCount()`), never fixed sleeps
+(review R1-11); concurrency bugs still show up only now and then, so after touching `SpeechJobScheduler.swift` run
+them repeatedly:
 
 ```bash
 for i in $(seq 1 20); do swift test --package-path ChirpKit --filter SpeechJobSchedulerTests || break; done

@@ -164,8 +164,9 @@ extension TranscriptionRecord {
     private static let logger = Log.logger("store")
 
     /// This record with `stored`'s enum raw values put back wherever `stored` held a value this build does not know
-    /// and this record still carries the fallback it read as. A rename or favorite made on an older build therefore
-    /// never overwrites a newer build's value; an explicit change (a Retry moving the status) still lands.
+    /// and this record still carries the fallback it read as (`savePreservingUserMetadata`, the one whole-row write).
+    /// A job finishing on an older build therefore never overwrites a newer build's value; an explicit change still
+    /// lands. The field-level writes never rewrite those columns at all (`GRDBTranscriptionStore.updateColumns`).
     func keepingUnknownRawValues(of stored: TranscriptionRecord?) -> TranscriptionRecord {
         guard let stored else { return self }
         var result = self
@@ -199,5 +200,47 @@ extension TranscriptionRecord {
     private static func decodeJSON<T: Decodable>(_ type: T.Type, from json: String?) throws -> T? {
         guard let json, let data = json.data(using: .utf8) else { return nil }
         return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+
+// MARK: - Renaming a speaker inside the stored JSON
+
+/// Renames one speaker inside the stored `speakers` and `transcriptSegments` JSON text through `JSONSerialization`,
+/// so every key a newer build wrote survives (review R1-2). The rule is `Transcription.renameSpeaker`'s: the roster
+/// entry whose `id` is `speakerId` gets the new `label`, and each segment of that speaker the new `speakerLabel`.
+enum StoredSpeakerRename {
+    /// The two columns after the rename, or nil when the roster has no such speaker (nothing to write). Throws when a
+    /// column is not a JSON array, as decoding it would.
+    static func renaming(
+        _ speakerId: String, to name: String, speakers: String?, segments: String?
+    ) throws -> (speakers: String, segments: String?)? {
+        guard let speakers else { return nil }
+        var roster = try jsonArray(speakers)
+        guard let index = roster.firstIndex(where: { ($0 as? [String: Any])?["id"] as? String == speakerId }),
+            var speaker = roster[index] as? [String: Any]
+        else { return nil }
+        speaker["label"] = name
+        roster[index] = speaker
+        guard let segments else { return (try jsonText(roster), nil) }
+        var list = try jsonArray(segments)
+        for position in list.indices {
+            guard var segment = list[position] as? [String: Any], segment["speakerId"] as? String == speakerId
+            else { continue }
+            segment["speakerLabel"] = name
+            list[position] = segment
+        }
+        return (try jsonText(roster), try jsonText(list))
+    }
+
+    private static func jsonArray(_ text: String) throws -> [Any] {
+        guard let array = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any] else {
+            throw DecodingError.typeMismatch(
+                [Any].self, .init(codingPath: [], debugDescription: "A JSON column is not an array."))
+        }
+        return array
+    }
+
+    private static func jsonText(_ array: [Any]) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: array), as: UTF8.self)
     }
 }

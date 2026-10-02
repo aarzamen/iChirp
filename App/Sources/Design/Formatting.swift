@@ -83,7 +83,7 @@ enum Formatting {
     }
 
     /// A finished row's meta line: "File · 0:06 · 2 speakers", "Dictation · 0:12 · 2:34 PM".
-    static func meta(for item: Transcription) -> String {
+    static func meta(for item: some TranscriptionRowFields) -> String {
         var parts = [kind(item.sourceType)]
         if let durationMs = item.durationMs, durationMs > 0 {
             parts.append(duration(ms: durationMs))
@@ -118,7 +118,7 @@ enum Formatting {
     }
 
     /// The line a row shows for a status that is not `.completed`, or nil for completed rows.
-    static func statusLine(for item: Transcription, progress: JobProgress?) -> String? {
+    static func statusLine(for item: some TranscriptionRowFields, progress: JobProgress?) -> String? {
         switch item.status {
         case .completed:
             return nil

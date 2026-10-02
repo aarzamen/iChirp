@@ -7,10 +7,13 @@ import ChirpCore
 import Foundation
 import Security
 
-/// API keys in the Keychain: generic-password items under one service, readable after the first unlock, never synced
-/// to iCloud and never restored to another device.
+/// Every iChirp secret in the Keychain: generic-password items under one service, readable after the first unlock,
+/// never synced to iCloud and never restored to another device.
 public final class KeychainSecretStore: SecretStoring {
-    /// The service every iChirp language-model key is stored under.
+    /// The service every iChirp secret is stored under, one account each: each language-model provider's key
+    /// (`llm.provider.<id>.api-key`), the Mac companion's pairing token (`companion.pairing-token`), the xAI voice key
+    /// (`voice.xai.api-key`) and the Jev key (`structure.provider.jev.api-key`). The name is from its first use (review
+    /// R1-15); it never changes, because a new service name would orphan every stored item.
     public static let languageModelService = "com.aarzamen.ichirp.language-models"
 
     private let service: String

@@ -103,6 +103,8 @@ actor FakeStore: TranscriptionStoring {
         return merged
     }
 
+    /// Replaces a whole row: a test helper only (no longer part of `TranscriptionStoring`, review R1-16), counted in
+    /// `wholeRowUpdates`.
     func update(_ transcription: Transcription) async throws {
         await parkIfHeld(.update)
         try Task.checkCancellation()
@@ -193,6 +195,34 @@ actor FakeStore: TranscriptionStoring {
         }
         Task { await self.addObserver(token, continuation) }
         return stream
+    }
+
+    // The M3 meeting writes. The protocol has no whole-row update any more (review R1-16); these keep the fetch →
+    // change → `update` steps its former fallback took, so tests that count notes saves through `wholeRowUpdates`
+    // keep their numbers. The GRDB store writes the columns alone.
+
+    func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
+        guard var row = try await fetch(id: id) else { return nil }
+        row.userNotes = userNotes
+        row.updatedAt = Date()
+        try await update(row)
+        return row
+    }
+
+    func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
+        guard var row = try await fetch(id: id), row.renameSpeaker(speakerId, to: label) else { return nil }
+        row.updatedAt = Date()
+        try await update(row)
+        return row
+    }
+
+    func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
+        guard var row = try await fetch(id: id), row.status == .completed else { return nil }
+        row.mediaRelativePath = nil
+        row.audioRemovedAt = date
+        row.updatedAt = Date()
+        try await update(row)
+        return row
     }
 
     // MARK: Test helpers

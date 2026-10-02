@@ -1,13 +1,22 @@
 # ChirpKeychain
 
-Keychain storage for secrets (language-model API keys) behind ChirpCore's `SecretStoring`. Ported from
+Keychain storage for every iChirp secret behind ChirpCore's `SecretStoring`. Ported from
 MacParakeet's `Licensing/KeychainKeyValueStore.swift` (upstream @ `bbae9e0e`).
 
 ## Entry point
 
-`KeychainSecretStore.swift`: `KeychainSecretStore()` stores generic-password items under the service
-`com.aarzamen.ichirp.language-models`, one account per provider
-(`LanguageModelProviderConfiguration.secretAccount`).
+`KeychainSecretStore.swift`: `KeychainSecretStore()` stores generic-password items under the one service
+`com.aarzamen.ichirp.language-models` (`languageModelService`), one account per secret:
+
+| Account | Secret | Defined by |
+|---|---|---|
+| `llm.provider.<id>.api-key` | a language-model provider's API key | `LanguageModelProviderConfiguration.secretAccount` |
+| `companion.pairing-token` | the Mac companion's pairing token | `CompanionSettingsStore.tokenAccount` |
+| `voice.xai.api-key` | the xAI (Grok) voice key | `XAIVoice.secretAccount` |
+| `structure.provider.jev.api-key` | the Jev decision-model key | `JevSettingsStore.secretAccount` |
+
+The service name dates from the first secret it held (language-model keys). It never changes: a new name would
+orphan every stored item (`KeychainSecretStoreTests` pins it).
 
 ## What's here
 

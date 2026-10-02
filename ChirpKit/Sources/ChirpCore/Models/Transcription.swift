@@ -95,23 +95,34 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
         self.isPartialAudio = false
     }
 
-    /// titleOverride ?? non-empty sourceTitle (M5) ?? non-empty derivedTitle ?? fileName without extension
-    public var displayTitle: String {
-        if let override = Self.nonBlank(titleOverride) {
+    // `displayTitle`, `isDocument`, `isTextItem` and `isTextOnly` come from `TranscriptionRowFields`, which the
+    // list rows' `TranscriptionSummary` shares.
+
+    /// cleanTranscript when non-empty, else rawTranscript, else ""
+    public var displayText: String {
+        Self.displayText(cleanTranscript: cleanTranscript, rawTranscript: rawTranscript)
+    }
+
+    /// titleOverride ?? non-empty sourceTitle (M5) ?? non-empty derivedTitle ?? fileName without extension. The one
+    /// rule behind every `displayTitle`, also for a store that reads only these columns.
+    public static func displayTitle(
+        titleOverride: String?, sourceTitle: String?, derivedTitle: String?, fileName: String
+    ) -> String {
+        if let override = nonBlank(titleOverride) {
             return override
         }
-        if let published = Self.nonBlank(sourceTitle) {
+        if let published = nonBlank(sourceTitle) {
             return published
         }
-        if let derived = Self.nonBlank(derivedTitle) {
+        if let derived = nonBlank(derivedTitle) {
             return derived
         }
         return (fileName as NSString).deletingPathExtension
     }
 
-    /// cleanTranscript when non-empty, else rawTranscript, else ""
-    public var displayText: String {
-        if let clean = cleanTranscript, Self.nonBlank(clean) != nil {
+    /// cleanTranscript when non-empty, else rawTranscript, else "": the one rule behind every `displayText`.
+    public static func displayText(cleanTranscript: String?, rawTranscript: String?) -> String {
+        if let clean = cleanTranscript, nonBlank(clean) != nil {
             return clean
         }
         return rawTranscript ?? ""

@@ -109,6 +109,10 @@ extension GRDBDeliverableStore: DeliverableVersionStoring {
                 .fetchAll(db)
             var next = (existing.last?.versionNumber ?? 0) + 1
             let documentClass = PrivacyClass(rawValue: document.privacyClass) ?? .clinical
+            // A class a newer build wrote reads as clinical, the strictest class here, so nothing can raise it: it
+            // stays as written on the document and on the versions written now, as `raiseDeliverablePrivacyClass`
+            // leaves it (review R1-14).
+            let unknownClass = PrivacyClass(rawValue: document.privacyClass) == nil ? document.privacyClass : nil
             // Keep what the document says now before anything replaces it: the first time as the original, later as
             // the person's own edit in the editor.
             if existing.last?.text != document.text {
@@ -121,7 +125,9 @@ extension GRDBDeliverableStore: DeliverableVersionStoring {
                     locality: existing.isEmpty ? EngineLocality(rawValue: document.locality) : nil,
                     privacyClass: documentClass,
                     createdAt: existing.isEmpty ? document.createdAt : (document.editedAt ?? draft.createdAt))
-                try DeliverableVersionRecord(kept).insert(db)
+                var keptRecord = DeliverableVersionRecord(kept)
+                keptRecord.privacyClass = unknownClass ?? keptRecord.privacyClass
+                try keptRecord.insert(db)
                 next += 1
             }
             let raised = documentClass.stricter(draft.privacyClass)
@@ -130,9 +136,11 @@ extension GRDBDeliverableStore: DeliverableVersionStoring {
                 instruction: draft.instruction, restoredFrom: draft.restoredFrom, engineID: draft.engineID,
                 provider: draft.provider, model: draft.model, locality: draft.locality, privacyClass: raised,
                 createdAt: draft.createdAt)
-            try DeliverableVersionRecord(version).insert(db)
+            var versionRecord = DeliverableVersionRecord(version)
+            versionRecord.privacyClass = unknownClass ?? versionRecord.privacyClass
+            try versionRecord.insert(db)
             document.text = draft.text
-            document.privacyClass = raised.rawValue
+            document.privacyClass = unknownClass ?? raised.rawValue
             document.updatedAt = draft.createdAt
             try document.update(db)
             let versions =

@@ -22,10 +22,13 @@ public final class GRDBTextRulesStore: TextRulesStoring {
         }
     }
 
+    /// Inserts or replaces by id. A `source` this build cannot read (it reads as `manual`) is kept as stored.
     public func save(_ word: CustomWord) async throws {
         let record = CustomWordRecord(word)
         try await Self.mappingDuplicate(word.word) {
-            try await self.database.writer.write { db in try record.save(db) }
+            try await self.database.writer.write { db in
+                try record.keepingUnknownRawValues(of: CustomWordRecord.fetchOne(db, key: record.id)).save(db)
+            }
         }
     }
 
@@ -41,10 +44,13 @@ public final class GRDBTextRulesStore: TextRulesStoring {
         }
     }
 
+    /// Inserts or replaces by id. An `action` this build cannot read (it reads as none) is kept as stored.
     public func save(_ snippet: TextSnippet) async throws {
         let record = TextSnippetRecord(snippet)
         try await Self.mappingDuplicate(snippet.trigger) {
-            try await self.database.writer.write { db in try record.save(db) }
+            try await self.database.writer.write { db in
+                try record.keepingUnknownRawValues(of: TextSnippetRecord.fetchOne(db, key: record.id)).save(db)
+            }
         }
     }
 
@@ -89,6 +95,17 @@ struct CustomWordRecord: Codable, Sendable, FetchableRecord, PersistableRecord {
             id: id, word: word, replacement: replacement, source: CustomWord.Source(rawValue: source) ?? .manual,
             isEnabled: isEnabled, createdAt: createdAt, updatedAt: updatedAt)
     }
+
+    /// This record with `stored`'s `source` put back when a newer build wrote one this build cannot read and this
+    /// record still carries the `manual` it read as (review R1-2); an explicit change to a known source lands.
+    func keepingUnknownRawValues(of stored: CustomWordRecord?) -> CustomWordRecord {
+        guard let stored, CustomWord.Source(rawValue: stored.source) == nil,
+            source == CustomWord.Source.manual.rawValue
+        else { return self }
+        var kept = self
+        kept.source = stored.source
+        return kept
+    }
 }
 
 /// The `text_snippets` row (upstream columns, including v0.6's `action`).
@@ -119,5 +136,15 @@ struct TextSnippetRecord: Codable, Sendable, FetchableRecord, PersistableRecord 
         TextSnippet(
             id: id, trigger: trigger, expansion: expansion, isEnabled: isEnabled, useCount: useCount,
             action: action.flatMap(KeyAction.init(rawValue:)), createdAt: createdAt, updatedAt: updatedAt)
+    }
+
+    /// This record with `stored`'s `action` put back when a newer build wrote one this build cannot read and this
+    /// record still carries the none it read as (review R1-2); an explicit known action lands.
+    func keepingUnknownRawValues(of stored: TextSnippetRecord?) -> TextSnippetRecord {
+        guard let stored, let storedAction = stored.action, KeyAction(rawValue: storedAction) == nil, action == nil
+        else { return self }
+        var kept = self
+        kept.action = storedAction
+        return kept
     }
 }

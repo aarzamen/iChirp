@@ -6,7 +6,9 @@
 // WAL-via-DatabasePool / foreign-keys-on / 5s-busy-timeout configuration and the inline
 // DatabaseMigrator pattern (migrations are never edited after install; add a new one instead). M5 adds "v6-documents"
 // (link and document provenance columns, new in iChirp; "v5" belongs to the M3 meetings lane). M6 adds
-// "v7-structured-results" (structure-model runs, fields and eval runs; new tables, new in iChirp).
+// "v7-structured-results" (structure-model runs, fields and eval runs; new tables, new in iChirp). Plan 022 adds
+// "v8-text-items" (the append-only deliverable versions; a new table), and review R1-17 "v9-llm-runs-deliverable-index"
+// (an index on `llm_runs.deliverableId`; no column).
 
 import Foundation
 import GRDB
@@ -162,6 +164,14 @@ public final class DatabaseManager: Sendable {
         // text. A new table only; nothing existing changes.
         migrator.registerMigration("v8-text-items") { db in
             try DeliverableVersionSchema.create(db)
+        }
+
+        // Review R1-17 (contract spec/contracts/deliverables-v1.md): `llm_runs.deliverableId` is `ON DELETE SET NULL`,
+        // so every document delete (alone, or cascaded from its transcript's) looked for its ledger rows by a full
+        // scan of the append-only ledger. An index only: no table, column or row changes.
+        migrator.registerMigration("v9-llm-runs-deliverable-index") { db in
+            try db.create(
+                index: "idx_llm_runs_deliverable_id", on: "llm_runs", columns: ["deliverableId"], options: .ifNotExists)
         }
 
         return migrator

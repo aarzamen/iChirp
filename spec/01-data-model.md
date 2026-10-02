@@ -90,10 +90,18 @@ import ──► processing ──► completed
 - Rows written by a newer build still read: list reads decode row by row and skip (and log, id only) a row that
   can't decode, and an unknown raw value reads as a safe fallback (`status` → `interrupted`, `privacyClass` →
   `clinical`, `sourceType` → `file`). Writing such a row back keeps the newer build's raw value.
+- The Library and Capture lists read `TranscriptionSummary` rows (review R1-1): only the columns a row shows, a
+  PDF's page and OCR counts, and a document's or text item's word count, never the word timings, speakers,
+  diarization or segment JSON. A row whose JSON this build cannot read therefore still lists (opening it reports the
+  error); their observation is not re-run by a write the list does not show (notes, `updatedAt`, timings). Search
+  reads the title, text, file name and speaker columns in the store (`TranscriptionSearch`).
 - Every other write that can race a job is field-level and atomic (`updateTitleOverride`, `updateFavorite`,
-  `transitionStatus(from:to:)`, and M3's `updateUserNotes`, `renameSpeaker`, `markAudioRemoved`): one transaction reads the current row and changes only those fields, so a rename,
-  a star or a failure mark can never overwrite a transcript that landed meanwhile. Retry moves only `failed`,
-  `cancelled` or `interrupted` rows back to `processing`.
+  `transitionStatus(from:to:)`, and M3's `updateUserNotes`, `renameSpeaker`, `markAudioRemoved`): one transaction
+  updates only those columns (and `updatedAt`), so a rename, a star or a failure mark can never overwrite a transcript
+  that landed meanwhile, and never decodes, re-encodes or rewrites another column: JSON a newer build wrote (an
+  unknown page `method`, a key this build does not know) stays byte for byte. `renameSpeaker` patches only the
+  `speakers` and `transcriptSegments` JSON, keeping unknown keys. Retry moves only `failed`, `cancelled` or
+  `interrupted` rows back to `processing`.
 - Deleting a transcript is a user action with a confirmation, and removes its `media/<id>/` folder too.
 
 ## `custom_words` and `text_snippets` (migration `v4-dictation-text`, M2)
@@ -118,6 +126,7 @@ dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processin
 | M5 | **Built:** `v6-documents` (`sourceURL`, `sourceTitle`, `documentFormat`, `documentPages`) | Link, podcast and document provenance ([contract](contracts/document-items-v1.md)) |
 | M6 | **Built:** `v7-structured-results` (`structured_runs`, `structured_fields`, `structured_eval_runs`) | Structure-model evidence ledger: runs, fields with source spans, gate verdicts and review state, eval runs ([contract](contracts/structured-results-v1.md)) |
 | Plan 022 | **Built:** `v8-text-items` (`deliverable_versions`, append-only) | Edit by voice: every text a generated document has had ([contract](contracts/deliverables-v1.md), Versions); text items need no column |
+| Review 2026-10-01 | **Built:** `v9-llm-runs-deliverable-index` (an index on `llm_runs.deliverableId`; no column) | A document's delete sets its ledger rows' `deliverableId` to NULL without scanning the ledger (R1-17) |
 | M6 | `embeddings` (or a vector index) | Semantic search, after benchmarking against plain text search |
 
 Keep YAGNI: a table appears only with the feature that reads it.

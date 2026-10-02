@@ -80,7 +80,7 @@ struct DocumentRow: View {
         case compact, full
     }
 
-    let item: Transcription
+    let item: TranscriptionSummary
     let progress: JobProgress?
     let style: Style
     let onOpen: () -> Void
@@ -168,30 +168,42 @@ struct DocumentRow: View {
     }
 
     /// "TEXT" on a typed or pasted text item's cover; nil keeps the format badge.
-    static func coverBadge(for item: Transcription) -> String? {
+    static func coverBadge(for item: some TranscriptionRowFields) -> String? {
         item.isTextItem ? "TEXT" : nil
     }
 
     /// "PDF · 12 pages · 3 read with OCR", "Word · 1,204 words", "Markdown · 86 words", "Text · 86 words".
     static func meta(for item: Transcription) -> String {
-        var parts = [item.isTextItem ? "Text" : item.documentFormat?.displayName ?? "Document"]
-        if let pages = item.documentPages, !pages.isEmpty {
-            parts.append(pages.count == 1 ? "1 page" : "\(pages.count) pages")
-            let ocr = item.ocrPageCount
-            if ocr > 0 {
-                parts.append(ocr == pages.count ? "read with OCR" : "\(ocr) read with OCR")
+        let pages = item.documentPages ?? []
+        return meta(
+            isTextItem: item.isTextItem, format: item.documentFormat, pageCount: pages.count,
+            ocrPageCount: item.ocrPageCount, words: pages.isEmpty ? wordCount(item.displayText) : 0)
+    }
+
+    /// The same line from a list row's summary, which carries the counts instead of the pages and text.
+    static func meta(for item: TranscriptionSummary) -> String {
+        meta(
+            isTextItem: item.isTextItem, format: item.documentFormat, pageCount: item.documentPageCount,
+            ocrPageCount: item.ocrPageCount, words: item.textWordCount)
+    }
+
+    private static func meta(
+        isTextItem: Bool, format: DocumentFormat?, pageCount: Int, ocrPageCount: Int, words: Int
+    ) -> String {
+        var parts = [isTextItem ? "Text" : format?.displayName ?? "Document"]
+        if pageCount > 0 {
+            parts.append(pageCount == 1 ? "1 page" : "\(pageCount) pages")
+            if ocrPageCount > 0 {
+                parts.append(ocrPageCount == pageCount ? "read with OCR" : "\(ocrPageCount) read with OCR")
             }
-        } else {
-            let words = wordCount(item.displayText)
-            if words > 0 {
-                parts.append(words == 1 ? "1 word" : "\(words.formatted()) words")
-            }
+        } else if words > 0 {
+            parts.append(words == 1 ? "1 word" : "\(words.formatted()) words")
         }
         return parts.joined(separator: " · ")
     }
 
     static func wordCount(_ text: String) -> Int {
-        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+        TranscriptionSummary.wordCount(of: text)
     }
 }
 
@@ -212,7 +224,7 @@ struct LibraryItemScreen: View {
 
 /// A Library or Recent row: `DocumentRow` for documents, `TranscriptionRow` for everything else.
 struct LibraryItemRow: View {
-    let item: Transcription
+    let item: TranscriptionSummary
     let progress: JobProgress?
     let compact: Bool
     let onOpen: () -> Void

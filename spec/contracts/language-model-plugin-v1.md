@@ -41,7 +41,8 @@ is recorded as `GenerationUsage.model`, a catalog id such as `qwen3.5-2b-q4_k_m`
 
 **`LanguageModel`**
 - `descriptor.locality` and `endpointHost` describe where content goes. For HTTP engines both derive from the
-  configured base URL: locality is `.localNetwork` only when `LocalNetworkHost.isLocal(host)`, otherwise `.cloud`;
+  configured base URL: locality is `.localNetwork` only when `LocalNetworkHost.isLocal(host)`, otherwise `.cloud`
+  (an IPv4 address with a leading-zero octet, such as `010.0.0.1`, is never local: some resolvers read it as octal);
   `endpointHost` is the lowercased host. On-device engines return `nil`. The default implementation returns `nil`,
   which routes a LAN engine as untrusted (fail safe).
 - Every request an engine makes goes to `endpointHost`. HTTP engines **refuse all redirects**

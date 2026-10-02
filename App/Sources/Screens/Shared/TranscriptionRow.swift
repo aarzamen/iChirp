@@ -6,7 +6,7 @@ import SwiftUI
 /// The cover at the left of a Capture or Library row: Seed-of-Life for meetings, a tint waveform tile for
 /// dictations, a night play tile for links, a document tile for files (a clock while a file is still processing).
 struct TranscriptionCover: View {
-    let item: Transcription
+    let item: TranscriptionSummary
     let size: CGFloat
     let radius: CGFloat
 
@@ -48,13 +48,14 @@ struct TranscriptionCover: View {
 }
 
 /// One transcription in Capture's Recent list (`compact`) or the Library (full, with the snippet). The row is a
-/// button that opens the transcript; a failed, cancelled or interrupted row adds a Retry button beside it.
+/// button that opens the transcript; a failed, cancelled or interrupted row adds a Retry button beside it. It shows a
+/// `TranscriptionSummary` (review R1-1): the list never holds the transcript itself.
 struct TranscriptionRow: View {
     enum Style {
         case compact, full
     }
 
-    let item: Transcription
+    let item: TranscriptionSummary
     let progress: JobProgress?
     let style: Style
     let onOpen: () -> Void

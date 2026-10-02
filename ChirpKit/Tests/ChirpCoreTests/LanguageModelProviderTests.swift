@@ -37,6 +37,25 @@ final class LanguageModelProviderTests: XCTestCase {
         }
     }
 
+    /// Review R1-10: resolvers that follow inet_aton, and the WHATWG URL parser, read a leading-zero octet as octal
+    /// ("010" is 8, so "010.0.0.1" is 8.0.0.1, a public address). An ambiguous form is never local.
+    func testLeadingZeroAndOtherAmbiguousIPv4FormsAreNotLocal() {
+        for host in [
+            "010.0.0.1", "0177.0.0.1", "192.168.001.1", "10.0.0.01", "0127.0.0.1", "172.016.0.1", "00.0.0.0",
+            "0x7f.0.0.1", "127.1", "2130706433",
+        ] {
+            XCTAssertFalse(LocalNetworkHost.isLocal(host), host)
+        }
+        let lookalike = provider(.ollama, "http://010.0.0.1:11434", trusted: true)
+        XCTAssertEqual(lookalike.locality, .cloud)
+        XCTAssertFalse(lookalike.isTrustedLocalNetworkHost, "it can never be trusted for clinical content")
+        XCTAssertThrowsError(try lookalike.validate()) { error in
+            XCTAssertEqual(error as? LanguageModelProviderConfiguration.ValidationError, .insecureCloudURL)
+        }
+        XCTAssertTrue(LocalNetworkHost.isLocal("10.0.0.1"), "a plain single zero is still a number")
+        XCTAssertTrue(LocalNetworkHost.isLocal("192.168.0.10"))
+    }
+
     // MARK: Locality is derived, never chosen
 
     func testLocalityDerivesFromHost() {

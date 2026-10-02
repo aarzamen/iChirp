@@ -339,7 +339,7 @@ final class SpeechEnginesViewModelTests: XCTestCase {
         let (model, router) = makeTurboModel(memory: FixedAvailableMemory(2_100_000_000))
         await model.refresh()
         let row = try XCTUnwrap(model.rows.first { $0.id == turbo })
-        XCTAssertEqual(row.memoryShortfall, "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)")
+        XCTAssertEqual(row.memoryShortfall, "Needs about 3.5 GB of memory; about 2.1 GB is available now")
         XCTAssertTrue(row.isReady, "its model is on disk: it can still be deleted")
         XCTAssertFalse(row.isChoosable)
         XCTAssertNil(model.rows.first { $0.id == parakeet }?.memoryShortfall, "Parakeet's 0.8 GB fits")
@@ -373,7 +373,7 @@ final class SpeechEnginesViewModelTests: XCTestCase {
         await model.refresh()
         let row = try XCTUnwrap(model.rows.first { $0.id == turbo })
         XCTAssertEqual(row.availability, .downloadable)
-        XCTAssertEqual(row.memoryShortfall, "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)")
+        XCTAssertEqual(row.memoryShortfall, "Needs about 3.5 GB of memory; about 2.1 GB is available now")
     }
 
     func testAnEngineARouteAlreadyUsesIsNotMarkedForTheMemoryItMayHold() async throws {

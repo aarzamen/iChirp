@@ -15,7 +15,7 @@ an engine that breaks them corrupts transcripts silently.
   `LiveSpeechSession.swift` (M2), `TailWindowPreviewSession.swift` (M2, in ChirpCore since M7),
   `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `SpeechEngineMemoryFit.swift` and
   `System/AvailableMemory.swift` (fix/speech-memory-fit), `LanguageModel.swift`, `StructureModel.swift`,
-  `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
+  `PrivacyRoutingPolicy.swift` (`PrivacyRoutingPolicy`; the file was `EngineCatalog.swift` before review R1-15).
 - Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
   `ChirpEngineAppleSpeech` (`AppleSpeechEngine`) and `ChirpEngineWhisperKit` (`WhisperKitEngine`, one per variant) in M7;
   `ParakeetEngine` is also a `LiveSpeechSessionProviding` since M2 (tail-window preview); every future
@@ -140,7 +140,7 @@ an engine that breaks them corrupts transcripts silently.
     while the other is resident (`combinedLoadMemoryBytes`) exceeds it (`combinedMemoryOverAvailable`), handled like
     the budget: a final choice moves live text along. A saved pair over it starts with live on the final engine only
     when that engine alone fits (otherwise moving live text would only lose the preview too). Settings → Speech
-    engines marks such an engine "Needs more memory than this iPhone gives Parakeet (about Y GB)"
+    engines marks such an engine "Needs about X GB of memory; about Y GB is available now"
     (`SpeechEnginesViewModel.Row.memoryShortfall`) and does not offer it for a route; it can still be downloaded and
     deleted. A nil reading skips every run-time rule.
   - **A job that held its engine past the change** (review N4). The unload above is refused while a job holds the

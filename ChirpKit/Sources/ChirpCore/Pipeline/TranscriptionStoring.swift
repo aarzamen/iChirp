@@ -3,17 +3,15 @@ import Foundation
 /// Persistence for `Transcription` rows. The GRDB implementation lives in ChirpStore.
 ///
 /// A running job and the user can change the same row at once, so every write that is not a whole new row changes
-/// only its own fields, atomically against the freshest stored row (one transaction: read, change, save). Code
-/// that may run concurrently with a job must use the field-level methods, never fetch → change → `update`.
+/// only its own fields, atomically against the freshest stored row (one transaction). There is deliberately no
+/// whole-row update (review R1-16): a fetch → change → save of a whole row would overwrite whatever landed in between.
+/// Pipeline output goes through `savePreservingUserMetadata`; everything else through the field-level methods.
 public protocol TranscriptionStoring: Sendable {
     func insert(_ transcription: Transcription) async throws
     /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite, privacyClass, and since M3
     /// userNotes) from the stored row, in one transaction. Returns the merged row, or nil when the row no longer
     /// exists (deleted while the job ran). It never inserts, so a deleted row is never resurrected.
     func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription?
-    /// Replaces every column of an existing row. Only for rows nothing else can be writing; prefer the field-level
-    /// methods below.
-    func update(_ transcription: Transcription) async throws
     /// Atomically sets only `titleOverride` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
     func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription?
     /// Atomically sets only `isFavorite` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
@@ -30,16 +28,28 @@ public protocol TranscriptionStoring: Sendable {
         errorMessage: String?
     ) async throws -> Transcription?
     func fetch(id: UUID) async throws -> Transcription?
-    /// Newest first.
+    /// Newest first. Every row in full (word timings and all): for lists, use `fetchSummaries(limit:)`.
     func fetchAll() async throws -> [Transcription]
     func delete(id: UUID) async throws
     /// processing → interrupted for rows left over from a killed process; returns count.
     func markStaleProcessingAsInterrupted() async throws -> Int
-    /// Emits on every change, newest first.
+    /// Emits on every change, newest first. Every row in full: for lists, use `observeSummaries(limit:)`.
     func observeAll() -> AsyncStream<[Transcription]>
 
-    // M3 meetings. Each is a field-level write; the protocol extension below gives conformers without their own
-    // version a fetch → change → update fallback (fine for fakes; real stores implement them atomically).
+    // Lists (review R1-1, R6a-8): what a row shows, never the transcript itself. The extension below derives them from
+    // `fetchAll()` / `observeAll()` for stores without a list query (test fakes); `GRDBTranscriptionStore` reads only
+    // the columns a row shows.
+
+    /// Every row as a list shows it, newest first; at most `limit` rows when given.
+    func fetchSummaries(limit: Int?) async throws -> [TranscriptionSummary]
+    /// The same list now, then again after each change to what it shows (latest only: a slow consumer skips to the
+    /// newest list). Ends when the consumer stops iterating.
+    func observeSummaries(limit: Int?) -> AsyncStream<[TranscriptionSummary]>
+    /// Ids of the rows whose title, text, file name or a speaker's label contains `query`, ignoring case
+    /// (`TranscriptionSearch`; surrounding whitespace is ignored, an empty query matches nothing).
+    func searchTranscriptions(matching query: String) async throws -> Set<UUID>
+
+    // M3 meetings. Each is a field-level write, implemented atomically by every conformer.
 
     /// Atomically sets only `userNotes` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
     func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription?
@@ -52,27 +62,26 @@ public protocol TranscriptionStoring: Sendable {
 }
 
 extension TranscriptionStoring {
-    public func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
-        guard var row = try await fetch(id: id) else { return nil }
-        row.userNotes = userNotes
-        row.updatedAt = Date()
-        try await update(row)
-        return row
+    public func fetchSummaries(limit: Int?) async throws -> [TranscriptionSummary] {
+        TranscriptionSummary.newest(try await fetchAll(), limit: limit)
     }
 
-    public func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
-        guard var row = try await fetch(id: id), row.renameSpeaker(speakerId, to: label) else { return nil }
-        row.updatedAt = Date()
-        try await update(row)
-        return row
+    public func observeSummaries(limit: Int?) -> AsyncStream<[TranscriptionSummary]> {
+        let rows = observeAll()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let relay = Task {
+                for await all in rows {
+                    continuation.yield(TranscriptionSummary.newest(all, limit: limit))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in relay.cancel() }
+        }
     }
 
-    public func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
-        guard var row = try await fetch(id: id), row.status == .completed else { return nil }
-        row.mediaRelativePath = nil
-        row.audioRemovedAt = date
-        row.updatedAt = Date()
-        try await update(row)
-        return row
+    public func searchTranscriptions(matching query: String) async throws -> Set<UUID> {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return [] }
+        return Set(try await fetchAll().filter { $0.matchesSearch(needle) }.map(\.id))
     }
 }

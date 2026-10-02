@@ -37,7 +37,7 @@ import Observation
         public let capabilities: SpeechEngineCapabilities
         public let status: ModelAssetStatus
         public let availability: Availability
-        /// fix/speech-memory-fit: "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)" when this
+        /// fix/speech-memory-fit: "Needs about 3.5 GB of memory; about 2.1 GB is available now" when this
         /// engine's load (`memoryToLoadBytes`) needs more than iOS lets the app use now; it then cannot be chosen for a
         /// route. Nil when it fits or the system does not say, while it downloads, for a row that cannot run here
         /// anyway, and for an engine a route already uses (its own model may be what holds that memory; the engine

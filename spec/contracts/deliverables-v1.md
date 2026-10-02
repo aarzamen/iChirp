@@ -38,7 +38,7 @@ database and every screen that lists or edits documents.
 | `prompts` | `id`, `name`, `category` (`deliverable` / `transform`), `isBuiltIn`, `canonicalKey` (unique when set), `canonicalRevision`, `outputPrivacyClass`, `sortOrder`, `activeVersionId`, `userCustomizedAt`, `deletedAt`, `createdAt`, `updatedAt` |
 | `prompt_versions` | `id`, `promptId` → prompts (restrict), `versionNumber` (unique per prompt), `content`, `origin` (`builtIn` / `user` / `systemUpdate`), `createdAt` |
 | `deliverables` | `id`, `transcriptionId` → transcriptions (**cascade**), `promptId` / `promptVersionId` (set null), `title`, `engineId`, `provider`, `model`, `locality`, `text`, `privacyClass`, `userNotes`, `createdAt`, `updatedAt`, `editedAt` |
-| `llm_runs` | `id`, `feature` (`deliverable` / `ask`), `status` (`succeeded` / `failed` / `cancelled` / `refused`), `transcriptionId` / `deliverableId` / `promptVersionId` (set null), `engineId`, `provider`, `model`, `locality`, `privacyClass`, `privacyOverride`, `errorType`, `promptTokens`, `completionTokens`, `latencyMs`, `inputCharacters`, `outputCharacters`, `callCount`, `createdAt` |
+| `llm_runs` | `id`, `feature` (`deliverable` / `ask` / `decision` (M6a, `DecisionService`) / `edit` (plan 022, Edit by voice)), `status` (`succeeded` / `failed` / `cancelled` / `refused`), `transcriptionId` / `deliverableId` / `promptVersionId` (set null), `engineId`, `provider`, `model`, `locality`, `privacyClass`, `privacyOverride`, `errorType`, `promptTokens`, `completionTokens`, `latencyMs`, `inputCharacters`, `outputCharacters`, `callCount`, `createdAt`. Indexed on `createdAt`, `transcriptionId` and (migration `v9-llm-runs-deliverable-index`, review R1-17) `deliverableId`, so the set-null of a document's delete finds its rows without scanning the ledger |
 
 **Rules**
 - **Prompt versions are immutable.** SQLite triggers abort every `UPDATE` and `DELETE` on `prompt_versions`. An edit
@@ -79,7 +79,9 @@ database and every screen that lists or edits documents.
   the document (or its transcript) removes its versions. `appendDeliverableVersion` runs in one transaction: when the
   document's current text is not the newest version it is kept first (`original` the first time, `handEdit` after the
   person typed in the editor), then the new version is appended and its text becomes `deliverables.text`
-  (`updatedAt` moves; `editedAt` stays the person's own edits); the document's class is raised, never lowered.
+  (`updatedAt` moves; `editedAt` stays the person's own edits); the document's class is raised, never lowered. A
+  stored class this build cannot read (a newer build's; it reads as `clinical`) is kept as written on the document
+  and on the versions written with it, as `raiseDeliverablePrivacyClass` keeps it.
 - **Edit by voice** (`DeliverableService.edit`, feature `edit` in `llm_runs`): one model call with the document in
   `<document>` tags and the person's instruction; routed on the transcript's effective class raised by the document's
   class, with the same override token rules, re-checked before the call. A document that does not fit one call (in

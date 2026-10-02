@@ -80,4 +80,56 @@ final class GRDBTextRulesStoreTests: XCTestCase {
         let none = try await store.snippets()
         XCTAssertEqual(none.count, 0)
     }
+
+    // MARK: - Values a newer build wrote (review R1-2: a save never writes back the fallback it read)
+
+    func testSavingAWordKeepsASourceANewerBuildWrote() async throws {
+        let (store, database) = try makeStore()
+        try await store.save(CustomWord(word: "Synthetic", replacement: "SYNTHETIC"))
+        try await database.writer.write { db in try db.execute(sql: "UPDATE custom_words SET source = 'imported'") }
+        let loadedWords = try await store.customWords()
+        var word = try XCTUnwrap(loadedWords.first)
+        XCTAssertEqual(word.source, .manual, "an unknown source reads as manual")
+
+        word.isEnabled = false
+        try await store.save(word)
+        let kept = try await storedSource(database)
+        XCTAssertEqual(kept, "imported", "an older build's save keeps the newer source")
+        let saved = try await store.customWords()
+        XCTAssertEqual(saved.first?.isEnabled, false, "the change itself lands")
+
+        word.source = .learned
+        try await store.save(word)
+        let changed = try await storedSource(database)
+        XCTAssertEqual(changed, "learned", "an explicit change to a known source lands")
+    }
+
+    func testSavingASnippetKeepsAnActionANewerBuildWrote() async throws {
+        let (store, database) = try makeStore()
+        try await store.save(TextSnippet(trigger: "synthetic sig", expansion: "Best"))
+        try await database.writer.write { db in try db.execute(sql: "UPDATE text_snippets SET action = 'tab'") }
+        let loadedSnippets = try await store.snippets()
+        var snippet = try XCTUnwrap(loadedSnippets.first)
+        XCTAssertNil(snippet.action, "an unknown action reads as none")
+
+        snippet.expansion = "Best regards"
+        try await store.save(snippet)
+        let kept = try await storedAction(database)
+        XCTAssertEqual(kept, "tab", "an older build's save keeps the newer action")
+        let saved = try await store.snippets()
+        XCTAssertEqual(saved.first?.expansion, "Best regards", "the change itself lands")
+
+        snippet.action = .returnKey
+        try await store.save(snippet)
+        let changed = try await storedAction(database)
+        XCTAssertEqual(changed, "return", "an explicit change to a known action lands")
+    }
+
+    private func storedSource(_ database: DatabaseManager) async throws -> String? {
+        try await database.writer.read { db in try String.fetchOne(db, sql: "SELECT source FROM custom_words") }
+    }
+
+    private func storedAction(_ database: DatabaseManager) async throws -> String? {
+        try await database.writer.read { db in try String.fetchOne(db, sql: "SELECT action FROM text_snippets") }
+    }
 }

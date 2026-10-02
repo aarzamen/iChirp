@@ -1,6 +1,7 @@
 import ChirpCore
 import ChirpExport
 import Foundation
+import Synchronization
 import XCTest
 
 @testable import ChirpFeatures
@@ -272,6 +273,48 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertNotNil(row.transcriptSegments)
     }
 
+    // MARK: - What the lists read (review R1-1, R6a-8)
+
+    func testLibraryAndCaptureObserveSummariesNeverWholeRows() async {
+        let rows = (0..<5).map { row("Item \($0)", .file, hoursAgo: $0) }
+        let store = ListRecordingStore(FakeStore(rows: rows))
+        let library = LibraryViewModel(
+            store: store, paths: AppPaths(root: FileManager.default.temporaryDirectory), calendar: calendar,
+            now: { [now] in now })
+        let capture = CaptureViewModel(store: store)
+        await library.start()
+        await capture.start()
+        addTeardownBlock { @MainActor in
+            library.stop()
+            capture.stop()
+        }
+
+        XCTAssertEqual(store.summaryObservations, [nil, CaptureViewModel.recentCount], "Library: all; Capture: three")
+        XCTAssertEqual(store.summaryFetches, [nil, CaptureViewModel.recentCount])
+        XCTAssertEqual(store.wholeRowReads, 0, "neither list reads word timings, segments or pages")
+        XCTAssertEqual(library.items.map(\.id), rows.map(\.id))
+        XCTAssertEqual(capture.recent.map(\.id), rows.prefix(3).map(\.id))
+    }
+
+    func testAFailedTextSearchSaysSoAndStillMatchesTitlesAndFileNames() async {
+        let titled = row("Budget memo", .dictation, hoursAgo: 1)
+        let spoken = row("Voice note", .dictation, hoursAgo: 2, text: "remember the budget")
+        let (viewModel, store) = await makeViewModel(rows: [titled, spoken])
+        await store.failFetchAll(with: FakeError(message: "database is locked"))
+
+        viewModel.searchText = "budget"
+        await viewModel.searchSettled()
+
+        XCTAssertEqual(viewModel.visibleItems.map(\.id), [titled.id], "the title still matches")
+        XCTAssertEqual(viewModel.searchError, "database is locked", "the text could not be searched, and it says so")
+
+        await store.failFetchAll(with: nil)
+        viewModel.searchText = "remember"
+        await viewModel.searchSettled()
+        XCTAssertEqual(viewModel.visibleItems.map(\.id), [spoken.id])
+        XCTAssertNil(viewModel.searchError)
+    }
+
     // MARK: - Capture
 
     func testCaptureRecentShowsNewestThree() async throws {
@@ -287,5 +330,82 @@ final class LibraryViewModelTests: XCTestCase {
         try await store.insert(newest)
         await waitUntil { viewModel.recent.first?.id == newest.id }
         XCTAssertEqual(viewModel.recent.map(\.id), [newest.id] + rows.prefix(2).map(\.id))
+    }
+}
+
+/// Forwards to a `FakeStore` and records which lists a view model reads (review R6a-8): summary observations and
+/// fetches with their limits, and every read of whole rows.
+final class ListRecordingStore: TranscriptionStoring {
+    private let inner: FakeStore
+    private let calls = Mutex(Calls())
+
+    private struct Calls {
+        var summaryObservations: [Int?] = []
+        var summaryFetches: [Int?] = []
+        var wholeRowReads = 0
+    }
+
+    init(_ inner: FakeStore) {
+        self.inner = inner
+    }
+
+    var summaryObservations: [Int?] { calls.withLock { $0.summaryObservations } }
+    var summaryFetches: [Int?] { calls.withLock { $0.summaryFetches } }
+    /// `fetchAll()` and `observeAll()` calls.
+    var wholeRowReads: Int { calls.withLock { $0.wholeRowReads } }
+
+    func fetchSummaries(limit: Int?) async throws -> [TranscriptionSummary] {
+        calls.withLock { $0.summaryFetches.append(limit) }
+        return try await inner.fetchSummaries(limit: limit)
+    }
+
+    func observeSummaries(limit: Int?) -> AsyncStream<[TranscriptionSummary]> {
+        calls.withLock { $0.summaryObservations.append(limit) }
+        return inner.observeSummaries(limit: limit)
+    }
+
+    func searchTranscriptions(matching query: String) async throws -> Set<UUID> {
+        try await inner.searchTranscriptions(matching: query)
+    }
+
+    func fetchAll() async throws -> [Transcription] {
+        calls.withLock { $0.wholeRowReads += 1 }
+        return try await inner.fetchAll()
+    }
+
+    func observeAll() -> AsyncStream<[Transcription]> {
+        calls.withLock { $0.wholeRowReads += 1 }
+        return inner.observeAll()
+    }
+
+    func insert(_ transcription: Transcription) async throws { try await inner.insert(transcription) }
+    func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
+        try await inner.savePreservingUserMetadata(transcription)
+    }
+    func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription? {
+        try await inner.updateTitleOverride(id: id, titleOverride: titleOverride)
+    }
+    func updateFavorite(id: UUID, isFavorite: Bool) async throws -> Transcription? {
+        try await inner.updateFavorite(id: id, isFavorite: isFavorite)
+    }
+    func updatePrivacyClass(id: UUID, privacyClass: PrivacyClass) async throws -> Transcription? {
+        try await inner.updatePrivacyClass(id: id, privacyClass: privacyClass)
+    }
+    func transitionStatus(
+        id: UUID, from: Set<Transcription.Status>, to: Transcription.Status, errorMessage: String?
+    ) async throws -> Transcription? {
+        try await inner.transitionStatus(id: id, from: from, to: to, errorMessage: errorMessage)
+    }
+    func fetch(id: UUID) async throws -> Transcription? { try await inner.fetch(id: id) }
+    func delete(id: UUID) async throws { try await inner.delete(id: id) }
+    func markStaleProcessingAsInterrupted() async throws -> Int { try await inner.markStaleProcessingAsInterrupted() }
+    func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
+        try await inner.updateUserNotes(id: id, userNotes: userNotes)
+    }
+    func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
+        try await inner.renameSpeaker(id: id, speakerId: speakerId, to: label)
+    }
+    func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
+        try await inner.markAudioRemoved(id: id, at: date)
     }
 }
