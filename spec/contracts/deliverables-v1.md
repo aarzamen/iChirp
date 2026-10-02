@@ -79,7 +79,9 @@ database and every screen that lists or edits documents.
   the document (or its transcript) removes its versions. `appendDeliverableVersion` runs in one transaction: when the
   document's current text is not the newest version it is kept first (`original` the first time, `handEdit` after the
   person typed in the editor), then the new version is appended and its text becomes `deliverables.text`
-  (`updatedAt` moves; `editedAt` stays the person's own edits); the document's class is raised, never lowered.
+  (`updatedAt` moves; `editedAt` stays the person's own edits); the document's class is raised, never lowered. A
+  stored class this build cannot read (a newer build's; it reads as `clinical`) is kept as written on the document
+  and on the versions written with it, as `raiseDeliverablePrivacyClass` keeps it.
 - **Edit by voice** (`DeliverableService.edit`, feature `edit` in `llm_runs`): one model call with the document in
   `<document>` tags and the person's instruction; routed on the transcript's effective class raised by the document's
   class, with the same override token rules, re-checked before the call. A document that does not fit one call (in

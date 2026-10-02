@@ -86,6 +86,33 @@ final class DeliverableVersionStoreTests: XCTestCase {
         XCTAssertEqual(after?.versions.last?.privacyClass, .clinical)
     }
 
+    /// Review R1-14: a class a newer build wrote (this build reads it as clinical) is kept as written, like
+    /// `raiseDeliverablePrivacyClass` keeps it, on the document and on the versions written with it.
+    func testAnEditKeepsAClassThisBuildCannotRead() async throws {
+        let id = document.id
+        try await database.writer.write { db in
+            guard var record = try DeliverableRecord.fetchOne(db, key: id) else { throw TamperFailure() }
+            record.privacyClass = "restricted"
+            try record.update(db)
+        }
+
+        let result = try await store.appendDeliverableVersion(
+            draft("Edited on an older build.", privacyClass: .personal), deliverableID: id)
+
+        let appended = try XCTUnwrap(result)
+        XCTAssertEqual(appended.deliverable.privacyClass, .clinical, "it reads as the most protective class")
+        XCTAssertEqual(appended.versions.map(\.privacyClass), [.clinical, .clinical])
+        let (documentClass, versionClasses) = try await database.writer.read { db in
+            (
+                try DeliverableRecord.fetchOne(db, key: id)?.privacyClass,
+                try DeliverableVersionRecord.filter(Column("deliverableId") == id)
+                    .order(Column("versionNumber")).fetchAll(db).map(\.privacyClass)
+            )
+        }
+        XCTAssertEqual(documentClass, "restricted", "the newer build's class is kept, not replaced with clinical")
+        XCTAssertEqual(versionClasses, ["restricted", "restricted"], "the versions written now carry it too")
+    }
+
     func testAGoneDocumentStoresNothing() async throws {
         let result = try await store.appendDeliverableVersion(draft("Text."), deliverableID: UUID())
         XCTAssertNil(result)
@@ -132,3 +159,5 @@ final class DeliverableVersionStoreTests: XCTestCase {
         XCTAssertEqual(left, 0, "deleting the transcript deletes its documents and their versions")
     }
 }
+
+private struct TamperFailure: Error {}

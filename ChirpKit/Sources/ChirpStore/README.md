@@ -33,7 +33,8 @@ ChirpStore depends on ChirpText.
   with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
   version when it is not the newest, appends the new one, makes it the document's text and raises its class, all in
-  one transaction). Contract: `spec/contracts/deliverables-v1.md` (Versions).
+  one transaction; a stored class this build cannot read is kept as written on the document and its new versions).
+  Contract: `spec/contracts/deliverables-v1.md` (Versions).
 - `DeliverableListingStore.swift` (plan 023, UX audit F43) — `GRDBDeliverableStore`'s `DeliverableListing`, read
   only, no schema change: `fetchDeliverableSummaries()` (every document, newest first, `createdAt` then id; only
   `substr(text, 1, 320)` of the text is read, and columns are read by position, so 5,000 summaries take about 25 ms in
