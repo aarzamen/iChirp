@@ -85,6 +85,24 @@ What the script does:
 
 Trust the install message from `devicectl`, not just "build succeeded".
 
+**The same build on a second phone.** To put the exact build one phone already has on another (same commit, same
+build number, so "which build is this?" has one answer), install the `.app` the last run left behind instead of
+rebuilding. It works when the development profile inside it lists that phone; check first:
+
+```bash
+cd /Users/ama/Documents/GitHub/iChirp
+APP=.build/xcode/Build/Products/Debug-iphoneos/iChirp.app
+plutil -p "$APP/Info.plist" | grep -E 'ChirpGitCommit|CFBundleVersion"'                 # the build you are about to copy
+security cms -D -i "$APP/embedded.mobileprovision" | grep -c '<the phone UDID>'          # 1 = the profile covers it
+xcrun devicectl device install app --device <devicectl id> "$APP"
+xcrun devicectl device process launch --terminate-existing --device <devicectl id> com.aarzamen.ichirp
+xcrun devicectl device info apps --device <devicectl id> --bundle-id com.aarzamen.ichirp   # version and build
+```
+
+If the count is 0, use `DEVICE_ID=<id> scripts/run_device.sh` (a new build) or ask the owner for one automatic-signing
+build in Xcode; never register a device from the command line. Used 2026-10-02 to give the iPhone 15 Pro the build
+the iPhone 17 Pro had tested.
+
 ### When it fails
 
 | Message | Meaning | What to do |

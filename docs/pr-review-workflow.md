@@ -30,7 +30,9 @@ When unsure, pick the lightest tier that still protects correctness and user tru
 ## The full loop (substantial changes)
 
 1. **Branch first**, in its own worktree, from `main` (or the branch the owner named). Never commit substantial work
-   directly on `main` and review it afterwards.
+   directly on `main` and review it afterwards. Parallel lanes share nothing mutable: each creates and deletes its
+   own simulator and keeps its helper scripts in its own scratch folder (`scratchpad/<lane>/`). On 2026-10-02 two
+   lanes shared a `tour.sh`, and one lane's UI tour ran in the other's worktree and simulator.
 2. **Define the context zone**: in scope, must-not-change, governing ADR/spec/contract, and the proof (tests,
    simulator, device smoke).
 3. **Build and verify**: focused tests while iterating, then the full suite once: `swift test --package-path ChirpKit`,
