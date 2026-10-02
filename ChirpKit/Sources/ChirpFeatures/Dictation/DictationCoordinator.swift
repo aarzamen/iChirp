@@ -156,11 +156,6 @@ public struct DictationTextRules: Sendable {
         self.textRules = textRules
         self.voiceCommands = voiceCommands
         self.polishAfter = settings.load().dictationPolishAfter
-        // M6: a live "stop" command at the act threshold stops like the Stop button (the final pass still decides).
-        voiceCommands?.onLiveStop = { [weak self] in
-            guard let self, self.state.isCapturing else { return }
-            self.stop()
-        }
     }
 
     // MARK: - Person's actions

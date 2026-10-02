@@ -145,6 +145,20 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(row.rawTranscript, finalPass, "the saved transcript keeps every word")
     }
 
+    /// Review R5-17 (and L3 minor 6): a "stop" heard in the live preview is a chip only. The dictation keeps
+    /// recording, so nothing said after a misheard "stop" is lost.
+    func testALiveStopIsAChipAndTheDictationKeepsRecording() async throws {
+        let commands = Self.voiceCommands(enabled: true)
+        let h = Harness(testCase: self, voiceCommands: commands)
+        await h.startRecording()
+        h.live.session.publish("Patient is well. Stop dictation")
+        await waitUntil { commands.chip != nil }
+        XCTAssertEqual(commands.chip?.command, "stop")
+        XCTAssertEqual(h.coordinator.state, .recording)
+        XCTAssertEqual(h.capture.stops, 0)
+        await h.stopAndWait()
+    }
+
     func testVoiceCommandsOffLeaveTheFinalPassUntouched() async throws {
         let speech = FakeSpeech()
         await speech.setTranscript(text: "One. New paragraph. Two.", words: FakeSpeech.helloWords)

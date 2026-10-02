@@ -305,7 +305,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `MeetingTranscriptAssembler.swift` (words offset by the chunk start, de-duplicated by absolute `endMs`).
   Display-only; a backpressure drop marks the preview lagging, published as soon as the drop applies (outcomes can
   arrive out of order, so a later result may clear the flag in the same pass). `finish()` cancels and awaits every
-  chunk.
+  chunk and drops the unfinished tail (review R5-18: the final pass covers it; the chunkers' upstream `flush()` is
+  internal, for their tests only).
 - `MeetingFinalizer.swift`: normalize `meeting.caf` → one `.meetingFinalize` job (transcribe, then diarize; a
   diarization failure is not fatal) → `SpeakerMerger` → custom words only → title, snippet, segments →
   `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the
