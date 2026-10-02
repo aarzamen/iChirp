@@ -53,7 +53,10 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
     (`TextProcessingPipeline`) over that joined text with `TranscriptTextContext`'s rules (manual custom words, the
     filler setting, snippets for dictation rows only), placed on the lines by `CleanTextAligner`. A row that never had
     clean text gets no fresh clean-up. `TranscriptTextContext` is read only for corrected rows.
-  - `Transcription.heardText(_:)` is the engine's words of a range as heard (Show Original).
+  - `Transcription.heardText(_:)` is the engine's words of a range as heard (Show Original); `TranscriptText.heardText`
+    the same from a loaded view's tokens (the planner). For the correction service: `wordsFingerprint`,
+    `hasWordTimings`, `applyCorrections(_:now:)` and `titleSource(context:)` (the pipelines' title source without
+    corrections, the corrected text in the row's own mode with them), so no consumer reads the baseline fields.
 - `Corrections/CorrectionPlanner.swift` (plan 025 A4): the person's edited text of one line → the smallest word-span
   corrections (`TranscriptCorrectionPlan`): a word diff (case and punctuation count, whitespace does not), a pure
   insertion or deletion takes its neighbor word (the previous one; the next at the start of a line), hunks widen to

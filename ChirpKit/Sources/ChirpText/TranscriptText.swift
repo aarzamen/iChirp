@@ -142,6 +142,21 @@ public struct TranscriptText: Sendable, Equatable {
         self.segments = segments
         self.edits = edits
     }
+
+    /// Plan 025: the words as heard of the engine-word range `range`, from this view's own tokens (an engine token's
+    /// text, a correction token's `heard`), for a range of whole tokens (`CorrectionPlanner`): each word trimmed,
+    /// joined by single spaces, as `TranscriptCorrection.heard` and `Transcription.heardText(_:)` are.
+    public func heardText(_ range: Range<Int>) -> String {
+        tokens.filter { $0.wordRange.overlaps(range) }
+            .map { token in
+                guard let editID = token.editID, let edit = edits.first(where: { $0.id == editID }) else {
+                    return token.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return edit.heard
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
 }
 
 /// R1: the one place the word stream is made: the engine's words, with each valid correction
@@ -216,6 +231,37 @@ extension Transcription {
     /// `text(view, context:).plainText`. A row without corrections returns its stored text at once.
     public func plainText(_ view: TranscriptTextView, context: TranscriptTextContext = .none) -> String {
         TranscriptTextBuilder.plainText(self, view: view, context: context)
+    }
+
+    /// Plan 025: the fingerprint of the engine's words (`TranscriptFingerprint`). A screen keeps the one it loaded; a
+    /// correction write is refused when the stored words no longer have it.
+    public var wordsFingerprint: String {
+        TranscriptFingerprint.of(wordTimestamps ?? [])
+    }
+
+    /// Plan 025: the row has engine word timings, which corrections need (D1).
+    public var hasWordTimings: Bool {
+        wordTimestamps?.isEmpty == false
+    }
+
+    /// Plan 025: applies `plan` to `textCorrections` against the engine's words (`TranscriptCorrections.applying`) and
+    /// returns its inverse. Only `TranscriptCorrectionService` calls it, inside the store's one-row transaction.
+    public mutating func applyCorrections(_ plan: TranscriptCorrectionPlan, now: Date) throws
+        -> TranscriptCorrectionPlan
+    {
+        let (corrections, inverse) = try (textCorrections ?? .empty).applying(
+            plan, words: wordTimestamps ?? [], now: now)
+        textCorrections = corrections
+        return inverse
+    }
+
+    /// Plan 025: the text a derived title and snippet come from. Without corrections it is the pipelines' own source
+    /// (the clean text when there is one, else the raw), so reverting every correction restores their title exactly;
+    /// with corrections it is the corrected text in the row's own mode (`.shown(.clean)` when it has clean text, else
+    /// `.shown(.raw)`).
+    public func titleSource(context: TranscriptTextContext) -> String? {
+        guard !TranscriptTokens.edits(of: self).isEmpty else { return cleanTranscript ?? rawTranscript }
+        return plainText(.shown(cleanTranscript == nil ? .raw : .clean), context: context)
     }
 
     /// The engine's words of `wordRange` as heard (each trimmed, joined by single spaces): Show Original, and what a

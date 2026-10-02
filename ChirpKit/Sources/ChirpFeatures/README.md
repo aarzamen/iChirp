@@ -350,6 +350,24 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
   time; answers are not stored (the ledger records each run without content).
 
+## Transcript corrections (plan 025 Part A, `Corrections/`; contract [transcript-corrections-v1](../../../spec/contracts/transcript-corrections-v1.md))
+
+- `Corrections/TranscriptCorrectionService.swift`: the one writer of `Transcription.textCorrections`. `correct(_:line:in:
+  baseline:text:)` plans the person's edited line against the text the screen loaded (`CorrectionPlanner` over that
+  `.heard` view, so a correction another write made meanwhile is never undone) and `apply(_:plan:baseline:)` writes it
+  in one store transaction (`updateTextCorrections`) that refuses a row that is not completed (`notCompleted`), has no
+  word timings (`noWordTimings`), has a newer build's corrections (`newerVersion`) or whose words are no longer the
+  ones loaded (`baseline` = `Transcription.wordsFingerprint`, else `transcriptChanged`); then it recomputes
+  `derivedTitle` and `derivedSnippet` from the corrected text (`Transcription.titleSource(context:)`: with no
+  corrections left, the pipelines' own source, so Revert all restores their title exactly). `revert`, `revertAll`,
+  `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
+  the undo plan. Text that differs only in spacing writes nothing. Logs: ids, counts and origin names, never text.
+  `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off).
+- `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
+  `provider`) builds the accessor's clean-up rules from Settings: manual enabled custom words, enabled snippets,
+  `removeUmFiller`. Every consumer that reads a transcript's shown text passes it (a corrected row's Clean view runs
+  those rules; an uncorrected row ignores them).
+
 ## Meetings (M3, `Meeting/`)
 
 Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-012-m3-meetings.md`.
