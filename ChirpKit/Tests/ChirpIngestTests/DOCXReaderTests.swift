@@ -113,6 +113,105 @@ final class DOCXReaderTests: XCTestCase {
         XCTAssertEqual(try text(of: emoji), "Mood 🙂")
     }
 
+    // MARK: - Tracked changes (fix round 1)
+
+    /// Word moves only a deleted run's text into `w:delText`; its symbols, hyphens, tabs and breaks stay in place
+    /// inside `w:del` (and moved-from text stays `w:t` inside `w:moveFrom`). None of it is the document's text.
+    func testTrackedDeletionsAndMovesLeakNothing() throws {
+        let replacedSymbol = Self.paragraph(
+            Self.run("K "),
+            #"<w:del w:id="1" w:author="Synthetic"><w:r><w:sym w:font="Symbol" w:char="F0B3"/></w:r></w:del>"#,
+            #"<w:ins w:id="2" w:author="Synthetic"><w:r><w:t>≤</w:t></w:r></w:ins>"#, Self.run(" 5.5"))
+        XCTAssertEqual(try text(of: replacedSymbol), "K ≤ 5.5")
+
+        let changedRange = Self.paragraph(
+            Self.run("Take "),
+            #"<w:del w:id="3"><w:r><w:delText>1</w:delText></w:r><w:r><w:noBreakHyphen/></w:r></w:del>"#,
+            Self.run("2"), #"<w:ins w:id="4"><w:r><w:noBreakHyphen/><w:t>3</w:t></w:r></w:ins>"#,
+            Self.run(" tablets"))
+        XCTAssertEqual(try text(of: changedRange), "Take 2\u{2011}3 tablets")
+
+        let deletedLayout = Self.paragraph(
+            Self.run("Before"), #"<w:del w:id="5"><w:r><w:tab/><w:br/><w:delText>gone</w:delText></w:r></w:del>"#,
+            Self.run(" after"))
+        XCTAssertEqual(try text(of: deletedLayout), "Before after")
+
+        let moved =
+            Self.paragraph(
+                Self.run("First. "), #"<w:moveFrom w:id="6"><w:r><w:t>Moved sentence.</w:t></w:r></w:moveFrom>"#)
+            + Self.paragraph(
+                Self.run("Second. "), #"<w:moveTo w:id="7"><w:r><w:t>Moved sentence.</w:t></w:r></w:moveTo>"#)
+        XCTAssertEqual(try text(of: moved), "First.\n\nSecond. Moved sentence.")
+
+        // A deleted paragraph mark is an empty `w:del` marker in the mark's properties: the text stays.
+        let deletedMark = """
+            <w:p><w:pPr><w:rPr><w:del w:id="8" w:author="Synthetic"/></w:rPr></w:pPr>\
+            <w:r><w:t>Kept text</w:t></w:r></w:p>
+            """
+        XCTAssertEqual(try text(of: deletedMark), "Kept text")
+    }
+
+    // MARK: - Symbol-font runs (fix round 1)
+
+    private static func fontRun(_ text: String, ascii: String, hAnsi: String? = nil) -> String {
+        #"<w:r><w:rPr><w:rFonts w:ascii="\#(ascii)" w:hAnsi="\#(hAnsi ?? ascii)"/></w:rPr>"#
+            + #"<w:t xml:space="preserve">\#(text)</w:t></w:r>"#
+    }
+
+    /// Typing in the Symbol font stores the typed code as run text ("m" for µ), and converted .doc files carry the
+    /// F0xx private-use form: both read as the symbol, never as "50 mg".
+    func testSymbolFontRunTextReadsAsTheSymbol() throws {
+        XCTAssertEqual(
+            try text(of: Self.paragraph(Self.run("50 "), Self.fontRun("m", ascii: "Symbol"), Self.run("g"))),
+            "50 µg")
+        XCTAssertEqual(
+            try text(of: Self.paragraph(Self.run("50 "), Self.fontRun("\u{F06D}", ascii: "Symbol"), Self.run("g"))),
+            "50 µg")
+        XCTAssertEqual(
+            try text(of: Self.paragraph(Self.run("K "), Self.fontRun("\u{00B3}", ascii: "Symbol"), Self.run(" 5.5"))),
+            "K ≥ 5.5")
+        let wingdings = Self.paragraph(Self.fontRun("\u{00FE} \u{00A8} J", ascii: "Wingdings"), Self.run(" Diabetic"))
+        XCTAssertEqual(
+            try text(of: wingdings), "☑ ☐ \u{FFFD} Diabetic",
+            "Wingdings boxes read as boxes, spaces stay spaces, an unmapped glyph shows U+FFFD")
+    }
+
+    /// A symbol-font code (F0xx) whose font comes from a style this reader does not read shows as U+FFFD: most fonts
+    /// draw nothing for it, so "50 \u{F06D}g" would read as "50 g".
+    func testASymbolCodeWithoutAVisibleFontStaysVisible() throws {
+        XCTAssertEqual(try text(of: Self.paragraph(Self.run("50 \u{F06D}g"))), "50 \u{FFFD}g")
+    }
+
+    /// A text font's run, and a Symbol font set only on the paragraph mark, leave the text alone.
+    func testOrdinaryRunsAreUntouched() throws {
+        XCTAssertEqual(
+            try text(of: Self.paragraph(Self.run("50 "), Self.fontRun("mg", ascii: "Calibri"), Self.run(" daily"))),
+            "50 mg daily")
+        let markOnly = """
+            <w:p><w:pPr><w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/></w:rPr></w:pPr>\
+            <w:r><w:t>Dose 50 mg</w:t></w:r></w:p>
+            """
+        XCTAssertEqual(try text(of: markOnly), "Dose 50 mg")
+        // The run's own font wins over a text box's surrounding run.
+        let nested = """
+            <w:p><w:r><w:rPr><w:rFonts w:ascii="Symbol"/></w:rPr><mc:AlternateContent><mc:Choice Requires="wps">\
+            <w:txbxContent><w:p><w:r><w:t>Box mg</w:t></w:r></w:p></w:txbxContent></mc:Choice></mc:AlternateContent>\
+            <w:t>m</w:t></w:r></w:p>
+            """
+        XCTAssertEqual(try text(of: nested), "Box mg\n\nµ")
+        // Letters use the run's ASCII font only: Symbol named for other characters does not turn "mg" into "µg".
+        let otherSlotOnly = """
+            <w:p><w:r><w:rPr><w:rFonts w:hAnsi="Symbol" w:cs="Symbol"/></w:rPr><w:t>50 mg</w:t></w:r></w:p>
+            """
+        XCTAssertEqual(try text(of: otherSlotOnly), "50 mg")
+        // A tracked formatting change keeps the old font in `w:rPrChange`; the run's current font is what counts.
+        let formatChange = """
+            <w:p><w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:rPrChange w:id="9"><w:rPr>\
+            <w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/></w:rPr></w:rPrChange></w:rPr><w:t>50 mg</w:t></w:r></w:p>
+            """
+        XCTAssertEqual(try text(of: formatChange), "50 mg")
+    }
+
     /// Tab stops in paragraph properties (`w:tabs/w:tab`) are layout, not tab characters.
     func testTabStopDefinitionsAreNotText() throws {
         let tabbed = """

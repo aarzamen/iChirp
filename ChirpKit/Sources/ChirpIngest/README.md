@@ -98,11 +98,15 @@
   breaks, list items bullets, cells tabs; scripts, styles and comments are dropped; `<title>` is the title; nothing is
   fetched) and `RichTextReader` (RTF through `NSAttributedString`, UIKit on iOS / AppKit on the Mac test host).
 - `Documents/DOCXReader.swift`: unzips `word/document.xml` and reads `w:p` / `w:t` (with `w:tab`, `w:br`,
-  `w:noBreakHyphen` as U+2011, and symbol-font characters `w:sym` / `w16se:symEx`), skipping tracked deletions, field
-  codes and tab-stop definitions; the title from `docProps/core.xml`. Content Word writes twice
-  (`mc:AlternateContent`, e.g. a text box's drawing and its VML copy) is read once: the first `mc:Choice`, and the
-  `mc:Fallback` only when that choice held no text. A text box's paragraphs come out before the paragraph that
-  anchors it. Apple's DOCX importer is macOS-only.
+  `w:noBreakHyphen` as U+2011, and symbol-font characters `w:sym` / `w16se:symEx`); the title from
+  `docProps/core.xml`. Skipped: everything inside tracked deletions and moved-away text (`w:del`, `w:moveFrom`: their
+  `w:delText` and also their symbols, hyphens, tabs and breaks; a deleted paragraph mark's empty marker suppresses
+  nothing), field codes and tab-stop definitions. A run whose own `w:rFonts` is a symbol font (Symbol, Wingdings, …)
+  has its text mapped through `SymbolFontMap` (`w:ascii` for ASCII, `w:hAnsi` for the rest, either for an F0xx code;
+  `w:rPrChange`'s old fonts ignored), so typing "m" in Symbol reads "µ"; an F0xx code whose font a style sets shows
+  as U+FFFD instead of vanishing. Content Word writes twice (`mc:AlternateContent`, e.g. a text box's drawing and its
+  VML copy) is read once: the first `mc:Choice`, and the `mc:Fallback` only when that choice held no text. A text
+  box's paragraphs come out before the paragraph that anchors it. Apple's DOCX importer is macOS-only.
 - `Documents/SymbolFontMap.swift`: symbol-font codes → Unicode. The Symbol font in full (so "≥", "≤", "±", "°", "µ"
   survive; slot 0x6D is the micro sign U+00B5), Wingdings only for Word's check boxes, check and cross marks and square
   bullet; any other symbol becomes U+FFFD (visible, counted in the log), never dropped.

@@ -31,6 +31,13 @@ enum SymbolFontMap {
         return Character(scalar)
     }
 
+    /// Whether `font` addresses glyphs by position (Symbol, Wingdings and the other symbol fonts), so text set in it
+    /// must go through `character(font:code:)`.
+    static func isSymbolFont(_ font: String) -> Bool {
+        let name = font.trimmingCharacters(in: .whitespaces).lowercased()
+        return name == "symbol" || name == "wingdings" || otherSymbolFonts.contains(name)
+    }
+
     /// Fonts whose codes are glyph positions, not Unicode, and that this map does not cover.
     static let otherSymbolFonts: Set<String> = [
         "wingdings 2", "wingdings 3", "webdings", "marlett", "zapf dingbats", "zapfdingbats", "mt extra",
