@@ -2,7 +2,8 @@
 // block's text, shared by `MarkdownDocument` (keeps the emphasis, for display), `PlainTextFlattener` (drops the
 // markup, keeps the words, for Copy) and `ChirpExport.ExportDocument.text` (the PDF and Word exports).
 // Plan 024 Task 4 (review R2-8): a delimiter written between two Latin letters or digits ("25~50", "2**10", "x*2")
-// is the person's character, never emphasis; `~` is never strikethrough; inline code is never escaped.
+// is the person's character, never emphasis; `~` is never strikethrough; delimiters the parser would pair around
+// letter-free content (a form's blanks) stay; inline code and links, bare ones included, are never escaped.
 
 import Foundation
 
