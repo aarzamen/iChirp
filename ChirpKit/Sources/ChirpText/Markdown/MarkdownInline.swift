@@ -109,41 +109,58 @@ public enum MarkdownInline {
     ///   as live text, so this app never strikes text through: `~~text~~` shows and copies with its tildes.
     /// - Every backtick that does not open or close inline code (a backtick between two digits, "5`10", is the
     ///   person's character, not a code span pairing across the words to the next one).
+    /// - Two runs of the same `*` or `_` with no letter or digit between them: they could only make emphasis out of
+    ///   punctuation, so they are a form's blanks or the person's symbols — "BP: ___/___ mmHg" copied as
+    ///   "BP: / mmHg" and "Date: __/__/____" as "Date: //____". Emphasis around words ("**Plan:**", "__init__")
+    ///   is unaffected.
     ///
     /// Inline code itself is copied untouched: CommonMark reads no escapes inside it, so an added backslash would
     /// show ("`2*3`" copied as "2\*3"). An escape the source already wrote ("25\~50") is kept as written.
     private static func protectLiterals(_ chars: [Character]) -> String {
         let code = codeSpans(in: chars)
-        var result = ""
-        result.reserveCapacity(chars.count + 8)
+        var escaped = Set<Int>()
+        var runs: [(character: Character, range: Range<Int>)] = []
         var index = 0
         while index < chars.count {
             if let span = code.first(where: { $0.lowerBound == index }) {
-                result.append(contentsOf: chars[span])
                 index = span.upperBound
                 continue
             }
             let character = chars[index]
             if character == "\\", index + 1 < chars.count, isASCIIPunctuation(chars[index + 1]) {
-                result.append(character)
-                result.append(chars[index + 1])
                 index += 2
                 continue
             }
             switch character {
             case "~", "`":
-                result.append("\\")
-                result.append(character)
+                escaped.insert(index)
                 index += 1
-            case "*":
-                let run = runLength(of: character, in: chars, at: index)
-                let escape = isBetweenWordCharacters(chars, start: index, length: run)
-                for _ in 0..<run { result.append(contentsOf: escape ? "\\*" : "*") }
-                index += run
+            case "*", "_":
+                let length = runLength(of: character, in: chars, at: index)
+                let range = index..<(index + length)
+                if character == "*", isBetweenWordCharacters(chars, start: index, length: length) {
+                    escaped.formUnion(range)
+                } else {
+                    runs.append((character, range))
+                }
+                index += length
             default:
-                result.append(character)
                 index += 1
             }
+        }
+        for delimiter in ["*", "_"] as [Character] {
+            let same = runs.filter { $0.character == delimiter }
+            for (first, second) in zip(same, same.dropFirst())
+            where !chars[first.range.upperBound..<second.range.lowerBound].contains(where: isLetterOrDigit) {
+                escaped.formUnion(first.range)
+                escaped.formUnion(second.range)
+            }
+        }
+        var result = ""
+        result.reserveCapacity(chars.count + escaped.count)
+        for (position, character) in chars.enumerated() {
+            if escaped.contains(position) { result.append("\\") }
+            result.append(character)
         }
         return result
     }
@@ -208,6 +225,10 @@ public enum MarkdownInline {
 
     private static func isLatinWordCharacter(_ character: Character) -> Bool {
         character.isASCII && (character.isLetter || character.isNumber)
+    }
+
+    private static func isLetterOrDigit(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
     }
 
     /// CommonMark's escapable characters: ASCII punctuation.

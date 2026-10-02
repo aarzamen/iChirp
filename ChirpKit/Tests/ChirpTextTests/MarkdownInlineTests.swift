@@ -88,6 +88,16 @@ final class MarkdownInlineTests: XCTestCase {
         XCTAssertEqual(MarkdownInline.plain("**2*3** tablets"), "2*3 tablets")
     }
 
+    /// Two runs of the same delimiter with no letter or digit between them can only make emphasis out of punctuation:
+    /// a form's blanks paired around "/" and "BP: ___/___ mmHg" copied as "BP: / mmHg".
+    func testFormBlanksAroundPunctuationStayLiteral() {
+        XCTAssertEqual(MarkdownInline.plain("BP: ___/___ mmHg"), "BP: ___/___ mmHg")
+        XCTAssertEqual(MarkdownInline.plain("Date: __/__/____"), "Date: __/__/____")
+        XCTAssertEqual(MarkdownInline.plain("a **/** b and x _/_ y"), "a **/** b and x _/_ y")
+        XCTAssertEqual(MarkdownInline.plain("__init__ and __/__"), "init and __/__", "real emphasis still renders")
+        XCTAssertEqual(MarkdownInline.plain("**Plan:** rest, *(optional)* fluids"), "Plan: rest, (optional) fluids")
+    }
+
     /// An escape added inside a code span showed its backslash: CommonMark does not read escapes in code, so "`2*3`"
     /// copied as "2\*3".
     func testInlineCodeIsNeverEscaped() {

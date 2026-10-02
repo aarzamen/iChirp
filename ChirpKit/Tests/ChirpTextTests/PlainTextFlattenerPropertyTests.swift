@@ -154,7 +154,7 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         "metoprolol 25~50 mg q8~12h", "Temp ≥ 38.0 for 2 days", "BP 120/80", "<5 mg daily", "q4-6h as needed",
         "WBC 5 x 10^9/L", "Dose 2*3 then 2*3 again", "Exponent 2**10 and 3**4", "Titrate x*2 then y*3",
         "#1 priority is the BP", "Signature: ________", "# of doses given: 3", "# L radius", "2) second item",
-        "+ fever", "_____",
+        "+ fever", "_____", "BP: ___/___ mmHg", "Date: __/__/____",
     ]
 
     private static func randomWord(using generator: inout SeededGenerator) -> String {

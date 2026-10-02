@@ -26,9 +26,10 @@ public struct ExportDocument: Sendable, Equatable {
         case paragraph(String)
         /// A transcript paragraph: who spoke (when the item has speakers) and when, then the words.
         case turn(speaker: String?, timestamp: String?, text: String)
-        case bullet(String)
-        /// A numbered list item, keeping the number the text had.
-        case numbered(Int, String)
+        /// A bulleted list item; `level` is its nesting depth (0 = top level), drawn one indent step further per level.
+        case bullet(String, level: Int = 0)
+        /// A numbered list item; `marker` is its number and delimiter exactly as the text had them ("2.", "2)", "07.").
+        case numbered(marker: String, text: String, level: Int = 0)
     }
 
     public var title: String
@@ -109,8 +110,12 @@ extension ExportDocument {
             title: transcription.displayTitle, metadata: metadata, blocks: blocks, footer: defaultFooter)
     }
 
-    /// A generated document (or any Markdown-like text): `#` and `##` lines become headings, `-`, `*` and `•` lines
-    /// bullets, `1.` lines numbered items; bold and code markers are dropped; everything else is kept as written.
+    /// A generated document's Markdown, read by the parser the screen and Copy use (review R1-6, plan 024 Task 4):
+    /// `ChirpText.MarkdownBlockParser` for the blocks and `MarkdownInline.plain` for each line's text, so a PDF or
+    /// Word file holds exactly the characters Copy writes — the same headings (`##`…`######` and the templates'
+    /// bold section names such as `**Subjective**`), list items with their nesting level and their own number
+    /// and delimiter ("2)"), and every word, number and symbol; only Markdown syntax is dropped. A single "#" line
+    /// ("# of doses given: 3") is text that keeps its "#"; fenced code prints exactly as written.
     public static func text(
         title: String,
         body: String,
@@ -118,35 +123,29 @@ extension ExportDocument {
         footer: String? = defaultFooter
     ) -> ExportDocument {
         var blocks: [Block] = []
-        var paragraph: [String] = []
-        func flush() {
-            let joined = paragraph.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !joined.isEmpty { blocks.append(.paragraph(joined)) }
-            paragraph = []
-        }
-        for rawLine in body.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty {
-                flush()
-                continue
-            }
-            if let heading = headingText(line) {
-                flush()
-                // A heading that repeats the title (templates often start with it) is not shown twice.
-                if !(blocks.isEmpty && heading.text.caseInsensitiveCompare(title) == .orderedSame) {
-                    blocks.append(.heading(clean(heading.text), level: heading.level))
+        for block in MarkdownBlockParser.parse(body) {
+            switch block {
+            case .heading(let level, let text):
+                let heading = MarkdownInline.plain(text)
+                // A first heading that repeats the title (models often start with one) is not shown twice.
+                if blocks.isEmpty, heading.caseInsensitiveCompare(title) == .orderedSame { continue }
+                blocks.append(.heading(heading, level: level <= 1 ? 1 : 2))
+            case .paragraph(let text):
+                blocks.append(.paragraph(MarkdownInline.plain(text)))
+            case .list(let items):
+                for item in items {
+                    let text = MarkdownInline.plain(item.text)
+                    if let marker = item.marker {
+                        blocks.append(.numbered(marker: marker, text: text, level: item.level))
+                    } else {
+                        blocks.append(.bullet(text, level: item.level))
+                    }
                 }
-            } else if let bullet = bulletText(line) {
-                flush()
-                blocks.append(.bullet(clean(bullet)))
-            } else if let numbered = numberedText(line) {
-                flush()
-                blocks.append(.numbered(numbered.number, clean(numbered.text)))
-            } else {
-                paragraph.append(clean(line))
+            case .code(let code):
+                // Shown and copied as plain text with its fences dropped and its content never parsed; the same here.
+                if !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { blocks.append(.paragraph(code)) }
             }
         }
-        flush()
         return ExportDocument(title: title, metadata: metadata, blocks: blocks, footer: footer)
     }
 
@@ -155,10 +154,10 @@ extension ExportDocument {
         var parts = [title] + metadata.map { "\($0.label): \($0.value)" }
         for block in blocks {
             switch block {
-            case .heading(let text, _), .paragraph(let text), .bullet(let text): parts.append(text)
+            case .heading(let text, _), .paragraph(let text), .bullet(let text, _): parts.append(text)
             case .turn(let speaker, let timestamp, let text):
                 parts.append([speaker, timestamp.map { "[\($0)]" }, text].compactMap { $0 }.joined(separator: " "))
-            case .numbered(let number, let text): parts.append("\(number). \(text)")
+            case .numbered(let marker, let text, _): parts.append("\(marker) \(text)")
             }
         }
         if let footer { parts.append(footer) }
@@ -172,37 +171,5 @@ extension ExportDocument {
             .components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-    }
-
-    private static func headingText(_ line: String) -> (text: String, level: Int)? {
-        guard line.hasPrefix("#") else { return nil }
-        let hashes = line.prefix { $0 == "#" }.count
-        let text = line.dropFirst(hashes).trimmingCharacters(in: .whitespaces)
-        guard hashes <= 6, !text.isEmpty else { return nil }
-        return (text, hashes <= 1 ? 1 : 2)
-    }
-
-    private static func bulletText(_ line: String) -> String? {
-        for marker in ["- ", "* ", "• "] where line.hasPrefix(marker) {
-            let text = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
-            return text.isEmpty ? nil : text
-        }
-        return nil
-    }
-
-    private static func numberedText(_ line: String) -> (number: Int, text: String)? {
-        let digits = line.prefix { $0.isNumber }
-        guard !digits.isEmpty, digits.count <= 3, let number = Int(digits) else { return nil }
-        let rest = line.dropFirst(digits.count)
-        guard rest.hasPrefix(". ") || rest.hasPrefix(") ") else { return nil }
-        let text = rest.dropFirst(2).trimmingCharacters(in: .whitespaces)
-        return text.isEmpty ? nil : (number, text)
-    }
-
-    /// Drops Markdown emphasis and code markers; the words stay.
-    private static func clean(_ text: String) -> String {
-        text.replacingOccurrences(of: "**", with: "")
-            .replacingOccurrences(of: "__", with: "")
-            .replacingOccurrences(of: "`", with: "")
     }
 }

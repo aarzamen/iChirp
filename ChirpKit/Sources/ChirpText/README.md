@@ -88,6 +88,8 @@ pipeline directly.
       the numbers ("2**10 and 3**4" used to copy as "210 and 34");
     - every `~` is escaped (ruling: this app never strikes text through; "metoprolol 25~50 mg q8~12h" used to
       copy as "2550 mg q812h", review R2-8);
+    - two runs of the same `*` or `_` with no letter or digit between them are escaped, so a form's blanks stay
+      ("BP: ___/___ mmHg" used to copy as "BP: / mmHg", review R1-6 (c));
     - inline code is never touched (an escape inside it would show its backslash) and an escape the source
       already wrote is kept.
     HTML entity references (`&lt;`, `&#8805;`) are decoded, as CommonMark requires, so the screen, Copy and the
