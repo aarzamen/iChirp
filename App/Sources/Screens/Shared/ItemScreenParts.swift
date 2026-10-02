@@ -186,7 +186,7 @@ struct ItemStatusPanel: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .chirpCard(radius: Tokens.Radius.m, padding: Tokens.Spacing.m)
-            .padding(Tokens.Spacing.l)
+            .padding(Tokens.Spacing.xl)
         }
     }
 

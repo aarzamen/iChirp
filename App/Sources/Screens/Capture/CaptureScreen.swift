@@ -74,8 +74,8 @@ struct CaptureScreen: View {
                 .padding(.bottom, Tokens.Spacing.xl)
             }
             .background(Tokens.Color.ground)
-            // R7-25: iOS's soft scroll edge under the status bar instead of a hard 96% scrim.
-            .scrollEdgeEffectStyle(.soft, for: .top)
+            // R7-25: a soft fade under the status bar instead of a hard 96% scrim.
+            .softStatusBarEdge()
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: LibraryRoute.self) { route in
                 route.destination(environment: environment)
@@ -186,7 +186,25 @@ struct CaptureScreen: View {
 
     // MARK: - Header
 
+    /// The wordmark and the "where things run" chip side by side; at accessibility sizes, where they no longer fit,
+    /// the chip goes under the wordmark rather than breaking either into pieces ("Parak / eet", "On de…").
     private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 9) {
+                wordmark
+                Spacer(minLength: 8)
+                ContentReachChip(reach: reach) { isShowingReach = true }
+                    .fixedSize()
+            }
+            VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+                wordmark
+                ContentReachChip(reach: reach) { isShowingReach = true }
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
+    private var wordmark: some View {
         HStack(spacing: 9) {
             // The mark fills its frame now (R7-9): the wordmark's height, growing with it.
             ParakeetMarkView()
@@ -194,11 +212,9 @@ struct CaptureScreen: View {
             Text("Parakeet")
                 .chirpTitleFont(22)
                 .foregroundStyle(Tokens.Color.ink)
+                .fixedSize()
                 .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            ContentReachChip(reach: reach) { isShowingReach = true }
         }
-        .frame(minHeight: 44)
     }
 
     // MARK: - Create (plan 022)
@@ -208,10 +224,15 @@ struct CaptureScreen: View {
         let create = environment.create
         // A chain exists until Done: running, waiting for an answer, or finished and not yet looked at.
         let running = create.flow != nil
+        // At accessibility sizes the circle sits above the words, so they keep the card's width.
+        let layout =
+            typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.Spacing.s))
+            : AnyLayout(HStackLayout(spacing: Tokens.Spacing.m))
         return Button {
             create.open()
         } label: {
-            HStack(spacing: Tokens.Spacing.m) {
+            layout {
                 ZStack {
                     Circle()
                         .fill(Tokens.Color.accent)
@@ -439,25 +460,25 @@ struct CaptureScreen: View {
                 meeting.start()
             }
         } label: {
-            HStack(spacing: Tokens.Spacing.s) {
-                RosetteMark(halo: state == .recording)
-                    .chirpScaledFrame(width: 34, height: 40, relativeTo: .headline, maxScale: 1.4)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(MeetingRowCopy.title(for: state))
-                        .chirpFont(16, .semibold)
-                        .foregroundStyle(Tokens.Color.ink)
-                    Text(
-                        MeetingRowCopy.subtitle(
-                            for: state, seconds: meeting.recordedSeconds, finalPassProgress: meeting.finalPassProgress)
-                    )
-                    .chirpFont(12.5)
-                    .monospacedDigit()
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    // The pill goes under the words, so "Record Meeting" keeps the row's width.
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+                        HStack(alignment: .top, spacing: Tokens.Spacing.s) {
+                            meetingRosette(state)
+                            meetingWords(meeting)
+                        }
+                        PillLabel(title: MeetingRowCopy.button(for: state))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    HStack(spacing: Tokens.Spacing.s) {
+                        meetingRosette(state)
+                        meetingWords(meeting)
+                        Spacer(minLength: Tokens.Spacing.xs)
+                        PillLabel(title: MeetingRowCopy.button(for: state))
+                    }
                 }
-                Spacer(minLength: Tokens.Spacing.xs)
-                PillLabel(title: MeetingRowCopy.button(for: state))
             }
             .padding(.horizontal, Tokens.Spacing.m)
             .padding(.vertical, Tokens.Spacing.xs)
@@ -468,6 +489,29 @@ struct CaptureScreen: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityHint(MeetingRowCopy.hint(for: state))
+    }
+
+    private func meetingRosette(_ state: MeetingFlowState) -> some View {
+        RosetteMark(halo: state == .recording)
+            .chirpScaledFrame(width: 34, height: 40, relativeTo: .headline, maxScale: 1.4)
+            .accessibilityHidden(true)
+    }
+
+    private func meetingWords(_ meeting: MeetingCoordinator) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(MeetingRowCopy.title(for: meeting.state))
+                .chirpFont(16, .semibold)
+                .foregroundStyle(Tokens.Color.ink)
+            Text(
+                MeetingRowCopy.subtitle(
+                    for: meeting.state, seconds: meeting.recordedSeconds,
+                    finalPassProgress: meeting.finalPassProgress)
+            )
+            .chirpFont(12.5)
+            .monospacedDigit()
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: - Recent

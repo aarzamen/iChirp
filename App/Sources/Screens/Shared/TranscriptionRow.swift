@@ -61,6 +61,7 @@ struct TranscriptionCover: View {
 /// or interrupted row shows its whole message, keeps its meta line, and puts Retry under them as its own button
 /// (R6a-9, R7-13): nothing is reserved at a fixed width, so a Retry that grows with Dynamic Type never covers text.
 struct LibraryItemRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let item: TranscriptionSummary
     let progress: JobProgress?
     let compact: Bool
@@ -135,7 +136,7 @@ struct LibraryItemRow: View {
                 Text(item.displayTitle)
                     .chirpFont(compact ? 14.5 : 15, .semibold)
                     .foregroundStyle(item.status == .processing ? Tokens.Color.secondary : Tokens.Color.ink)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                     .truncationMode(.tail)
                 if item.isFavorite {
                     Image(systemName: "star.fill")
@@ -158,7 +159,7 @@ struct LibraryItemRow: View {
                     .monospacedDigit()
                     .foregroundStyle(statusColor)
                     // A failure's whole sentence (it says what to do), not "…recognized. Re…" (R7-13).
-                    .lineLimit(item.status == .processing ? 2 : 4)
+                    .lineLimit(item.status == .processing ? 2 : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, compact ? 2 : 5)
             }
@@ -168,7 +169,7 @@ struct LibraryItemRow: View {
                     .chirpFont(compact ? 12 : 11.5)
                     .monospacedDigit()
                     .foregroundStyle(Tokens.Color.secondary)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                     .padding(.top, item.status == .completed ? (compact ? 2 : 5) : 2)
             }
             if item.isPartialAudio {

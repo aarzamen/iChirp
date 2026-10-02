@@ -70,6 +70,32 @@ struct PillLabel: View {
     }
 }
 
+extension View {
+    /// R7-25: content scrolling under the status bar fades out under a `ground` gradient instead of being cut at the
+    /// hard edge of a 96% scrim (screens without a navigation bar, where iOS draws no scroll-edge effect of its own).
+    func softStatusBarEdge() -> some View {
+        safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear
+                .frame(height: 0)
+                .background {
+                    // Solid under the status bar (its text stays legible), then a short fade below it.
+                    Tokens.Color.ground
+                        .ignoresSafeArea(edges: .top)
+                        .overlay(alignment: .bottom) {
+                            LinearGradient(
+                                colors: [Tokens.Color.ground, Tokens.Color.ground.opacity(0)], startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: Tokens.Spacing.m)
+                            .offset(y: Tokens.Spacing.m)
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+        }
+    }
+}
+
 /// Moves between tabs that share the Library's state.
 @MainActor enum LibraryNavigation {
     /// "See all" from Capture's Recent (R6a-14): every item, not the filter or search the Library was left on (the
