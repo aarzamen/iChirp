@@ -25,13 +25,21 @@ struct CorrectionUndoOffer: Identifiable, Equatable {
 /// shown behind a sheet. Rules (M5):
 /// - a revert inside the window of an open offer joins it, so Undo restores everything reverted since the offer
 ///   appeared (the simplest honest choice: nothing reverted is silently left without its Undo);
-/// - the offer stays until its Undo succeeds, so a failed Undo can be tried again, and its reason is said in plain
-///   words ("Those words were corrected again, so this can't be undone.");
-/// - the timer runs only while the bar is on screen (`CorrectionUndoBar`), from the latest revert.
+/// - a joined Undo is all or nothing: it is one strict plan (`TranscriptViewModel.undo`), so when any of its words
+///   were corrected again since, nothing is put back and the newer correction stays as it is (N2, N3);
+/// - a failed Undo says why in plain words ("Those words were corrected again, so this can't be undone."). A
+///   permanent failure (`isPermanent`: corrected again, the transcript is gone, a newer build's corrections) drops the
+///   offer, leaving only the error line; any other failure keeps the offer with a new id, so it can be tried again
+///   and its six seconds start again (N1);
+/// - one timer, from the latest revert or failure, clears the offer and the error line together; it runs only while
+///   the bar is on screen (`CorrectionUndoBar`).
 @MainActor @Observable final class CorrectionUndoController {
     private(set) var offer: CorrectionUndoOffer?
-    /// The last action's failure, shown where the person acted; cleared by the next action.
+    /// The last action's failure, shown where the person acted; cleared by the next action or the timer.
     private(set) var error: String?
+    /// The id of the bar's current six seconds: the offer's, else the error line's own. Nil when the bar is hidden.
+    var timerID: UUID? { offer?.id ?? errorID }
+    private var errorID: UUID?
 
     func revert(_ ids: Set<UUID>, model: TranscriptViewModel) async {
         await perform(message: "Reverted.") { try await model.revert(ids) }
@@ -43,44 +51,62 @@ struct CorrectionUndoOffer: Identifiable, Equatable {
 
     /// Deletes corrections kept from an earlier transcript (no Undo: the dialog said so).
     func deleteDetached(_ ids: Set<UUID>, model: TranscriptViewModel) async {
-        error = nil
+        clearError()
         do {
             try await model.deleteDetached(ids)
         } catch {
-            self.error = Self.message(for: error)
+            show(error)
         }
     }
 
     func undo(model: TranscriptViewModel) async {
         guard let offer else { return }
-        error = nil
+        clearError()
         do {
             try await model.undo(offer.plan)
             self.offer = nil
             AccessibilityNotification.Announcement("Undone.").post()
         } catch {
-            self.error = Self.message(for: error)
+            undoFailed(error)
             AccessibilityNotification.Announcement("Couldn’t undo. \(self.error ?? "")").post()
+        }
+    }
+
+    /// What a failed Undo leaves: the error line, plus the offer (with a new id, so its six seconds start again) only
+    /// when trying again could work.
+    func undoFailed(_ failure: any Error) {
+        show(failure)
+        guard let offer else { return }
+        self.offer = Self.isPermanent(failure) ? nil : CorrectionUndoOffer(message: offer.message, plan: offer.plan)
+    }
+
+    /// Undo failures that trying again cannot fix.
+    static func isPermanent(_ failure: any Error) -> Bool {
+        switch failure as? TranscriptCorrectionError {
+        case .correctedAgain, .notFound, .newerVersion: true
+        default: false
         }
     }
 
     /// An offer handed over from a sheet that closed (its passage has no corrections left).
     func adopt(_ handed: CorrectionUndoOffer) {
+        clearError()
         offer =
             offer.map {
                 CorrectionUndoOffer(message: handed.message, plan: CorrectionUndoOffer.merged($0.plan, handed.plan))
             } ?? handed
     }
 
-    /// The bar's timer ran out while it was on screen.
+    /// The bar's six seconds (`timerID`) ran out while it was on screen: the offer and the error line both go. An
+    /// older timer does nothing.
     func expire(_ id: UUID) {
-        // A failed Undo keeps its offer until the person tries again or does something else.
-        guard error == nil else { return }
-        if offer?.id == id { offer = nil }
+        guard timerID == id else { return }
+        offer = nil
+        clearError()
     }
 
     private func perform(message: String, _ action: () async throws -> CorrectionOutcome) async {
-        error = nil
+        clearError()
         do {
             let outcome = try await action()
             guard !outcome.undo.isEmpty else { return }
@@ -88,8 +114,18 @@ struct CorrectionUndoOffer: Identifiable, Equatable {
             offer = CorrectionUndoOffer(message: message, plan: plan)  // a new id restarts the timer
             AccessibilityNotification.Announcement("\(message) Undo is available.").post()
         } catch {
-            self.error = Self.message(for: error)
+            show(error)
         }
+    }
+
+    private func show(_ failure: any Error) {
+        error = Self.message(for: failure)
+        errorID = UUID()
+    }
+
+    private func clearError() {
+        error = nil
+        errorID = nil
     }
 
     private static func message(for error: any Error) -> String {
@@ -124,12 +160,14 @@ struct CorrectionUndoBar: View {
                                 .buttonStyle(.chirp(.tinted, size: .compact))
                                 .accessibilityHint("Puts the reverted corrections back")
                         }
-                        .task(id: offer.id) {
-                            try? await Task.sleep(for: .seconds(CorrectionUndoOffer.seconds))
-                            guard !Task.isCancelled else { return }
-                            controller.expire(offer.id)
-                        }
                     }
+                }
+                // One timer for the offer and the error line, restarted by every new offer or failure.
+                .task(id: controller.timerID) {
+                    guard let id = controller.timerID else { return }
+                    try? await Task.sleep(for: .seconds(CorrectionUndoOffer.seconds))
+                    guard !Task.isCancelled else { return }
+                    controller.expire(id)
                 }
             }
         }

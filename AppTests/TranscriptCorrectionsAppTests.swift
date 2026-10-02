@@ -153,18 +153,67 @@ final class TranscriptCorrectionsAppTests: XCTestCase {
         XCTAssertNil(undo.error)
     }
 
-    /// M5: an Undo that cannot run says why in plain words and keeps the offer, so it can be tried again.
-    func testAnUndoThatCannotRunSaysWhyAndKeepsTheOffer() async throws {
+    /// N2 and N1 (app fix round 2): an Undo over words corrected again since says why in plain words, leaves the newer
+    /// correction as it is, and drops its dead offer; the error line goes on the same six-second timer.
+    func testAnUndoOverWordsCorrectedAgainDropsTheOfferAndKeepsTheNewerCorrection() async throws {
         let (model, _) = try await screenModel()
         let first = try XCTUnwrap(model.corrections.first)
         let undo = CorrectionUndoController()
         await undo.revert([first.id], model: model)
-        // The same words are corrected again, differently and wider, before Undo.
+        // The same words are corrected again, differently, before Undo.
         try await model.correct(
-            line: 0, text: "The patient takes metformin XR twice daily. Blood pressure was 138 over 82 today.")
+            line: 0, text: "The patient takes metoprolol 500 mg twice daily. Blood pressure was 138 over 82 today.")
+        let newer = model.corrections
         await undo.undo(model: model)
         XCTAssertEqual(undo.error, "Those words were corrected again, so this can’t be undone.")
-        XCTAssertNotNil(undo.offer, "the offer stays for another try")
+        XCTAssertNil(undo.offer, "a permanent failure leaves no dead Undo button")
+        XCTAssertEqual(model.corrections, newer, "the newer correction is intact")
+        let timer = try XCTUnwrap(undo.timerID, "the error line has a timer")
+        undo.expire(timer)
+        XCTAssertNil(undo.error, "the timer clears the error line")
+        XCTAssertNil(undo.timerID)
+    }
+
+    /// N1: a failure Undo may get past later (the transcript changed) keeps the offer with a new id, so its six seconds
+    /// start again; an old timer does nothing; the new one clears the offer and the error together.
+    func testARetryableUndoFailureRestartsTheTimerAndExpiryClearsBoth() async throws {
+        let (model, _) = try await screenModel()
+        let undo = CorrectionUndoController()
+        await undo.revert([try XCTUnwrap(model.corrections.first).id], model: model)
+        let firstID = try XCTUnwrap(undo.offer?.id)
+        undo.undoFailed(TranscriptCorrectionError.transcriptChanged)
+        XCTAssertEqual(undo.error, TranscriptCorrectionError.transcriptChanged.errorDescription)
+        let retryID = try XCTUnwrap(undo.offer?.id, "the offer stays for another try")
+        XCTAssertNotEqual(retryID, firstID)
+        XCTAssertEqual(undo.timerID, retryID)
+        undo.expire(firstID)
+        XCTAssertNotNil(undo.offer, "an old timer does nothing")
+        undo.expire(retryID)
+        XCTAssertNil(undo.offer)
+        XCTAssertNil(undo.error)
+    }
+
+    /// N1: which Undo failures are permanent.
+    func testPermanentUndoFailures() {
+        for error in [TranscriptCorrectionError.correctedAgain, .notFound, .newerVersion] {
+            XCTAssertTrue(CorrectionUndoController.isPermanent(error), "\(error)")
+        }
+        for error in [TranscriptCorrectionError.transcriptChanged, .notCompleted] {
+            XCTAssertFalse(CorrectionUndoController.isPermanent(error), "\(error)")
+        }
+        XCTAssertFalse(CorrectionUndoController.isPermanent(CancellationError()))
+    }
+
+    /// N1: an offer handed over from a sheet clears the screen's old error line.
+    func testAdoptingAnOfferClearsTheError() async throws {
+        let (model, _) = try await screenModel()
+        let undo = CorrectionUndoController()
+        await undo.revert([try XCTUnwrap(model.corrections.first).id], model: model)
+        undo.undoFailed(TranscriptCorrectionError.correctedAgain)
+        XCTAssertNotNil(undo.error)
+        undo.adopt(CorrectionUndoOffer(message: "Reverted.", plan: TranscriptCorrectionPlan()))
+        XCTAssertNil(undo.error)
+        XCTAssertNotNil(undo.offer)
     }
 
     /// M7: the "Made before your corrections" badge needs corrections that are still there.
@@ -192,8 +241,7 @@ final class TranscriptCorrectionsAppTests: XCTestCase {
 }
 
 /// Settings for the screen model in these tests (Raw clean-up, the defaults).
-final class InMemoryTestSettings: SettingsStoring, @unchecked Sendable {
-    // @unchecked Sendable: read-only after init.
+final class InMemoryTestSettings: SettingsStoring, Sendable {
     private let value = TranscriptionSettings()
     func load() -> TranscriptionSettings { value }
     func save(_ settings: TranscriptionSettings) {}
