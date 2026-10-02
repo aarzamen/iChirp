@@ -18,8 +18,9 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
 - `HTTPLanguageModel.swift`: the engine, its descriptor (`http.anthropic`, `http.openai-compatible`,
   `http.ollama`; locality derived from the base URL's host), `availability()` (validation and a missing key make it
   `notConfigured`, and `generate` then sends nothing), `testConnection()` (one "Hi" token, no user content),
-  `listModels()`, and the default context windows (Anthropic 200K, OpenAI cloud 128K, LAN OpenAI-compatible 4K,
-  Ollama 8K).
+  `listModels()` (the same address and key checks, review R3-12, so a key never goes to a cloud host over plain
+  http; only the model name may still be empty), and the default context windows (Anthropic 200K, OpenAI cloud
+  128K, LAN OpenAI-compatible 4K, Ollama 8K).
 - `LLMHTTPTransport.swift`: one ephemeral, cache-free, cookie-free `URLSession`; a task delegate that refuses every
   redirect (the 3xx becomes `LanguageModelError.redirectRefused`); error mapping that keeps cancellation as
   `CancellationError`.

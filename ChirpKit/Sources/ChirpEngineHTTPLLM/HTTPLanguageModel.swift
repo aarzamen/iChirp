@@ -94,17 +94,22 @@ public struct HTTPLanguageModel: LanguageModel {
         try await adapter.testConnection(settings: settings, transport: transport)
     }
 
-    /// The provider's model ids, for the Settings model picker.
+    /// The provider's model ids, for the Settings model picker. Checks the address and key exactly as `generate` does
+    /// (review R3-12: a cloud host must use https, so the key never travels in clear text) and sends nothing when
+    /// they fail; only the model name may still be empty, since listing is how it gets chosen.
     public func listModels() async throws -> [String] {
-        guard let settings else {
-            throw LanguageModelError.unavailable(.notConfigured("the server address is missing"))
+        guard let settings, unavailableReason(requiringModelName: false) == nil else {
+            throw LanguageModelError.unavailable(
+                unavailableReason(requiringModelName: false) ?? .notConfigured("the server address is missing"))
         }
         return try await adapter.listModels(settings: settings, transport: transport)
     }
 
-    private func unavailableReason() -> LanguageModelUnavailableReason? {
+    private func unavailableReason(requiringModelName: Bool = true) -> LanguageModelUnavailableReason? {
         do {
             try configuration.validate()
+        } catch LanguageModelProviderConfiguration.ValidationError.missingModelName where !requiringModelName {
+            // `validate()` checks the model name last: every address check before it passed.
         } catch {
             return .notConfigured(error.localizedDescription)
         }

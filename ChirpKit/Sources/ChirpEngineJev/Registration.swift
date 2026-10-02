@@ -16,6 +16,9 @@ public enum JevDecisionModels {
 
     static let missingKeyDetail = "add a Jev API key in Settings → Models"
 
+    /// Why `decide` refuses a clinical request (review R3-11): Jev runs only in TypeSafe's cloud (ADR-013).
+    static let clinicalRefusalDetail = "Jev runs on TypeSafe's servers and never receives clinical items."
+
     /// Builds the engine. The key may be missing; `availability()` then says so and `decide` sends nothing.
     public static func make(
         apiKey: SecretValue?,

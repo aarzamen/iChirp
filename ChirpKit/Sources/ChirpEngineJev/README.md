@@ -36,8 +36,10 @@ protocol and its validation are ports of MacParakeet's `Services/VoiceControl/Je
 
 ## What to know before editing
 
-- **Engines do not route.** `ChirpFeatures.DecisionService` refuses clinical items before this engine is called;
-  nothing here checks the privacy class, and `privacyClass` is never sent.
+- **Engines do not route, but Jev never takes a clinical item.** `ChirpFeatures.DecisionService` routes and refuses
+  clinical items before this engine is called. As defence in depth (review R3-11, ADR-013), `decide` also refuses a
+  request whose `privacyClass` is clinical with `LanguageModelError.unavailable` before anything is encoded or sent.
+  `privacyClass` itself is never sent.
 - **Never follow redirects, never cache, never log content.** The key is a `SecretValue`, revealed only when the
   `Authorization` header is written; error text is scrubbed of key artifacts and of the key itself, shown to the user,
   and never logged or stored (log `LanguageModelError.kindName`).

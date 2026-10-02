@@ -334,6 +334,46 @@ final class HTTPLanguageModelTests: XCTestCase {
         XCTAssertEqual((json["messages"] as? [[String: String]])?.first?["content"], "Hi")
     }
 
+    // MARK: - Review R3-12: listing models checks the address and key like generate
+
+    func testListingModelsOverPlainHTTPToACloudHostIsRefusedAndSendsNothing() async {
+        StubURLProtocol.reset { _ in .body(#"{"data":[{"id":"gpt-4o"}]}"#, contentType: "application/json") }
+        let engine = model(.openAICompatible, "http://api.openai.com/v1", modelName: "", key: key)
+        do {
+            let models = try await engine.listModels()
+            XCTFail("the key would travel in clear text; listed \(models)")
+        } catch {
+            guard case .unavailable(.notConfigured)? = error as? LanguageModelError else {
+                return XCTFail("expected notConfigured, got \(error)")
+            }
+        }
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty, "nothing, and no key, may leave the phone")
+    }
+
+    func testListingModelsWithoutTheCloudKeyIsRefusedAndSendsNothing() async {
+        StubURLProtocol.reset { _ in .body(#"{"data":[{"id":"claude-test"}]}"#, contentType: "application/json") }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", modelName: "", key: nil)
+        do {
+            _ = try await engine.listModels()
+            XCTFail("expected notConfigured")
+        } catch {
+            guard case .unavailable(.notConfigured)? = error as? LanguageModelError else {
+                return XCTFail("expected notConfigured, got \(error)")
+            }
+        }
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty)
+    }
+
+    func testListingModelsNeedsNoModelNameYet() async throws {
+        StubURLProtocol.reset { _ in
+            .body(#"{"models":[{"name":"llama3.1:8b"},{"name":"nomic-embed-text"}]}"#, contentType: "application/json")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "")
+        let models = try await engine.listModels()
+        XCTAssertEqual(models, ["llama3.1:8b"], "listing is how the model name gets chosen")
+        XCTAssertEqual(StubURLProtocol.requests.map { $0.url.absoluteString }, ["http://mac-studio.local:11434/api/tags"])
+    }
+
     // MARK: - Review R3-1: an answer cut off at the output limit says so
 
     func testAnthropicMaxTokensStopIsLengthCapped() async throws {

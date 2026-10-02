@@ -224,6 +224,21 @@ final class JevDecisionModelTests: XCTestCase {
         XCTAssertEqual(JevStubURLProtocol.requests.count, 0)
     }
 
+    /// Review R3-11: defence in depth. `DecisionService` refuses clinical items before Jev is called (ADR-013); the
+    /// engine refuses them too, so a second caller or a refactor can never send one to TypeSafe's cloud.
+    func testAClinicalRequestIsRefusedAndNothingIsSent() async {
+        JevStubURLProtocol.reset { _ in Self.answerBody() }
+        let clinical = DecisionRequest(
+            state: DecisionState(text: "Synthetic: amoxicillin 500 mg twice a day."), questions: [kindQuestion],
+            privacyClass: .clinical)
+        let error = await expectError(engine(key: key), clinical)
+        guard case .unavailable(.other(let detail))? = error as? LanguageModelError else {
+            return XCTFail("expected unavailable, got \(String(describing: error))")
+        }
+        XCTAssertTrue(detail.contains("clinical"), detail)
+        XCTAssertTrue(JevStubURLProtocol.requests.isEmpty, "a clinical item never leaves the phone for Jev")
+    }
+
     func testMissingKeyIsNotConfiguredAndSendsNothing() async {
         JevStubURLProtocol.reset { _ in Self.answerBody() }
         for missing in [nil, SecretValue("")] {
