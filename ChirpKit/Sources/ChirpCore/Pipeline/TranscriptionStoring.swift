@@ -96,6 +96,8 @@ extension TranscriptionStoring {
     public func searchTranscriptions(matching query: String) async throws -> Set<UUID> {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return [] }
+        // A fake without the accessor (ChirpText) finds the text as stored; `GRDBTranscriptionStore` also finds a
+        // transcript's corrected words (plan 025).
         return Set(try await fetchAll().filter { $0.matchesSearch(needle) }.map(\.id))
     }
 }

@@ -91,7 +91,9 @@ ChirpStore depends on ChirpText.
   count. The observation tracks an explicit region (`TranscriptionListingQueries.observedRegions`): the row columns,
   the text and `speakers` (a rename changes what the Library's search finds), never `userNotes`, `updatedAt` or the
   timing columns, so a notes keystroke does not re-read the list. `searchTranscriptions(matching:)` applies the
-  shared `TranscriptionSearch` rule to the title, text, file name and speaker columns only.
+  shared `TranscriptionSearch` rule to the title, text, file name and speaker columns, and (plan 025) to the corrected
+  text of a row with corrections (`Transcription.plainText(.heard)`; its word timings are read only then), so the
+  Library finds both the words as heard and the corrected ones; the observed region includes `textCorrections`.
 - `LanguageModelSchema.swift` — the M4 tables created by migration
   `v3-language-models`: `prompts`, `prompt_versions` (immutable: SQLite triggers
   abort every UPDATE and DELETE), `deliverables` (cascade-deleted with their

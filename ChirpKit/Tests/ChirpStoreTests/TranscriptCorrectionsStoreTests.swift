@@ -242,6 +242,28 @@ final class TranscriptCorrectionsStoreTests: XCTestCase {
         XCTAssertEqual(stored, "not json")
     }
 
+    /// Plan 025 A7: Library search finds the corrected words (across word boundaries) and still finds the words as
+    /// heard; a correction re-runs a search the list observes.
+    func testSearchFindsCorrectedWords() async throws {
+        let (store, database) = try makeStore()
+        let original = row()
+        var other = row(words: words(["an", "unrelated", "visit."]))
+        other.derivedTitle = "An unrelated visit"
+        other.derivedSnippet = nil
+        try await store.insert(original)
+        try await store.insert(other)
+        let before = try await store.searchTranscriptions(matching: "takes metformin")
+        XCTAssertEqual(before, [])
+        let region = try await database.writer.read { db in try TranscriptionListingQueries.observedRegion(db) }
+        XCTAssertTrue(region.description.contains("textCorrections"), "\(region)")
+
+        _ = try await correct(store, original.id, [correction(3..<6, "metformin")])
+        let corrected = try await store.searchTranscriptions(matching: "takes METFORMIN daily")
+        XCTAssertEqual(corrected, [original.id])
+        let heard = try await store.searchTranscriptions(matching: "met for men")
+        XCTAssertEqual(heard, [original.id], "the words as heard stay findable")
+    }
+
     func testConcurrentCorrectionWritesBothLand() async throws {
         let (store, _) = try makeStore()
         let original = row()

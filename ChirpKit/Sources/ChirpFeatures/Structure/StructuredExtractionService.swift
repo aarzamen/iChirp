@@ -56,6 +56,9 @@ public struct StructuredDraft: Sendable, Equatable {
     public var sentenceCount: Int
     /// Wall-clock seconds of the run (nil for a run read back from the ledger).
     public var seconds: Double?
+    /// Plan 025 D7: the person corrected the transcript after this run, so its spans index text that is gone. The
+    /// screens hide its evidence and refuse the SOAP hand-off until the fields are extracted again.
+    public var sourceChanged = false
 
     public var isStub: Bool { run.engineID == StubStructureModel.engineID }
     public var engineName: String { StructureEngines.displayName(for: run.engineID) }
@@ -216,9 +219,12 @@ public actor StructuredExtractionService {
             let transcription = try await transcripts.fetch(id: transcriptionID)
         else { return nil }
         let source = StructuredSourceText(transcription: transcription)
-        return StructuredDraft(
+        var draft = StructuredDraft(
             run: run, fields: try await results.fields(forRun: run.id), sourceText: source.text, fallbackReason: nil,
             sentenceCount: source.sentenceRanges().count, seconds: nil)
+        // A run older than the latest correction change is stale (contract structured-results-v1, Spans).
+        draft.sourceChanged = (transcription.textCorrections?.changedAt ?? .distantPast) > run.createdAt
+        return draft
     }
 
     /// Records a review; `argumentsJSON` carries the person's edits (nil keeps the arguments).

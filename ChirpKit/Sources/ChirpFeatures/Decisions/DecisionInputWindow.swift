@@ -47,9 +47,11 @@ public enum DecisionInputWindow {
 
     /// The text Jev reads: the text the person sees in `mode` (`Transcription.text(.shown(_:))`, plan 024 Task 8),
     /// the same text Copy writes and the models get. Its lines are the Transcript screen's paragraphs: a line's `id`
-    /// is the paragraph index the screen shows a tag on.
-    public static func text(of transcription: Transcription, mode: CleanupMode) -> TranscriptText {
-        transcription.text(.shown(mode))
+    /// is the paragraph index the screen shows a tag on. The person's corrections are in it (plan 025).
+    public static func text(
+        of transcription: Transcription, mode: CleanupMode, context: TranscriptTextContext = .none
+    ) -> TranscriptText {
+        transcription.text(.shown(mode), context: context)
     }
 
     /// Content-free facts: duration, speaker count, paragraph count and the kind of source. Never names or titles.

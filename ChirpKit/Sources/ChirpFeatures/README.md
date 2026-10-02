@@ -147,7 +147,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
   favorite, and `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs are the lines of `Transcription.text(.heard)` (the words as heard,
-  ADR-009; without words one paragraph of the text). Also speaker labels, `mediaURL` for the player, `plainText` for
+  ADR-009, with the person's corrections; without words one paragraph of the text). Plan 025: `heard`, `lines`,
+  `hasWordTimings`, `canCorrect`, `corrections`, `corrections(inLine:)`, `detachedCorrections`, `heardText(line:)`,
+  `baseline`, `correctionsChangedAt`, and `correct(line:text:)`, `revert`, `revertLine`, `undo`, `revertAll`,
+  `deleteDetached` through the injected `TranscriptCorrectionService` (nil: read-only); the injected text context
+  (`TranscriptTextContext.current`) reaches Copy and the exports. Also speaker labels, `mediaURL` for the player, `plainText` for
   Copy (`Transcription.plainText(.shown(mode))`, the text the exports and the models use; plan 024 Task 8),
   `exportFile` (async, review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`,
   `<tmp>/export-<id>/`), rename and favorite. `exportFile` and `exportDocument` (PDF, Word) mark the file clinical by
@@ -532,9 +536,11 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   without a drug is named in the previous medication fields ("… restates a dose without a drug (25 mcg) …") and never
   applied. It runs inside the gate's `review(_:engineID:)`, so the extraction service and the eval runner apply it the
   same way.
-- `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
-  text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
-  milliseconds).
+- `Structure/StructuredSourceText.swift`: the run's source text (the word stream of `Transcription.text(.heard)`,
+  with the person's corrections, joined by single spaces; else the text), sentence ranges (`NLTokenizer`), and
+  character range → `StructuredSourceSpan` (transcript word indices and milliseconds; a corrected passage covers every
+  word it replaced, plan 025). `StructuredDraft.sourceChanged` marks a run made before the latest correction change;
+  `ExtractFieldsViewModel.isStale` then hides its evidence and `soapNotes` is nil (`soapHandOffBlockedReason`).
 
 - `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
   availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
@@ -818,8 +824,9 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   (`feature = decision`, `engineId = http.jev`, excerpt length, the provider's token counts, `callCount` 1 once
   `decide` was called except for its pre-send size check, else 0) whatever the outcome.
 - `DecisionInputWindow.swift`: `excerpt` (the first 3,000 characters cut back to a sentence end, or to a space when
-  the only sentence end is in the first third), `text(of:mode:)` (the text the person sees, `.shown(mode)`, whose lines
-  are the Transcript screen's paragraphs; `DecisionService` takes the app's clean-up mode), `paragraphExcerpt` (`p01: …`
+  the only sentence end is in the first third), `text(of:mode:context:)` (the text the person sees, `.shown(mode)`,
+  with their corrections, whose lines are the Transcript screen's paragraphs; `DecisionService` takes the app's
+  clean-up mode and text context), `paragraphExcerpt` (`p01: …`
   lines for at most 12 paragraphs, fewer when they are long, each numbered by its line `id` so a tag lands on the
   screen's paragraph) and content-free `facts`
   (`duration_seconds`, `speaker_count`, `paragraph_count`, `source` = audio/document/link). Nothing else is sent.

@@ -35,7 +35,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   by `TranscriptionSummary`, the Library's and Capture's row: those fields plus a PDF's page and OCR counts and a
   document's or text item's word count, never the transcript's text, word timings, segments or pages (a distinct
   type, so a row can never stand in for a full transcript). `TranscriptionSearch.matches` is the Library's search
-  rule (title shown, text shown, file name, then speaker labels), with `Transcription.matchesSearch(_:)`.
+  rule (title shown, text shown, the corrected text when the caller gives it (plan 025: the GRDB store does, through
+  ChirpText's accessor; the protocol's fallback for fakes does not), file name, then speaker labels), with
+  `Transcription.matchesSearch(_:)`.
 - `Models/Document.swift`: M5 `DocumentFormat` (pdf, txt, md, rtf, html, docx; from a file extension) and
   `DocumentPage` (page number, text, `textLayer` / `ocr` / `empty`), plus `Transcription.ocrPageCount`
   (`isDocument` comes from `TranscriptionRowFields`).

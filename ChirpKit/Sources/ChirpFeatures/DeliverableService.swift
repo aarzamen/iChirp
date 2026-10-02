@@ -195,6 +195,7 @@ public actor DeliverableService {
     private let deliverables: any DeliverableStoring
     private let routingPolicy: @Sendable () -> PrivacyRoutingPolicy
     private let cleanupMode: @Sendable () -> CleanupMode
+    private let textContext: @Sendable () async -> TranscriptTextContext
     private let now: @Sendable () -> Date
     private let logger = Log.logger("deliverables")
     private let privacyLogger = Log.logger("privacy")
@@ -206,17 +207,21 @@ public actor DeliverableService {
     ///   - routingPolicy: read at every check, so un-trusting a host stops the next call of a running job.
     ///   - cleanupMode: the person's clean-up mode, read at every run: the model reads the text they see in it
     ///     (`Transcription.text(.shown(_:))`, plan 024 Task 8), the text Copy writes.
+    ///   - textContext: the person's clean-up rules (`TranscriptTextContext.current(textRules:settings:)`), read at
+    ///     every run: a corrected transcript's Clean text is computed with them (plan 025 R4).
     public init(
         transcripts: any TranscriptionStoring,
         deliverables: any DeliverableStoring,
         routingPolicy: @escaping @Sendable () -> PrivacyRoutingPolicy,
         cleanupMode: @escaping @Sendable () -> CleanupMode = { .raw },
+        textContext: @escaping @Sendable () async -> TranscriptTextContext = { .none },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.transcripts = transcripts
         self.deliverables = deliverables
         self.routingPolicy = routingPolicy
         self.cleanupMode = cleanupMode
+        self.textContext = textContext
         self.now = now
     }
 
@@ -432,8 +437,9 @@ public actor DeliverableService {
         guard let transcription = try await transcripts.fetch(id: transcriptionID) else {
             throw DeliverableError.transcriptNotFound
         }
-        // The text the person sees (Clean or Raw, speaker names only when the item has speakers; review R2-1 / R4-1).
-        let shown = transcription.text(.shown(cleanupMode()))
+        // The text the person sees (Clean or Raw, speaker names only when the item has speakers; review R2-1 / R4-1),
+        // with their corrections and a dictation's voice commands (plan 025, review R5-2).
+        let shown = transcription.text(.shown(cleanupMode()), context: await textContext())
         var template: PromptTemplate?
         var version: PromptVersion?
         let task: GenerationTask
