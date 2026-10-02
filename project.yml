@@ -16,6 +16,10 @@ targets:
     sources:
       - path: App/Sources
       - path: App/Resources
+      # R8-22: the privacy manifest (required-reason APIs), at the root of the app bundle where App Store processing
+      # looks for it. scripts/check_scripts.sh compares it with the sources.
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
       # M2: the Live Activity attributes and App Intents shared with the widget extension.
       - path: App/Shared
     dependencies:
@@ -93,13 +97,18 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - $(PRODUCT_BUNDLE_IDENTIFIER).transcribe.*
           - $(PRODUCT_BUNDLE_IDENTIFIER).download.*
-        # M2: dictation records the microphone on this iPhone only (never uploaded).
+        # M2: dictation records the microphone on this iPhone only (Parakeet never uploads a recording).
         # M2 Step 8: a dictation keeps recording when the person locks the phone or switches apps. It must start in
         # the foreground (iOS rule); the Action Button and Controls bring Parakeet forward to start it.
         UIBackgroundModes: [audio]
         # M2: the dictation Live Activity (Lock Screen and Dynamic Island), started by the app while recording.
         NSSupportsLiveActivities: true
-        NSMicrophoneUsageDescription: Parakeet records your voice to transcribe it on this iPhone. Audio never leaves your phone.
+        # R8-7: honest about backups. Recordings sit in the app's data folder, which iOS backs up like any app data
+        # (spec/12-privacy.md, On-device storage), so the prompt must not promise they never leave the phone. Meetings
+        # also record other people, so it says "audio", not "your voice".
+        NSMicrophoneUsageDescription: >-
+          Parakeet records audio to transcribe it on this iPhone. Parakeet never uploads recordings; like other app
+          data, they are part of your iPhone backup (iCloud Backup, if you use it).
         NSSpeechRecognitionUsageDescription: >-
           Apple Speech, one of Parakeet's speech engines, transcribes your recordings on this iPhone when you choose it
           in Settings → Speech engines.
@@ -160,9 +169,11 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         SKIP_INSTALL: YES
     postBuildScripts:
-      # Same stamp as the app, so the extension's CFBundleVersion matches its parent's (App Store rule).
+      # Same stamp as the app, so the extension's CFBundleVersion matches its parent's (App Store rule). The extension
+      # is built first: it takes the build time (--new-build) and keeps it in OBJROOT, and the app's own phase reads
+      # that time back instead of taking its own minute (R8-24).
       - name: Stamp Build Identity
-        script: "\"${SRCROOT}/scripts/stamp_build_identity.sh\""
+        script: "\"${SRCROOT}/scripts/stamp_build_identity.sh\" --new-build"
         basedOnDependencyAnalysis: false
         inputFiles:
           - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"

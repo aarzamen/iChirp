@@ -233,6 +233,138 @@ else
   fail "scan_secrets.sh allows a MediaPlatformTests.swift outside MacParakeet's paths (exit $status)"
 fi
 
+# 6. stamp_build_identity.sh (R8-24): the app and its widget extension get the same build date and CFBundleVersion even
+#    when the build crosses a minute boundary between their two script phases. The clock is a stub `date`; the targets'
+#    Info.plists are sandbox files edited with the real PlistBuddy.
+mkdir -p "$SANDBOX/st/bin" "$SANDBOX/st/src" "$SANDBOX/st/obj" "$SANDBOX/st/widget" "$SANDBOX/st/app"
+cp scripts/stamp_build_identity.sh "$SANDBOX/st/stamp.sh"
+chmod +x "$SANDBOX/st/stamp.sh"
+cat >"$SANDBOX/st/bin/date" <<'STUB'
+#!/usr/bin/env bash
+# The clock is the first line of $CLOCK_FILE (an ISO UTC time); the two formats the stamp script asks for.
+now=$(head -1 "$CLOCK_FILE")
+case "$*" in
+  "-u +%Y-%m-%dT%H:%M:%SZ") echo "$now" ;;
+  "-u +%Y%m%d%H%M") echo "$now" | tr -d ':TZ-' | cut -c1-12 ;;
+  *) echo "unexpected date call: $*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$SANDBOX/st/bin/date"
+for target in widget app; do
+  cat >"$SANDBOX/st/$target/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>ChirpGitCommit</key><string>unknown</string><key>ChirpGitBranch</key><string>unknown</string>
+<key>ChirpGitDirty</key><string>0</string><key>ChirpBuildDateUTC</key><string>unknown</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>
+PLIST
+done
+stamp() { # stamp <widget|app> <ISO time> [args]: runs the stamp script for that target at that time
+  local target="$1" time="$2"
+  shift 2
+  echo "$time" >"$SANDBOX/st/clock"
+  env -u GIT_DIR -u GIT_WORK_TREE PATH="$SANDBOX/st/bin:$PATH" CLOCK_FILE="$SANDBOX/st/clock" \
+    TARGET_BUILD_DIR="$SANDBOX/st/$target" INFOPLIST_PATH=Info.plist SRCROOT="$SANDBOX/st/src" OBJROOT="$SANDBOX/st/obj" \
+    "$SANDBOX/st/stamp.sh" ${@+"$@"} >/dev/null
+}
+plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$SANDBOX/st/$1/Info.plist"; }
+
+# The extension is stamped at 17:30:59, the app (after its long Swift compile) at 17:31:05, a minute later.
+stamp widget 2026-10-01T17:30:59Z --new-build
+stamp app 2026-10-01T17:31:05Z
+if [ "$(plist_value widget CFBundleVersion)" = "$(plist_value app CFBundleVersion)" ] \
+  && [ "$(plist_value app CFBundleVersion)" = "20261001173059" ] \
+  && [ "$(plist_value widget ChirpBuildDateUTC)" = "$(plist_value app ChirpBuildDateUTC)" ]; then
+  pass "the app and its widget extension get one CFBundleVersion and one build date per build"
+else
+  fail "the widget stamped $(plist_value widget CFBundleVersion) and the app $(plist_value app CFBundleVersion) (expected both 20261001173059)"
+fi
+# The next build starts with the extension again and gets a new, larger number everywhere.
+stamp widget 2026-10-01T17:45:10Z --new-build
+stamp app 2026-10-01T17:45:40Z
+if [ "$(plist_value app CFBundleVersion)" = "20261001174510" ] && [ "$(plist_value widget CFBundleVersion)" = "20261001174510" ]; then
+  pass "the next build gets a new number (seconds resolution, later is larger)"
+else
+  fail "the next build did not get a new shared number: widget $(plist_value widget CFBundleVersion), app $(plist_value app CFBundleVersion)"
+fi
+# A date file left by an old build (more than two hours) is never reused by an app-only run.
+touch -t 202610011000 "$SANDBOX/st/obj/ChirpBuildDate.txt"
+stamp app 2026-10-01T19:00:00Z
+if [ "$(plist_value app CFBundleVersion)" = "20261001190000" ]; then
+  pass "an app-only run does not reuse a stale build date"
+else
+  fail "an app-only run reused a stale build date: $(plist_value app CFBundleVersion)"
+fi
+
+# 7. The privacy manifest (R8-22) declares exactly the "required reason" API categories the app's own sources use: a
+#    category the code uses but the manifest lacks would be flagged at upload (ITMS-91053), and one declared but no
+#    longer used is a false statement. Comment lines are ignored; third-party packages ship their own manifests.
+privacy_problems() { # privacy_problems <manifest> <source folder...>: one line per problem, nothing when consistent
+  local manifest="$1"
+  shift
+  python3 - "$manifest" "$@" <<'PY'
+import json, re, subprocess, sys
+from pathlib import Path
+
+manifest = json.loads(subprocess.check_output(["plutil", "-convert", "json", "-o", "-", sys.argv[1]]))
+declared = {item["NSPrivacyAccessedAPIType"] for item in manifest.get("NSPrivacyAccessedAPITypes", [])}
+patterns = {
+    "NSPrivacyAccessedAPICategoryUserDefaults": r"\bUserDefaults\b|\bNSUserDefaults\b|\bAppStorage\b",
+    "NSPrivacyAccessedAPICategoryDiskSpace": r"volumeAvailableCapacity|volumeTotalCapacity|systemFreeSize|\.systemSize\b"
+    r"|NSFileSystemFreeSize|NSFileSystemSize|\bstatfs\b|\bstatvfs\b",
+    "NSPrivacyAccessedAPICategoryFileTimestamp": r"\.creationDate\b|\.modificationDate\b|contentModificationDate"
+    r"|creationDateKey|NSFileCreationDate|NSFileModificationDate|\bstat\(|\blstat\(|\bfstat\(|getattrlist"
+    r"|contentAccessDate|attributeModificationDate",
+    "NSPrivacyAccessedAPICategorySystemBootTime": r"systemUptime|mach_absolute_time|mach_continuous_time|\bclock_gettime",
+    "NSPrivacyAccessedAPICategoryActiveKeyboards": r"activeInputModes",
+}
+used = {}
+for root in sys.argv[2:]:
+    for path in sorted(Path(root).rglob("*.swift")):
+        for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+            if line.lstrip().startswith("//"):
+                continue
+            for category, pattern in patterns.items():
+                if category not in used and re.search(pattern, line):
+                    used[category] = f"{path}:{number}"
+for category, where in sorted(used.items()):
+    if category not in declared:
+        print(f"{category} is used ({where}) but the manifest does not declare it")
+for category in sorted(declared):
+    if category not in used:
+        print(f"{category} is declared but no source uses it")
+PY
+}
+if ! plutil -lint App/PrivacyInfo.xcprivacy >"$SANDBOX/out" 2>&1; then
+  fail "App/PrivacyInfo.xcprivacy is not a valid property list: $(head -1 "$SANDBOX/out")"
+else
+  problems=$(privacy_problems App/PrivacyInfo.xcprivacy ChirpKit/Sources App/Sources App/Shared Widgets)
+  if [ -z "$problems" ]; then
+    pass "App/PrivacyInfo.xcprivacy declares exactly the required-reason APIs the sources use"
+  else
+    fail "App/PrivacyInfo.xcprivacy disagrees with the sources: $(echo "$problems" | tr '\n' ';')"
+  fi
+fi
+# The check itself is not vacuous: a manifest without a category the sources use, and a source that uses one it lacks.
+mkdir -p "$SANDBOX/pm/Sources"
+cp App/PrivacyInfo.xcprivacy "$SANDBOX/pm/without-disk-space.xcprivacy"
+plutil -remove NSPrivacyAccessedAPITypes.1 "$SANDBOX/pm/without-disk-space.xcprivacy"
+if privacy_problems "$SANDBOX/pm/without-disk-space.xcprivacy" ChirpKit/Sources App/Sources App/Shared Widgets \
+  | grep -q "DiskSpace is used .* but the manifest does not declare it"; then
+  pass "the manifest check notices a used category the manifest lacks"
+else
+  fail "the manifest check missed a used category the manifest lacks"
+fi
+printf 'import Foundation\nlet uptime = ProcessInfo.processInfo.systemUptime\n' >"$SANDBOX/pm/Sources/Boot.swift"
+if privacy_problems App/PrivacyInfo.xcprivacy "$SANDBOX/pm/Sources" \
+  | grep -q "SystemBootTime is used .* but the manifest does not declare it"; then
+  pass "the manifest check notices a new use of a required-reason API"
+else
+  fail "the manifest check missed a new use of a required-reason API"
+fi
+
 echo ""
 if [ "$failures" -gt 0 ]; then
   echo "SCRIPT CHECKS FAILED: $failures of $checks checks." >&2

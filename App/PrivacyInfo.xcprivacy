@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Parakeet's privacy manifest (R8-22). It declares the "required reason" APIs the app's own code (App/ and ChirpKit/)
+	really calls, and only those; scripts/check_scripts.sh compares this list with the sources, so a new use or a
+	removed one fails CI until this file says so. Third-party packages ship their own manifests where they need one.
+	Not used today (checked): file timestamps (creation or modification dates; file sizes are not that API), system
+	boot time (systemUptime, mach_absolute_time) and active keyboards.
+	NSPrivacyCollectedDataTypes is empty: the app has no account and no server of its own. Text the person sends to a
+	cloud model or voice they chose goes to that provider; what that means for the App Store privacy answers is the
+	owner's call when an App Store Connect record exists (docs/distribution.md).
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- UserDefaults, CA92.1 (information only the app itself reads): the app's own settings stores, on the standard
+		defaults, never an app group (ChirpFeatures: SettingsStore, SpeechRouteStore, LanguageModelProviderStore,
+		CompanionSettingsStore, JevSettingsStore, VoiceSettings, StructuredResultGate, CreateChoices, CreateRecipe). -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<!-- Disk space, E174.1 (check there is room before writing files): a model download refuses when the volume
+		lacks room (LlamaCppModelAssets) and a meeting refuses to start when the iPhone is almost full
+		(MeetingCoordinator). 85F4.1 (show it to the person): the meeting screen shows how many minutes of audio fit. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
+				<string>85F4.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
