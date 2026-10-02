@@ -15,7 +15,7 @@ an engine that breaks them corrupts transcripts silently.
   `LiveSpeechSession.swift` (M2), `TailWindowPreviewSession.swift` (M2, in ChirpCore since M7),
   `SpeechEngineCapabilities.swift` and `SpeechEngineRouter.swift` (M7), `SpeechEngineMemoryFit.swift` and
   `System/AvailableMemory.swift` (fix/speech-memory-fit), `LanguageModel.swift`, `StructureModel.swift`,
-  `EngineCatalog.swift` (`PrivacyRoutingPolicy`).
+  `PrivacyRoutingPolicy.swift` (`PrivacyRoutingPolicy`; the file was `EngineCatalog.swift` before review R1-15).
 - Engine targets implementing them: `ChirpEngineFluidAudio` (`ParakeetEngine`, `FluidAudioDiarizer`) in M1;
   `ChirpEngineAppleSpeech` (`AppleSpeechEngine`) and `ChirpEngineWhisperKit` (`WhisperKitEngine`, one per variant) in M7;
   `ParakeetEngine` is also a `LiveSpeechSessionProviding` since M2 (tail-window preview); every future

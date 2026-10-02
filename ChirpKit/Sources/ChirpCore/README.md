@@ -120,8 +120,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Engines/StructureModel.swift`: the M6 extraction and embedding contract (`StructuredOutput` with the model hash and
   `isAbstention`, `StructureModelError`); conformers `NeedleStructureModel` and the STUB
   ([structure-model-plugin-v1](../../../spec/contracts/structure-model-plugin-v1.md)).
-- `Engines/EngineCatalog.swift`: `PrivacyRoutingPolicy`, which decides which engine localities may process
-  each privacy class.
+- `Engines/PrivacyRoutingPolicy.swift` (renamed from the misleading "engine catalog" name in review R1-15):
+  `PrivacyRoutingPolicy`, which decides which engine localities may process each privacy class
+  (`PrivacyRoutingPolicyTests` pins the full class × locality × host × override matrix).
 - `Pipeline/AudioNormalizing.swift`: the decode-to-16 kHz-mono contract and `NormalizedAudio`, including the M1.5
   `normalize(sourceURL:outputURL:audioTrackOrdinal:)` requirement (a default implementation keeps other
   normalizers compiling).

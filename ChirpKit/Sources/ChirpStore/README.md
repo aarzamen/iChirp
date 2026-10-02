@@ -1,9 +1,14 @@
 # ChirpStore
 
-> GRDB persistence for `Transcription`. One table (`transcriptions`), one
-> repository (`GRDBTranscriptionStore`), migrations registered inline —
-> mirrors the shape of upstream MacParakeet's `Database/` module, trimmed to
-> what M1 needs.
+> GRDB persistence for iChirp: 11 tables behind four stores, migrations
+> registered inline. `GRDBTranscriptionStore` keeps the library
+> (`transcriptions`); `GRDBDeliverableStore` the language-model tables
+> (`prompts`, `prompt_versions`, `deliverables`, `llm_runs`) and the document
+> versions (`deliverable_versions`); `GRDBTextRulesStore` the dictation text
+> rules (`custom_words`, `text_snippets`); `GRDBStructuredResultStore` the
+> structure-model results (`structured_runs`, `structured_fields`,
+> `structured_eval_runs`). Mirrors the shape of upstream MacParakeet's
+> `Database/` module.
 
 ## Entry point
 
@@ -206,9 +211,11 @@ instead of a queue of old snapshots.
 `DatabaseQueue` with the same migrator applied. Use this in tests — never
 write to an on-disk file from tests.
 
-**Foreign keys and busy timeout are on.** `Configuration.foreignKeysEnabled =
-true` and `busyMode = .timeout(5)` are set in both `init(url:)` and
-`inMemory()`.
+**Foreign keys are on everywhere; the busy timeout is on the file.**
+`Configuration.foreignKeysEnabled = true` is set in both `init(url:)` and
+`inMemory()`. `busyMode = .timeout(5)` is set only in `init(url:)`, on the
+`DatabasePool` whose connections can wait on each other; the in-memory
+`DatabaseQueue` of the tests has a single connection and never waits.
 
 ## How to verify
 
