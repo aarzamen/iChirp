@@ -190,7 +190,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   injected `SecretStoring` (the Keychain) under the provider's `secretAccount`, never in `UserDefaults`. The key is
   written before the metadata; `routingPolicy()` trusts exactly the LAN hosts the user marked trusted. M7 adds
   `defaultLocalModelID()` / `setDefaultLocalModelID(_:)` (the small on-device model picked as default; absent in
-  older saves).
+  older saves). The blob is read entry by entry and never loses what this build cannot read (review R1-7, R4-6): a
+  provider it cannot decode (a kind a newer build added) is left out of the list but kept in place by every save,
+  keys a newer build added to a provider or to the blob survive (`LanguageModelProviderConfiguration.CodingKeys` are
+  the keys this build writes), and a blob that cannot be read at all is copied to
+  `ichirp.languageModelProviders.unreadable` (then `.2`, …) before the first save replaces it.
 - `DeliverableService.swift`: **the only path from a transcript to a `LanguageModel`** (M4; contract
   `spec/contracts/deliverables-v1.md`). `route(transcriptionID:templateID:model:)` answers `.allowed` or
   `.needsOverride(PrivacyOverrideRequest)` without sending anything; `confirmOverride(_:)` mints a single-use

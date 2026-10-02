@@ -63,6 +63,12 @@ public struct LanguageModelProviderConfiguration: Codable, Sendable, Equatable, 
     /// Overrides the kind's default context window (tokens), e.g. the context length loaded in LM Studio.
     public var contextWindowTokens: Int?
 
+    /// The JSON keys this build reads and writes, one per stored property. Any other key in a stored provider came
+    /// from a newer build, and the provider store keeps it when it writes the provider back (review R1-7).
+    public enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, kind, displayName, baseURL, modelName, trustsLocalNetworkHost, contextWindowTokens
+    }
+
     public init(
         id: UUID = UUID(),
         kind: LanguageModelProviderKind,

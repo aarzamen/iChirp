@@ -145,4 +145,106 @@ final class LanguageModelProviderStoreTests: XCTestCase {
         let store = UserDefaultsLanguageModelProviderStore(defaults: defaults, secrets: FakeSecretStore())
         XCTAssertTrue(store.loadProviders().isEmpty)
     }
+
+    // MARK: - Settings a newer build wrote (review R1-7, R4-6)
+
+    /// The stored blob as JSON objects.
+    private func storedObject() throws -> [String: Any] {
+        let data = try XCTUnwrap(defaults.data(forKey: UserDefaultsLanguageModelProviderStore.key))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func storedProviderEntries() throws -> [[String: Any]] {
+        try XCTUnwrap(try storedObject()["providers"] as? [[String: Any]])
+    }
+
+    private func jsonObject(_ provider: LanguageModelProviderConfiguration) throws -> [String: Any] {
+        try XCTUnwrap(try JSONSerialization.jsonObject(with: JSONEncoder().encode(provider)) as? [String: Any])
+    }
+
+    private func storeBlob(_ object: [String: Any]) throws {
+        defaults.set(
+            try JSONSerialization.data(withJSONObject: object), forKey: UserDefaultsLanguageModelProviderStore.key)
+    }
+
+    func testAProviderOfAnUnknownKindHidesOnlyItselfAndSurvivesEverySave() throws {
+        let futureID = UUID()
+        // A newer build added a provider kind this build does not know.
+        let future: [String: Any] = [
+            "id": futureID.uuidString, "kind": "gemini", "displayName": "Synthetic future provider",
+            "baseURL": "https://future.example.com/v1", "modelName": "future-1", "trustsLocalNetworkHost": false,
+        ]
+        let lan = ollama(trusted: true)
+        try storeBlob(["providers": [future, try jsonObject(lan)], "defaultProviderID": futureID.uuidString])
+        let store = UserDefaultsLanguageModelProviderStore(defaults: defaults, secrets: FakeSecretStore())
+
+        XCTAssertEqual(store.loadProviders(), [lan], "one unknown entry never hides the others")
+        XCTAssertEqual(store.routingPolicy().trustedLocalNetworkHosts, ["mac-studio.local"])
+        XCTAssertNil(store.defaultProviderID(), "the default is a provider this build cannot use")
+
+        let added = anthropic()
+        try store.saveProvider(added, apiKey: .keep)
+        try store.setDefaultLocalModelID("small-q4")
+        var entries = try storedProviderEntries()
+        guard entries.count == 3 else { return XCTFail("every provider is kept: \(entries.count) of 3 stored") }
+        XCTAssertTrue(NSDictionary(dictionary: entries[0]).isEqual(to: future), "kept as written, in its place")
+        XCTAssertEqual(entries[1]["id"] as? String, lan.id.uuidString)
+        XCTAssertEqual(entries[2]["id"] as? String, added.id.uuidString)
+        XCTAssertEqual(try storedObject()["defaultProviderID"] as? String, futureID.uuidString)
+        XCTAssertEqual(store.loadProviders(), [lan, added])
+
+        try store.deleteProvider(id: lan.id)
+        entries = try storedProviderEntries()
+        guard entries.count == 2 else { return XCTFail("only the deleted provider goes: \(entries.count) of 2 stored") }
+        XCTAssertTrue(NSDictionary(dictionary: entries[0]).isEqual(to: future))
+        XCTAssertEqual(try storedObject()["defaultProviderID"] as? String, futureID.uuidString)
+        XCTAssertEqual(store.defaultLocalModelID(), "small-q4")
+    }
+
+    func testKeysANewerBuildAddedSurviveASave() throws {
+        var lan = ollama(trusted: false)
+        lan.contextWindowTokens = 32_768
+        var entry = try jsonObject(lan)
+        entry["temperature"] = 0.2  // a provider field this build does not know
+        try storeBlob(["providers": [entry], "futureSetting": ["mode": "strict"]])
+        let store = UserDefaultsLanguageModelProviderStore(defaults: defaults, secrets: FakeSecretStore())
+        XCTAssertEqual(store.loadProviders(), [lan])
+
+        lan.displayName = "Renamed on an older build"
+        lan.contextWindowTokens = nil
+        try store.saveProvider(lan, apiKey: .keep)
+
+        let stored = try XCTUnwrap(try storedProviderEntries().first)
+        XCTAssertEqual(stored["temperature"] as? Double, 0.2, "an unknown key of the entry survives")
+        XCTAssertEqual(stored["displayName"] as? String, "Renamed on an older build")
+        XCTAssertNil(stored["contextWindowTokens"], "a field this build cleared is cleared, not kept from before")
+        let future = try XCTUnwrap(try storedObject()["futureSetting"] as? [String: Any])
+        XCTAssertEqual(future["mode"] as? String, "strict", "an unknown key of the blob survives")
+        XCTAssertEqual(store.loadProviders(), [lan])
+    }
+
+    func testAnUnreadableBlobIsCopiedAsideBeforeTheFirstSaveReplacesIt() throws {
+        let unreadable = Data("not json".utf8)
+        defaults.set(unreadable, forKey: UserDefaultsLanguageModelProviderStore.key)
+        let store = UserDefaultsLanguageModelProviderStore(defaults: defaults, secrets: FakeSecretStore())
+        XCTAssertTrue(store.loadProviders().isEmpty)
+        XCTAssertNil(
+            defaults.data(forKey: UserDefaultsLanguageModelProviderStore.unreadableKey), "reading moves nothing")
+
+        let provider = anthropic()
+        try store.saveProvider(provider, apiKey: .keep)
+
+        XCTAssertEqual(defaults.data(forKey: UserDefaultsLanguageModelProviderStore.unreadableKey), unreadable)
+        XCTAssertEqual(store.loadProviders(), [provider])
+
+        // A later unreadable blob gets its own copy; the first one is never replaced.
+        let changedShape = Data(#"{"providers":{"shape":"changed"}}"#.utf8)
+        defaults.set(changedShape, forKey: UserDefaultsLanguageModelProviderStore.key)
+        XCTAssertTrue(store.loadProviders().isEmpty, "a providers value that is not a list cannot be read")
+        try store.setDefaultLocalModelID("small-q4")
+        XCTAssertEqual(defaults.data(forKey: UserDefaultsLanguageModelProviderStore.unreadableKey), unreadable)
+        XCTAssertEqual(
+            defaults.data(forKey: UserDefaultsLanguageModelProviderStore.unreadableKey + ".2"), changedShape)
+        XCTAssertEqual(store.defaultLocalModelID(), "small-q4")
+    }
 }
