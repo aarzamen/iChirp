@@ -6,22 +6,37 @@ import SwiftUI
 /// The silhouette's negative space (the head/wing carve-outs) relies on the source path's
 /// `fill-rule="evenodd"`, so draw it with `.fill(color, style: FillStyle(eoFill: true))` —
 /// or just use `ParakeetMarkView`, which does that for you.
+///
+/// The drawing fills the frame it is given: its own bounds (about 0.82 wide per tall) are aspect-fitted and centred
+/// in `rect`. The canvas's 1024 viewBox has wide empty margins (the bird covers x 282–689 and y 245–744), and scaling
+/// the whole viewBox drew a "27 pt" mark as an 11 × 13 pt squiggle (R7-9, plan 024 Task 11). Size the frame to the
+/// mark you want to see — about the wordmark's cap height beside text — and scale it with `chirpScaledFrame`.
 public struct ParakeetMark: Shape {
     public init() {}
 
     public func path(in rect: CGRect) -> Path {
-        let scale = CGAffineTransform(
-            scaleX: rect.width / Self.viewBoxSize.width, y: rect.height / Self.viewBoxSize.height)
-        let transform = scale.concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY))
-
-        var combined = Path()
-        for data in Self.svgPathData {
-            combined.addPath(SVGPathParser.path(fromData: data), transform: transform)
-        }
-        return combined
+        let bounds = Self.drawingBounds
+        guard bounds.width > 0, bounds.height > 0, rect.width > 0, rect.height > 0 else { return Path() }
+        let scale = min(rect.width / bounds.width, rect.height / bounds.height)
+        let origin = CGPoint(
+            x: rect.midX - bounds.width * scale / 2, y: rect.midY - bounds.height * scale / 2)
+        let transform = CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY)
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            .concatenating(CGAffineTransform(translationX: origin.x, y: origin.y))
+        return Self.drawing.applying(transform)
     }
 
-    private static let viewBoxSize = CGSize(width: 1024, height: 1024)
+    /// The four source paths combined, in viewBox coordinates.
+    private static let drawing: Path = {
+        var combined = Path()
+        for data in svgPathData {
+            combined.addPath(SVGPathParser.path(fromData: data))
+        }
+        return combined
+    }()
+
+    /// The drawing's own bounds inside the viewBox, as `Path.boundingRect` measures them.
+    private static let drawingBounds: CGRect = drawing.boundingRect
 
     /// The four `<path d="…">` strings from the canvas SVG, verbatim.
     private static let svgPathData: [String] = [
@@ -182,14 +197,23 @@ private enum SVGPathParser {
 }
 
 #Preview("ParakeetMark") {
-    HStack(spacing: 24) {
-        ParakeetMarkView()
-            .frame(width: 27, height: 27)
-        ParakeetMarkView()
-            .frame(width: 76, height: 76)
-        ParakeetMarkView(color: .white)
-            .frame(width: 76, height: 76)
+    VStack(alignment: .leading, spacing: Tokens.Spacing.xl) {
+        // Beside the wordmark: the mark at about the title's cap height, growing with Dynamic Type.
+        HStack(spacing: Tokens.Spacing.xs) {
+            ParakeetMarkView()
+                .chirpScaledFrame(width: 24, height: 24, relativeTo: .title2)
+            Text("Parakeet")
+                .font(Tokens.Font.rounded(22))
+                .foregroundStyle(Tokens.Color.ink)
+        }
+        HStack(spacing: Tokens.Spacing.xl) {
+            ParakeetMarkView()
+                .frame(width: 76, height: 76)
+            ParakeetMarkView(color: Tokens.Color.onAccent)
+                .frame(width: 76, height: 76)
+                .background(Circle().fill(Tokens.Color.accent).frame(width: 96, height: 96))
+        }
     }
-    .padding(32)
+    .padding(Tokens.Spacing.xxl)
     .background(Tokens.Color.tint)
 }

@@ -87,9 +87,14 @@ public enum Tokens {
             light: 0xE8E8E0, dark: 0x38322D, lightHighContrast: 0xBDBDB5, darkHighContrast: 0x6A625A)
         /// Tracks, inactive segments, quiet chips and separators.
         public static let quietFill = ColorValue(light: 0xF0F0E8, dark: 0x2A2521)
-        /// A switch's off track.
+        /// A switch's off track (`ChirpToggleStyle`). Reads at least as clearly as a card's hairline on every row
+        /// background, and more so with Increase Contrast (`ContrastTests`).
         public static let toggleOffTrack = ColorValue(
             light: 0xDDDDD5, dark: 0x3E3833, lightHighContrast: 0xC8C8BF, darkHighContrast: 0x5A534D)
+        /// The selected segment of `ChirpSegmentedControl` (and the Library's layout toggle), raised above its
+        /// `quietFill` track: white in light mode (the canvas's raised pill), a warm step lighter than the track in
+        /// dark mode, so it never reads as a hole (R7-23, plan 024 Task 11).
+        public static let selectedSegment = ColorValue(light: 0xFFFFFF, dark: 0x3A332E)
 
         // MARK: Text
 
@@ -98,11 +103,15 @@ public enum Tokens {
         /// Secondary text and meta. Text-safe on ground, surface, quiet and tint fills.
         public static let secondary = ColorValue(
             light: 0x6B6B6B, dark: 0xA69E96, lightHighContrast: 0x4F4F4F, darkHighContrast: 0xCFC8C0)
-        /// Icons, chevrons, the empty favorite star and placeholders only — not text (use `secondary`). At least 3:1
-        /// as a glyph in every appearance; light is `#909090` (3.05:1 on `ground`), up from the canvas `#9C9C9C`
+        /// Icons, chevrons and the empty favorite star only — not text (use `secondary`) and not placeholders (use
+        /// `placeholder`, R7-3). At least 3:1 as a glyph in every appearance; light is `#909090` (3.05:1 on `ground`), up from the canvas `#9C9C9C`
         /// (2.63:1) by the owner's choice (plan 023 F6).
         public static let mutedText = ColorValue(
             light: 0x909090, dark: 0x857C74, lightHighContrast: 0x6B6B6B, darkHighContrast: 0xA69E96)
+        /// Placeholder text in every text field and text editor (`ChirpTextField`, `ChirpPlaceholder`): the same values
+        /// as `secondary`, so a placeholder — often a field's only visible label — is 4.5:1 on every field
+        /// background in all four appearances. The system placeholder grey was 1.72:1 on white (R7-3).
+        public static let placeholder = secondary
 
         // MARK: Accent (coral)
 
@@ -154,6 +163,9 @@ public enum Tokens {
         public static let favorite = ColorValue(light: 0xC98109, dark: 0xE8A23C, lightHighContrast: 0xA86E00)
         /// The Meeting rosette (brand mark, decorative).
         public static let rosette = ColorValue(light: 0x59A659, dark: 0x63B067, lightHighContrast: 0x3F8A43)
+        /// The soft ring around the rosette while a meeting records (drawn at 45%; decorative). Light is the canvas
+        /// `#66D966`; dark is desaturated like every other dark accent (R7-22: it was a literal with no dark value).
+        public static let rosetteHalo = ColorValue(light: 0x66D966, dark: 0x5EBD62, lightHighContrast: 0x4FB553)
 
         // MARK: Pills
 
@@ -211,12 +223,14 @@ public enum Tokens {
         /// `spec/04-ui.md`.
         public static let named: [(name: String, value: ColorValue)] = [
             ("ground", ground), ("surface", surface), ("border", border), ("quietFill", quietFill),
-            ("toggleOffTrack", toggleOffTrack), ("ink", ink), ("secondary", secondary), ("mutedText", mutedText),
+            ("toggleOffTrack", toggleOffTrack), ("selectedSegment", selectedSegment), ("ink", ink),
+            ("secondary", secondary), ("mutedText", mutedText), ("placeholder", placeholder),
             ("accent", accent), ("accentInk", accentInk), ("accentInkPressed", accentInkPressed),
             ("accentFill", accentFill), ("onAccent", onAccent), ("tint", tint), ("tintBorder", tintBorder),
             ("tintBorderSelected", tintBorderSelected), ("success", success), ("successInk", successInk),
             ("errorInk", errorInk), ("stopRed", stopRed), ("recordRed", recordRed), ("favorite", favorite),
-            ("rosette", rosette), ("privacyBadgeFill", privacyBadgeFill), ("privacyBadgeInk", privacyBadgeInk),
+            ("rosette", rosette), ("rosetteHalo", rosetteHalo), ("privacyBadgeFill", privacyBadgeFill),
+            ("privacyBadgeInk", privacyBadgeInk),
             ("partialAudioFill", partialAudioFill), ("partialAudioInk", partialAudioInk), ("night", night),
             ("coverNight", coverNight), ("seedStrokeDim", seedStrokeDim), ("seedStrokeBright", seedStrokeBright),
             ("dictationAccent", dictationAccent),
@@ -234,14 +248,21 @@ public enum Tokens {
         public static let border = color(Palette.border)
         public static let quietFill = color(Palette.quietFill)
         public static let toggleOffTrack = color(Palette.toggleOffTrack)
+        /// The selected segment's raised pill (`ChirpSegmentedControl`). See `Palette.selectedSegment`.
+        public static let selectedSegment = color(Palette.selectedSegment)
+        /// The soft shadow under a raised pill or a switch's knob: black at 12% (the Library toggle's value, R7-22).
+        public static let raisedShadow = SwiftUI.Color.black.opacity(0.12)
 
         // MARK: Text
 
         public static let ink = color(Palette.ink)
         public static let secondary = color(Palette.secondary)
-        /// Icon/placeholder fill only — **not text** (F4, 3.19:1 on `surface`); text reads `secondary`. See
-        /// `Palette.mutedText`.
+        /// Icon fill only — **not text** (F4, 3.19:1 on `surface`); text reads `secondary` and placeholders read
+        /// `placeholder`. See `Palette.mutedText`.
         public static let mutedText = color(Palette.mutedText)
+        /// Placeholder text in fields and editors: text-safe on every field background (R7-3). Use it through
+        /// `ChirpTextField`, `Text.chirpPlaceholder(_:)` or `ChirpPlaceholder`.
+        public static let placeholder = color(Palette.placeholder)
 
         // MARK: Accent
 
@@ -273,6 +294,7 @@ public enum Tokens {
         public static let recordRed = color(Palette.recordRed)
         public static let favorite = color(Palette.favorite)
         public static let rosette = color(Palette.rosette)
+        public static let rosetteHalo = color(Palette.rosetteHalo)
 
         // MARK: Pills
 
@@ -355,6 +377,18 @@ public enum Tokens {
         public static let l: CGFloat = 20
         public static let xl: CGFloat = 24
 
+        // Small and component radii (plan 024 Task 11, R7-22: each was a literal in a screen).
+        /// Small controls: the playback-rate chip, the Dictating Stop square, a selected segment.
+        public static let xs: CGFloat = 8
+        /// A segmented control's track (`ChirpSegmentedControl`, the Library layout toggle).
+        public static let track: CGFloat = 10
+        /// Panels inset inside a card or sheet: Extract fields' rows and Draft banner.
+        public static let inset: CGFloat = 12
+        /// A chat bubble: Ask's question.
+        public static let bubble: CGFloat = 18
+        /// A rounded text input that grows with its text: Ask's question field.
+        public static let input: CGFloat = 22
+
         // Supporting radii seen on the canvas — named rather than scattered literals.
         /// Capture's "Paste a link" / "Import audio" tiles.
         public static let tile: CGFloat = 18
@@ -366,11 +400,68 @@ public enum Tokens {
         public static let iconTile: CGFloat = 10
     }
 
+    /// The spacing scale (plan 024 Task 11, R7-22): paddings and stack spacings come from these steps instead of
+    /// the 3…24 pt literals the screens had drifted to.
+    public enum Spacing {
+        public static let xxs: CGFloat = 4
+        public static let xs: CGFloat = 8
+        public static let s: CGFloat = 12
+        public static let m: CGFloat = 16
+        public static let l: CGFloat = 20
+        public static let xl: CGFloat = 24
+        public static let xxl: CGFloat = 32
+        /// The horizontal gutter of every sheet and of the bottom bars (was 20 pt in some sheets and 24 in others).
+        public static let sheetGutter: CGFloat = xl
+    }
+
+    /// Control sizes shared by every screen (R6a-15, R6b-18, R7-12): one primary-button height, one compact pill,
+    /// one action-bar height, and the 44 pt tap target.
+    public enum Metric {
+        /// The smallest tap target (Apple's Human Interface Guidelines); a visual pill may be smaller inside it.
+        public static let minTapTarget: CGFloat = 44
+        /// Full-width primary and secondary capsule buttons (`ChirpButtonStyle`, `.large`). They grow with their
+        /// text at larger sizes.
+        public static let primaryButtonHeight: CGFloat = 50
+        /// The visible pill of a compact capsule button (`ChirpButtonStyle`, `.compact`), inside a 44 pt target.
+        public static let compactButtonHeight: CGFloat = 32
+        /// The bottom action bar's row (`ChirpActionBar`): icon over a one-line label.
+        public static let actionBarHeight: CGFloat = 58
+        /// Hairlines: card borders and the bottom bars' top edge.
+        public static let hairline: CGFloat = 1
+        /// The soft shadow under a raised pill or a switch's knob (`Tokens.Color.raisedShadow`): blur radius and drop.
+        public static let raisedShadowRadius: CGFloat = 1.5
+        public static let raisedShadowY: CGFloat = 1
+    }
+
+    /// Dynamic Type helpers shared by the scaled-metric modifiers (`chirpGlyph`, `chirpScaledFrame`).
+    public enum Scale {
+        /// `scaled` limited to `base × maxScale` when `maxScale` is given: glyphs and controls that should grow
+        /// with text, but not as far as body text does at the accessibility sizes. Never limits shrinking.
+        public static func capped(_ scaled: CGFloat, base: CGFloat, maxScale: CGFloat?) -> CGFloat {
+            guard let maxScale else { return scaled }
+            return min(scaled, base * maxScale)
+        }
+    }
+
     public enum Font {
         /// SF Pro Rounded (falls back to the platform's rounded system design) at `size` /
         /// `weight`, used for headline and title text across the app.
         public static func rounded(_ size: CGFloat, _ weight: SwiftUI.Font.Weight = .bold) -> SwiftUI.Font {
             .system(size: size, weight: weight, design: .rounded)
+        }
+
+        /// The Dynamic Type text style a canvas point size scales with — the same table as the app's `chirpFont`, so
+        /// a glyph or a frame sized from the canvas grows at the rate of the text beside it.
+        public static func textStyle(forCanvasSize size: CGFloat) -> SwiftUI.Font.TextStyle {
+            switch size {
+            case 26...: .largeTitle
+            case 20..<26: .title2
+            case 17..<20: .headline
+            case 14.5..<17: .body
+            case 12.5..<14.5: .subheadline
+            case 11.5..<12.5: .footnote
+            default: .caption
+            }
         }
     }
 }

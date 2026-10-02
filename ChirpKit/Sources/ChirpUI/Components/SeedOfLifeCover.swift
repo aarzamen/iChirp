@@ -88,13 +88,13 @@ public struct SeedOfLifeCover: View {
 }
 
 #Preview("SeedOfLifeCover") {
-    HStack(spacing: 12) {
+    HStack(spacing: Tokens.Spacing.s) {
         ForEach(0..<4) { seed in
             SeedOfLifeCover(seed: seed)
                 .frame(width: 52, height: 52)
                 .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.cover, style: .continuous))
         }
     }
-    .padding(24)
+    .padding(Tokens.Spacing.xl)
     .background(Tokens.Color.ground)
 }

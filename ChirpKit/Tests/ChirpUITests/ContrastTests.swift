@@ -134,6 +134,8 @@ final class ContrastTests: XCTestCase {
     private static let partialAudioInk = Paint("partialAudioInk", P.partialAudioInk)
     private static let night = Paint("night", P.night)
     private static let dictationAccent = Paint("dictationAccent", P.dictationAccent)
+    private static let placeholder = Paint("placeholder", P.placeholder)
+    private static let selectedSegment = Paint("selectedSegment", P.selectedSegment)
     /// iOS's grouped-list row (`secondarySystemGroupedBackground`) behind the Form rows in Settings subscreens, which
     /// hide only the scroll background. Not a token: the system draws it.
     private static let systemRow = Paint(
@@ -176,6 +178,20 @@ final class ContrastTests: XCTestCase {
         table += pairs(partialAudioInk, on: [partialAudioFill], .text, "Partial audio, STUB and Draft badges")
         table += pairs(onAccent, on: [accentFill], .text, "filled button labels (Start, Done, Create, Hide)")
         table += pairs(onAccent, on: [stopRed], .text, "Stop & save; the Delete swipe action")
+        // Task 11 (R7-3): one placeholder style for every text field and text editor, on every field background.
+        table += pairs(
+            placeholder, on: [ground, surface, quietFill, tint, systemRow], .text,
+            "ChirpTextField / ChirpPlaceholder: the only visible label of search, Ask and note fields")
+        // Task 11 shared components: ChirpButtonStyle (every kind, and disabled), ChirpSegmentedControl, ChirpActionBar.
+        table += pairs(onAccent, on: [accentFill, stopRed], .text, "ChirpButtonStyle .filled and .stop labels")
+        table += pairs(accentInkPressed, on: [tint], .text, "ChirpButtonStyle .tinted label")
+        table += pairs(errorInk, on: [quietFill], .text, "ChirpButtonStyle .destructive label")
+        table += pairs(secondary, on: [quietFill], .text, "ChirpButtonStyle .quiet and disabled labels")
+        table += pairs(ink, on: [selectedSegment], .text, "ChirpSegmentedControl: the selected segment's title")
+        table += pairs(
+            secondary, on: [quietFill], .text, "ChirpSegmentedControl: an unselected or disabled segment's title")
+        table += pairs(ink, on: [ground], .text, "ChirpActionBar item titles")
+        table += pairs(accentInk, on: [ground], .text, "ChirpActionBar's emphasized item (Transform)")
         for (index, speaker) in P.speakers.enumerated() {
             table += pairs(
                 Paint("speaker\(index).ink", speaker.ink), on: [ground, surface, tint], .text,
@@ -195,7 +211,7 @@ final class ContrastTests: XCTestCase {
         table += pairs(accent, on: [ground, surface, tint], .glyph, "coral glyphs; the selected tile's check")
         table += pairs(onAccent, on: [accent], .glyph, "white glyph on the Create, Play and Send circles")
         table += pairs(onAccent, on: [recordRed], .glyph, "Edit by voice's listening circle")
-        table += pairs(onAccent, on: [success], .glyph, "Create's done check")
+        table += pairs(onAccent, on: [success], .glyph, "Create's done check; ChirpToggleStyle's knob when on")
         table += pairs(onAccent, on: [night], .glyph, "link cover glyph; Dictating's Stop square")
         table += pairs(ground, on: [ink], .glyph, "Ask's Stop answering glyph")
         table += pairs(accentInk, on: [tint], .glyph, "icon tiles")
@@ -244,9 +260,9 @@ final class ContrastTests: XCTestCase {
         // A token that is neither in a measured pair nor on this list is a color nobody checked.
         let decorative: Set<String> = [
             "border",  // hairlines; the card's text carries the meaning (see testHighContrastBorder…)
-            "toggleOffTrack",  // a switch's off track; the system draws the knob and state
+            "toggleOffTrack",  // a switch's off track: measured as a boundary in testToggleOffTrack… below
             "tintBorder", "tintBorderSelected",  // hairlines around tint cards and selected chips
-            "rosette",  // the Meeting brand mark
+            "rosette", "rosetteHalo",  // the Meeting brand mark and its live halo
             "coverNight", "seedStrokeDim", "seedStrokeBright",  // Seed-of-Life cover art
         ]
         var measured = Set<String>()
@@ -259,6 +275,59 @@ final class ContrastTests: XCTestCase {
         let named = Set(P.named.map(\.name))
         XCTAssertEqual(named.subtracting(measured).subtracting(decorative), [], "tokens nobody measured")
         XCTAssertEqual(decorative.subtracting(named), [], "decorative names that are not tokens")
+    }
+
+    // MARK: - Task 11: shared components' surfaces (R7-3, R7-5, R7-23)
+
+    func testPlaceholderIsTextSafeAndNotTheSystemGrey() {
+        // R7-3: the system placeholder grey is 1.72:1 on white and 2.47:1 on the dark surface. Every field reads
+        // `placeholder`, which the pair table above holds to 4.5:1 on every field background in all four appearances.
+        for appearance in Appearance.allCases {
+            XCTAssertGreaterThanOrEqual(
+                Self.contrastRatio(P.placeholder.hex(in: appearance), P.surface.hex(in: appearance)), 4.5,
+                "placeholder on surface in \(appearance.rawValue)")
+        }
+        XCTAssertNotEqual(P.placeholder, P.mutedText, "placeholders are text, not the 3:1 glyph grey")
+    }
+
+    func testSelectedSegmentIsRaisedAboveItsTrackInEveryAppearance() {
+        // R7-23: a selected segment darker than its track reads as a hole. The pill is lighter than the quiet
+        // track in every appearance (white in light mode, a warm raised fill in dark mode).
+        for appearance in Appearance.allCases {
+            XCTAssertGreaterThan(
+                Self.luminance(P.selectedSegment.hex(in: appearance)), Self.luminance(P.quietFill.hex(in: appearance)),
+                "the selected segment is not raised above its track in \(appearance.rawValue)")
+        }
+    }
+
+    func testToggleOffTrackIsAtLeastAsVisibleAsACardBorderOnEveryRowBackground() {
+        // R7-5: ChirpToggleStyle draws the off track with `toggleOffTrack` (the stock switch draws a cool grey). Its
+        // edge must read at least as clearly as the ordinary hairline around a card in the same scheme, on every
+        // background a switch sits on, and Increase Contrast must make it clearer still. (Not WCAG's 3:1: the stock
+        // iOS switch and the canvas both sit near 1.3:1, and the knob's position and the green "on" track carry the
+        // state; ChirpToggleStyle also reports On/Off to VoiceOver.)
+        for background in [Self.ground, Self.surface, Self.systemRow] {
+            for appearance in Appearance.allCases {
+                let track = Self.contrastRatio(
+                    P.toggleOffTrack.hex(in: appearance), background.value.hex(in: appearance))
+                let scheme: Appearance = appearance.isDark ? .dark : .light
+                let hairline = Self.contrastRatio(P.border.hex(in: scheme), P.surface.hex(in: scheme))
+                XCTAssertGreaterThanOrEqual(
+                    track + 0.005, hairline, "toggleOffTrack on \(background.name) in \(appearance.rawValue)")
+            }
+            for (ordinary, boosted) in [(Appearance.light, Appearance.lightHighContrast), (.dark, .darkHighContrast)] {
+                XCTAssertGreaterThan(
+                    Self.contrastRatio(P.toggleOffTrack.hex(in: boosted), background.value.hex(in: boosted)),
+                    Self.contrastRatio(P.toggleOffTrack.hex(in: ordinary), background.value.hex(in: ordinary)),
+                    "Increase Contrast does not strengthen the off track on \(background.name)")
+            }
+        }
+    }
+
+    func testRosetteHaloHasADarkValueInsteadOfALiteral() {
+        // R7-22: the halo was `Color(red: 0.4, green: 0.851, blue: 0.4)`, one value for every appearance.
+        XCTAssertEqual(P.rosetteHalo.light, 0x66D966, "the canvas halo")
+        XCTAssertLessThan(Self.saturation(P.rosetteHalo.dark), Self.saturation(P.rosetteHalo.light))
     }
 
     // MARK: - The dark palette's character (owner's brief, plan 023 F6)
