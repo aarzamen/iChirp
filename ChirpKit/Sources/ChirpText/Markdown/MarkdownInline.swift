@@ -51,17 +51,17 @@ public enum MarkdownInline {
     /// drops "url" entirely. That would silently lose text on Copy (the owner's "no text is lost" rule, F23), so a
     /// link is rewritten to "label (url)" before parsing; `MarkdownDocument`, `PlainTextFlattener` and the PDF/Word
     /// exports all see the same rewritten text; the app does not otherwise use Markdown links so nothing "goes
-    /// plain-text" that used to be tappable. A link inside inline code, or one whose "[" the source escaped, is not
-    /// a link and stays exactly as written.
+    /// plain-text" that used to be tappable. A link inside inline code or an autolink, or one whose "[" the source
+    /// escaped, is not a link and stays exactly as written.
     private static func neutralizeLinks(_ chars: [Character]) -> [Character] {
         guard chars.contains("]") else { return chars }
-        let code = codeSpans(in: chars)
-        func inCode(_ index: Int) -> Bool { code.contains { $0.contains(index) } }
+        let verbatim = verbatimSpans(in: chars)
+        func isVerbatim(_ index: Int) -> Bool { verbatim.contains { $0.contains(index) } }
         var result: [Character] = []
         result.reserveCapacity(chars.count + 4)
         var index = 0
         while index < chars.count {
-            if let span = code.first(where: { $0.lowerBound == index }) {
+            if let span = verbatim.first(where: { $0.lowerBound == index }) {
                 result.append(contentsOf: chars[span])
                 index = span.upperBound
                 continue
@@ -72,12 +72,12 @@ public enum MarkdownInline {
                 continue
             }
             // "[label](url)": the label runs to the first "]", the address to the first ")" (the rule the earlier
-            // regular expression used), and none of the four delimiters may sit inside inline code.
+            // regular expression used), and none of its delimiters may sit inside inline code or an autolink.
             if chars[index] == "[",
                 let close = chars[(index + 1)...].firstIndex(of: "]"),
                 close + 1 < chars.count, chars[close + 1] == "(",
                 let end = chars[(close + 2)...].firstIndex(of: ")"),
-                ![close, close + 1, end].contains(where: inCode)
+                ![close, close + 1, end].contains(where: isVerbatim)
             {
                 result.append(contentsOf: chars[(index + 1)..<close])
                 result.append(contentsOf: " (")
@@ -114,15 +114,16 @@ public enum MarkdownInline {
     ///   "BP: / mmHg" and "Date: __/__/____" as "Date: //____". Emphasis around words ("**Plan:**", "__init__")
     ///   is unaffected.
     ///
-    /// Inline code itself is copied untouched: CommonMark reads no escapes inside it, so an added backslash would
-    /// show ("`2*3`" copied as "2\*3"). An escape the source already wrote ("25\~50") is kept as written.
+    /// Inline code and autolinks are copied untouched: CommonMark reads no escapes inside them, so an added backslash
+    /// would show ("`2*3`" copied as "2\*3", "<https://example.com/~user>" as ".../\~user"). An escape the source
+    /// already wrote ("25\~50") is kept as written.
     private static func protectLiterals(_ chars: [Character]) -> String {
-        let code = codeSpans(in: chars)
+        let verbatim = verbatimSpans(in: chars)
         var escaped = Set<Int>()
         var runs: [(character: Character, range: Range<Int>)] = []
         var index = 0
         while index < chars.count {
-            if let span = code.first(where: { $0.lowerBound == index }) {
+            if let span = verbatim.first(where: { $0.lowerBound == index }) {
                 index = span.upperBound
                 continue
             }
@@ -167,16 +168,23 @@ public enum MarkdownInline {
 
     // MARK: - Scanning helpers
 
-    /// The inline code spans of one line, as CommonMark finds them: a backtick run opens a span that the next run
-    /// of exactly the same length closes (no escapes are read inside); a backslash-escaped backtick never opens
-    /// one. One deliberate difference: a backtick run between two Latin letters or digits never opens a span.
-    private static func codeSpans(in chars: [Character]) -> [Range<Int>] {
-        guard chars.contains("`") else { return [] }
+    /// The spans of one line CommonMark reads verbatim, escapes included, so nothing may be escaped inside them:
+    /// inline code (a backtick run opens a span that the next run of exactly the same length closes) and autolinks
+    /// (`<https://…>`, `<name@example.com>`), whichever starts first, as CommonMark decides; a backslash-escaped
+    /// backtick or "<" opens neither. One deliberate difference: a backtick run between two Latin letters or digits
+    /// never opens a code span.
+    private static func verbatimSpans(in chars: [Character]) -> [Range<Int>] {
+        guard chars.contains("`") || chars.contains("<") else { return [] }
         var spans: [Range<Int>] = []
         var index = 0
         while index < chars.count {
             if chars[index] == "\\", index + 1 < chars.count, isASCIIPunctuation(chars[index + 1]) {
                 index += 2
+                continue
+            }
+            if chars[index] == "<", let end = autolinkEnd(in: chars, at: index) {
+                spans.append(index..<end)
+                index = end
                 continue
             }
             guard chars[index] == "`" else {
@@ -194,6 +202,24 @@ public enum MarkdownInline {
             }
         }
         return spans
+    }
+
+    /// CommonMark's URI autolink (a 2–32 character scheme, ":", then no space, "<" or ">") and email autolink.
+    private static let uriAutolink = try! NSRegularExpression(pattern: "^[A-Za-z][A-Za-z0-9+.\\-]{1,31}:[^\\s<>]*$")
+    private static let emailAutolink = try! NSRegularExpression(
+        pattern: "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+            + "(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+
+    /// The end (just past ">") of the autolink starting at `start`, or nil when the "<" there does not open one.
+    private static func autolinkEnd(in chars: [Character], at start: Int) -> Int? {
+        guard
+            let close = chars[(start + 1)...].firstIndex(where: { $0 == ">" || $0 == "<" || $0.isWhitespace }),
+            chars[close] == ">", close > start + 1
+        else { return nil }
+        let inner = String(chars[(start + 1)..<close])
+        let range = NSRange(inner.startIndex..., in: inner)
+        let isAutolink = [uriAutolink, emailAutolink].contains { $0.firstMatch(in: inner, range: range) != nil }
+        return isAutolink ? close + 1 : nil
     }
 
     private static func closingBacktickRun(in chars: [Character], from start: Int, length: Int) -> Int? {

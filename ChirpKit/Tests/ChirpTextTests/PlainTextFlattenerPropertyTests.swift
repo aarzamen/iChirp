@@ -210,6 +210,11 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         // a label that itself contains "[" or "]" needs real bracket-nesting support this parser doesn't claim.
         let label = (0..<2).map { _ in vocabulary.randomElement(using: &generator)! }
         let id = Int.random(in: 1...999, using: &generator)
+        if Bool.random(using: &generator) {
+            // An autolink: its angle brackets are syntax, its address (with "~", "_" and "*") is kept verbatim.
+            let address = "https://example.com/~ward_\(id)?q=a*b*c"
+            return Generated(lines: ["See <\(address)> for details"], tokens: ["See", address, "for", "details"])
+        }
         let address = "https://example.com/\(id)"
         return Generated(
             lines: ["See [\(label.joined(separator: " "))](\(address)) for details"],

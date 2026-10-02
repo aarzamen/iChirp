@@ -106,6 +106,19 @@ final class MarkdownInlineTests: XCTestCase {
         XCTAssertEqual(MarkdownInline.plain("Code `[a](b)` stays"), "Code [a](b) stays")
     }
 
+    /// CommonMark reads no escapes inside an autolink either, so its address is never escaped (a "~" or "*" in it
+    /// would otherwise show a backslash); the angle brackets are autolink syntax and drop, the address stays.
+    func testAutolinksAreNeverEscaped() {
+        XCTAssertEqual(
+            MarkdownInline.plain("See <https://example.com/~user/a_b_c?q=x*y*z> now"),
+            "See https://example.com/~user/a_b_c?q=x*y*z now")
+        XCTAssertEqual(
+            MarkdownInline.plain("Mail <synthetic.user~1@example.com> or <https://example.com/__/__>"),
+            "Mail synthetic.user~1@example.com or https://example.com/__/__")
+        XCTAssertEqual(
+            MarkdownInline.plain("<5 mg> and 25~50 stay text"), "<5 mg> and 25~50 stay text", "not an autolink")
+    }
+
     /// A backtick between two digits is the person's character, not a code span that pairs across the words.
     func testBacktickBetweenDigitsStaysLiteral() {
         XCTAssertEqual(MarkdownInline.plain("5`10 and 6`12"), "5`10 and 6`12")

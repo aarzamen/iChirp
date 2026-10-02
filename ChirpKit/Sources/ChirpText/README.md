@@ -91,8 +91,8 @@ pipeline directly.
       copy as "2550 mg q812h", review R2-8);
     - two runs of the same `*` or `_` with no letter or digit between them are escaped, so a form's blanks stay
       ("BP: ___/___ mmHg" used to copy as "BP: / mmHg", review R1-6 (c));
-    - inline code is never touched (an escape inside it would show its backslash) and an escape the source
-      already wrote is kept.
+    - inline code and autolinks (`<https://…>`) are never touched (CommonMark reads no escapes inside them, so an
+      added one would show its backslash) and an escape the source already wrote is kept.
     HTML entity references (`&lt;`, `&#8805;`) are decoded, as CommonMark requires, so the screen, Copy and the
     exports all show the same character (known item K3, ruling: keep decoding).
   - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line
