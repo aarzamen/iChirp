@@ -28,8 +28,8 @@ import Foundation
         self.modelName = modelName
     }
 
-    func update(for state: DictationFlowState, recordedSeconds: TimeInterval) {
-        switch Self.update(for: state, recordedSeconds: recordedSeconds, now: Date()) {
+    func update(for state: DictationFlowState, recordedSeconds: TimeInterval, notice: String? = nil) {
+        switch Self.update(for: state, recordedSeconds: recordedSeconds, notice: notice, now: Date()) {
         case .show(let content): show(content)
         case .end(let content, let seconds): end(content, after: seconds)
         case .none: break
@@ -38,7 +38,14 @@ import Foundation
 
     /// Review R6a-13: the recorded time travels with every state (frozen while paused), and a pause says whether a
     /// call still has the microphone or the person must tap Resume (the Dictating screen's own wording).
-    static func update(for state: DictationFlowState, recordedSeconds: TimeInterval, now: Date) -> Update {
+    ///
+    /// Review R2-6 (fix round 1): `notice`, why the recording stopped on its own (the coordinator's `captureNotice`: a
+    /// full disk, a microphone that could not restart), reaches the outcome here too. It takes the place of "Copied to
+    /// your clipboard" (the title already says Copied) and comes before a failure's own words, so the two-line detail
+    /// never cuts it off.
+    static func update(
+        for state: DictationFlowState, recordedSeconds: TimeInterval, notice: String? = nil, now: Date
+    ) -> Update {
         let timerStart = now.addingTimeInterval(-recordedSeconds)
         func content(_ phase: DictationActivityAttributes.ContentState.Phase, _ detail: String?)
             -> DictationActivityAttributes.ContentState
@@ -55,14 +62,21 @@ import Foundation
         case .stopping, .pendingStop:
             return .show(content(.finishing, "Transcribing on this iPhone"))
         case .done:
-            return .end(content(.copied, "Copied to your clipboard"), after: 5)
+            return .end(content(.copied, notice ?? "Copied to your clipboard"), after: 5)
         case .failed(let message):
-            return .end(content(.failed, message), after: 8)
+            return .end(content(.failed, notice.map { "\($0) \(message)" } ?? message), after: 8)
         case .cancelled, .idle:
             return .end(nil, after: 0)
         case .starting:
             return .none
         }
+    }
+
+    /// Whether a state may start the activity when none is running: a capturing one. A call that takes the microphone
+    /// while the dictation starts pauses it before it ever says Recording (review R5-10), so Paused starts it too
+    /// (fix round 1); a Finishing update after the app was relaunched has nothing to show.
+    static func startsActivity(_ phase: DictationActivityAttributes.ContentState.Phase) -> Bool {
+        phase == .recording || phase == .paused
     }
 
     private func show(_ state: DictationActivityAttributes.ContentState) {
@@ -73,8 +87,7 @@ import Foundation
             updates.enqueue { await current.update(content) }
             return
         }
-        // Only a recording starts one: a Finishing update after the app was relaunched has nothing to show.
-        guard state.phase == .recording, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard Self.startsActivity(state.phase), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         do {
             activity = try Activity.request(
                 attributes: DictationActivityAttributes(modelName: modelName()), content: content, pushType: nil)

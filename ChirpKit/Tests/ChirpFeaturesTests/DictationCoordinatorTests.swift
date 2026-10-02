@@ -660,10 +660,43 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(saved?.durationMs, 1_000, "the recording's own length")
     }
 
+    /// Fix round 1 (minor 11): an orphan is adopted with words that say what happened. A recording that stopped
+    /// normally (its WAV was closed) but never got its row, the R5-13 path, was not cut short by Parakeet closing;
+    /// one a kill cut short (its WAV header still says 0 s) was.
+    func testLaunchAdoptionSaysWhetherTheRecordingStoppedOrWasCutShort() async throws {
+        let h = Harness(testCase: self)
+        let stopped = UUID()
+        let stoppedFolder = h.paths.mediaDirectory(for: stopped)
+        try FileManager.default.createDirectory(at: stoppedFolder, withIntermediateDirectories: true)
+        try Self.writeRecording(
+            frames: 16_000, to: stoppedFolder.appendingPathComponent(DictationCoordinator.fileName), killed: false)
+        let killed = UUID()
+        let killedFolder = h.paths.mediaDirectory(for: killed)
+        try FileManager.default.createDirectory(at: killedFolder, withIntermediateDirectories: true)
+        try Self.writeKilledRecording(
+            frames: 16_000, to: killedFolder.appendingPathComponent(DictationCoordinator.fileName))
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, 2)
+        let stoppedRow = try await h.row(stopped)
+        XCTAssertEqual(stoppedRow.errorMessage, DictationCoordinator.adoptedAfterStopMessage)
+        XCTAssertFalse(stoppedRow.errorMessage?.contains("closed while") ?? true)
+        let killedRow = try await h.row(killed)
+        XCTAssertEqual(killedRow.errorMessage, DictationCoordinator.adoptedAfterKillMessage)
+        XCTAssertEqual(stoppedRow.status, .interrupted)
+        XCTAssertEqual(killedRow.status, .interrupted)
+    }
+
     /// Writes `frames` of a synthetic tone as the recorder does (AVAudioFile, 16 kHz mono Float32 WAV) and leaves at
     /// `url` exactly what a kill leaves: the file as it is before `close()`.
     static func writeKilledRecording(frames: Int, to url: URL) throws {
-        let open = url.deletingLastPathComponent().appendingPathComponent("open-\(UUID().uuidString).wav")
+        try writeRecording(frames: frames, to: url, killed: true)
+    }
+
+    /// `writeKilledRecording`, or with `killed` false the closed file a normal stop leaves.
+    static func writeRecording(frames: Int, to url: URL, killed: Bool) throws {
+        let open =
+            killed ? url.deletingLastPathComponent().appendingPathComponent("open-\(UUID().uuidString).wav") : url
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000.0, AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false,
@@ -676,6 +709,10 @@ final class DictationCoordinatorTests: XCTestCase {
         buffer.frameLength = AVAudioFrameCount(frames)
         for index in 0..<frames { buffer.floatChannelData![0][index] = 0.3 * sinf(Float(index) * 0.06) }
         try file.write(from: buffer)
+        guard killed else {
+            file.close()
+            return
+        }
         try FileManager.default.copyItem(at: open, to: url)
         file.close()
         try FileManager.default.removeItem(at: open)

@@ -184,15 +184,14 @@ final class RecordingWriter: @unchecked Sendable {
             try writeBuffer(file, converted)
         } catch {
             // Review R2-6: usually a full disk. What was written stays readable; say so once (the dictation then stops
-            // and transcribes it) and write nothing more.
+            // and transcribes it) and write nothing more. The reason leads: the Lock Screen shows it in two lines.
             writeFailed = true
             logger.error("write_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
             continuation?.yield(
                 .event(
                     .failed(
                         message:
-                            "Parakeet could not save more audio (the iPhone may be out of storage), so the dictation "
-                            + "stopped there. What was saved is transcribed.")))
+                            "Stopped early: the iPhone may be out of storage, so Parakeet could not save more audio.")))
             return
         }
         let count = Int(converted.frameLength)

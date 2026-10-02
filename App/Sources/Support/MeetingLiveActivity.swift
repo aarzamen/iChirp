@@ -58,6 +58,13 @@ import Foundation
         }
     }
 
+    /// Whether a state may start the activity when none is running: a capturing one. A call that takes the microphone
+    /// while the meeting starts interrupts it before it ever says Recording, so Paused and Interrupted start it too
+    /// (fix round 1); a Finishing update after the app was relaunched has nothing to show.
+    static func startsActivity(_ phase: MeetingActivityAttributes.ContentState.Phase) -> Bool {
+        phase == .recording || phase == .paused || phase == .interrupted
+    }
+
     private func show(_ state: MeetingActivityAttributes.ContentState, title: String) {
         let content = ActivityContent(state: state, staleDate: nil)
         if let activity {
@@ -66,7 +73,7 @@ import Foundation
             updates.enqueue { await current.update(content) }
             return
         }
-        guard state.phase == .recording, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard Self.startsActivity(state.phase), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         do {
             activity = try Activity.request(
                 attributes: MeetingActivityAttributes(title: title), content: content, pushType: nil)

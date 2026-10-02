@@ -101,6 +101,53 @@ final class SpeechWAVFileTests: XCTestCase {
         XCTAssertEqual(try Self.samples(of: url), samples)
     }
 
+    /// Fix round 1 (minor 1): a repair can itself be killed between two writes. Whatever step it stopped after, the
+    /// next run finishes it: the `data` size, the one the "already finished" check reads, is written last, and a
+    /// `fact` count that disagrees with it is repaired too.
+    func testARepairInterruptedAfterAnyStepIsFinishedByTheNextRun() throws {
+        let samples: [Float] = (0..<3_000).map { Float($0) / 6_000 }
+        let dataBytes = UInt32(samples.count * 4)
+        // (RIFF size, fact count, data size) as each step of an interrupted repair leaves them.
+        let interrupted: [(String, UInt32, UInt32, UInt32)] = [
+            ("killed before the repair", 50, 0, 0),
+            ("after the fact count", 50, UInt32(samples.count), 0),
+            ("after the RIFF size", 50 + dataBytes, UInt32(samples.count), 0),
+            ("the old order: data size written, fact count not", 50 + dataBytes, 0, dataBytes),
+        ]
+        for (label, riff, fact, data) in interrupted {
+            let url = directory.appendingPathComponent("step-\(UUID().uuidString).wav")
+            try SpeechWAVFile.write(samples, to: url)
+            var bytes = try Data(contentsOf: url)
+            bytes.replaceSubrange(4..<8, with: Self.littleEndian(riff))
+            bytes.replaceSubrange(46..<50, with: Self.littleEndian(fact))
+            bytes.replaceSubrange(54..<58, with: Self.littleEndian(data))
+            try bytes.write(to: url)
+
+            let repair = try SpeechWAVFile.repairHeader(at: url)
+            XCTAssertTrue(repair.didRepair, label)
+            XCTAssertEqual(repair.frameCount, samples.count, label)
+            let repaired = try Data(contentsOf: url)
+            XCTAssertEqual(Self.uint32(repaired, at: 4), 50 + dataBytes, label)
+            XCTAssertEqual(Self.uint32(repaired, at: 46), UInt32(samples.count), "fact count: \(label)")
+            XCTAssertEqual(Self.uint32(repaired, at: 54), dataBytes, "data size: \(label)")
+            XCTAssertFalse(try SpeechWAVFile.repairHeader(at: url).didRepair, "finished: \(label)")
+        }
+    }
+
+    /// Fix round 1 (minor 4): a write that is not atomic keeps the file it was asked to write (the same inode, so a
+    /// hard link sees the new audio): nothing is staged under another name a kill could leave behind.
+    func testANonAtomicWriteWritesTheFileItself() throws {
+        let url = directory.appendingPathComponent("window.wav")
+        let link = directory.appendingPathComponent("window-link.wav")
+        try SpeechWAVFile.write([Float](repeating: 0.1, count: 160), to: url)
+        try FileManager.default.linkItem(at: url, to: link)
+        let samples: [Float] = (0..<1_600).map { Float($0) / 3_200 }
+        try SpeechWAVFile.write(samples, to: url, atomically: false)
+        XCTAssertEqual(try Self.samples(of: link), samples, "written in place")
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        XCTAssertEqual(names, ["window-link.wav", "window.wav"], "nothing staged beside it")
+    }
+
     /// A finished WAV with a chunk after its audio (a LIST tag) is well formed: its audio is not stretched over it.
     func testAChunkAfterTheAudioIsNotMistakenForAudio() throws {
         let url = directory.appendingPathComponent("tagged.wav")

@@ -382,8 +382,15 @@ public enum MeetingFlowState: Equatable, Sendable {
         case .interrupted:
             setState(.interrupted)
         case .resumed:
-            captureProblem = nil
-            setState(isUserPaused ? .paused : .recording)
+            guard captureProblem != nil else {
+                setState(isUserPaused ? .paused : .recording)
+                return
+            }
+            // Review R5-3, fix round 1: a failure is still outstanding (a full disk, a microphone that could not
+            // restart). The microphone being back is not enough to say Recording: ask the recorder the way the Resume
+            // button does, and stay waiting until it records again.
+            setState(.waitingForResume)
+            sendToRecorder { [weak self] in await self?.restartMicrophone() }
         case .waitingForResume:
             setState(.waitingForResume)
         case .routeChanged:
@@ -521,7 +528,7 @@ public enum MeetingFlowState: Equatable, Sendable {
                     + "text item.", id: nil)
         } catch {
             logger.error("meeting_too_short_notes_save_failed error_type=\(error.logTypeName, privacy: .public)")
-            try? lockStore.update(sessionId: id) {
+            _ = try? lockStore.update(sessionId: id) {
                 $0.state = .awaitingTranscription
                 $0.notes = notesText
             }

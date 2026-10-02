@@ -54,6 +54,46 @@ final class LiveActivityContentTests: XCTestCase {
         XCTAssertEqual(DictationLiveActivity.update(for: .starting, recordedSeconds: 0, now: now), .none)
     }
 
+    /// Fix round 1 (review R2-6): a dictation that stopped on its own (a full disk, a microphone that could not
+    /// restart) says why on the Lock Screen too, with its outcome. The reason takes the place of "Copied to your
+    /// clipboard" (the title already says Copied) and comes before a failure's own words, so the two-line detail
+    /// never cuts it off.
+    func testADictationThatStoppedOnItsOwnSaysWhyWithTheOutcome() {
+        let notice = "Stopped early: the iPhone may be out of storage, so Parakeet could not save more audio."
+        guard
+            case .end(let copied?, _) = DictationLiveActivity.update(
+                for: .done, recordedSeconds: 12, notice: notice, now: now)
+        else { return XCTFail() }
+        XCTAssertEqual(copied.phase, .copied)
+        XCTAssertEqual(copied.detail, notice)
+        guard
+            case .end(let failed?, _) = DictationLiveActivity.update(
+                for: .failed("Didn’t catch that."), recordedSeconds: 12, notice: notice, now: now)
+        else { return XCTFail() }
+        XCTAssertEqual(failed.phase, .failed)
+        XCTAssertEqual(failed.detail, "\(notice) Didn’t catch that.")
+        guard case .end(let plain?, _) = DictationLiveActivity.update(for: .done, recordedSeconds: 12, now: now)
+        else { return XCTFail() }
+        XCTAssertEqual(plain.detail, "Copied to your clipboard", "an ordinary stop says nothing extra")
+    }
+
+    /// Fix round 1 (minor 3): a call that takes the microphone while a dictation or meeting starts pauses it before it
+    /// ever says Recording; that paused (or interrupted) state starts the activity too. A finishing or finished state
+    /// never does (after a relaunch it has nothing to show).
+    func testEveryCapturingPhaseStartsTheActivityAndNothingElseDoes() {
+        XCTAssertTrue(DictationLiveActivity.startsActivity(.recording))
+        XCTAssertTrue(DictationLiveActivity.startsActivity(.paused))
+        for phase: DictationActivityAttributes.ContentState.Phase in [.finishing, .copied, .failed] {
+            XCTAssertFalse(DictationLiveActivity.startsActivity(phase), "\(phase)")
+        }
+        XCTAssertTrue(MeetingLiveActivity.startsActivity(.recording))
+        XCTAssertTrue(MeetingLiveActivity.startsActivity(.paused))
+        XCTAssertTrue(MeetingLiveActivity.startsActivity(.interrupted))
+        for phase: MeetingActivityAttributes.ContentState.Phase in [.finishing, .saved, .failed] {
+            XCTAssertFalse(MeetingLiveActivity.startsActivity(phase), "\(phase)")
+        }
+    }
+
     // MARK: - Meeting
 
     func testMeetingStatesSayWhatIsTrue() {

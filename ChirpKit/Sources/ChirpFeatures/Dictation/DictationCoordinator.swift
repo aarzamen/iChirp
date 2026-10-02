@@ -474,6 +474,13 @@ public struct DictationTextRules: Sendable {
         }
     }
 
+    /// Launch adoption of a recording a kill cut short (its WAV was never closed).
+    static let adoptedAfterKillMessage =
+        "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
+    /// Fix round 1: launch adoption of a recording that stopped normally but never got its Library row (review R5-13).
+    static let adoptedAfterStopMessage =
+        "This dictation finished recording, but Parakeet couldn’t add it to your Library then. Retry to transcribe it."
+
     /// Review R5-13: the recording is on disk but has no Library row yet.
     static let rowNotAddedMessage =
         "The recording is saved, but Parakeet couldn’t add it to your Library. Tap Retry, or it appears in your Library "
@@ -659,12 +666,19 @@ public struct DictationTextRules: Sendable {
 
     /// "Keep dictation audio" off: deletes the recording after its transcript was saved, then clears the row's media
     /// path in one field-level write (`markAudioRemoved`). Returns the row as updated, or nil when that write failed
-    /// (the transcript is saved either way).
+    /// (the transcript is saved either way; the row keeps a path to a file that is gone, so it shows no player).
     private func removeAudio(of id: UUID, at url: URL) async -> Transcription? {
         try? FileManager.default.removeItem(at: url)
         removeFolder(of: url)
         let store = self.store
-        return try? await Self.detached { try await store.markAudioRemoved(id: id, at: Date()) }
+        do {
+            return try await Self.detached { try await store.markAudioRemoved(id: id, at: Date()) }
+        } catch {
+            logger.error(
+                "dictation_audio_mark_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     /// Moves the row to `.failed` with a readable message; the audio stays for Retry.
@@ -700,13 +714,16 @@ public struct DictationTextRules: Sendable {
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
             // Review R5-4: the kill left the samples with a header that says 0 s; make it describe them first.
             let repaired = await repairInterruptedRecording(wav)
+            // Fix round 1: a header that already described its audio was closed by the recorder, so the dictation
+            // stopped normally and only its row is missing (review R5-13); anything else was cut short by a kill.
+            let stoppedNormally = repaired.map { !$0.didRepair && $0.frameCount > 0 } ?? false
             // Review R5-1: the class the dictation was started with; Clinical when it is unknown.
             let privacyClass = Self.recordedPrivacyClass(in: folder)
             var row = Transcription(
                 id: id, sourceType: .dictation, fileName: "Dictation.wav",
                 mediaRelativePath: paths.relativePath(for: wav), fileSizeBytes: Self.fileSize(wav),
                 durationMs: repaired?.durationMs, status: .interrupted, privacyClass: privacyClass)
-            row.errorMessage = "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
+            row.errorMessage = stoppedNormally ? Self.adoptedAfterStopMessage : Self.adoptedAfterKillMessage
             let orphan = row
             do {
                 try await Self.detached { try await store.insert(orphan) }

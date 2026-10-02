@@ -3,6 +3,11 @@ import XCTest
 
 @testable import ChirpFeatures
 
+/// Every state a meeting coordinator reports, in order.
+@MainActor final class MeetingStateLog {
+    var all: [MeetingFlowState] = []
+}
+
 /// M3 Steps 2 and 5: the meeting flow with a fake recorder, fake engines and a real lock store on disk.
 @MainActor
 final class MeetingCoordinatorTests: XCTestCase {
@@ -145,6 +150,35 @@ final class MeetingCoordinatorTests: XCTestCase {
         await waitUntil { h.coordinator.state == .recording }
         XCTAssertNil(h.coordinator.captureProblem)
         XCTAssertEqual(h.recorder.state.withLock { $0.resumeCalls }, 2)
+        h.coordinator.discard()
+        await h.coordinator.settle()
+    }
+
+    /// Review R5-3, fix round 1: a full disk, then a call, then the call ends and the microphone is back by itself. The
+    /// meeting never says Recording while the recorder still cannot save: it asks the recorder (as Resume does) and
+    /// stays waiting with the reason; once the recorder records again, it is Recording.
+    func testAMicrophoneBackAfterAFullDiskStaysWaitingUntilTheRecorderRecordsAgain() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        _ = try await startRecording(h)
+        let log = MeetingStateLog()
+        h.coordinator.onStateChange = { log.all.append($0) }
+        h.recorder.send(.event(.failed(message: "Parakeet could not save more audio.")))
+        await waitUntil { h.coordinator.state == .waitingForResume }
+        h.recorder.state.withLock { $0.resumeError = FakeError(message: "Parakeet still can't save audio.") }
+        h.recorder.send(.event(.interrupted))
+        await waitUntil { h.coordinator.state == .interrupted }
+        h.recorder.send(.event(.resumed))
+        await waitUntil { h.coordinator.captureProblem == "Parakeet still can't save audio." }
+        let recorder = h.recorder
+        XCTAssertEqual(recorder.state.withLock { $0.resumeCalls }, 1, "it asked the recorder, as Resume does")
+        XCTAssertEqual(h.coordinator.state, .waitingForResume)
+        XCTAssertFalse(log.all.contains(.recording), "never Recording while nothing is saved: \(log.all)")
+
+        recorder.state.withLock { $0.resumeError = nil }
+        h.recorder.send(.event(.resumed))
+        await waitUntil { h.coordinator.state == .recording }
+        XCTAssertNil(h.coordinator.captureProblem)
         h.coordinator.discard()
         await h.coordinator.settle()
     }

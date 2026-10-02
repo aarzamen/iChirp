@@ -396,7 +396,9 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
                 try? FileManager.default.removeItem(at: url)
                 lock.withLock { _ = livePreviewWindows.remove(url) }
             }
-            try SpeechWAVFile.write(window, to: url)
+            // Written in place, not atomically (fix round 1): an atomic write stages the speech under a hidden name of
+            // its own choosing, which a kill could leave behind where nothing tracks it.
+            try SpeechWAVFile.write(window, to: url, atomically: false)
             return try await live.transcribe(fileAt: url, options: passOptions, progress: { _ in }).text
         }
         await session.startTicking()
@@ -411,14 +413,15 @@ public final class SpeechEngineRouter: SpeechEngineRouting, @unchecked Sendable 
     }
 
     /// Deletes the preview windows a killed launch left in `<tmp>/live-preview/` (a kill between writing a window and
-    /// deleting it leaves the person's speech on disk). A window this router is transcribing is never touched, and
+    /// deleting it leaves the person's speech on disk). Hidden files count too: the folder is the router's own, so
+    /// anything in it is a window or a write of one. A window this router is transcribing is never touched, and
     /// nothing outside the folder is. Call once at launch. Returns how many files it removed.
     @discardableResult
     public func sweepStaleLivePreviewAudio() -> Int {
         let folder = livePreviewFolder
         guard
             let names = try? FileManager.default.contentsOfDirectory(
-                at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+                at: folder, includingPropertiesForKeys: nil, options: [])
         else { return 0 }
         let inUse = lock.withLock { Set(livePreviewWindows.map(\.lastPathComponent)) }
         var removed = 0

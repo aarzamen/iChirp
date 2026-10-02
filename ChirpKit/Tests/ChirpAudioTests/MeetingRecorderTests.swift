@@ -194,6 +194,62 @@ final class MeetingRecorderTests: XCTestCase {
         XCTAssertTrue(message.contains("storage"), message)
     }
 
+    /// Review R5-3, fix round 1: after a full disk, the microphone coming back by itself (a call ending with
+    /// `shouldResume`) must not let the meeting say Recording while nothing can be saved. The stream's `.resumed` is
+    /// followed by `.failed` with the reason, and nothing more is written.
+    func testAMicrophoneBackAfterAFullDiskIsFollowedByTheFailureWhileWritesStillFail() async throws {
+        let h = Harness()
+        let updates = collect(try await h.recorder.start(recordingTo: outputURL))
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // 0.5 s saved
+        let full = FakeAudioError(message: "No space left on device")
+        await h.recorder.onProcessingQueue { writer in
+            writer.writeBuffer = { _, _ in throw full }
+            writer.probeWrite = { _ in throw full }
+        }
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // fails: reported
+        h.platform.emit(.interruptionBegan)
+        h.platform.emit(.interruptionEnded(shouldResume: true))  // the engine is rebuilt: the stream says .resumed
+        await h.stream.drain()
+        await h.recorder.onProcessingQueue { _ in }  // that event has reached the writer
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // still nothing can be saved
+        let recorded = try await h.recorder.stop()
+
+        XCTAssertEqual(Double(recorded.sampleCount), 8_000, accuracy: 80)
+        let events = await updates.value.compactMap { update -> CaptureEvent? in
+            if case .event(let event) = update { event } else { nil }
+        }
+        XCTAssertEqual(events.count, 4, "\(events)")
+        XCTAssertEqual(Array(events.dropFirst().prefix(2)), [.interrupted, .resumed])
+        XCTAssertEqual(events.last, .failed(message: MeetingRecordingError.cannotSaveAudio.errorDescription ?? ""))
+    }
+
+    /// Space was freed while the call had the microphone: the stream's `.resumed` re-arms the writer, into the same
+    /// file.
+    func testAMicrophoneBackAfterSpaceWasFreedRecordsAgain() async throws {
+        let h = Harness()
+        let updates = collect(try await h.recorder.start(recordingTo: outputURL))
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // 0.5 s saved
+        let full = FakeAudioError(message: "No space left on device")
+        await h.recorder.onProcessingQueue { writer in writer.writeBuffer = { _, _ in throw full } }
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // fails: reported
+        h.platform.emit(.interruptionBegan)
+        await h.recorder.onProcessingQueue { writer in
+            writer.writeBuffer = { file, buffer in try file.write(from: buffer) }
+            writer.probeWrite = { _ in }
+        }
+        h.platform.emit(.interruptionEnded(shouldResume: true))
+        await h.stream.drain()
+        await h.recorder.onProcessingQueue { _ in }
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // 0.5 s saved
+        let recorded = try await h.recorder.stop()
+
+        XCTAssertEqual(Double(recorded.sampleCount), 16_000, accuracy: 160, "both saved halves, one file")
+        let events = await updates.value.compactMap { update -> CaptureEvent? in
+            if case .event(let event) = update { event } else { nil }
+        }
+        XCTAssertEqual(Array(events.dropFirst()), [.interrupted, .resumed], "\(events)")
+    }
+
     /// The probe proves the volume takes writes: it writes next to the recording and leaves nothing behind.
     func testTheWriteProbeLeavesNothingBehind() throws {
         try MeetingAudioWriter.probeFreeSpace(nextTo: outputURL)

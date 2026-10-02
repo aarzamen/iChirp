@@ -279,6 +279,9 @@ final class SpeechEngineRouterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let stale = folder.appendingPathComponent("live-preview-\(UUID().uuidString).wav")
         try Data(repeating: 1, count: 64).write(to: stale)
+        // Fix round 1 (minor 4): a hidden leftover in its own folder (a staging file a kill can leave) goes too.
+        let hidden = folder.appendingPathComponent(".live-preview-staging-\(UUID().uuidString)")
+        try Data(repeating: 4, count: 64).write(to: hidden)
         let sibling = directory.appendingPathComponent("live-preview-not-in-the-folder.wav")
         try Data(repeating: 2, count: 64).write(to: sibling)
         let whisper = PreviewWatchingEngine(id: SpeechEngineCapabilityRegistry.whisperKitEngineID, directory: directory)
@@ -288,8 +291,9 @@ final class SpeechEngineRouterTests: XCTestCase {
             ],
             selection: SpeechRouteSelection(live: whisperKey, final: parakeetKey), temporaryDirectory: directory)
 
-        XCTAssertEqual(router.sweepStaleLivePreviewAudio(), 1)
+        XCTAssertEqual(router.sweepStaleLivePreviewAudio(), 2)
         XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path), "a killed launch's window goes")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hidden.path), "hidden files in its own folder go too")
         XCTAssertTrue(FileManager.default.fileExists(atPath: sibling.path), "nothing outside the folder is touched")
 
         // A sweep while this router transcribes a window leaves that window alone.

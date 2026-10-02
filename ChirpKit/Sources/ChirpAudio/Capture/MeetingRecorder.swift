@@ -60,7 +60,9 @@ public final class MeetingRecorder: MeetingAudioCapturing {
             do {
                 let token = try await stream.subscribe(
                     onEvent: { event in
-                        queue.async { continuation.yield(.event(event)) }
+                        // Through the writer, on the processing queue (review R5-3, fix round 1): it decides whether
+                        // the microphone being back also means audio is saved again.
+                        queue.async { writer.handle(event) }
                     },
                     handler: { buffer, _ in
                         guard let copy = copyPCMBufferForAsyncUse(buffer) else { return }
@@ -233,6 +235,20 @@ final class MeetingAudioWriter: @unchecked Sendable {
         file = nil
         let durationMs = Int((Double(sampleCount) * 1000 / Double(SpeechAudio.sampleRate)).rounded())
         return RecordedAudio(url: url, durationMs: durationMs, sampleCount: sampleCount)
+    }
+
+    /// Passes a microphone event on, in order with the audio around it. Review R5-3, fix round 1: the stream's own
+    /// `.resumed` (a call ending with `shouldResume`, a media-services reset) does not mean audio is saved again after
+    /// a write failure. On `.resumed` the writer tries to re-arm (`resumeWriting`); when the test write still fails,
+    /// `.failed` follows with the reason, so the meeting goes back to waiting instead of saying Recording.
+    func handle(_ event: CaptureEvent) {
+        continuation?.yield(.event(event))
+        guard event == .resumed, writeFailed else { return }
+        do {
+            try resumeWriting()
+        } catch {
+            continuation?.yield(.event(.failed(message: MeetingRecordingError.cannotSaveAudio.errorDescription ?? "")))
+        }
     }
 
     /// Re-arms a writer whose write failed (review R5-3) once a test write next to the recording succeeds; throws

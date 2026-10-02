@@ -6,7 +6,9 @@ import Foundation
 /// `write` is used for a meeting's short live-preview chunks (M3), which go through `SpeechEngine.transcribe(fileAt:)`
 /// like any file. The header is complete when the call returns; these files are temporary and never user data.
 public enum SpeechWAVFile {
-    public static func write(_ samples: [Float], sampleRate: Int = SpeechAudio.sampleRate, to url: URL) throws {
+    public static func write(
+        _ samples: [Float], sampleRate: Int = SpeechAudio.sampleRate, to url: URL, atomically: Bool = true
+    ) throws {
         let dataBytes = samples.count * 4
         var data = Data(capacity: 58 + dataBytes)
         func ascii(_ text: String) { data.append(contentsOf: Array(text.utf8)) }
@@ -34,7 +36,9 @@ public enum SpeechWAVFile {
                 withUnsafeBytes(of: sample.bitPattern.littleEndian) { data.append(contentsOf: $0) }
             }
         }
-        try data.write(to: url, options: .atomic)
+        // `atomically: false` (fix round 1, minor 4) writes the file itself: an atomic write stages the bytes under
+        // another name first, which a kill can leave where a sweep of this file's folder does not look.
+        try data.write(to: url, options: atomically ? .atomic : [])
     }
 }
 
@@ -114,10 +118,15 @@ extension SpeechWAVFile {
         let declared = UInt64(uint32(bytes, dataSizeOffset))
         let frames = { (byteCount: UInt64) in Int(byteCount / UInt64(blockAlign)) }
 
-        if declared == complete {
+        // A `fact` count that disagrees with the data is unfinished too: a repair that was killed between its writes
+        // (fix round 1).
+        let factAgrees = { (byteCount: UInt64) in
+            factCountOffset.map { UInt64(uint32(bytes, $0)) == byteCount / UInt64(blockAlign) } ?? true
+        }
+        if declared == complete, factAgrees(complete) {
             return HeaderRepair(didRepair: false, frameCount: frames(complete), sampleRate: sampleRate)
         }
-        if declared & 1 == 1, declared + 1 == onDisk {
+        if declared & 1 == 1, declared + 1 == onDisk, factAgrees(declared) {
             // A finished file whose odd-sized audio ends with RIFF's pad byte.
             return HeaderRepair(didRepair: false, frameCount: frames(declared), sampleRate: sampleRate)
         }
@@ -130,21 +139,24 @@ extension SpeechWAVFile {
         }
         guard dataStart + complete - 8 <= UInt64(UInt32.max) else { throw HeaderRepairError.tooLarge }
 
-        // Opened for writing only now: a finished file needs no write access at all.
+        // Opened for writing only now: a finished file needs no write access at all. The `data` size, which the
+        // "already finished" check above reads, is written last (fix round 1, minor 1): a repair killed after any
+        // earlier step leaves a file the next run still repairs.
         let writer = try FileHandle(forUpdating: url)
         defer { try? writer.close() }
-        try writer.seek(toOffset: 4)
-        try writer.write(contentsOf: littleEndian(UInt32(dataStart + complete - 8)))
-        try writer.seek(toOffset: UInt64(dataSizeOffset))
-        try writer.write(contentsOf: littleEndian(UInt32(complete)))
-        if let factCountOffset {
-            try writer.seek(toOffset: UInt64(factCountOffset))
-            try writer.write(contentsOf: littleEndian(UInt32(frames(complete))))
-        }
         if complete < onDisk {
             // Less than one frame: what a kill in the middle of a write can leave. It cannot be played.
             try writer.truncate(atOffset: dataStart + complete)
         }
+        if let factCountOffset {
+            try writer.seek(toOffset: UInt64(factCountOffset))
+            try writer.write(contentsOf: littleEndian(UInt32(frames(complete))))
+        }
+        try writer.seek(toOffset: 4)
+        try writer.write(contentsOf: littleEndian(UInt32(dataStart + complete - 8)))
+        try writer.synchronize()
+        try writer.seek(toOffset: UInt64(dataSizeOffset))
+        try writer.write(contentsOf: littleEndian(UInt32(complete)))
         try writer.synchronize()
         return HeaderRepair(didRepair: true, frameCount: frames(complete), sampleRate: sampleRate)
     }

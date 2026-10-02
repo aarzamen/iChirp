@@ -185,10 +185,15 @@ pipeline's `Task`s and publishes its progress to the UI.
   before the final pass. Review R5-7: with "Keep dictation audio" off, the WAV is deleted only after the transcript
   is saved, then `markAudioRemoved` clears the row's media path (a failed save keeps the audio for Retry).
   Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) finishes with
-  what was saved and `captureNotice` says why; the Dictating screen shows it with the outcome.
+  what was saved and `captureNotice` says why; the Dictating screen and the Lock Screen's Live Activity show it with
+  the outcome.
   Review R5-4: a WAV the app was killed while writing holds its samples but its header says 0 s; adoption and every
   final pass first run `SpeechWAVFile.repairHeader` (off the main actor; a finished file is not touched), so Retry
-  transcribes what was kept and the adopted row gets its length.
+  transcribes what was kept and the adopted row gets its length. The adopted row says what happened (fix round 1): a
+  header the recorder had already closed means the dictation stopped normally and only its row was missing (R5-13,
+  `adoptedAfterStopMessage`); a header that needed the repair means Parakeet closed while recording
+  (`adoptedAfterKillMessage`). With "Keep dictation audio" off, a failed `markAudioRemoved` is logged (ids only): the
+  transcript is saved and the row shows no player, since its file is gone.
 - `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
   (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
   ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final
@@ -285,8 +290,11 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `awaitingTranscription`, inserts the `.processing` meeting row with the notes, and runs the finalizer. Pause and
   mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
   after typing stops and, at Stop, first, before the recorder stops (review R5-12). A full disk shows
-  `captureProblem` in `waitingForResume`; Resume returns to Recording only once the recorder records again (review
-  R5-3: it refuses while a test write still fails). The final pass's progress is clamped, never goes backwards and is
+  `captureProblem` in `waitingForResume`; Resume returns to Recording only once the recorder's `resume()` succeeds
+  (review R5-3: it refuses while a test write still fails). A `.resumed` event while a problem is outstanding (the
+  microphone back by itself after a call) is not enough either: the coordinator stays in `waitingForResume`, asks the
+  recorder as Resume does, and says Recording only when that succeeds (fix round 1). The final pass's progress is
+  clamped, never goes backwards and is
   ignored after the pass (review R5-16, as dictation). The only deletes: `discard()` (the screen confirms first), a
   start that failed before any audio, and a recording under 0.3 s (the dictation rule), whose typed notes are first
   saved as a text item (review R5-6; if that fails nothing is deleted and the lock keeps them for the next launch's

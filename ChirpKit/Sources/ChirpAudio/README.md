@@ -183,10 +183,16 @@ read).
   never deletes one: `stop` keeps even a short recording and `cancel` only
   closes it. A write failure (a full disk) is reported once as
   `CaptureEvent.failed`; what was written stays readable. Review R5-3:
-  `resume()` writes again only after a test write next to the recording
-  (`MeetingAudioWriter.probeFreeSpace`, 1 MB, deleted at once) succeeds, and
-  throws `MeetingRecordingError.cannotSaveAudio` until then, so the meeting
-  never shows Recording while nothing is saved. The file goes on where it
+  writing starts again only after a test write next to the recording
+  (`MeetingAudioWriter.probeFreeSpace`, 1 MB, deleted at once) succeeds.
+  `resume()` throws `MeetingRecordingError.cannotSaveAudio` until then, and
+  the microphone stream's own events reach the meeting through the writer on
+  the processing queue (fix round 1): when the stream says `.resumed` by
+  itself (a call ending with `shouldResume`, a media-services reset) after a
+  failed write, the writer runs the same test write, and while it still fails
+  `.failed` with that reason follows the `.resumed`. ChirpFeatures'
+  `MeetingCoordinator` also waits for its own `resume()` to succeed before it
+  says Recording. The file goes on where it
   stopped: measured with a forced write failure, AVAudioFile writes the next
   whole frame after the last one saved, so the lost buffers are simply
   missing, like a pause.
