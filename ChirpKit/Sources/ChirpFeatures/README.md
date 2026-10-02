@@ -103,7 +103,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   (podcast lookup, feed read or content-type probe; nothing is created), `createRow(for:privacyClass:)` inserts the
   `.processing` row with `sourceURL` / `sourceTitle` (and its class from the first write, default `personal`), `download(id:from:)` fetches into `media/<id>/source.<ext>` with
   `.downloading` progress and records the file (failure → `failed` with a message, cancel → `cancelled`, partial file
-  kept), and `retryDownload(id:)` resumes it. `importCaptions(videoID:link:privacyClass:)` (Step 3) stores a YouTube video's captions as a
+  kept), and `retryDownload(id:)` resumes it (from the address the partial download recorded; a 401 or 403 there, an
+  expired signed address, resolves the stored link again once). A web link downloads from the link itself, never the
+  probe's redirect target, so a signed, expiring redirect is followed afresh (review R2-12). `importCaptions(videoID:link:privacyClass:)` (Step 3) stores a YouTube video's captions as a
   `.completed` `.url` row (words timed across each caption, segments, `engine` `youtube.captions`, no audio); no row
   on failure. `needsDownload(_:)` tells Retry which path a link row takes; the file
   pipeline then runs unchanged. Downloads never hold a speech-scheduler slot. Plan 019: `LinkMediaSource.transport`

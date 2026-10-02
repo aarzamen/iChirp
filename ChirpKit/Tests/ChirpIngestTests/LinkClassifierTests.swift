@@ -52,6 +52,71 @@ final class LinkClassifierTests: XCTestCase {
         XCTAssertEqual(kind, .directMedia(URL(string: "https://cdn.example.com/audio/episode-12.mp3")!))
     }
 
+    /// Review R2-2: a pasted bare host becomes an https link (iOS would block the http one), and a link inside
+    /// shared text keeps its own scheme.
+    func testABareHostBecomesAnHTTPSLink() {
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com/talk.mp3"),
+            .directMedia(URL(string: "https://cdn.example.com/talk.mp3")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("  feeds.example.com/show.rss \n"),
+            .podcastFeed(URL(string: "https://feeds.example.com/show.rss")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("Listen: http://cdn.example.com/a.mp3"),
+            .directMedia(URL(string: "http://cdn.example.com/a.mp3")!))
+        XCTAssertEqual(LinkClassifier.classify("mailto:someone@example.com"), .unsupported(.notWeb))
+        XCTAssertFalse(UnsupportedLink.notWeb.message.contains("(https)"), "http links are accepted too")
+    }
+
+    /// Fix round 1: a pasted e-mail address is never turned into a web link (Transcribe would send a request to its
+    /// domain), and a link that carries a user name or password is refused rather than sent.
+    func testEmailAddressesAndLinksWithCredentialsAreNotUsable() {
+        XCTAssertEqual(LinkClassifier.classify("jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        XCTAssertEqual(LinkClassifier.classify("Contact jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        for link in ["https://jane@cdn.example.com/a.mp3", "https://jane:secret@cdn.example.com/a.mp3"] {
+            XCTAssertEqual(LinkClassifier.classify(link), .unsupported(.credentials), link)
+            XCTAssertFalse(LinkClassifier.classify(link).isActionable, link)
+        }
+        XCTAssertFalse(UnsupportedLink.credentials.message.isEmpty)
+        // An "@" in the path is not user info.
+        XCTAssertEqual(
+            LinkClassifier.classify("https://media.example.com/@synthetic/talk.mp3"),
+            .directMedia(URL(string: "https://media.example.com/@synthetic/talk.mp3")!))
+    }
+
+    /// Fix round 2: only an "@" before the path makes bare text an e-mail address (or user info); an "@" in a bare
+    /// link's path or query keeps it a link, and it still becomes https.
+    func testAnAtSignInABareLinksPathOrQueryKeepsItALink() {
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com/a.mp3?from=a@b.org"),
+            .directMedia(URL(string: "https://cdn.example.com/a.mp3?from=a@b.org")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com/@show/ep1.mp3"),
+            .directMedia(URL(string: "https://cdn.example.com/@show/ep1.mp3")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com?ref=a@b.org"),
+            .webLink(URL(string: "https://cdn.example.com?ref=a@b.org")!))
+        // The e-mail cases are unchanged.
+        XCTAssertEqual(LinkClassifier.classify("jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        XCTAssertEqual(LinkClassifier.classify("Contact jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        XCTAssertFalse(LinkClassifier.classify("jane.doe@clinic.example.org/notes").isActionable)
+        XCTAssertEqual(
+            LinkClassifier.classify("https://jane:secret@cdn.example.com/a.mp3"), .unsupported(.credentials))
+    }
+
+    /// Review R2-19: the "YouTube page" refusal applies to youtube.com and its subdomains only, the same host rule as
+    /// the other platforms.
+    func testOnlyYouTubeHostsAreTreatedAsYouTubePages() {
+        XCTAssertEqual(
+            LinkClassifier.classify("https://notyoutube.com/some/page"),
+            .webLink(URL(string: "https://notyoutube.com/some/page")!))
+        for page in ["https://youtube.com/@somechannel", "https://music.youtube.com/channel/abc"] {
+            XCTAssertEqual(
+                LinkClassifier.classify(page),
+                .unsupported(.platform(name: "this YouTube page (open a single video and share its link)")), page)
+        }
+    }
+
     func testYouTubeVideoIdIsExtracted() {
         guard case .youtube(let id, _) = LinkClassifier.classify("youtube.com/watch?v=AAAAAAAAAAA&list=x") else {
             return XCTFail("expected YouTube")

@@ -69,13 +69,28 @@ capability, an account change the owner must approve.
 (the lookup, the feed, or a content-type probe for other web links) → a `.processing` row with `sourceURL` →
 `MediaDownloader` into `media/<id>/source.<ext>` with byte progress ("Downloading · NN%"), cancel, and resume on
 Retry (`Range` + `If-Range`) → the unchanged file pipeline. A web page, an X/TikTok/Instagram/Facebook/Vimeo/
-SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a message that says what to do instead.
+SoundCloud/Twitch/Spotify link, a link carrying a user name or password, or an Ogg/Opus/WebM file is refused with a
+message that says what to do instead (a pasted e-mail address is never read as a web link);
+an Ogg/Opus/WebM episode reached through a feed or the lookup, or a link whose server answers with such a content
+type, is refused the same way before any byte is saved (review R2-9).
 
 - `https://itunes.apple.com/lookup?id=<showId>&entity=podcastEpisode&limit=200` returns episode audio URLs
   (`episodeUrl`), the feed (`feedUrl`) and ids (`trackId`). Looking up an episode id directly returns nothing, so match
   the `?i=` value from the share link against the show's episodes, with the RSS feed as a fallback (port of upstream
   `PodcastEpisodeResolver`).
 - Download to a file with `URLSession`, then decode with `AVAssetReader` (documented for files).
+- **Resume and Retry (review R2-12).** A resumed download continues only when the server's 206 carries the stored
+  ETag (or Last-Modified); otherwise it starts over, so a changed file is never joined to the old one's prefix. A
+  web link downloads from the link itself (its redirect is followed afresh each time, so a signed, expiring redirect
+  does not break Retry), and a Retry whose recorded download address is refused (HTTP 401 or 403) resolves the stored
+  link once more before failing.
+- A feed link (RSS or Atom) takes the feed's newest episode by publication date, so a serial podcast whose feed
+  lists episode 1 first still gives its latest episode; feed order decides only when no date can be read.
+- **Plain http (review R2-2).** iOS blocks plain http to internet hosts (App Transport Security; the app allows it
+  only on the home network, and that setting is not loosened). A pasted bare host becomes `https://`, and every
+  request and redirect for an `http://` link to an internet host (an older feed's enclosure, a pasted link) asks for
+  the same address over https (`SecureLink`). Home-network hosts keep http. When the server has no working https,
+  the row fails with a plain sentence saying so and suggesting an https link or sharing the file.
 
 ## YouTube (M5): ranked strategy
 
@@ -117,7 +132,10 @@ submitted. Option 2 stays a possible later addition for use away from home.
 `DocumentImportPipeline` copies it into `media/<id>/source.pdf`, inserts a `.document` row, and extracts on device:
 PDFKit per page, and for a page with (almost) no text layer, the page rendered to an image and read with Vision
 `RecognizeDocumentsRequest` (falling back to `RecognizeTextRequest`). `documentPages` records each page's method.
-Password-protected, damaged and text-free PDFs fail with a message and Retry.
+Password-protected, damaged and text-free PDFs fail with a message and Retry. Every page Vision reads keeps all the
+documents it detects, and a page the documents request reads as empty falls back to line recognition (review R2-16).
+Extraction (file reads, parsing, PDF text and rendering) runs on a dedicated dispatch queue, never Swift's
+cooperative pool, and a cancelled import stops between pages or parsing steps (review R2-7).
 
 | Format | Method |
 |---|---|
@@ -125,5 +143,5 @@ Password-protected, damaged and text-free PDFs fail with a message and Retry.
 | Scanned PDF pages | Render the page to an image, then Vision `RecognizeDocumentsRequest` (iOS 26; paragraphs, tables, lists) |
 | TXT, Markdown | Read as UTF-8 text (BOM-marked UTF-16 and Windows-1252 also read; binary refused); a Markdown heading is the title. **Built** |
 | RTF | `NSAttributedString` (supported on iOS). **Built** |
-| HTML | **Built with a small converter instead of `NSAttributedString`**: its HTML import must run on the main thread and loads WebKit. Blocks, list items and cells keep their structure; scripts, styles and markup are dropped; `<title>` is the title |
-| DOCX | Unzip and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only. **Built on Foundation** (`ZipArchiveReader`: central directory, `NSData` raw-DEFLATE inflate, CRC-32) instead of ZIPFoundation, so no new dependency |
+| HTML | **Built with a small converter instead of `NSAttributedString`**: its HTML import must run on the main thread and loads WebKit. Blocks, list items and cells keep their structure; scripts, styles and markup are dropped; `<title>` is the title; HTML 4's named entities and HTML5's clinical ones (`&ge;`, `&le;`, `&minus;`, `&mu;` …) decode |
+| DOCX | Unzip and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only. **Built on Foundation** (`ZipArchiveReader`: central directory, raw-DEFLATE inflate in 64 KB steps that stops once an entry passes its declared size, CRC-32) instead of ZIPFoundation, so no new dependency. Symbol-font characters (`w:sym`: ≥ ≤ ± ° µ …, Word's check boxes; anything unmappable shows as U+FFFD, never dropped) and non-breaking hyphens are kept; a text box Word writes twice (`mc:AlternateContent`) is read once (review R2-3, R2-5) |

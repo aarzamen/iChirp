@@ -5,6 +5,10 @@ import PDFKit
 
 /// A PDF's text, page by page: the PDF's own text layer (PDFKit) when a page has one, otherwise the page rendered to
 /// an image and read with on-device text recognition (`PageTextRecognizing`, Vision). Nothing leaves the phone.
+///
+/// Opening the file, each page's text layer and each page's rendering block their thread, so they run on the ingest
+/// document queue (`BlockingWork`), one page at a time; recognition is awaited between them. Cancelling stops between
+/// pages.
 struct PDFTextExtractor: Sendable {
     /// A page whose text layer has fewer visible characters than this is also read with OCR (a scan often carries
     /// only a page number or a stamp as text); the longer result wins.
@@ -16,12 +20,7 @@ struct PDFTextExtractor: Sendable {
     private let logger = Log.logger("documents")
 
     func extract(from url: URL, progress: @escaping @Sendable (Int, Int) -> Void) async throws -> ExtractedDocument {
-        guard let document = PDFDocument(url: url) else {
-            throw DocumentExtractionError.unreadable(.pdf)
-        }
-        if document.isLocked {
-            throw DocumentExtractionError.passwordProtected
-        }
+        let document = try await BlockingWork.run { _ in try OpenedPDF(url: url) }
         let count = document.pageCount
         guard count > 0 else { throw DocumentExtractionError.noText(.pdf) }
         progress(0, count)
@@ -31,15 +30,12 @@ struct PDFTextExtractor: Sendable {
         var ocrPages = 0
         for index in 0..<count {
             try Task.checkCancellation()
-            guard let page = document.page(at: index) else { continue }
-            let layerText = DocumentTextExtractor.tidy(page.string ?? "")
+            guard let page = try await BlockingWork.run({ _ in document.read(pageAt: index) }) else { continue }
             var chosen = DocumentPage(
-                number: index + 1, text: layerText, method: layerText.isEmpty ? .empty : .textLayer)
-            if Self.visibleCharacterCount(layerText) < Self.minimumTextLayerCharacters,
-                let image = Self.render(page)
-            {
+                number: index + 1, text: page.layerText, method: page.layerText.isEmpty ? .empty : .textLayer)
+            if let image = page.imageForOCR {
                 let recognized = DocumentTextExtractor.tidy(try await recognizer.recognizeText(in: image))
-                if Self.visibleCharacterCount(recognized) > Self.visibleCharacterCount(layerText) {
+                if Self.visibleCharacterCount(recognized) > Self.visibleCharacterCount(page.layerText) {
                     chosen = DocumentPage(number: index + 1, text: recognized, method: .ocr)
                     ocrPages += 1
                 }
@@ -53,9 +49,41 @@ struct PDFTextExtractor: Sendable {
             "pdf_extracted pages=\(count, privacy: .public) ocr_pages=\(ocrPages, privacy: .public) chars=\(text.count, privacy: .public)"
         )
         guard !text.isEmpty else { throw DocumentExtractionError.noText(.pdf) }
-        let title = DocumentTextExtractor.plausibleTitle(
-            document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)
-        return ExtractedDocument(text: text, pages: pages, title: title)
+        return ExtractedDocument(text: text, pages: pages, title: DocumentTextExtractor.plausibleTitle(document.title))
+    }
+
+    /// One page as read on the document queue: its tidied text layer, and its rendering when the layer is too thin.
+    struct PageRead: Sendable {
+        var layerText: String
+        var imageForOCR: CGImage?
+    }
+
+    /// An open PDF, handed from one document-queue step to the next.
+    ///
+    /// `@unchecked Sendable`: `PDFDocument` is not Sendable; this wrapper is used by one extraction only, and every use
+    /// runs on the document queue strictly one after another (each step is awaited before the next starts), so the
+    /// document is never touched from two threads at once.
+    final class OpenedPDF: @unchecked Sendable {
+        private let document: PDFDocument
+        let pageCount: Int
+        let title: String?
+
+        /// Opens `url` (blocking). Throws when the file is not a PDF or is password-protected.
+        init(url: URL) throws {
+            guard let document = PDFDocument(url: url) else { throw DocumentExtractionError.unreadable(.pdf) }
+            if document.isLocked { throw DocumentExtractionError.passwordProtected }
+            self.document = document
+            pageCount = document.pageCount
+            title = document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
+        }
+
+        /// Page `index`'s text layer, rendered for OCR when it has fewer than `minimumTextLayerCharacters` (blocking).
+        func read(pageAt index: Int) -> PageRead? {
+            guard let page = document.page(at: index) else { return nil }
+            let layerText = DocumentTextExtractor.tidy(page.string ?? "")
+            let thin = PDFTextExtractor.visibleCharacterCount(layerText) < PDFTextExtractor.minimumTextLayerCharacters
+            return PageRead(layerText: layerText, imageForOCR: thin ? PDFTextExtractor.render(page) : nil)
+        }
     }
 
     static func visibleCharacterCount(_ text: String) -> Int {

@@ -10,6 +10,22 @@ struct IngestStubResponse: Sendable {
     var chunks: [Data] = []
     /// When true, the stub sends the headers and the first chunk, then never finishes (until the task is cancelled).
     var hangsAfterFirstChunk = false
+    /// When set, the body is `count` copies of `chunk`, sent one at a time from the stub's own queue. After each one
+    /// the stub waits (up to 50 ms) for the client to stop the load, and stops sending once it has, like a server
+    /// whose connection was closed. `IngestStubURLProtocol.deliveredBytes` counts what was sent.
+    var streamed: (chunk: Data, count: Int)?
+    /// When set, the answer is a redirect (`status`, 302 by default) to this URL, which the client then requests.
+    var redirectTo: URL?
+    /// When set, the request fails with this transport error instead of answering.
+    var failure: URLError?
+
+    static func redirect(to url: URL, status: Int = 302) -> IngestStubResponse {
+        IngestStubResponse(status: status, headers: ["Location": url.absoluteString], redirectTo: url)
+    }
+
+    static func fail(_ code: URLError.Code) -> IngestStubResponse {
+        IngestStubResponse(failure: URLError(code))
+    }
 
     static func body(_ data: Data, status: Int = 200, contentType: String?, extraHeaders: [String: String] = [:])
         -> IngestStubResponse
@@ -47,9 +63,19 @@ final class IngestStubURLProtocol: URLProtocol, @unchecked Sendable {
     private struct State {
         var handler: (@Sendable (IngestRecordedRequest) -> IngestStubResponse)?
         var requests: [IngestRecordedRequest] = []
+        var deliveredBytes = 0
     }
 
     private static let state = Mutex(State())
+    private static let streamQueue = DispatchQueue(label: "IngestStubURLProtocol.stream")
+    /// Signalled by `stopLoading` (the client cancelled or finished the task).
+    private let stopped = DispatchSemaphore(value: 0)
+    private let isStopped = Mutex(false)
+
+    /// Body bytes the stub has sent since the last `reset`.
+    static var deliveredBytes: Int {
+        state.withLock { $0.deliveredBytes }
+    }
 
     static func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
@@ -62,6 +88,7 @@ final class IngestStubURLProtocol: URLProtocol, @unchecked Sendable {
         state.withLock {
             $0.handler = handler
             $0.requests = []
+            $0.deliveredBytes = 0
         }
     }
 
@@ -84,13 +111,28 @@ final class IngestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return state.handler
         }
         let response = handler?(recorded) ?? IngestStubResponse(status: 500, chunks: [Data("no stub".utf8)])
+        if let failure = response.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
         let http = HTTPURLResponse(
             url: request.url!, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: response.headers)!
+        if let target = response.redirectTo {
+            var next = URLRequest(url: target)
+            next.allHTTPHeaderFields = request.allHTTPHeaderFields
+            next.httpMethod = request.httpMethod
+            client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: http)
+            return
+        }
         client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
         if response.hangsAfterFirstChunk {
             if let first = response.chunks.first {
                 client?.urlProtocol(self, didLoad: first)
             }
+            return
+        }
+        if let streamed = response.streamed {
+            Self.streamQueue.async { [self] in stream(streamed.chunk, count: streamed.count) }
             return
         }
         for chunk in response.chunks {
@@ -99,7 +141,20 @@ final class IngestStubURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    private func stream(_ chunk: Data, count: Int) {
+        for _ in 0..<count {
+            if isStopped.withLock({ $0 }) { return }
+            client?.urlProtocol(self, didLoad: chunk)
+            Self.state.withLock { $0.deliveredBytes += chunk.count }
+            if stopped.wait(timeout: .now() + .milliseconds(50)) == .success { return }
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {
+        isStopped.withLock { $0 = true }
+        stopped.signal()
+    }
 
     private static func readBody(_ request: URLRequest) -> Data {
         if let body = request.httpBody { return body }

@@ -1,8 +1,10 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Services/PodcastEpisodeResolver.swift @ bbae9e0e
 // Changes: requests go through `IngestHTTPClient` (ephemeral session, readable network errors) instead of
 // `URLSession.shared`; an episode missing from the show's lookup (older than its latest 200) falls back to the RSS
-// feed, matched by the share link's title slug (`PodcastEpisodeMatcher.findByTitle` semantics on slugs); a show whose
-// lookup lists no episode also falls back to the feed; `latestEpisode(inFeed:)` serves plain feed links.
+// feed, matched by the share link's title slug (`PodcastEpisodeMatcher.findByTitle` semantics on slugs, narrowed:
+// a prefix match must end on a word boundary, the longest wins, and ties or very short titles match nothing); a show
+// whose lookup lists no episode also falls back to the feed; `latestEpisode(inFeed:)` serves plain feed links; an
+// episode whose audio iOS cannot decode (Ogg, Opus, WebM) is refused with `MediaDownloadError.unsupportedFormat`.
 
 import ChirpCore
 import Foundation
@@ -80,6 +82,23 @@ public struct PodcastEpisodeResolver: PodcastResolving {
     public func resolveApplePodcast(showID: String, episodeID: String?, link: URL) async throws
         -> ResolvedPodcastEpisode
     {
+        try Self.decodable(try await resolveEpisode(showID: showID, episodeID: episodeID, link: link))
+    }
+
+    public func latestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
+        try Self.decodable(try await newestEpisode(inFeed: feedURL))
+    }
+
+    /// `episode`, unless its audio is a format iOS cannot decode (Ogg, Opus, WebM): then
+    /// `MediaDownloadError.unsupportedFormat`, before anything is downloaded.
+    static func decodable(_ episode: ResolvedPodcastEpisode) throws -> ResolvedPodcastEpisode {
+        if let format = LinkClassifier.undecodableFormat(url: URL(string: episode.audioURL), mimeType: nil) {
+            throw MediaDownloadError.unsupportedFormat(format)
+        }
+        return episode
+    }
+
+    private func resolveEpisode(showID: String, episodeID: String?, link: URL) async throws -> ResolvedPodcastEpisode {
         let lookupURL = try Self.lookupURL(collectionID: showID, episodeID: episodeID)
         let data: Data
         do {
@@ -122,12 +141,12 @@ public struct PodcastEpisodeResolver: PodcastResolving {
             return try Self.episode(from: latest, feedURL: feed)
         }
         guard let feed, let feedURL = URL(string: feed) else { throw PodcastResolveError.noPlayableAudio }
-        return try await latestEpisode(inFeed: feedURL)
+        return try await newestEpisode(inFeed: feedURL)
     }
 
-    public func latestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
+    private func newestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
         let (title, episodes) = try await feedEpisodes(feedURL)
-        guard let latest = episodes.first else { throw PodcastFeedError.noEpisodes }
+        guard let latest = Self.newest(episodes) else { throw PodcastFeedError.noEpisodes }
         return ResolvedPodcastEpisode(
             audioURL: latest.audioURL, episodeTitle: latest.title, showName: title,
             durationSeconds: latest.durationSeconds, feedURL: feedURL.absoluteString)
@@ -137,6 +156,56 @@ public struct PodcastEpisodeResolver: PodcastResolving {
         let (data, _) = try await http.get(
             feedURL, headers: ["Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8"])
         return try PodcastFeedParser.parseFeed(data)
+    }
+
+    // MARK: - Newest episode
+
+    /// The episode with the latest publication date (serial and oldest-first feeds list episode 1 first); the first in
+    /// feed order when no date can be read. Equal dates keep feed order.
+    static func newest(_ episodes: [PodcastFeedEpisode]) -> PodcastFeedEpisode? {
+        let parser = PublicationDateParser()
+        var best: (episode: PodcastFeedEpisode, date: Date)?
+        for episode in episodes {
+            guard let date = parser.date(episode.published) else { continue }
+            if let current = best, date <= current.date { continue }
+            best = (episode, date)
+        }
+        return best?.episode ?? episodes.first
+    }
+
+    /// `raw` as a date: RSS's RFC 822 (`Mon, 6 Jan 2025 08:00:00 +0000`, named zones too) or Atom's ISO 8601.
+    static func publicationDate(_ raw: String?) -> Date? {
+        PublicationDateParser().date(raw)
+    }
+
+    /// The date formats feeds use, built once per feed.
+    private struct PublicationDateParser {
+        private let iso = ISO8601DateFormatter()
+        private let isoFractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        private let rfc822: [DateFormatter] = [
+            "EEE, d MMM yyyy HH:mm:ss Z", "EEE, d MMM yyyy HH:mm:ss zzz", "d MMM yyyy HH:mm:ss Z",
+            "d MMM yyyy HH:mm:ss zzz", "EEE, d MMM yyyy HH:mm Z", "EEE, d MMM yyyy HH:mm zzz", "EEE, d MMM yyyy",
+            "yyyy-MM-dd",
+        ].map { format in
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            return formatter
+        }
+
+        func date(_ raw: String?) -> Date? {
+            guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+            if let date = iso.date(from: raw) ?? isoFractional.date(from: raw) { return date }
+            for formatter in rfc822 {
+                if let date = formatter.date(from: raw) { return date }
+            }
+            return nil
+        }
     }
 
     // MARK: - Lookup URL
@@ -158,17 +227,39 @@ public struct PodcastEpisodeResolver: PodcastResolving {
 
     // MARK: - Matching
 
-    /// The feed episode whose title slugs to `slug` (exactly, else by prefix either way: Apple shortens long slugs).
+    /// The feed episode whose title slugs to `slug`: exactly, else by a prefix either way (Apple shortens long slugs)
+    /// that ends on a word boundary ("ep-1" never matches "ep-12-…"). The longest shared prefix wins; a feed title
+    /// shorter than half the link's slug ("Bonus" for "bonus-interview-x") is no match, and two equally good matches
+    /// are none: a clear "episode not found" is better than transcribing the wrong episode.
     static func findBySlug(_ episodes: [PodcastFeedEpisode], slug: String) -> PodcastFeedEpisode? {
         let target = slugify(slug)
         guard !target.isEmpty else { return nil }
         if let exact = episodes.first(where: { slugify($0.title) == target }) {
             return exact
         }
-        return episodes.first { episode in
-            let candidate = slugify(episode.title)
-            return !candidate.isEmpty && (candidate.hasPrefix(target) || target.hasPrefix(candidate))
+        var best: (episode: PodcastFeedEpisode, shared: Int)?
+        var tied = false
+        for episode in episodes {
+            guard let shared = boundaryPrefixLength(slugify(episode.title), target) else { continue }
+            if let current = best, shared <= current.shared {
+                if shared == current.shared { tied = true }
+                continue
+            }
+            best = (episode, shared)
+            tied = false
         }
+        return tied ? nil : best?.episode
+    }
+
+    /// The length of the shorter slug when it is the longer one's prefix up to a "-"; nil otherwise, and nil when the
+    /// feed title is the shorter and covers less than half the link's slug.
+    static func boundaryPrefixLength(_ candidate: String, _ target: String) -> Int? {
+        guard !candidate.isEmpty else { return nil }
+        if candidate.count < target.count {
+            guard target.hasPrefix(candidate + "-"), candidate.count * 2 >= target.count else { return nil }
+            return candidate.count
+        }
+        return candidate.hasPrefix(target + "-") ? target.count : nil
     }
 
     /// Lowercased ASCII letters and digits joined by single dashes, the way Apple builds share-link slugs:

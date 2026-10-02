@@ -1,10 +1,13 @@
+import Compression
 import Foundation
 
-/// A minimal, read-only ZIP reader for DOCX files, on Foundation alone (no ZIPFoundation dependency).
+/// A minimal, read-only ZIP reader for DOCX files, on Apple frameworks alone (no ZIPFoundation dependency).
 ///
 /// It reads the central directory at the end of the file and inflates entries stored (method 0) or deflated
-/// (method 8, raw DEFLATE, which `NSData.decompressed(using: .zlib)` decodes), checking each entry's CRC-32. ZIP64,
-/// encryption and other methods are refused. Sizes are capped so a malicious archive cannot exhaust memory.
+/// (method 8, raw DEFLATE, decoded in 64 KB steps with the Compression framework's `COMPRESSION_ZLIB` stream),
+/// checking each entry's CRC-32. ZIP64, encryption and other methods are refused. Memory stays bounded even for a
+/// malicious archive: an entry may declare at most `maximumEntrySize`, and inflation stops as soon as the output
+/// passes the size the entry declares (a "zip bomb" that declares 1 KB is refused after its first 64 KB).
 struct ZipArchiveReader {
     enum ZipError: Error, Equatable {
         case notAZipFile
@@ -55,27 +58,71 @@ struct ZipArchiveReader {
         let start = header + 30 + Int(nameLength) + Int(extraLength)
         let end = start + entry.compressedSize
         guard start >= 0, end <= data.count, start <= end else { throw ZipError.damaged("an entry is truncated") }
-        let compressed = data.subdata(in: (data.startIndex + start)..<(data.startIndex + end))
+        let compressed = data[(data.startIndex + start)..<(data.startIndex + end)]
 
         let output: Data
         switch entry.method {
         case 0:
-            output = compressed
+            output = Data(compressed)
         case 8:
             guard entry.uncompressedSize > 0 else {
                 output = Data()
                 break
             }
-            do {
-                output = try (compressed as NSData).decompressed(using: .zlib) as Data
-            } catch {
-                throw ZipError.damaged("an entry could not be decompressed")
-            }
+            output = try Self.inflate(compressed, limit: entry.uncompressedSize)
         default:
             throw ZipError.unsupported("compression method \(entry.method)")
         }
         guard output.count == entry.uncompressedSize else { throw ZipError.damaged("an entry has the wrong size") }
         guard CRC32.checksum(output) == entry.crc32 else { throw ZipError.damaged("an entry failed its checksum") }
+        return output
+    }
+
+    /// The bytes of a raw DEFLATE stream, decoded in 64 KB steps. Throws `.damaged("an entry has the wrong size")` as
+    /// soon as the output would pass `limit` (the size the entry declares, at most `maximumEntrySize`), so memory never
+    /// grows past it, and `.damaged("an entry could not be decompressed")` for a broken or truncated stream.
+    static func inflate(_ compressed: Data, limit: Int) throws -> Data {
+        let chunkSize = 64 * 1_024
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+        defer { destination.deallocate() }
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer { stream.deallocate() }
+        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK
+        else {
+            throw ZipError.damaged("an entry could not be decompressed")
+        }
+        defer { compression_stream_destroy(stream) }
+
+        var output = Data()
+        output.reserveCapacity(min(limit, maximumEntrySize))
+        try compressed.withUnsafeBytes { (source: UnsafeRawBufferPointer) in
+            guard let base = source.bindMemory(to: UInt8.self).baseAddress, !source.isEmpty else {
+                throw ZipError.damaged("an entry could not be decompressed")
+            }
+            stream.pointee.src_ptr = base
+            stream.pointee.src_size = source.count
+            while true {
+                stream.pointee.dst_ptr = destination
+                stream.pointee.dst_size = chunkSize
+                let status = compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                let produced = chunkSize - stream.pointee.dst_size
+                if produced > 0 {
+                    guard output.count + produced <= limit else {
+                        throw ZipError.damaged("an entry has the wrong size")
+                    }
+                    output.append(destination, count: produced)
+                }
+                switch status {
+                case COMPRESSION_STATUS_END:
+                    return
+                case COMPRESSION_STATUS_OK where produced > 0 || stream.pointee.src_size > 0:
+                    continue
+                default:
+                    // An error, or no progress with all input consumed: the stream is broken or cut short.
+                    throw ZipError.damaged("an entry could not be decompressed")
+                }
+            }
+        }
         return output
     }
 

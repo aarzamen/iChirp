@@ -58,6 +58,49 @@ final class VoiceMessageWriterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
 
+    /// Review R2-7: cancelling the export stops the encoding between chunks and leaves no half-written file.
+    func testCancellingStopsTheEncodingAndLeavesNoFile() async throws {
+        let chunk = try tone(seconds: 0.5, sampleRate: 16_000, name: "chunk.wav")
+        let output = folder.appendingPathComponent("voice-cancelled.m4a")
+        let chunks = Array(repeating: chunk, count: 200)
+        let task = Task {
+            try await VoiceMessageWriter().writeVoiceMessage(
+                chunks: chunks, pausesAfterMs: Array(repeating: 100, count: chunks.count), to: output)
+        }
+        task.cancel()
+        do {
+            let durationMs = try await task.value
+            XCTFail("the cancelled export finished anyway (\(durationMs) ms)")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "got \(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    /// The check runs before every chunk: a cancellation seen after the first chunk stops the second.
+    func testCancellationIsCheckedBetweenChunks() throws {
+        let chunk = try tone(seconds: 0.2, sampleRate: 16_000, name: "chunk.wav")
+        let output = folder.appendingPathComponent("voice-2.m4a")
+        var checks = 0
+        XCTAssertThrowsError(
+            try VoiceMessageWriter.write(chunks: [chunk, chunk, chunk], pausesAfterMs: [0, 0, 0], to: output) {
+                checks += 1
+                return checks > 1
+            }
+        ) { error in
+            XCTAssertTrue(error is CancellationError, "got \(error)")
+        }
+        XCTAssertEqual(checks, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testEncodingRunsOnItsOwnQueue() async throws {
+        let label = try await VoiceMessageWriter.runOnEncodeQueue { _ in
+            String(cString: __dispatch_queue_get_label(nil))
+        }
+        XCTAssertEqual(label, VoiceMessageWriter.encodeQueueLabel)
+    }
+
     func testNoChunksIsNoAudio() async {
         do {
             _ = try await VoiceMessageWriter().writeVoiceMessage(

@@ -136,6 +136,30 @@ final class YouTubeCaptionFetcherTests: XCTestCase {
         }
     }
 
+    /// Review R2-11: `LOGIN_REQUIRED` is a bot check or an age gate only for those exact reasons (as in
+    /// youtube-transcript-api); anything else (a private or members-only video) is unplayable with YouTube's reason,
+    /// which the app does not offer to the Mac companion.
+    func testLoginRequiredReasonsMapLikeYouTubeTranscriptAPI() {
+        let members =
+            "Join this channel to get access to members-only content like this video, and other exclusive perks."
+        let cases: [(String, YouTubeCaptionError)] = [
+            ("Sign in to confirm you’re not a bot", .blocked),
+            ("Sign in to confirm you're not a bot. This helps protect our community.", .blocked),
+            ("This video may be inappropriate for some users.", .ageRestricted),
+            ("Sign in to confirm your age", .ageRestricted),
+            ("This video is private", .unplayable("This video is private")),
+            (members, .unplayable(members)),
+            ("Please sign in to view this page", .unplayable("Please sign in to view this page")),
+            ("", .unplayable("")),
+        ]
+        for (reason, expected) in cases {
+            let player: [String: Any] = ["playabilityStatus": ["status": "LOGIN_REQUIRED", "reason": reason]]
+            XCTAssertThrowsError(try YouTubeCaptionFetcher.checkPlayability(player), reason) { error in
+                XCTAssertEqual(error as? YouTubeCaptionError, expected, reason)
+            }
+        }
+    }
+
     func testWatchPageWithoutKeyIsBlockedOrChanged() async {
         for (html, expected) in [
             (#"<div class="g-recaptcha"></div>"#, YouTubeCaptionError.blocked),

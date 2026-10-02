@@ -170,6 +170,11 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `System/BuildIdentity.swift`: reads the build stamp (version, build, commit, branch, dirty, date) from
   Info.plist.
 - `System/Log.swift`: `Log.logger(_:)` under the `com.aarzamen.ichirp` subsystem.
+- `System/BlockingQueueWork.swift` (plan 024): `BlockingQueueWork.run(on:_:)`, the one bridge for blocking work
+  (audio decode and encode, document parsing): runs it on the caller's dispatch queue, never on Swift's cooperative
+  pool or an actor, resumes the caller with the result or error, and hands the work an `isCancelled` check that turns
+  true when the awaiting task is cancelled. Used by ChirpIngest's document queue and the voice-message writer;
+  `AVAudioNormalizer` keeps its own copy until its lane adopts this one.
 - `System/AvailableMemory.swift` (fix/speech-memory-fit): `AvailableMemoryReading` (bytes iOS lets the app use now,
   nil when unknown), `ProcessAvailableMemory` (`os_proc_available_memory()` on iOS; nil on the Mac and where the
   Simulator reports 0) and `FixedAvailableMemory` for tests. The app passes one `ProcessAvailableMemory` to the

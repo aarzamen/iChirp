@@ -101,6 +101,8 @@ final class MediaDownloaderTests: XCTestCase {
                 headers: [
                     "Content-Type": "audio/mpeg", "Content-Length": "\(rest.count)",
                     "Content-Range": "bytes \(half)-\(Self.payload.count - 1)/\(Self.payload.count)",
+                    // RFC 7233: a 206 carries the ETag a 200 would (review R2-12 compares it).
+                    "ETag": "\"v1\"",
                 ],
                 chunks: [Data(rest)])
         }
@@ -113,6 +115,64 @@ final class MediaDownloaderTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file.fileURL), Self.payload)
         XCTAssertEqual(recorder.values.first?.bytesReceived, Int64(half), "progress starts at the resumed offset")
         XCTAssertEqual(IngestStubURLProtocol.requests.count, 1)
+    }
+
+    /// Review R2-12: a server that honors `Range` but ignores `If-Range` answers 206 with the *new* file's bytes after
+    /// the file changed. The 206's validator differs from the stored one, so the download starts over instead of
+    /// joining the old prefix to the new suffix.
+    func testA206FromAChangedFileStartsOverInsteadOfJoiningTwoFiles() async throws {
+        let half = 80_000
+        let changed = Data((0..<200_000).map { UInt8(($0 * 7) % 253) })
+        try Self.payload.prefix(half).write(to: partURL)
+        try JSONEncoder().encode(
+            MediaDownloader.PartialInfo(
+                url: "https://cdn.example.com/a.mp3", etag: "\"v1\"", lastModified: nil,
+                totalBytes: Int64(Self.payload.count))
+        ).write(to: infoURL)
+        IngestStubURLProtocol.reset { request in
+            guard request.header("Range") == "bytes=\(half)-" else {
+                return .body(changed, contentType: "audio/mpeg", extraHeaders: ["ETag": "\"v2\""])
+            }
+            let rest = changed.suffix(from: half)
+            return IngestStubResponse(
+                status: 206,
+                headers: [
+                    "Content-Type": "audio/mpeg", "Content-Length": "\(rest.count)", "ETag": "\"v2\"",
+                    "Content-Range": "bytes \(half)-\(changed.count - 1)/\(changed.count)",
+                ],
+                chunks: [Data(rest)])
+        }
+        let file = try await downloader.download(
+            from: URL(string: "https://cdn.example.com/a.mp3")!, into: directory, fileStem: "source",
+            progress: { _ in })
+        XCTAssertEqual(try Data(contentsOf: file.fileURL), changed, "the new file whole, never two files joined")
+        XCTAssertFalse(file.resumed)
+        XCTAssertEqual(IngestStubURLProtocol.requests.map { $0.header("Range") }, ["bytes=\(half)-", nil])
+
+        // The same check with a Last-Modified validator.
+        try Self.payload.prefix(half).write(to: partURL)
+        try JSONEncoder().encode(
+            MediaDownloader.PartialInfo(
+                url: "https://cdn.example.com/a.mp3", etag: nil, lastModified: "Mon, 01 Jan 2024 00:00:00 GMT",
+                totalBytes: Int64(Self.payload.count))
+        ).write(to: infoURL)
+        IngestStubURLProtocol.reset { request in
+            guard request.header("Range") == "bytes=\(half)-" else {
+                return .body(changed, contentType: "audio/mpeg")
+            }
+            return IngestStubResponse(
+                status: 206,
+                headers: [
+                    "Content-Type": "audio/mpeg", "Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT",
+                    "Content-Range": "bytes \(half)-\(changed.count - 1)/\(changed.count)",
+                ],
+                chunks: [Data(changed.suffix(from: half))])
+        }
+        let again = try await downloader.download(
+            from: URL(string: "https://cdn.example.com/a.mp3")!, into: directory, fileStem: "source",
+            progress: { _ in })
+        XCTAssertEqual(try Data(contentsOf: again.fileURL), changed)
+        XCTAssertEqual(IngestStubURLProtocol.requests.count, 2)
     }
 
     func testServerThatIgnoresRangeRestartsFromZero() async throws {
@@ -187,6 +247,70 @@ final class MediaDownloaderTests: XCTestCase {
         let resume = MediaDownloader.resumePoint(
             partURL: partURL, infoURL: infoURL, for: URL(string: "https://cdn.example.com/a.mp3")!)
         XCTAssertEqual(resume, MediaDownloader.ResumePoint(offset: 40_000, validator: "\"v2\""))
+    }
+
+    /// Review R2-2: an http enclosure (common in older feeds) downloads over https; resume still matches the link.
+    func testPlainHTTPMediaIsDownloadedOverHTTPS() async throws {
+        IngestStubURLProtocol.reset { request in
+            request.url.path() == "/old/episode.mp3"
+                ? .redirect(to: URL(string: "http://media.example.com/episode.mp3")!)
+                : .body(Self.payload, contentType: "audio/mpeg", extraHeaders: ["ETag": "\"v1\""])
+        }
+        let link = URL(string: "http://cdn.example.com/old/episode.mp3")!
+        let file = try await downloader.download(from: link, into: directory, fileStem: "source", progress: { _ in })
+        XCTAssertEqual(try Data(contentsOf: file.fileURL), Self.payload)
+        XCTAssertEqual(file.fileURL.lastPathComponent, "source.mp3")
+        XCTAssertEqual(
+            IngestStubURLProtocol.requests.map(\.url.absoluteString),
+            ["https://cdn.example.com/old/episode.mp3", "https://media.example.com/episode.mp3"])
+    }
+
+    func testAnUpgradedDownloadThatFailsOverHTTPSSaysWhy() async {
+        IngestStubURLProtocol.reset { _ in .fail(.serverCertificateUntrusted) }
+        do {
+            _ = try await downloader.download(
+                from: URL(string: "http://cdn.example.com/a.mp3")!, into: directory, fileStem: "source",
+                progress: { _ in })
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? IngestNetworkError, .httpsUnavailable)
+        }
+    }
+
+    // MARK: - Formats iOS cannot decode (review R2-9)
+
+    /// An Ogg, Opus or WebM answer (a feed enclosure, a content-type-only link) is refused before any byte is saved,
+    /// with the classifier's own sentence, instead of being saved as `.mp3` and failing later.
+    func testUndecodableContentTypesAreRefusedBeforeAnyByteIsSaved() async throws {
+        for (mime, name) in [("audio/ogg", "Ogg"), ("audio/opus", "Opus"), ("video/webm", "WebM")] {
+            IngestStubURLProtocol.reset { _ in .body(Self.payload, contentType: mime) }
+            do {
+                _ = try await downloader.download(
+                    from: URL(string: "https://cdn.example.com/get?id=7")!, into: directory, fileStem: "source",
+                    progress: { _ in })
+                XCTFail("\(mime): expected a refusal")
+            } catch {
+                XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat(name), mime)
+                XCTAssertEqual(
+                    (error as? MediaDownloadError)?.errorDescription, UnsupportedLink.format(name: name).message)
+            }
+            let saved = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            XCTAssertEqual(saved.filter { $0.hasPrefix("source") || $0 == MediaDownloader.partialFileName }, [], mime)
+        }
+    }
+
+    /// A link whose own extension iOS cannot decode is refused without a request.
+    func testAnUndecodableExtensionIsRefusedWithoutARequest() async {
+        IngestStubURLProtocol.reset { _ in .body(Self.payload, contentType: "audio/mpeg") }
+        do {
+            _ = try await downloader.download(
+                from: URL(string: "https://cdn.example.com/episode.opus")!, into: directory, fileStem: "source",
+                progress: { _ in })
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat("Opus"))
+        }
+        XCTAssertTrue(IngestStubURLProtocol.requests.isEmpty)
     }
 
     func testNonHTTPLinksAreRefused() async {

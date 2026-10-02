@@ -1,7 +1,9 @@
 // Semantics from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Services/PodcastAudioDownloader.swift @ bbae9e0e —
 // byte progress from Content-Length, an audio User-Agent/Accept pair, and `fileExtension(for:response:)` (extended
 // here with video types). Fresh implementation, not a line port: the body streams into the item's own media folder
-// through a data-task delegate so an interrupted download can resume with `Range`/`If-Range` on Retry.
+// through a data-task delegate so an interrupted download can resume with `Range`/`If-Range` on Retry. Upstream's
+// `ogg`/`opus` → "ogg" mapping is replaced by a refusal: iOS cannot decode Ogg, Opus or WebM, so a link or answer in
+// those formats fails with `unsupportedFormat` before any byte is saved (review R2-9).
 
 import ChirpCore
 import Foundation
@@ -49,9 +51,13 @@ public enum MediaDownloadError: Error, Equatable, LocalizedError {
     case writeFailed(String)
     /// The server answered a resume request with bytes that do not continue the partial file.
     case resumeMismatch
+    /// Audio or video iOS cannot decode (Ogg, Opus, WebM, …), named for the person; refused before any byte is saved.
+    case unsupportedFormat(String)
 
     public var errorDescription: String? {
         switch self {
+        case .unsupportedFormat(let name):
+            UnsupportedLink.format(name: name).message
         case .invalidURL:
             "The media link is not a valid web address."
         case .notMedia:
@@ -109,6 +115,10 @@ public final class MediaDownloader: MediaDownloading {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw MediaDownloadError.invalidURL
         }
+        if let format = LinkClassifier.undecodableFormat(url: url, mimeType: nil) {
+            logger.notice("download_refused reason=undecodable_extension")
+            throw MediaDownloadError.unsupportedFormat(format)
+        }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch {
@@ -143,6 +153,8 @@ public final class MediaDownloader: MediaDownloading {
     struct ResumePoint: Equatable {
         var offset: Int64
         var validator: String
+        /// `validator` is the ETag (else the Last-Modified date): a 206 must carry the same one.
+        var validatorIsETag = true
     }
 
     struct Outcome: Sendable {
@@ -158,7 +170,8 @@ public final class MediaDownloader: MediaDownloading {
         resume: ResumePoint?,
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> Outcome {
-        var request = URLRequest(url: url)
+        // A plain-http link to an internet host goes out over https (`SecureLink`); `url` stays the download's identity.
+        var (request, upgraded) = SecureLink.upgrade(URLRequest(url: url))
         request.setValue(IngestHTTPClient.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("audio/*, video/*, application/octet-stream;q=0.9, */*;q=0.8", forHTTPHeaderField: "Accept")
         if let resume {
@@ -166,7 +179,8 @@ public final class MediaDownloader: MediaDownloading {
             request.setValue(resume.validator, forHTTPHeaderField: "If-Range")
         }
         let delegate = DownloadDelegate(
-            url: url, partURL: partURL, infoURL: infoURL, resumeOffset: resume?.offset ?? 0, onProgress: progress)
+            url: url, partURL: partURL, infoURL: infoURL, resume: resume, upgradedFromHTTP: upgraded,
+            onProgress: progress)
         let session = URLSession(configuration: makeConfiguration(), delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let task = session.dataTask(with: request)
@@ -244,9 +258,17 @@ public final class MediaDownloader: MediaDownloading {
             return ResumePoint(offset: size, validator: etag)
         }
         if let lastModified = info.lastModified {
-            return ResumePoint(offset: size, validator: lastModified)
+            return ResumePoint(offset: size, validator: lastModified, validatorIsETag: false)
         }
         return nil
+    }
+
+    /// Whether a 206 answer is the same file the partial download came from: its ETag (or Last-Modified) equals the
+    /// stored one. A server that honors `Range` but ignores `If-Range` sends the changed file's bytes with a new
+    /// validator; a missing validator cannot prove anything either. Either way the download starts over.
+    static func continuesSameFile(_ response: HTTPURLResponse, resume: ResumePoint) -> Bool {
+        let field = resume.validatorIsETag ? "ETag" : "Last-Modified"
+        return response.value(forHTTPHeaderField: field) == resume.validator
     }
 
     /// Parses `Content-Range: bytes <start>-<end>/<total|*>` into its start and total.
@@ -309,28 +331,48 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
         var failure: (any Error)?
         var lastReportedPermille = -1
         var lastReportedBytes: Int64 = 0
+        /// The request, or a redirect it followed, was a plain-http link sent over https.
+        var upgradedFromHTTP = false
     }
 
     private let url: URL
     private let partURL: URL
     private let infoURL: URL
-    private let resumeOffset: Int64
+    /// Where the request asked to continue (`Range`, `If-Range`); nil for a download from zero.
+    private let resume: MediaDownloader.ResumePoint?
     private let onProgress: @Sendable (DownloadProgress) -> Void
     private let state = Mutex(State())
 
     init(
-        url: URL, partURL: URL, infoURL: URL, resumeOffset: Int64,
+        url: URL, partURL: URL, infoURL: URL, resume: MediaDownloader.ResumePoint?, upgradedFromHTTP: Bool,
         onProgress: @escaping @Sendable (DownloadProgress) -> Void
     ) {
         self.url = url
         self.partURL = partURL
         self.infoURL = infoURL
-        self.resumeOffset = resumeOffset
+        self.resume = resume
         self.onProgress = onProgress
+        state.withLock { $0.upgradedFromHTTP = upgradedFromHTTP }
     }
 
     func attach(_ continuation: CheckedContinuation<MediaDownloader.Outcome, any Error>) {
         state.withLock { $0.continuation = continuation }
+    }
+
+    /// A redirect to plain http is followed over https (`SecureLink`); the request's headers (`Range`, `If-Range`)
+    /// stay on it.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        let (secure, upgraded) = SecureLink.upgrade(request)
+        if upgraded {
+            state.withLock { $0.upgradedFromHTTP = true }
+        }
+        completionHandler(secure)
     }
 
     func urlSession(
@@ -362,9 +404,15 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
             startOffset = 0
             total = http.expectedContentLength > 0 ? http.expectedContentLength : nil
         case 206:
-            guard let range = MediaDownloader.contentRange(http.value(forHTTPHeaderField: "Content-Range")),
-                range.start == resumeOffset
-            else {
+            guard let range = MediaDownloader.contentRange(http.value(forHTTPHeaderField: "Content-Range")) else {
+                throw MediaDownloadError.resumeMismatch
+            }
+            if let resume {
+                guard range.start == resume.offset, MediaDownloader.continuesSameFile(http, resume: resume) else {
+                    throw MediaDownloadError.resumeMismatch
+                }
+            } else if range.start != 0 {
+                // Nothing was asked to continue: only a range from the first byte is the file itself.
                 throw MediaDownloadError.resumeMismatch
             }
             startOffset = range.start
@@ -376,6 +424,10 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
         }
         if MediaDownloader.isNonMedia(http.mimeType) {
             throw MediaDownloadError.notMedia(contentType: http.mimeType ?? "")
+        }
+        // Checked before `download.part` is opened: nothing is saved for a format iOS cannot decode.
+        if let format = LinkClassifier.undecodableFormat(url: http.url, mimeType: http.mimeType) {
+            throw MediaDownloadError.unsupportedFormat(format)
         }
 
         let handle: FileHandle
@@ -451,7 +503,8 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
                 return Ending(continuation: continuation, result: .failure(failure))
             }
             if let error {
-                return Ending(continuation: continuation, result: .failure(IngestNetworkError.map(error)))
+                let mapped = IngestNetworkError.map(error, upgradedFromHTTP: state.upgradedFromHTTP)
+                return Ending(continuation: continuation, result: .failure(mapped))
             }
             guard let response = state.response else {
                 return Ending(continuation: continuation, result: .failure(IngestNetworkError.notHTTP))

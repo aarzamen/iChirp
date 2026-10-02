@@ -159,7 +159,9 @@ public actor LinkIngestService {
             let probe = try await http.probe(url)
             switch probe.kind {
             case .media:
-                return .media(LinkMediaSource(downloadURL: probe.finalURL, link: url, sourceType: .url))
+                // The link itself, not the probe's final URL: a redirect to a signed, expiring address is followed
+                // afresh by every download and Retry (review R2-12).
+                return .media(LinkMediaSource(downloadURL: url, link: url, sourceType: .url))
             case .feed:
                 let episode = try await podcasts.latestEpisode(inFeed: probe.finalURL)
                 return .media(try Self.source(for: episode, link: url))
@@ -196,11 +198,32 @@ public actor LinkIngestService {
     /// row. Failures end the row `failed` with a readable message; cancelling ends it `cancelled`. Both keep the
     /// partial file for Retry.
     public func download(id: UUID, from url: URL) async -> LinkDownloadResult {
+        await download(id: id, from: url, reresolving: nil)
+    }
+
+    /// `download(id:from:)`; when `row` is given (`url` came from an earlier partial download's record) and the server
+    /// refuses it with 401 or 403 (a signed address that expired), the row's link is resolved again once and the fresh
+    /// address downloaded (review R2-12).
+    private func download(id: UUID, from url: URL, reresolving row: Transcription?) async -> LinkDownloadResult {
         let directory = paths.mediaDirectory(for: id)
         let onProgress = self.onProgress
-        do {
-            let file = try await downloader.download(from: url, into: directory, fileStem: "source") { progress in
+        let downloader = self.downloader
+        let fetch: @Sendable (URL) async throws -> DownloadedFile = { url in
+            try await downloader.download(from: url, into: directory, fileStem: "source") { progress in
                 onProgress(id, Self.jobProgress(progress))
+            }
+        }
+        do {
+            let file: DownloadedFile
+            do {
+                file = try await fetch(url)
+            } catch IngestNetworkError.httpStatus(let code) where (code == 401 || code == 403) && row != nil {
+                guard let row, let fresh = try await resolvedDownloadURL(for: row), fresh != url else {
+                    throw IngestNetworkError.httpStatus(code)
+                }
+                logger.notice(
+                    "link_download_refused id=\(id, privacy: .public) status=\(code, privacy: .public) reresolved=true")
+                file = try await fetch(fresh)
             }
             // A finished file is always recorded, even if the job was cancelled meanwhile: the pipeline then ends the
             // row `cancelled`, and Retry transcribes it without downloading again.
@@ -356,7 +379,8 @@ public actor LinkIngestService {
 
     /// Retry for a link row whose download never finished (`needsDownload`): moves it back to `.processing` and
     /// downloads again, resuming the partial file when the server allows. The URL comes from the partial download's
-    /// record, else the stored link is resolved again (a new tap, so the network is allowed). A YouTube row goes back
+    /// record (when the server refuses that address with 401 or 403, an expired signed link, the stored link is resolved
+    /// again once), else the stored link is resolved again (a new tap, so the network is allowed). A YouTube row goes back
     /// to the Mac companion, only while it is the companion the person confirmed that link for (else the row fails
     /// with `companionNotConfirmed`; the app asks first with `companionRetryConfirmationHost`).
     public func retryDownload(id: UUID) async -> LinkDownloadResult {
@@ -375,7 +399,10 @@ public actor LinkIngestService {
             return await downloadFromCompanion(id: id, link: link)
         }
         do {
-            let url = try await downloadURL(for: row)
+            if let recorded = recordedDownloadURL(for: row) {
+                return await download(id: id, from: recorded, reresolving: row)
+            }
+            guard let url = try await resolvedDownloadURL(for: row) else { throw LinkIngestError.missingLink }
             return await download(id: id, from: url)
         } catch {
             if error is CancellationError || Task.isCancelled {
@@ -471,19 +498,26 @@ public actor LinkIngestService {
         }
     }
 
-    private func downloadURL(for row: Transcription) async throws -> URL {
+    /// The address an earlier, unfinished download of `row` recorded (`download.part.json`), so Retry can resume it.
+    private func recordedDownloadURL(for row: Transcription) -> URL? {
         let infoURL = paths.mediaDirectory(for: row.id)
             .appendingPathComponent(MediaDownloader.partialInfoFileName, isDirectory: false)
-        if let data = try? Data(contentsOf: infoURL),
+        guard let data = try? Data(contentsOf: infoURL),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let string = object["url"] as? String, let url = URL(string: string)
-        {
-            return url
+            let string = object["url"] as? String
+        else {
+            return nil
         }
+        return URL(string: string)
+    }
+
+    /// `row`'s stored link resolved again (a new tap, so the network is allowed): what to download now. Nil when the
+    /// row has no link to download (captions).
+    private func resolvedDownloadURL(for row: Transcription) async throws -> URL? {
         guard let link = row.sourceURL else { throw LinkIngestError.missingLink }
         switch try await resolve(LinkClassifier.classify(link)) {
         case .media(let source): return source.downloadURL
-        case .youtubeCaptions: throw LinkIngestError.missingLink
+        case .youtubeCaptions: return nil
         }
     }
 

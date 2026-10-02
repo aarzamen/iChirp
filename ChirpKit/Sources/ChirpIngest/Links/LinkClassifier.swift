@@ -84,6 +84,8 @@ public enum UnsupportedLink: Sendable, Equatable {
     case platform(name: String)
     /// A media format AVFoundation cannot decode on iPhone.
     case format(name: String)
+    /// A link that carries a user name or password (`https://name:secret@host/…`): never sent.
+    case credentials
 
     public var message: String {
         switch self {
@@ -92,11 +94,13 @@ public enum UnsupportedLink: Sendable, Equatable {
         case .notALink:
             "That doesn’t look like a link. Copy the link from the Share sheet and paste it here."
         case .notWeb:
-            "Only web links (https) can be downloaded."
+            "Only web links (starting with https:// or http://) can be downloaded."
         case .platform(let name):
             "Parakeet can’t download from \(name). Save the video or audio to Files, then share it to Parakeet."
         case .format(let name):
             "Parakeet can’t decode \(name) audio on iPhone. Convert it to MP3 or M4A, then import it."
+        case .credentials:
+            "This link contains a user name or password, which Parakeet won’t send. Copy the link without it."
         }
     }
 }
@@ -111,6 +115,24 @@ public enum LinkClassifier {
     static let undecodableExtensions: [String: String] = [
         "ogg": "Ogg", "oga": "Ogg", "opus": "Opus", "webm": "WebM", "wma": "Windows Media", "mkv": "Matroska",
     ]
+    /// The same formats by content type (lowercased, without parameters).
+    static let undecodableMIMETypes: [String: String] = [
+        "audio/ogg": "Ogg", "video/ogg": "Ogg", "application/ogg": "Ogg", "audio/vorbis": "Ogg", "audio/opus": "Opus",
+        "audio/webm": "WebM", "video/webm": "WebM", "audio/x-ms-wma": "Windows Media",
+        "video/x-ms-wmv": "Windows Media", "audio/x-matroska": "Matroska", "video/x-matroska": "Matroska",
+    ]
+
+    /// The name of the format when `url`'s extension or `mimeType` is one iOS cannot decode (a resolved enclosure, a
+    /// redirect target or a content type the pasted link did not show), else nil.
+    public static func undecodableFormat(url: URL?, mimeType: String?) -> String? {
+        if let ext = url?.pathExtension.lowercased(), let name = undecodableExtensions[ext] {
+            return name
+        }
+        let mime = (mimeType ?? "").split(separator: ";").first.map {
+            $0.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        return mime.flatMap { undecodableMIMETypes[$0] }
+    }
     static let feedExtensions: Set<String> = ["rss", "xml", "atom"]
 
     /// Host suffix → platform name for sites that need yt-dlp or an account (refused up front with a clear message).
@@ -135,6 +157,10 @@ public enum LinkClassifier {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return .unsupported(.notWeb)
         }
+        // A user name or password in the link would be sent to the server: never use such a link.
+        if url.user(percentEncoded: false) != nil || url.password(percentEncoded: false) != nil {
+            return .unsupported(.credentials)
+        }
         guard let host = url.host()?.lowercased(), !host.isEmpty else { return .unsupported(.notALink) }
         let absolute = url.absoluteString
 
@@ -147,10 +173,10 @@ public enum LinkClassifier {
             }
             return .applePodcastShow(showID: showID, url: url)
         }
-        if let platform = unsupportedPlatforms.first(where: { host == $0.suffix || host.hasSuffix(".\($0.suffix)") }) {
+        if let platform = unsupportedPlatforms.first(where: { isHost(host, in: $0.suffix) }) {
             return .unsupported(.platform(name: platform.name))
         }
-        if host.hasSuffix("youtube.com") || host == "youtu.be" {
+        if isHost(host, in: "youtube.com") || host == "youtu.be" {
             // A channel, playlist or home page link: no single video to caption.
             return .unsupported(.platform(name: "this YouTube page (open a single video and share its link)"))
         }
@@ -168,10 +194,21 @@ public enum LinkClassifier {
         return .webLink(url)
     }
 
-    /// The first http(s)-looking link in `text`: the whole text when it is one, else the first link a data detector
-    /// finds (so "Listen: https://…" works), else the text with `https://` added when it looks like a bare host.
+    /// The first http(s)-looking link in `text`: the whole text when it is one; a bare host ("cdn.example.com/a.mp3")
+    /// with `https://` added, before the data detector, which would add `http://` (iOS blocks plain http to internet
+    /// hosts); else the first link a data detector finds (so "Listen: https://…" works). Text with an "@" before its
+    /// path never gets a scheme added: "jane.doe@clinic.example.org" is an e-mail address (the detector reads it as
+    /// `mailto:`), not a web link to the clinic's server, and "name:secret@host/…" is user info. An "@" in the path or
+    /// query ("cdn.example.com/@show/ep1.mp3", "…/a.mp3?from=a@b.org") is part of a link.
     static func firstLink(in text: String) -> URL? {
-        if !text.contains(where: \.isWhitespace), let url = URL(string: text), url.scheme != nil, url.host() != nil {
+        let isOneWord = !text.contains(where: \.isWhitespace)
+        if isOneWord, let url = URL(string: text), url.scheme != nil, url.host() != nil {
+            return url
+        }
+        let authority = text.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+        if isOneWord, authority.contains("."), !authority.contains("@"), URL(string: text)?.scheme == nil,
+            let url = URL(string: "https://\(text)"), url.host() != nil
+        {
             return url
         }
         if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
@@ -180,12 +217,12 @@ public enum LinkClassifier {
                 return url
             }
         }
-        if !text.contains(where: \.isWhitespace), text.contains("."), let url = URL(string: "https://\(text)"),
-            url.host() != nil
-        {
-            return url
-        }
         return nil
+    }
+
+    /// Whether `host` is `domain` or one of its subdomains ("m.youtube.com" is in "youtube.com"; "notyoutube.com" is not).
+    static func isHost(_ host: String, in domain: String) -> Bool {
+        host == domain || host.hasSuffix(".\(domain)")
     }
 
     /// A feed by its path ("/feed", "/rss", "…/podcast.rss") or its host ("feeds.example.com").
