@@ -53,7 +53,9 @@ and without the runtime the models say "not in this build".
 - `LlamaCppModelAssets.swift`: `ModelAssetManaging` for one GGUF file: explicit download with progress, free-space
   check, size and SHA-256 before the file is kept (hashing off the cooperative pool), excluded from backup, delete
   (unloads first). Progress is passed on in 0.5% steps, never backwards (`ProgressThrottle`), and cancelling the
-  caller cancels the URLSession download (review minors 3 and 5). `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
+  caller cancels the URLSession download (review minors 3 and 5). A cancellation or a Delete during a download reads
+  as not downloaded, never as a failure, and Delete waits for the cancelled download to stop before it removes the
+  folder (review R3-6). ChirpEngineNeedle's `NeedleModelAssets` is the same lifecycle; keep the two in step. `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
 
 ## What to know before editing
 

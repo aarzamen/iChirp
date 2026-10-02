@@ -31,8 +31,12 @@ throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scr
   constrained greedy generation, then the confidence head over the completion) and `NeedleToolCallParser` (port of
   needle-rs `extract_tool_call`).
 - `NeedleModelAssets.swift`: the pinned `needle3.cact` (Hugging Face revision, size, SHA-256), download on demand with
-  progress, size and hash checks before the file is kept, excluded from backup, delete. `URLSessionNeedleFetcher` is
-  the only network code.
+  progress, size and hash checks before the file is kept (hashing off the actor), excluded from backup, delete. The
+  same lifecycle as ChirpEngineLlamaCpp's `LlamaCppModelAssets`, with the fixes that copy received (reviews R3-5,
+  R3-6): progress passed on in 0.5% steps and never backwards (`ProgressThrottle`, a copy of llama.cpp's), cancelling
+  the caller cancels the URLSession fetch, a cancellation or a Delete during a download reads as not downloaded rather
+  than failed, and Delete waits for a cancelled download to stop before it removes the folder.
+  `NeedleModelAssetsTests` mirrors `LlamaCppModelAssetsTests`. `URLSessionNeedleFetcher` is the only network code.
 - `NeedleStructureModel.swift`: `StructureModel` + `ModelAssetManaging`: `extract` returns the call array, the
   confidence and the model hash; `"[]"` is an abstention; no `<tool_call>` throws `noToolCall`; `embed` is
   unsupported.

@@ -146,8 +146,28 @@ final class LlamaCppModelAssetsTests: XCTestCase {
             XCTAssertTrue(error is CancellationError, "\(error)")
         }
         let status = await assets.assetStatus()
-        XCTAssertNotEqual(status, .ready(bytesOnDisk: Int64(bytes.count)))
+        XCTAssertEqual(status, .notDownloaded, "review R3-6: a cancellation is not a failure")
         XCTAssertFalse(assets.isReady)
+    }
+
+    /// Review R3-6: Delete during a download cancels it, waits for it, and the model reads as not downloaded rather
+    /// than `.failed("…CancellationError…")`.
+    func testDeleteDuringADownloadStopsItAndReadsNotDownloaded() async throws {
+        let fetcher = HangingFileFetcher()
+        let unloads = Mutex(0)
+        let assets = LlamaCppModelAssets(
+            spec: LlamaTestSupport.spec(bytes: bytes), modelsDirectory: directory, fetcher: fetcher,
+            freeSpace: { _ in nil }, willDelete: { unloads.withLock { $0 += 1 } })
+        let caller = Task { try await assets.downloadAssets { _ in } }
+        let started = await LlamaTestSupport.waitUntil { fetcher.started }
+        XCTAssertTrue(started)
+        try await assets.deleteAssets()
+        XCTAssertTrue(fetcher.sawCancellation, "the download stopped before the folder was removed")
+        _ = await caller.result
+        let status = await assets.assetStatus()
+        XCTAssertEqual(status, .notDownloaded)
+        XCTAssertEqual(unloads.withLock { $0 }, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: assets.directory.path))
     }
 
     /// Tens of thousands of URLSession callbacks become at most ~200 forward steps.

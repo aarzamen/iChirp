@@ -1,6 +1,12 @@
+// The same lifecycle as ChirpEngineLlamaCpp's `LlamaCppModelAssets` (one pinned file, explicit download, size and
+// SHA-256, delete). Review R3-5 / R3-6 ported the fixes that copy received (review minors 3 and 5): progress throttled
+// and never backwards, the caller's cancellation reaches the fetch, hashing off the actor, and a cancellation or a
+// Delete during a download is not a failure. `NeedleModelAssetsTests` mirrors `LlamaCppModelAssetsTests`.
+
 import ChirpCore
 import CryptoKit
 import Foundation
+import Synchronization
 
 /// Downloads one file to a temporary location. `URLSessionNeedleFetcher` in the app; a fake in tests.
 public protocol NeedleFileFetching: Sendable {
@@ -97,6 +103,7 @@ public actor NeedleModelAssets {
     }
 
     /// Downloads, checks size and SHA-256, and moves the file into place. Concurrent callers join one download.
+    /// Cancelling the caller cancels the fetch; a cancellation throws `CancellationError` and is not a failure.
     public func downloadModel(progress: @escaping @Sendable (Double) -> Void) async throws {
         if isReady { return }
         if let download {
@@ -112,15 +119,30 @@ public actor NeedleModelAssets {
             downloadFraction = nil
         }
         do {
-            try await task.value
+            // The caller's cancellation (Settings, or the continued-processing request expiring) must reach the
+            // URLSession download inside the unstructured task (review R3-5).
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
         } catch {
+            // A cancellation (the caller, Delete, an expiring request) is not a failure (review R3-6).
+            if Self.isCancellation(error) { throw CancellationError() }
             failure = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
             throw error
         }
     }
 
+    static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
     private func performDownload(progress: @escaping @Sendable (Double) -> Void) async throws {
+        // URLSession reports progress per received chunk: pass on 0.5% steps only (review R3-5).
+        let gate = ProgressThrottle()
         let temporary = try await fetcher.fetch(pin.remoteURL) { fraction in
+            guard gate.shouldReport(fraction) else { return }
             progress(fraction)
             Task { await self.record(fraction: fraction) }
         }
@@ -130,7 +152,8 @@ public actor NeedleModelAssets {
             (try FileManager.default.attributesOfItem(atPath: temporary.path)[.size] as? NSNumber)?
             .int64Value ?? -1
         guard size == pin.byteCount else { throw AssetError.sizeMismatch(size) }
-        guard try Self.sha256(of: temporary) == pin.sha256 else { throw AssetError.hashMismatch }
+        guard try await Self.sha256OffActor(of: temporary) == pin.sha256 else { throw AssetError.hashMismatch }
+        try Task.checkCancellation()
 
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -143,16 +166,30 @@ public actor NeedleModelAssets {
         try? folder.setResourceValues(values)
     }
 
-    private func record(fraction: Double) {
-        if downloadFraction != nil { downloadFraction = min(max(fraction, 0), 1) }
+    /// Never backwards: the Tasks that carry progress here can arrive out of order (review R3-5). Internal for tests.
+    func record(fraction: Double) {
+        guard let current = downloadFraction else { return }
+        downloadFraction = max(current, min(max(fraction, 0), 1))
     }
 
-    /// Settings → Delete: removes the model folder (the model can be downloaded again).
-    public func deleteModel() throws {
-        download?.cancel()
+    /// Settings → Delete: cancels a download in flight and waits for it to stop (so nothing is written after the folder
+    /// is gone, review R3-6), then removes the model folder (the model can be downloaded again).
+    public func deleteModel() async throws {
+        let pending = download
+        pending?.cancel()
+        _ = await pending?.result
         failure = nil
         if FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// Hashing takes a moment: done on a utility queue, not on the actor or a thread of Swift's cooperative pool.
+    static func sha256OffActor(of url: URL) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(with: Result { try sha256(of: url) })
+            }
         }
     }
 
@@ -165,6 +202,25 @@ public actor NeedleModelAssets {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// Passes on a progress fraction only when it moved forward by `step` or reached the end (a copy of ChirpEngineLlamaCpp's;
+/// both test targets pin the same behavior).
+final class ProgressThrottle: Sendable {
+    private let last = Mutex(-1.0)
+    private let step: Double
+
+    init(step: Double = 0.005) {
+        self.step = step
+    }
+
+    func shouldReport(_ fraction: Double) -> Bool {
+        last.withLock { last in
+            guard fraction >= 1 ? last < 1 : fraction - last >= step else { return false }
+            last = fraction
+            return true
+        }
     }
 }
 
