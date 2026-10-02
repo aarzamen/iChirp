@@ -80,7 +80,10 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `LinkImportViewModel.swift` (M5): the Paste a link sheet. `text` is classified locally on every change (`kind`);
   `transcribe()` is the one networked action: podcast and media links get their row and continue as a tracked job
   (`startMediaJob`, wired by the app to `startTracked`), YouTube links finish in the sheet; errors stay in the sheet
-  (`phase == .failed`) with no row created. `reset()` clears it for another link. Plan 019: when captions are missing
+  (`phase == .failed`) with no row created. `reset()` clears it for another link. Review R4-15: once a row exists its
+  job always starts, even when the sheet was reset or closed while the row was being written (`startMediaJob` is held
+  strongly by the run); only the run that owns the sheet (a generation that `reset()` and each run move on) may still
+  change `phase`. Plan 019: when captions are missing
   (or YouTube refuses them) and a Mac companion is set up, `phase == .companionOffer(reason)`; the person confirms
   once per link (`needsCompanionConfirmation`, `confirmCompanion()`) and `getAudioFromMac()` starts a `.companion`
   job. Without a companion the failure keeps the captions error's own advice (try again later, share the file) and
