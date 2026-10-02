@@ -35,10 +35,11 @@ ChirpStore depends on ChirpText.
   `v9-llm-runs-deliverable-index` (review R1-17: `idx_llm_runs_deliverable_id`, so a document's delete nulls its
   ledger rows without a full scan; an index only), then `v10-deliverable-cut-off` (plan 024 Task 8, reviews R3-1 /
   R4-2: `isCutOff` BOOLEAN NOT NULL DEFAULT 0 on `deliverables` and `deliverable_versions`, a text the model stopped
-  at its length limit; additive). Every migration has an
+  at its length limit; additive), then `v11-transcript-corrections` (plan 025: one nullable TEXT column,
+  `transcriptions.textCorrections`, the `TranscriptCorrections` JSON). Every migration has an
   upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests`,
-  for v9 `LLMRunsDeliverableIndexMigrationTests` and for v10 `DeliverableCutOffMigrationTests`, which use the internal
-  `DatabaseManager(writer:)` on an older queue).
+  for v9 `LLMRunsDeliverableIndexMigrationTests`, for v10 `DeliverableCutOffMigrationTests` and for v11
+  `TranscriptCorrectionsMigrationTests`, which use the internal `DatabaseManager(writer:)` on an older queue).
 - `DeliverableVersionStore.swift` (plan 022) — `DeliverableVersionSchema` (the `v8-text-items` table, cascade-deleted
   with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
@@ -66,15 +67,20 @@ ChirpStore depends on ChirpText.
   JSON TEXT (manually encoded/decoded, not GRDB's automatic Codable-JSON
   path, so the column contents are predictable and queryable). Converts to
   and from `Transcription` via `init(_:)` / `toTranscription()`; nil is stored
-  as SQL NULL and an empty list as `[]`, and each reads back as it was. `StoredSpeakerRename` renames a speaker
+  as SQL NULL and an empty list as `[]`, and each reads back as it was. Plan 025's `textCorrections` column holds the
+  `TranscriptCorrections` JSON; one that cannot be decoded reads as a placeholder that applies nothing (the row still
+  lists) and is never re-encoded (`encodeCorrections`, `preservedCorrections`). `StoredSpeakerRename` renames a speaker
   inside the stored `speakers` / `transcriptSegments` JSON through `JSONSerialization`, so keys a newer build wrote
   survive.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
   insert/fetch/fetchAll/delete, `savePreservingUserMetadata` (the one whole-row write), the
   field-level `updateTitleOverride` / `updateFavorite` / `updatePrivacyClass` /
   `transitionStatus`, and M3's `updateUserNotes` / `renameSpeaker` (the roster label and every segment label of
-  that speaker, one transaction) / `markAudioRemoved` (completed rows only); `savePreservingUserMetadata` keeps the
-  stored `userNotes`,
+  that speaker, one transaction) / `markAudioRemoved` (completed rows only), and plan 025's `updateTextCorrections`
+  (reads the whole row, runs the change, writes only `textCorrections`, `derivedTitle`, `derivedSnippet` and
+  `updatedAt`; never replaces a newer build's corrections); `savePreservingUserMetadata` keeps the
+  stored `userNotes` and corrections (attached with their corrected title and snippet while the words are the same,
+  detached when they changed; contract `spec/contracts/transcript-corrections-v1.md`),
   and `observeAll()` bridging a GRDB `ValueObservation` to an `AsyncStream`.
   `decodeRows` is the one row-by-row decoder behind both full-row list reads.
 - `TranscriptionListingStore.swift` (review R1-1, R6a-8) — the Library's and Capture's lists, no schema change:

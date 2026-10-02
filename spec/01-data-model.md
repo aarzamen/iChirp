@@ -72,6 +72,7 @@ One row per imported file, dictation, meeting, link or document. The Swift type 
 | `sourceTitle` | text, nullable | M5: the title the source published (episode, video, document metadata); wins over `derivedTitle` |
 | `documentFormat` | text enum, nullable | M5: `pdf` · `txt` · `md` · `rtf` · `html` · `docx`; nil for audio items |
 | `documentPages` | JSON, nullable | M5: a PDF's `[DocumentPage]`: `number`, `text`, `method` (`textLayer` · `ocr` · `empty`) |
+| `textCorrections` | JSON, nullable | Plan 025 (`v11-transcript-corrections`): `TranscriptCorrections`, the person's corrections of the words as heard (word spans replaced by text; a dictation's voice commands too), bound to the words' fingerprint. A user field: pipeline saves keep it. The baseline columns are never rewritten ([contract](contracts/transcript-corrections-v1.md)) |
 
 Derived values (not stored): `displayTitle` = `titleOverride` ?? non-empty `sourceTitle` ?? non-empty `derivedTitle`
 ?? file name without its extension; `displayText` = non-empty `cleanTranscript` ?? `rawTranscript` ?? "".
@@ -87,7 +88,9 @@ import ──► processing ──► completed
 
 - `savePreservingUserMetadata` writes pipeline output in one transaction while keeping `titleOverride`,
   `isFavorite`, `privacyClass` and (M3) `userNotes` that the user changed while the job ran (port of upstream's method of the same
-  name). It never inserts: a row deleted during its job stays deleted.
+  name). It never inserts: a row deleted during its job stays deleted. Plan 025: it keeps `textCorrections` too,
+  attached (with the corrected `derivedTitle` and `derivedSnippet`) while the words are the same and detached when
+  they changed; `updateTextCorrections` is the one write of that column.
 - Rows written by a newer build still read: list reads decode row by row and skip (and log, id only) a row that
   can't decode, and an unknown raw value reads as a safe fallback (`status` → `interrupted`, `privacyClass` →
   `clinical`, `sourceType` → `file`). Writing such a row back keeps the newer build's raw value.
@@ -128,6 +131,7 @@ dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processin
 | M6 | **Built:** `v7-structured-results` (`structured_runs`, `structured_fields`, `structured_eval_runs`) | Structure-model evidence ledger: runs, fields with source spans, gate verdicts and review state, eval runs ([contract](contracts/structured-results-v1.md)) |
 | Plan 022 | **Built:** `v8-text-items` (`deliverable_versions`, append-only) | Edit by voice: every text a generated document has had ([contract](contracts/deliverables-v1.md), Versions); text items need no column |
 | Review 2026-10-01 | **Built:** `v9-llm-runs-deliverable-index` (an index on `llm_runs.deliverableId`; no column) | A document's delete sets its ledger rows' `deliverableId` to NULL without scanning the ledger (R1-17) |
+| Plan 025 | **Built:** `v11-transcript-corrections` (`textCorrections` TEXT, nullable, on `transcriptions`) | The person's corrections of a transcript, kept apart from the words as heard ([contract](contracts/transcript-corrections-v1.md)) |
 | Plan 024 Task 8 | **Built:** `v10-deliverable-cut-off` (`isCutOff` BOOLEAN NOT NULL DEFAULT 0 on `deliverables` and `deliverable_versions`) | A document or version the model stopped writing at its length limit is kept and marked incomplete (R3-1, R4-2; [contract](contracts/deliverables-v1.md), Cut off at the length limit) |
 | M6 | `embeddings` (or a vector index) | Semantic search, after benchmarking against plain text search |
 

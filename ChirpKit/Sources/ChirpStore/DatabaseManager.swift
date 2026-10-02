@@ -187,6 +187,15 @@ public final class DatabaseManager: Sendable {
             }
         }
 
+        // Plan 025 Part A (contract spec/contracts/transcript-corrections-v1.md): the person's corrections of a
+        // transcript's words, one JSON TEXT envelope per row (`TranscriptCorrections`). Additive and nullable: every
+        // earlier row reads nil; no row changes.
+        migrator.registerMigration("v11-transcript-corrections") { db in
+            try db.alter(table: "transcriptions") { t in
+                t.add(column: "textCorrections", .text)
+            }
+        }
+
         return migrator
     }
 }
