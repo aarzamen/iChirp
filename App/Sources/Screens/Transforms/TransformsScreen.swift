@@ -14,6 +14,8 @@ struct TransformsScreen: View {
     @State private var launching: PromptTemplate?
     /// Plan 026: the template editor (New template, Duplicate and edit, Edit).
     @State private var editing: TemplateEditorRequest?
+    /// Plan 026 polish: why a Hide from this tab failed.
+    @State private var hideError: String?
 
     var body: some View {
         let library = environment.deliverableLibrary
@@ -64,6 +66,14 @@ struct TransformsScreen: View {
             TemplateLaunchSheet(template: template, environment: environment)
         }
         .templateEditor($editing)
+        .alert(
+            TemplateWords.hideFailedTitle,
+            isPresented: Binding(get: { hideError != nil }, set: { if !$0 { hideError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(hideError ?? "")
+        }
     }
 
     /// "Templates" with "Edit" (the Templates screen), separating the templates from Recent documents.
@@ -206,7 +216,14 @@ struct TransformsScreen: View {
                             }
                         }
                         Button(TemplateWords.actionTitle(.hide), systemImage: "eye.slash") {
-                            Task { await environment.templateLibrary.setVisible(template, false) }
+                            Task {
+                                let library = environment.templateLibrary
+                                // The Templates screen shows its own errors; here the failure needs a word too.
+                                if !(await library.setVisible(template, false)) {
+                                    hideError = library.actionError
+                                    library.dismissActionError()
+                                }
+                            }
                         }
                     }
                 }

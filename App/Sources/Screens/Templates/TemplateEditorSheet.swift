@@ -133,7 +133,7 @@ struct TemplateEditorSheet: View {
             Text(TemplateWords.name)
         } footer: {
             HStack(alignment: .firstTextBaseline) {
-                if model.hasChanges, let problem = model.problemSentence {
+                if let problem = problemSentence(for: .name) {
                     Text(problem).foregroundStyle(AppColor.error)
                 }
                 Spacer(minLength: 8)
@@ -188,6 +188,10 @@ struct TemplateEditorSheet: View {
             Text(TemplateWords.instructions)
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
+                // Too long, or a reserved tag: said here, under the instructions, not under the name.
+                if let problem = problemSentence(for: .instructions) {
+                    Text(problem).foregroundStyle(AppColor.error)
+                }
                 Text(TemplateWords.instructionsHelp + " " + TemplateWords.instructionsCounter(model.characterCount))
                 if model.instructions.contains("{{") {
                     Text(TemplateWords.placeholdersHelp)
@@ -231,6 +235,12 @@ struct TemplateEditorSheet: View {
             }
         }
         .listRowBackground(Tokens.Color.surface)
+    }
+
+    /// The problem's sentence when it belongs to `field` and something was typed (a fresh blank page asks nothing).
+    private func problemSentence(for field: TemplateDraft.Problem.Field) -> String? {
+        guard model.hasChanges, let problem = model.problem, problem.field == field else { return nil }
+        return problem.sentence
     }
 
     private static func activeVersionID(_ mode: TemplateEditorViewModel.Mode) -> UUID? {

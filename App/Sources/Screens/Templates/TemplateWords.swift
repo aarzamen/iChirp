@@ -19,6 +19,14 @@ enum TemplateWords {
     static let reorder = "Reorder"
     static let finish = "Finish"
 
+    /// Settings → Text → Templates' value: "Built-in only" or "2 of your own".
+    static func settingsValue(ownCount: Int) -> String {
+        ownCount == 0 ? "Built-in only" : "\(ownCount) of your own"
+    }
+
+    static let hideFailedTitle = "Couldn’t hide the template"
+    static let changeFailedTitle = "Couldn’t change the templates"
+
     static func sectionTitle(_ category: PromptTemplate.Category) -> String {
         category == .deliverable ? documentsSection : rewritesSection
     }

@@ -13,7 +13,7 @@ import XCTest
 /// in a window, gives its `.task` loads a moment, then draws the window (the method of `Task10ScreenRenderTests`).
 @MainActor
 final class TemplateScreenRenderTests: XCTestCase {
-    private static let size = CGSize(width: 402, height: 1500)
+    private static let width: CGFloat = 402
 
     func testRenderTemplateScreens() async throws {
         guard let directory = ProcessInfo.processInfo.environment["CHIRP_RENDER_DIR"], !directory.isEmpty else {
@@ -40,6 +40,11 @@ final class TemplateScreenRenderTests: XCTestCase {
         let editing = environment.makeTemplateEditor(.edit(seeded.clinic))
         await editing.load()
         editing.instructions += "\nAdd a Follow-up heading."
+        // Polish round: an instructions problem shows under the instructions, not under the name.
+        let tooLong = environment.makeTemplateEditor(.new(startingFrom: nil))
+        await tooLong.load()
+        tooLong.name = "Referral letter"
+        tooLong.instructions = String(repeating: "Write the referral. ", count: 201)
 
         let screens: [(String, AnyView)] = [
             ("templates", AnyView(NavigationStack { TemplatesScreen() })),
@@ -47,6 +52,22 @@ final class TemplateScreenRenderTests: XCTestCase {
             ("editor-from-soap", AnyView(TemplateEditorSheet(model: fromSOAP, onTry: { _ in }))),
             ("editor-duplicate-name", AnyView(TemplateEditorSheet(model: duplicate, onTry: { _ in }))),
             ("editor-edit", AnyView(TemplateEditorSheet(model: editing, onTry: { _ in }))),
+            ("editor-too-long", AnyView(TemplateEditorSheet(model: tooLong, onTry: { _ in }))),
+            (
+                "transform-sheet-without-agenda",
+                AnyView(
+                    TransformSheet(
+                        transcriptionID: seeded.transcript, transcriptTitle: "Synthetic clinic visit",
+                        privacyClass: .personal, environment: environment))
+            ),
+            (
+                "document-details-deleted",
+                AnyView(
+                    NavigationStack {
+                        DeliverableDetailScreen(
+                            id: seeded.deletedDocument, environment: environment, showsDetails: true)
+                    })
+            ),
             (
                 "instructions",
                 AnyView(
@@ -64,11 +85,15 @@ final class TemplateScreenRenderTests: XCTestCase {
             ("settings", AnyView(NavigationStack { SettingsScreen() })),
         ]
         for (name, view) in screens {
-            await renderAll(name, view, environment, output)
+            // The editors are long forms: tall enough at AX3 to show the instructions field and its footer.
+            let height: CGFloat = name.hasPrefix("editor") ? 2_400 : 1_500
+            await renderAll(name, view, environment, output, height: height)
         }
     }
 
-    private func renderAll(_ name: String, _ view: AnyView, _ environment: AppEnvironment, _ output: URL) async {
+    private func renderAll(
+        _ name: String, _ view: AnyView, _ environment: AppEnvironment, _ output: URL, height: CGFloat = 1_500
+    ) async {
         let variants: [(String, UIUserInterfaceStyle, DynamicTypeSize)] = [
             ("light", .light, .large), ("dark", .dark, .large), ("ax3", .light, .accessibility3),
         ]
@@ -76,7 +101,7 @@ final class TemplateScreenRenderTests: XCTestCase {
             do {
                 try await render(
                     view.environment(environment).environment(\.dynamicTypeSize, typeSize), style: style,
-                    to: output.appendingPathComponent("\(name)-\(suffix).png"))
+                    height: height, to: output.appendingPathComponent("\(name)-\(suffix).png"))
             } catch {
                 XCTFail("\(name)-\(suffix): \(error)")
             }
@@ -87,6 +112,8 @@ final class TemplateScreenRenderTests: XCTestCase {
         let soap: UUID
         let clinic: PromptTemplate
         let document: UUID
+        let transcript: UUID
+        let deletedDocument: UUID
     }
 
     /// A synthetic personal transcript; "Clinic SOAP" (from SOAP note) made a document at version 1, then was edited
@@ -126,21 +153,27 @@ final class TemplateScreenRenderTests: XCTestCase {
             TemplateDraft(
                 name: "Old letter", category: .deliverable, instructions: "Write a short letter.",
                 makesClinicalDocuments: false))
+        let oldDocument = Deliverable(
+            transcriptionID: row.id, promptID: old.id, promptVersionID: old.activeVersionID, title: "Old letter",
+            engineID: "apple.foundation-models", provider: "Apple on-device model", model: nil, locality: .onDevice,
+            text: "Dear colleague,\n\nSynthetic letter.", privacyClass: .personal)
+        try await store.insertDeliverable(oldDocument)
         try await store.deleteUserTemplate(id: old.id)
         try await store.setTemplateVisible(id: agenda.id, isVisible: false)
         await environment.library.start()
         await environment.deliverableLibrary.load()
         await environment.templateLibrary.load()
-        return Seeded(soap: soap.id, clinic: edited, document: document.id)
+        return Seeded(
+            soap: soap.id, clinic: edited, document: document.id, transcript: row.id, deletedDocument: oldDocument.id)
     }
 
-    private func render(_ view: some View, style: UIUserInterfaceStyle, to url: URL) async throws {
+    private func render(_ view: some View, style: UIUserInterfaceStyle, height: CGFloat, to url: URL) async throws {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first, "no window scene")
         let host = UIHostingController(rootView: view.background(Tokens.Color.ground))
         host.overrideUserInterfaceStyle = style
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(origin: .zero, size: Self.size)
+        window.frame = CGRect(origin: .zero, size: CGSize(width: Self.width, height: height))
         window.overrideUserInterfaceStyle = style
         window.rootViewController = host
         window.isHidden = false

@@ -88,10 +88,11 @@ struct TemplatesScreen: View {
         .sheet(item: $instructions) { shown in
             TemplateInstructionsSheet(subtitle: shown.subtitle, text: shown.text)
         }
-        .confirmationDialog(
+        // A centered alert with both answers (a confirmation dialog on a List becomes an iOS 26 popover that points
+        // at another row and hides "Keep it").
+        .alert(
             deleting?.impact.title ?? "",
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible,
             presenting: deleting
         ) { pending in
             Button(TemplateWords.deleteConfirm, role: .destructive) {
@@ -102,7 +103,7 @@ struct TemplatesScreen: View {
             Text(pending.impact.message)
         }
         .alert(
-            "Couldn’t change the templates",
+            TemplateWords.changeFailedTitle,
             isPresented: Binding(get: { library.actionError != nil }, set: { if !$0 { library.dismissActionError() } })
         ) {
             Button("OK", role: .cancel) {}
@@ -156,7 +157,11 @@ struct TemplatesScreen: View {
                 .onTapGesture {
                     if !editMode.isEditing { perform(template.isBuiltIn ? .viewInstructions : .edit, template) }
                 }
+                // A real action for VoiceOver and Switch Control (the tap gesture alone is not one).
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    if !editMode.isEditing { perform(template.isBuiltIn ? .viewInstructions : .edit, template) }
+                }
                 .accessibilityHint(template.isBuiltIn ? "Shows its instructions" : "Opens it in the editor")
             if !editMode.isEditing {
                 Menu {
@@ -182,7 +187,9 @@ struct TemplatesScreen: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if !template.isBuiltIn {
-                Button(TemplateWords.actionTitle(.delete), role: .destructive) { perform(.delete, template) }
+                // No destructive role: it only asks, and the List must not animate the row away before the answer.
+                Button(TemplateWords.actionTitle(.delete)) { perform(.delete, template) }
+                    .tint(AppColor.error)
             }
             Button(TemplateWords.actionTitle(template.isVisible ? .hide : .show)) {
                 perform(template.isVisible ? .hide : .show, template)

@@ -944,7 +944,7 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   (hidden ones included and marked; `hiddenCount`), `deleted` (newest delete first), `hasTemplatesOfYourOwn` (else
   the empty-state card), `startingPoints` (the editor's "Start from" after Blank). `actions(for:)`: built-ins offer
   Duplicate and edit, Hide/Show, Move up, Move down, View instructions; the person's own Edit, Duplicate, Hide/Show,
-  Move up, Move down, Delete. `setVisible`, `canMoveUp`/`canMoveDown`, `moveUp`/`moveDown`, `move(fromOffsets:
+  Move up, Move down, Delete. `setVisible` (returns whether it was saved, for the Transforms tab's Hide), `canMoveUp`/`canMoveDown`, `moveUp`/`moveDown`, `move(fromOffsets:
   toOffset:in:)` (a drag) and `reorder(_:in:)` save the section's whole order. `deleteImpact(of:)` is the question
   (title "Delete “<name>”?"; the documents that stay, by count; the recipes that stop, by name, from `recipesUsing`,
   which the app answers with `CreateRecipe.uses(templateID:)`); `delete` is soft, `restore` brings it back and sets

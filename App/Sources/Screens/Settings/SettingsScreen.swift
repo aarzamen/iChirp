@@ -232,7 +232,7 @@ struct SettingsScreen: View {
             } label: {
                 SettingsRow(title: TemplateWords.screenTitle, showsChevron: true) {
                     let own = environment.deliverableLibrary.templates.filter { !$0.isBuiltIn }.count
-                    Text(own == 0 ? "Built-in only" : "\(own) of your own")
+                    Text(TemplateWords.settingsValue(ownCount: own))
                         .chirpFont(15)
                         .monospacedDigit()
                         .foregroundStyle(Tokens.Color.secondary)

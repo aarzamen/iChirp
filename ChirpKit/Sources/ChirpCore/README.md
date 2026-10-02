@@ -137,7 +137,7 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   Plan 026: `PromptTemplate.isVisible` (migration `v12-template-library`; false keeps a template out of the pickers,
   it still runs by id; decoding treats a missing key as shown).
 - `Models/TemplateDraft.swift` (plan 026): a template of the person's own before it is saved. `TemplateDraft` (name,
-  kind, instructions, the raise-only clinical switch; `problem(takenNames:)` → `TemplateDraft.Problem` with the
+  kind, instructions, the raise-only clinical switch; `problem(takenNames:)` → `TemplateDraft.Problem` with its `field` (name or instructions, where the editor shows it) and the
   editor's `sentence`), `TemplateLimits` (name ≤ 40, instructions ≤ 4,000 characters, the reserved source tags and
   `neutralizingReservedTags(in:)` for the prompt assembler) and `TemplateNaming` ("<name> copy", "<name> (restored)").
 - `Pipeline/TemplateLibraryStoring.swift` (plan 026): `TemplateLibraryStoring` (create, edit as versions, hide,

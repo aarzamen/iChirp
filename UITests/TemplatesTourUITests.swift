@@ -27,7 +27,9 @@ final class TemplatesTourUITests: XCTestCase {
 
     /// Transforms → Templates · Edit → SOAP note's menu (no Delete) → Duplicate and edit → a taken name is refused →
     /// "Tour SOAP" saved → hide Agenda → the Transforms tab without Agenda → delete "Tour SOAP" (the question) →
-    /// Deleted templates → Restore.
+    /// Deleted templates → Restore → Create's template menu lists it and leaves Agenda out. (The Transform sheet without
+    /// Agenda and a deleted template's document Details need a transcript or a model run: `TemplateScreenRenderTests`
+    /// draws them from seeded rows.)
     func testATemplatesTour() throws {
         app.launch()
         app.tabBars.buttons["Transforms"].tap()
@@ -93,6 +95,22 @@ final class TemplatesTourUITests: XCTestCase {
         tapWhenHittable(restore)
         XCTAssertTrue(app.buttons["Edit, hide, move or delete Tour SOAP"].waitForExistence(timeout: 10))
         shot("restored")
+
+        // Create's template menu: your template under Documents, hidden Agenda left out.
+        app.tabBars.buttons["Capture"].tap()
+        app.swipeDown()
+        let create = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Create'")).firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 20))
+        tapWhenHittable(create)
+        let document = button(beginningWith: "Document")
+        scrollTo(document)
+        tapWhenHittable(document)
+        let templateMenu = button(beginningWith: "Choose a template")
+        scrollTo(templateMenu)
+        tapWhenHittable(templateMenu)
+        XCTAssertTrue(app.buttons["Tour SOAP"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Agenda"].exists)
+        shot("create-template-menu")
     }
 
     // MARK: - Helpers (as RecipesTourUITests)

@@ -89,8 +89,10 @@ public struct TemplateDeleteImpact: Sendable, Equatable {
         return [.edit, .duplicate, visibility, .moveUp, .moveDown, .delete]
     }
 
-    public func setVisible(_ template: PromptTemplate, _ isVisible: Bool) async {
-        await change { try await self.store.setTemplateVisible(id: template.id, isVisible: isVisible) }
+    /// True when it was saved. A screen other than Templates (the Transforms tab's Hide) shows `actionError` when false.
+    @discardableResult
+    public func setVisible(_ template: PromptTemplate, _ isVisible: Bool) async -> Bool {
+        await change { try await self.store.setTemplateVisible(id: template.id, isVisible: isVisible) } != nil
     }
 
     public func canMoveUp(_ template: PromptTemplate) -> Bool {

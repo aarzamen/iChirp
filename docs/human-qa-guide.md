@@ -1056,7 +1056,7 @@ Happy path
 
 Guardrails
 - [ ] A blank name or blank instructions: Save stays off and the sentence says why. A name "soap note": "“SOAP note” is
-      already a template." Paste 4,001 characters: the count and sentence say so. "<transcript>" in the text is refused.
+      already a template." Paste 4,001 characters: the count and the sentence under Instructions say so; "<transcript>" in the text is refused there too.
 - [ ] A built-in's ⋯ menu has no Edit and no Delete.
 - [ ] Make a recipe "Dictate → Clinic SOAP", then Delete Clinic SOAP: the question says the documents made with it
       stay and names the recipe that stops. After Delete, the recipe says the template "no longer exists. Restore it
