@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# First run on a Mac: checks Xcode 26+, XcodeGen and swift-format, offers to create the gitignored local config
-# files from their examples, then generates iChirp.xcodeproj.
+# First run on a Mac: checks Xcode 26+, XcodeGen and swift-format, offers to create the gitignored signing config
+# from its example (Config/Device.local is optional and is described, not created), then generates iChirp.xcodeproj.
 #
 # Usage: scripts/bootstrap.sh          # asks before creating each local file
 #        scripts/bootstrap.sh --yes    # creates missing local files without asking (never overwrites)
@@ -80,7 +80,16 @@ offer_local_file() {
 
 echo ""
 offer_local_file "Config/Signing.local.xcconfig" "device builds: set DEVELOPMENT_TEAM to your Team ID"
-offer_local_file "Config/Device.local" "which iPhone scripts/run_device.sh installs to"
+# Config/Device.local is not created from its example: the example holds only a commented-out placeholder, and a copy of
+# it pins nothing (R8-10). It is optional: without it run_device.sh uses the one reachable paired iPhone.
+if [ -f Config/Device.local ]; then
+  echo "ok    Config/Device.local exists"
+else
+  echo "info  Config/Device.local is optional. It pins which iPhone scripts/run_device.sh installs to; without it the"
+  echo "      script uses the one reachable paired iPhone and stops if there are several. device_smoke.sh and the other"
+  echo "      device_*.sh scripts write data to the phone, so they always need it (or DEVICE_ID=<identifier>). To pin one:"
+  echo "      cp Config/Device.local.example Config/Device.local, then put your iPhone's identifier on the DEVICE_ID line."
+fi
 
 echo ""
 scripts/gen.sh

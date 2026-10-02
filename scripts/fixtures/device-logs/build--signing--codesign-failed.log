@@ -1,0 +1,16 @@
+CodeSign /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirp.app (in target 'iChirp' from project 'iChirp')
+    cd /path/to/iChirp
+
+    Signing Identity:     "Apple Development: Example Developer (ZZZZZZZZZZ)"
+    Provisioning Profile: "iOS Team Provisioning Profile: com.example.app"
+                          (00000000-0000-0000-0000-000000000000)
+
+    /usr/bin/codesign --force --sign 0000000000000000000000000000000000000000 --timestamp\=none --generate-entitlement-der /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirp.app
+/path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirp.app: errSecInternalComponent
+Command CodeSign failed with a nonzero exit code
+
+** BUILD FAILED **
+
+The following build commands failed:
+	CodeSign /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirp.app (in target 'iChirp' from project 'iChirp')
+(1 failure)

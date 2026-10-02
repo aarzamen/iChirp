@@ -1,6 +1,8 @@
-# Which iPhone scripts/run_device.sh and scripts/device_smoke.sh install to.
-# Copy this file to Config/Device.local (gitignored). DEVICE_ID=<identifier> in the environment still wins.
-# Without this file the scripts use the one reachable paired iPhone, and stop if more than one is reachable.
+# Which iPhone scripts/run_device.sh installs to (optional). Copy this file to Config/Device.local (gitignored), replace
+# the identifier below with your iPhone's and uncomment the line. DEVICE_ID=<identifier> in the environment still wins.
 # Identifiers: the Identifier column of `xcrun devicectl list devices`.
-# Replace with your iPhone's identifier and uncomment:
+#
+# Without a DEVICE_ID line (no file, or this file as it stands) scripts/run_device.sh uses the one reachable paired
+# iPhone and stops if more than one is reachable. scripts/device_smoke.sh, device_llm_smoke.sh and device_benchmark.sh
+# write data to the phone and never guess: they refuse unless DEVICE_ID or a DEVICE_ID line in this file names it.
 # DEVICE_ID=00000000-0000-0000-0000-000000000000

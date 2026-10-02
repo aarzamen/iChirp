@@ -1,0 +1,34 @@
+PhaseScriptExecution Stamp\ Build\ Identity /path/to/iChirp/.build/xcode/Build/Intermediates.noindex/iChirp.build/Debug-iphoneos/iChirpWidgets.build/Script-0000000000000000.sh (in target 'iChirpWidgets' from project 'iChirp')
+    cd /path/to/iChirp
+    export ACTION\=build
+    export AD_HOC_CODE_SIGNING_ALLOWED\=NO
+    export CODESIGNING_FOLDER_PATH\=/path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirpWidgets.appex
+    export CODE_SIGNING_ALLOWED\=YES
+    export CODE_SIGNING_REQUIRED\=YES
+    export CODE_SIGN_CONTEXT_CLASS\=XCiPhoneOSCodeSignContext
+    export CODE_SIGN_IDENTITY\=Apple\ Development
+    export CODE_SIGN_STYLE\=Automatic
+    /bin/sh -c /path/to/iChirp/.build/xcode/Build/Intermediates.noindex/iChirp.build/Debug-iphoneos/iChirpWidgets.build/Script-0000000000000000.sh
+Stamped 0123456789ab (main, dirty=0) build 202610011730
+
+CodeSign /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirpWidgets.appex (in target 'iChirpWidgets' from project 'iChirp')
+    cd /path/to/iChirp
+
+    Signing Identity:     "Apple Development: Example Developer (ZZZZZZZZZZ)"
+    Provisioning Profile: "iOS Team Provisioning Profile: *"
+                          (00000000-0000-0000-0000-000000000000)
+
+    /usr/bin/codesign --force --sign 0000000000000000000000000000000000000000 --timestamp\=none --generate-entitlement-der /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirpWidgets.appex
+
+/path/to/iChirp/App/Sources/Screens/Example.swift:12:9: error: cannot find 'missingValue' in scope
+        let total = missingValue + 1
+                    ^~~~~~~~~~~~
+/path/to/iChirp/App/Sources/Screens/Example.swift:15:9: error: cannot find 'signingKey' in scope
+        print(signingKey)
+              ^~~~~~~~~~
+
+** BUILD FAILED **
+
+The following build commands failed:
+	SwiftEmitModule normal arm64 Emitting\ module\ for\ iChirp (in target 'iChirp' from project 'iChirp')
+(1 failure)

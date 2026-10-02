@@ -1,0 +1,10 @@
+CodeSign /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirpWidgets.appex (in target 'iChirpWidgets' from project 'iChirp')
+    cd /path/to/iChirp
+
+    Signing Identity:     "Apple Development: Example Developer (ZZZZZZZZZZ)"
+    Provisioning Profile: "iOS Team Provisioning Profile: *"
+                          (00000000-0000-0000-0000-000000000000)
+
+error: Provisioning profile "iOS Team Provisioning Profile: com.example.app" doesn't include the com.apple.developer.kernel.increased-memory-limit entitlement. (in target 'iChirp' from project 'iChirp')
+
+** BUILD FAILED **

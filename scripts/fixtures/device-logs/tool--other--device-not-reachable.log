@@ -1,0 +1,2 @@
+ERROR: Could not connect to the device. (com.apple.dt.CoreDeviceError error 4000)
+       NSLocalizedFailureReason = The device is not reachable on the network or by cable.
