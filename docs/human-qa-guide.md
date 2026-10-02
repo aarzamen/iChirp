@@ -153,7 +153,8 @@ Dictating screen
 - [ ] Polish after on: say "um, send the report, um, tomorrow" → the copied text has no "um". Polish after off:
       the copied text is Parakeet's raw text. The toggle is remembered next time.
 - [ ] Settings → Text → Custom words & snippets → Add word "kubernetes", replacement "Kubernetes"; add snippet
-      "my sign off" → "Best, Aaron". Dictate "kubernetes is up, my sign off" with Polish after on: both apply.
+      "my sign off" → "Best, Aaron". A full swipe on a row asks "Delete …?"; typing in the editor then swiping it
+      down does nothing and Cancel asks first (plan 024). Dictate "kubernetes is up, my sign off" with Polish after on: both apply.
 - [ ] Tap Dictate and immediately Stop & copy (under half a second): "That was too short to transcribe…", no Recent
       row.
 - [ ] Dictate a few seconds of silence, Stop & copy: "Didn’t catch that — no speech was recognized." with Retry; the
@@ -358,7 +359,7 @@ Apple on-device model
 - [ ] Settings → Privacy → Models for Ask and Transforms → "Apple on-device model" shows **Ready** (with Apple
       Intelligence off it shows the sentence "Apple Intelligence is off…" and Transform says so instead of running).
 - [ ] Import `synthetic-visit.m4a`, open it, Transform → Summary: the status reads "Writing…", text streams in, then
-      an editable document with "Saved in Transforms"; Copy, then paste in Notes: the text arrives (it does not reach
+      an editable document with "Saved in your Library"; Copy, then paste in Notes: the text arrives (it does not reach
       the Mac's clipboard: Universal Clipboard is off for it).
 - [ ] Ask tab → "Decisions": the chip says "Answering on this iPhone", the answer streams, a `00:00`-style chip
       appears under it and tapping it plays the audio from that moment.
@@ -632,7 +633,7 @@ Settings → Models
 
 Clinical SOAP note on the phone
 - [ ] AirDrop or Files the synthetic visit into Parakeet, open it, set it to **Clinical** where offered, Transform → the
-      picker says it runs on this iPhone → SOAP note: **no clinical dialog**, the note streams, "Saved in Transforms",
+      picker says it runs on this iPhone → SOAP note: **no clinical dialog**, the note streams, "Saved in your Library",
       chips "Runs on this iPhone" and "Clinical". Time the first words and the whole note.
 - [ ] Airplane mode on: the same SOAP note still runs (nothing leaves the phone).
 - [ ] Ask "What medication was started?" with Qwen3.5 2B → an answer naming amoxicillin, no dialog.
@@ -754,7 +755,10 @@ Edit by voice (Step 4)
       ("Heard on this iPhone"); Apply edit: "Saved as a new version" and the document shows the shorter text.
 - [ ] Versions: Version 2 (Current, "Edited by voice", the instruction) and Version 1 (Original); Restore version 1
       adds Version 3 and the original text is back; nothing disappeared.
-- [ ] Type in the editor, then Edit by voice again: Versions shows your typed text as "Your edit" before the new one.
+- [ ] Type in the editor, then Edit by voice again: Versions shows your typed text as "Your edit" before the new one,
+      and the rewrite (made from your typed text) is what the document screen shows afterwards.
+- [ ] Type "Make it shorter and" in the instruction, then hold and say "add a follow-up": the field reads "Make it
+      shorter and add a follow-up", not just the spoken part.
 - [ ] A SOAP note with a cloud model: "Send this clinical text to …?" before anything is sent; Cancel changes
       nothing.
 - [ ] Deny the microphone, or start a dictation first: the sheet says why; typing still works. A very long document
@@ -823,7 +827,10 @@ Notes sheet (typed notes are never lost)
 
 Ask
 - [ ] The suggestion chips ("Action items", "Decisions", "What's the plan?"), citation chips and Send are easy to hit.
-- [ ] An answer without a timestamp chip says "No timestamp found for this answer."
+- [ ] An answer without a timestamp chip says "No timestamp found for this answer." (a recording only; a typed text
+      or imported document answers with quotations and never says it). A cited time shows once, as its chip.
+- [ ] Pick "on this iPhone" in Ask, type half a question, tap Transcript, then Ask again: the model and the typed
+      words are still there.
 
 Library
 - [ ] The filter chips and Clear search are easy to hit; swipe a row: **Favorite** / **Unfavorite** (the same words as
@@ -870,7 +877,9 @@ Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
 - [ ] Capture: See all is easy to tap; Import a file accepts a PDF (it is read like Paste a link → Import a document).
 - [ ] Create at the largest text size: one column of tiles, no "Spe…" cut-offs; Document ▸ template lists Documents and
       Rewrites separately.
-- [ ] A generated document: title, class, Edit by voice and Versions, the text, then **Details** (From, Template,
+- [ ] A generated document (plan 024): the title is what it was made from, then the template and class badges (a
+      summary of a transcript with a SOAP note says Clinical), Formatted / Edit with Edit by voice and Versions, the
+      text, then **Details** (From, Template,
       Provider, Model only when it says more than the provider, Ran, Privacy, Made). Share → PDF, Word, Text,
       Voice message…; More holds only Delete.
 - [ ] The model chips name the model ("Runs on this iPhone · Apple on-device model").
