@@ -83,7 +83,7 @@ phone_locked() {
 #          therefore not a signing problem; only an error line that names one is (R8-2).
 #   tool:  a devicectl log (short, no environment dump): the signing words anywhere in it count.
 LOCKED_PATTERN='device (is|was) locked|passcode protected|could not be,? unlocked|unlock (your|the) (iPhone|device)'
-SIGNING_ERROR_PATTERN='No profiles for|No Account for Team|requires a development team|provisioning profile|signing certificate|Automatic signing (is disabled|failed)|Code ?Sign(ing)? Error|Failed Registering Bundle Identifier|Your team has no devices|errSecInternalComponent|Command CodeSign failed'
+SIGNING_ERROR_PATTERN='No profiles for|No Account for Team|requires a development team|provisioning profile|signing certificate|Automatic signing (is disabled|failed|is unable to resolve)|Code ?Sign(ing)? Error|Failed Registering Bundle Identifier|Your team has no devices|errSecInternalComponent|Command CodeSign failed'
 SIGNING_ANY_PATTERN='signing|provisioning profile|No profiles for|No Account for Team|certificate|CodeSign|code signature|errSecInternalComponent'
 classify_log() {
   local log="$1" kind="$2" error_lines

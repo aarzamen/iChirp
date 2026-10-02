@@ -1,0 +1,10 @@
+CodeSign /path/to/iChirp/.build/xcode/Build/Products/Debug-iphoneos/iChirp.app (in target 'iChirp' from project 'iChirp')
+    cd /path/to/iChirp
+
+    Signing Identity:     "Apple Development: Example Developer (ZZZZZZZZZZ)"
+    Provisioning Profile: "iOS Team Provisioning Profile: *"
+                          (00000000-0000-0000-0000-000000000000)
+
+error: Automatic signing is unable to resolve an issue with the "iChirp" target's entitlements file. (in target 'iChirp' from project 'iChirp')
+
+** BUILD FAILED **
