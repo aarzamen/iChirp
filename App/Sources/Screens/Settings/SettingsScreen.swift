@@ -226,6 +226,20 @@ struct SettingsScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // Plan 026: your own templates live with your other text rules; the same screen as Transforms → Edit.
+            NavigationLink {
+                TemplatesScreen()
+            } label: {
+                SettingsRow(title: TemplateWords.screenTitle, showsChevron: true) {
+                    let own = environment.deliverableLibrary.templates.filter { !$0.isBuiltIn }.count
+                    Text(own == 0 ? "Built-in only" : "\(own) of your own")
+                        .chirpFont(15)
+                        .monospacedDigit()
+                        .foregroundStyle(Tokens.Color.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 }

@@ -38,6 +38,8 @@ struct DeliverableDetailScreen: View {
     @State private var isShowingVersions = false
     /// The provenance card under "Details".
     @State private var isShowingDetails = false
+    /// Plan 026: "Show the instructions used".
+    @State private var instructionsUsed: TemplateInstructions?
 
     init(id: UUID, environment: AppEnvironment) {
         self.id = id
@@ -79,9 +81,18 @@ struct DeliverableDetailScreen: View {
                         DeliverableMetadataCard(
                             rows: Self.metadata(
                                 deliverable, versionNumber: document.templateVersionNumber,
-                                sourceTitle: sourceTitle(deliverable), effectiveClass: effectiveClass)
+                                sourceTitle: sourceTitle(deliverable), effectiveClass: effectiveClass,
+                                provenance: document.provenance)
                         )
                         .padding(.top, 8)
+                        if document.provenance?.canShowInstructions == true {
+                            // Plan 026: the exact version that made this document, read only.
+                            Button(TemplateWords.showInstructionsUsed) { showInstructionsUsed(deliverable) }
+                                .buttonStyle(.chirp(.quiet, size: .compact))
+                                .fixedSize()
+                                .padding(.top, 8)
+                                .accessibilityHint("Shows the template text this document was made with")
+                        }
                     } label: {
                         Text("Details")
                             .chirpFont(15, .semibold)
@@ -177,6 +188,9 @@ struct DeliverableDetailScreen: View {
             TransformSheet(
                 transcriptionID: original.transcriptionID, transcriptTitle: sourceTitle(original),
                 privacyClass: shownClass ?? .clinical, environment: environment, repeating: original)
+        }
+        .sheet(item: $instructionsUsed) { shown in
+            TemplateInstructionsSheet(subtitle: shown.subtitle, text: shown.text)
         }
         .sheet(isPresented: $isShowingVersions) {
             DocumentVersionsSheet(
@@ -294,6 +308,15 @@ struct DeliverableDetailScreen: View {
         }
     }
 
+    private func showInstructionsUsed(_ deliverable: Deliverable) {
+        Task {
+            let version = await document.loadInstructionsUsed()
+            instructionsUsed = TemplateInstructions(
+                subtitle: TemplateWords.instructionsSubtitle(name: deliverable.title, version: version?.versionNumber),
+                text: version?.content ?? "The instructions could not be read.")
+        }
+    }
+
     private func reloadAfterNewVersion() {
         Task {
             await document.load()
@@ -328,10 +351,13 @@ struct DeliverableDetailScreen: View {
     /// The provenance rows, in reading order. Privacy is the class the rules use (K4), with the document's own mark
     /// when its transcript makes it stricter.
     static func metadata(
-        _ deliverable: Deliverable, versionNumber: Int?, sourceTitle: String, effectiveClass: PrivacyClass? = nil
+        _ deliverable: Deliverable, versionNumber: Int?, sourceTitle: String, effectiveClass: PrivacyClass? = nil,
+        provenance: DocumentTemplateProvenance? = nil
     ) -> [(String, String)] {
         var rows: [(String, String)] = [("From", sourceTitle)]
         rows.append(("Template", versionNumber.map { "\(deliverable.title) · version \($0)" } ?? deliverable.title))
+        // Plan 026: what happened to the template since (renamed, edited, deleted); nothing when unchanged.
+        if let now = provenance?.now { rows.append((TemplateWords.templateNowRow, now)) }
         rows.append(("Provider", deliverable.provider))
         if let model = modelLabel(deliverable.model) { rows.append(("Model", model)) }
         rows.append(

@@ -360,15 +360,21 @@ struct CreateSheet: View {
     private var templateMenu: some View {
         let selected = templates.first { $0.id == draft.templateID }
         let library = environment.deliverableLibrary
+        // Plan 026: the shown templates, plus the chosen one when it is hidden (a remembered or recipe choice stays).
+        let documents = library.pickerTemplates(.deliverable, keeping: draft.templateID)
+        let rewrites = library.pickerTemplates(.transform, keeping: draft.templateID)
         return Menu {
+            if documents.isEmpty, rewrites.isEmpty {
+                Text(TemplateWords.allHidden)
+            }
             Picker("Template", selection: $draft.templateID) {
-                Section("Documents") {
-                    ForEach(library.documentTemplates) { template in
+                Section(TemplateWords.documentsSection) {
+                    ForEach(documents) { template in
                         Text(template.name).tag(Optional(template.id))
                     }
                 }
-                Section("Rewrites") {
-                    ForEach(library.transformTemplates) { template in
+                Section(TemplateWords.rewritesSection) {
+                    ForEach(rewrites) { template in
                         Text(template.name).tag(Optional(template.id))
                     }
                 }
