@@ -68,8 +68,9 @@ enum DOCXReader {
         /// One entry per open `w:r`: the fonts its own `w:rFonts` names for ASCII (`w:ascii`) and for other
         /// characters (`w:hAnsi`); nil where it names none. A text box's runs sit inside a run, hence a stack.
         private var runFonts: [(ascii: String?, hAnsi: String?)] = []
-        /// Inside `w:rPrChange` / `w:pPrChange`: the formatting before a tracked change, not the run's current font.
-        private var formatChangeDepth = 0
+        /// The names of the open elements read (not skipped), outermost first: only `w:r/w:rPr/w:rFonts` names a
+        /// run's font (not a paragraph mark's `w:pPr/w:rPr`, nor the old formatting in `w:rPrChange/w:rPr`).
+        private var path: [String] = []
         /// Elements seen, for the periodic cancellation check.
         private var elements = 0
         private(set) var wasCancelled = false
@@ -168,16 +169,14 @@ enum DOCXReader {
                 skipDepth += 1
                 return
             }
+            path.append(elementName)
             switch elementName {
             case "w:p": open.append("")
             case "w:r": runFonts.append((nil, nil))
             case "w:rFonts":
-                // Only a run's own current properties: `w:pPr/w:rPr/w:rFonts` styles the paragraph mark, and
-                // `w:rPrChange` holds the formatting before a tracked change.
-                if !runFonts.isEmpty, formatChangeDepth == 0 {
+                if path.suffix(3).elementsEqual(["w:r", "w:rPr", "w:rFonts"]), !runFonts.isEmpty {
                     runFonts[runFonts.count - 1] = (attributeDict["w:ascii"], attributeDict["w:hAnsi"])
                 }
-            case "w:rPrChange", "w:pPrChange": formatChangeDepth += 1
             case "w:del", "w:moveFrom": deletedDepth += 1
             case "w:t": inText = true
             case "w:tabs": tabStopDepth += 1
@@ -211,8 +210,10 @@ enum DOCXReader {
         ) {
             if skipDepth > 0 {
                 skipDepth -= 1
-                return
+                // Still inside the skipped element; once the element that started the skip ends, it is closed below.
+                if skipDepth > 0 { return }
             }
+            _ = path.popLast()
             switch elementName {
             case "w:t":
                 inText = false
@@ -220,8 +221,6 @@ enum DOCXReader {
                 _ = runFonts.popLast()
             case "w:del", "w:moveFrom":
                 deletedDepth = max(0, deletedDepth - 1)
-            case "w:rPrChange", "w:pPrChange":
-                formatChangeDepth = max(0, formatChangeDepth - 1)
             case "w:tabs":
                 tabStopDepth = max(0, tabStopDepth - 1)
             case "w:p":

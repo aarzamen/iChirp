@@ -210,6 +210,14 @@ final class DOCXReaderTests: XCTestCase {
             <w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/></w:rPr></w:rPrChange></w:rPr><w:t>50 mg</w:t></w:r></w:p>
             """
         XCTAssertEqual(try text(of: formatChange), "50 mg")
+        // Only `w:r/w:rPr/w:rFonts` names a run's font: a text box paragraph's mark font, met while the anchoring run
+        // is open, does not change that run.
+        let boxMarkFont = """
+            <w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:txbxContent><w:p><w:pPr><w:rPr>\
+            <w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/></w:rPr></w:pPr><w:r><w:t>Box</w:t></w:r></w:p>\
+            </w:txbxContent></mc:Choice></mc:AlternateContent><w:t>50 mg</w:t></w:r></w:p>
+            """
+        XCTAssertEqual(try text(of: boxMarkFont), "Box\n\n50 mg")
     }
 
     /// Tab stops in paragraph properties (`w:tabs/w:tab`) are layout, not tab characters.
