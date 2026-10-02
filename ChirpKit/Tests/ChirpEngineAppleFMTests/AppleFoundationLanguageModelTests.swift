@@ -75,6 +75,36 @@ final class AppleFoundationLanguageModelTests: XCTestCase {
         }
     }
 
+    /// A byte-level tokenizer shows a character it has only partly generated as U+FFFD and replaces it once complete
+    /// ("°" of "38.5 °C", "µ" of "µg"). Such a trailing placeholder is held back, never sent, so the stream neither
+    /// fails nor stores the placeholder; one that never completes is sent as the model left it when the stream ends.
+    func testAPartlyGeneratedCharacterIsHeldBackUntilItIsComplete() throws {
+        var deltas = SnapshotDeltas()
+        var received = ""
+        for snapshot in ["Temp 38.5 \u{FFFD}", "Temp 38.5 \u{FFFD}\u{FFFD}", "Temp 38.5 °C, 250 \u{FFFD}", "Temp 38.5 °C, 250 µg"] {
+            let delta = try deltas.next(snapshot)
+            XCTAssertFalse(delta.unicodeScalars.contains("\u{FFFD}"), "a placeholder is never sent: \(delta)")
+            received += delta
+        }
+        received += try deltas.finish()
+        XCTAssertEqual(received, "Temp 38.5 °C, 250 µg")
+
+        var unfinished = SnapshotDeltas()
+        var text = try unfinished.next("ab\u{FFFD}")
+        text += try unfinished.finish()
+        XCTAssertEqual(text, "ab\u{FFFD}", "a character that never completed is sent as the model left it")
+    }
+
+    func testARewriteFailsTheStreamThroughTheHelperToo() {
+        var deltas = SnapshotDeltas()
+        XCTAssertEqual(try deltas.next("Amoxicillin 500"), "Amoxicillin 500")
+        XCTAssertThrowsError(try deltas.next("Amoxicillin 50 mg")) { error in
+            guard case .streamingError = error as? LanguageModelError else {
+                return XCTFail("expected streamingError, got \(error)")
+            }
+        }
+    }
+
     /// A snapshot that rewrote text already sent cannot be expressed as a delta: the stream fails rather than storing
     /// a hybrid such as "Hello worre, friend".
     func testARevisedSnapshotIsNotADelta() {

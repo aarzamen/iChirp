@@ -52,20 +52,20 @@ public struct AppleFoundationLanguageModel: LanguageModel {
                     let session = LanguageModelSession(model: model, instructions: instructions)
                     let stream = session.streamResponse(to: request.prompt, options: Self.options(for: request))
 
-                    // Snapshots carry the whole text so far; forward only what is new.
-                    var emitted = ""
+                    // Snapshots carry the whole text so far; forward only what is new (review R3-10).
+                    var deltas = SnapshotDeltas()
                     for try await snapshot in stream {
                         try Task.checkCancellation()
-                        guard let delta = Self.delta(from: emitted, to: snapshot.content) else {
-                            throw LanguageModelError.streamingError(
-                                "the on-device model rewrote text it had already sent")
-                        }
+                        let delta = try deltas.next(snapshot.content)
                         if !delta.isEmpty {
                             continuation.yield(.text(delta))
                         }
-                        emitted = snapshot.content
                     }
-                    guard !emitted.isEmpty else {
+                    let tail = try deltas.finish()
+                    if !tail.isEmpty {
+                        continuation.yield(.text(tail))
+                    }
+                    guard !deltas.emitted.isEmpty else {
                         throw LanguageModelError.streamingError("the on-device model returned no text")
                     }
                     continuation.yield(.usage(Self.finishedUsage))
@@ -157,6 +157,39 @@ public struct AppleFoundationLanguageModel: LanguageModel {
         let now = current.unicodeScalars
         guard now.starts(with: sent) else { return nil }
         return String(String.UnicodeScalarView(now.dropFirst(sent.count)))
+    }
+}
+
+/// Turns FoundationModels' cumulative snapshots into deltas that add up to exactly the model's text (review R3-10).
+///
+/// A trailing run of U+FFFD is held back: a byte-level tokenizer shows a multi-byte character it has only partly
+/// generated ("°", "µ") as that placeholder and replaces it once the character is complete, so sending it would either
+/// store the placeholder or make the next snapshot look like a rewrite. Anything else that changes text already sent
+/// fails the stream (`streamingError`): no delta can take it back.
+struct SnapshotDeltas {
+    /// The text forwarded so far.
+    private(set) var emitted = ""
+    private var latest = ""
+
+    /// The new settled text of `snapshot`.
+    mutating func next(_ snapshot: String) throws -> String {
+        latest = snapshot
+        var settled = snapshot.unicodeScalars
+        while settled.last == "\u{FFFD}" { settled.removeLast() }
+        return try advance(to: String(settled))
+    }
+
+    /// Once the stream has ended: a trailing character that never completed is sent as the model left it.
+    mutating func finish() throws -> String {
+        try advance(to: latest)
+    }
+
+    private mutating func advance(to text: String) throws -> String {
+        guard let delta = AppleFoundationLanguageModel.delta(from: emitted, to: text) else {
+            throw LanguageModelError.streamingError("the on-device model rewrote text it had already sent")
+        }
+        emitted = text
+        return delta
     }
 }
 

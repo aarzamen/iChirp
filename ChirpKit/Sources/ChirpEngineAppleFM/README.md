@@ -16,8 +16,10 @@ returns the `AppleFoundationLanguageModel` (engine id `apple.foundation-models`)
   `modelNotReady` each become a `LanguageModelUnavailableReason` with a user-facing sentence), `contextWindowTokens()`
   read from `SystemLanguageModel.contextSize` at run time (back-deployed to iOS 26.0; about 4K tokens shared by
   instructions, input and output), streaming through a fresh `LanguageModelSession` per request with snapshot →
-  delta conversion (by Unicode scalar, so the deltas always add up to the model's text; a snapshot that rewrote text
-  already sent fails the stream with `streamingError` instead of storing a hybrid, review R3-10), the request's
+  delta conversion (`SnapshotDeltas`, by Unicode scalar, so the deltas always add up to the model's text; a trailing
+  U+FFFD placeholder for a character the tokenizer has only partly generated is held back until it is complete; a
+  snapshot that rewrote text already sent fails the stream with `streamingError` instead of storing a hybrid, review
+  R3-10), the request's
   `GenerationOptions` (`options(for:)`), and framework-error mapping
   (`exceededContextWindowSize` → `contextTooLong`, guardrails and refusals → `refused`, and so on).
 
