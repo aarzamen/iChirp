@@ -384,8 +384,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   `derivedTitle` and `derivedSnippet` from the corrected text (`Transcription.titleSource(context:)`: with no
   corrections left, the pipelines' own source, so Revert all restores their title exactly). `revert`, `revertAll`,
   `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
-  the undo plan; an undo over words corrected again since fails with `correctedAgain` ("Those words were corrected
-  again, so this can’t be undone."). A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
+  the undo plan, which `undo(_:plan:baseline:)` applies strictly: when any of its words were corrected again since
+  (the same span, fewer words or a sub-span) it fails with `correctedAgain` ("Those words were corrected again, so
+  this can’t be undone."), writes nothing and leaves the newer correction as it is. `apply(_:plan:baseline:)` (a
+  Replace, voice commands) lets a new correction replace the ones it covers whole. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
   are gone) writes nothing, so `changedAt` does not move; `revertAll` takes the ids inside the store's transaction. Logs: ids, counts and origin names, never text.
   `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off). Part B: `correct(_:lines:in:
   baseline:origin:batchID:)` plans several lines in one write (Replace all), and `applyLearnedRules(_:)` applies the

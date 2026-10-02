@@ -108,6 +108,31 @@ final class TranscriptCorrectionsTests: XCTestCase {
         }
     }
 
+    /// App fix round 2 (N2): an undo plan is applied strictly. An add that touches any stored correction the plan does
+    /// not remove is refused whole (same words, fewer words, a sub-span), so a newer correction is never overwritten.
+    func testAStrictPlanRefusesToTouchACorrectionItDoesNotRemove() throws {
+        let reverted = correction(3..<6, "metformin")
+        for newer in [correction(3..<6, "metoprolol"), correction(3..<5, "metfor"), correction(4..<5, "four")] {
+            let base = try applied([newer])
+            XCTAssertThrowsError(
+                try base.applying(
+                    TranscriptCorrectionPlan(add: [reverted]), words: words(), now: later, strict: true),
+                "\(newer.range)"
+            ) { error in
+                XCTAssertEqual(error as? TranscriptCorrectionsError, .overlapping)
+            }
+            // The same plan, also removing the newer item, applies (an undo of a correction that replaced another).
+            let (result, _) = try base.applying(
+                TranscriptCorrectionPlan(remove: [newer.id], add: [reverted]), words: words(), now: later,
+                strict: true)
+            XCTAssertEqual(result.items.map(\.id), [reverted.id])
+        }
+        // Words nobody corrected since: the strict plan applies.
+        let (clean, _) = try TranscriptCorrections.empty.applying(
+            TranscriptCorrectionPlan(add: [reverted]), words: words(), now: later, strict: true)
+        XCTAssertEqual(clean.items.map(\.text), ["metformin"])
+    }
+
     func testApplyingReplacesCoveredCorrectionsAndReturnsInverse() throws {
         let first = correction(3..<6, "metformin")
         let base = try applied([first])

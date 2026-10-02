@@ -71,6 +71,11 @@ seconds since 2001-01-01, like the other JSON columns):
   added item whose `text` equals its `heard` removes what it covers and adds nothing (a revert by retyping).
 - Every applied plan returns its inverse (remove what it added, add back what it removed, with their ids and dates),
   which restores the previous items exactly (undo).
+- **An undo is applied strictly** (`applying(_:words:now:strict: true)`, `TranscriptCorrectionService.undo`): an added
+  item may not touch any stored item the plan does not remove, not even one it covers whole. Words corrected again
+  since the undo plan was made (the same span, fewer words or a sub-span) refuse the whole plan with `overlapping`
+  (shown as "Those words were corrected again, so this can't be undone.") and nothing is written, so a newer
+  correction is never overwritten. The "replaces what it covers" rule above holds for new corrections only.
 - `baseline` = `TranscriptFingerprint.of(words)`: `"w1:"` + lowercase hex SHA-256 over, for each word in order,
   `"\(startMs),\(endMs),\(word.utf8.count):\(word)\n"`. Speakers, confidences and segments are excluded.
 - `changedAt` moves on every add, revert and detach and is never cleared once set; revert all leaves `items: []`, not
