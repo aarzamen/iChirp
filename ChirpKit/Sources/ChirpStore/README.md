@@ -35,10 +35,11 @@ ChirpStore depends on ChirpText.
   `v9-llm-runs-deliverable-index` (review R1-17: `idx_llm_runs_deliverable_id`, so a document's delete nulls its
   ledger rows without a full scan; an index only), then `v10-deliverable-cut-off` (plan 024 Task 8, reviews R3-1 /
   R4-2: `isCutOff` BOOLEAN NOT NULL DEFAULT 0 on `deliverables` and `deliverable_versions`, a text the model stopped
-  at its length limit; additive). Every migration has an
-  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests`,
-  for v9 `LLMRunsDeliverableIndexMigrationTests` and for v10 `DeliverableCutOffMigrationTests`, which use the internal
-  `DatabaseManager(writer:)` on an older queue).
+  at its length limit; additive), then `v12-template-library` (plan 026: `prompts.isVisible` BOOLEAN NOT NULL
+  DEFAULT 1, a template hidden from the pickers; additive; `v11` belongs to plan 025's parallel lane). Every migration
+  has an upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests`,
+  for v9 `LLMRunsDeliverableIndexMigrationTests`, for v10 `DeliverableCutOffMigrationTests` and for v12
+  `TemplateLibraryMigrationTests`, which use the internal `DatabaseManager(writer:)` on an older queue).
 - `DeliverableVersionStore.swift` (plan 022) — `DeliverableVersionSchema` (the `v8-text-items` table, cascade-deleted
   with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
@@ -96,9 +97,19 @@ ChirpStore depends on ChirpText.
   privacy classes read as `clinical`, unknown localities as `cloud`.
 - `GRDBDeliverableStore.swift` — the `DeliverableStoring` implementation:
   built-in template install and upgrade by canonical key and revision (a user
-  edit or delete wins), user templates and versions, soft delete, deliverables
+  edit or delete wins; plan 026: an upgrade never rewrites `sortOrder` or `isVisible`, which are the person's), user
+  templates and versions, soft delete, deliverables
   (insert, list, field-level text edit, raise-only privacy class), and the run
   ledger.
+- `TemplateLibraryStore.swift` (plan 026) — `TemplateLibrarySchema` (the `v12-template-library` column) and
+  `GRDBDeliverableStore`'s `TemplateLibraryStoring`: each write is one transaction that re-checks the draft and the
+  name's uniqueness (ignoring case, among templates not deleted, hidden ones included). Create puts version 1 (origin
+  `user`) last in its section; update saves name, kind and the clinical switch on the row and appends a version only
+  when the instructions changed (a new kind moves it last in its new section); built-ins are refused for update and
+  delete but can be hidden and reordered, which never set `userCustomizedAt`; a reorder must list every template of
+  the section that is not deleted, once, and writes Documents 0…n-1, Rewrites 1000+index; delete is soft (versions
+  and documents stay); restore puts it last in its section and renames it "<name> (restored)" when the name was
+  taken. Logs carry ids, kinds and counts only. Contract: `spec/contracts/deliverables-v1.md` (Template library).
 - `GRDBTextRulesStore.swift` (M2) — custom words and snippets: sorted
   case-insensitively, `save` inserts or replaces by id (keeping a `source` or
   `action` a newer build wrote that this build cannot read), a unique-index

@@ -22,6 +22,8 @@ struct PromptRecord: Codable, Equatable, Sendable, FetchableRecord, PersistableR
     var canonicalRevision: Int?
     var outputPrivacyClass: String?
     var sortOrder: Int
+    /// Migration `v12-template-library`.
+    var isVisible: Bool
     var activeVersionId: UUID
     var userCustomizedAt: Date?
     var deletedAt: Date?
@@ -37,6 +39,7 @@ struct PromptRecord: Codable, Equatable, Sendable, FetchableRecord, PersistableR
         canonicalRevision = template.canonicalRevision
         outputPrivacyClass = template.outputPrivacyClass?.rawValue
         sortOrder = template.sortOrder
+        isVisible = template.isVisible
         activeVersionId = template.activeVersionID
         userCustomizedAt = template.userCustomizedAt
         deletedAt = template.deletedAt
@@ -55,6 +58,7 @@ struct PromptRecord: Codable, Equatable, Sendable, FetchableRecord, PersistableR
             // An unknown stored class still raises the output (to the most protective class).
             outputPrivacyClass: outputPrivacyClass.map { PrivacyClass(rawValue: $0) ?? fallbackPrivacyClass },
             sortOrder: sortOrder,
+            isVisible: isVisible,
             activeVersionID: activeVersionId,
             userCustomizedAt: userCustomizedAt,
             deletedAt: deletedAt,
