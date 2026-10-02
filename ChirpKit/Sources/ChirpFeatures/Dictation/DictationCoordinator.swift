@@ -636,7 +636,7 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
                 if saved.ruleFixes > 0 {
                     let store = self.store
                     let stored = try? await Self.detached { try await store.fetch(id: row.id) }
-                    learnedRuleFixes = stored?.textCorrections?.items.filter { $0.origin == .rule }.count ?? 0
+                    learnedRuleFixes = stored?.learnedRuleFixCount ?? 0
                 }
                 voiceCommands?.perform(actions, copiedText: copied, transcriptionID: row.id)
             }
@@ -793,7 +793,7 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
                 let applyLearnedRules = self.applyLearnedRules
                 if let corrected = await Task(operation: { await applyLearnedRules(stored.id) }).value {
                     saved = corrected
-                    ruleFixes = corrected.textCorrections?.items.filter { $0.origin == .rule }.count ?? 0
+                    ruleFixes = corrected.learnedRuleFixCount
                     let shown = corrected.plainText(.shown(.raw), context: await shownTextContext())
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     if !shown.isEmpty { copiedText = shown }

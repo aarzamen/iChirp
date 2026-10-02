@@ -38,8 +38,14 @@ enum TranscriptLineText {
         guard let find else { return text }
         for match in find.matches {
             guard let range = textRange(match.location, match.location + match.length) else { continue }
-            text[range].backgroundColor =
-                match == find.current ? Tokens.Color.findCurrentFill : Tokens.Color.findMatchFill
+            let isCurrent = match == find.current
+            text[range].backgroundColor = isCurrent ? Tokens.Color.findCurrentFill : Tokens.Color.findMatchFill
+            if isCurrent {
+                // Fix round 1, I4: the current match is not told apart by colour alone: bold, solid ink underline.
+                text[range].inlinePresentationIntent = .stronglyEmphasized
+                text[range].underlineStyle = Text.LineStyle(pattern: .solid, color: Tokens.Color.ink)
+                continue
+            }
             // A correction's underline inside a match: ink, glyph-safe on both fills.
             for utf16Range in corrected {
                 let lower = max(utf16Range.lowerBound, match.location)

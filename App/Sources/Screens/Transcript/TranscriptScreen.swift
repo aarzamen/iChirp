@@ -98,6 +98,7 @@ struct TranscriptScreen: View {
     @State private var screenHeight: CGFloat = 800
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var isFindFocused: Bool
+    @FocusState private var isReplaceFocused: Bool
     @AccessibilityFocusState private var focusedLineID: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -163,14 +164,25 @@ struct TranscriptScreen: View {
                 VStack(spacing: 0) {
                     if isFinding {
                         // At most about half the screen above the keyboard; it scrolls when it needs more (large text).
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                if let replaceResult {
-                                    ReplaceResultBanner(
-                                        result: replaceResult, onUndo: { Task { await undoReplace(replaceResult) } },
-                                        onAddRule: { Task { await addRule(replaceResult) } })
+                        ScrollViewReader { panel in
+                            ScrollView {
+                                VStack(spacing: 0) {
+                                    if let replaceResult {
+                                        ReplaceResultBanner(
+                                            result: replaceResult,
+                                            onUndo: { Task { await undoReplace(replaceResult) } },
+                                            onAddRule: { Task { await addRule(replaceResult) } }
+                                        )
+                                        .id(Self.replaceResultAnchor)
+                                    }
+                                    findBar
                                 }
-                                findBar
+                            }
+                            // Fix round 1, I3: a new result scrolls into view (at large text the panel scrolls), so
+                            // Undo and Add Rule are never off-screen.
+                            .onChange(of: replaceResult?.id) { _, id in
+                                guard id != nil else { return }
+                                panel.scrollTo(Self.replaceResultAnchor, anchor: .top)
                             }
                         }
                         .scrollBounceBehavior(.basedOnSize)
@@ -700,6 +712,9 @@ struct TranscriptScreen: View {
 
     // MARK: - Find and Replace (plan 025 Part B)
 
+    /// The find panel's scroll anchor for the replace result (fix round 1, I3).
+    static let replaceResultAnchor = "replace-result"
+
     /// The toolbar's "Find in Transcript", before More.
     private var findButton: some View {
         Button {
@@ -719,6 +734,7 @@ struct TranscriptScreen: View {
         let playMs = current.flatMap { model.timeMs(of: $0) }
         return TranscriptFindBar(
             query: $findQuery, replacement: $replacement, showsReplace: $showsReplace, isFocused: $isFindFocused,
+            isReplaceFocused: $isReplaceFocused,
             counter: find.counterText, canNavigate: find.hasMatches,
             playTitle: (player.isAvailable && model.hasWordTimings) ? playMs.map(TranscriptFindCopy.playFrom) : nil,
             replaceUnavailable: model.replaceUnavailableReason,
@@ -820,23 +836,13 @@ struct TranscriptScreen: View {
         do {
             let outcome = try await operation()
             find.setBlocks(model.findBlocks)
-            guard outcome.count > 0 else {
-                replaceResult = nil
-                actionError = TranscriptFindCopy.nothingReplaced
-                return
-            }
-            var message = TranscriptFindCopy.replaced(count: outcome.count)
-            if outcome.skipped > 0 { message += " " + TranscriptFindCopy.skipped(outcome.skipped) }
-            var note: String?
-            if let suggestion = outcome.ruleSuggestion {
-                note =
-                    TranscriptFindCopy.rulePrompt(suggestion, privacyClass: await model.effectivePrivacyClassNow())
-                    .note
-            }
-            replaceResult = ReplaceResult(
-                message: message, undo: outcome.undo, suggestion: outcome.ruleSuggestion, note: note)
-            AccessibilityNotification.Announcement(TranscriptFindCopy.replacedAnnouncement(left: find.matchCount))
-                .post()
+            let privacyClass = outcome.ruleSuggestion == nil ? .personal : await model.effectivePrivacyClassNow()
+            let result = ReplaceResult.make(outcome, privacyClass: privacyClass)
+            replaceResult = result
+            // Fix round 1, I3: the keyboard goes, so the result (and its Undo and Add Rule) is in view.
+            isFindFocused = false
+            isReplaceFocused = false
+            AccessibilityNotification.Announcement(result.announcement(matchesLeft: find.matchCount)).post()
         } catch {
             actionError = Formatting.message(for: error)
         }
@@ -863,7 +869,7 @@ struct TranscriptScreen: View {
             current.suggestion = nil
             current.note = nil
             current.ruleStatus = TranscriptFindCopy.ruleAdded
-        case .alreadyExists(let message):
+        case .alreadyExists(let message), .refused(let message):
             current.suggestion = nil
             current.note = nil
             current.ruleStatus = message
@@ -871,7 +877,8 @@ struct TranscriptScreen: View {
             current.ruleStatus = message
         }
         replaceResult = current
-        if let status = current.ruleStatus { AccessibilityNotification.Announcement(status).post() }
+        // Fix round 1, M3: what happened, never the rule's words.
+        AccessibilityNotification.Announcement(TranscriptFindCopy.ruleStatusAnnouncement(outcome)).post()
     }
 
     // MARK: - Actions

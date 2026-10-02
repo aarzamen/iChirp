@@ -7,10 +7,14 @@ import Foundation
 /// DEBUG-only launch argument for the plan 025 corrections tour (`UITests/TranscriptCorrectionsTourUITests`):
 /// `-ChirpSeedCorrectionsSample` adds one finished, timed, synthetic transcript ("Synthetic corrections sample") when the
 /// Library has none, so the tour needs no speech model. No audio, two speakers, a pause between them. Release builds
-/// ignore it.
+/// ignore it. Plan 025 Part B: `-ChirpSeedClinicalFindSample` adds the same words as a Clinical item ("Synthetic clinical
+/// find sample") for the find tour's rule offer with its clinical note.
 enum CorrectionsPreviewLaunch {
     static let seedArgument = "-ChirpSeedCorrectionsSample"
     static let fileName = "Synthetic corrections sample.m4a"
+    static let clinicalSeedArgument = "-ChirpSeedClinicalFindSample"
+    static let clinicalFileName = "Synthetic clinical find sample.m4a"
+    static let clinicalTitle = "Synthetic clinical find sample"
 
     static let parts: [(speaker: String, text: String)] = [
         ("S1", "The patient takes met for men 500 mg twice daily. Blood pressure was 128 over 82 today."),
@@ -20,6 +24,7 @@ enum CorrectionsPreviewLaunch {
     static func seedIfRequested(environment: AppEnvironment, arguments: [String] = ProcessInfo.processInfo.arguments)
         async
     {
+        if arguments.contains(clinicalSeedArgument) { await seedClinical(environment: environment) }
         guard arguments.contains(seedArgument) else { return }
         let rows = (try? await environment.store.fetchAll()) ?? []
         if let existing = rows.first(where: { $0.fileName == fileName }) {
@@ -30,6 +35,22 @@ enum CorrectionsPreviewLaunch {
             return
         }
         try? await environment.store.insert(sample())
+    }
+
+    /// The clinical copy of the sample (its own id, file name and title), back as heard when it is already there.
+    private static func seedClinical(environment: AppEnvironment) async {
+        let rows = (try? await environment.store.fetchAll()) ?? []
+        if let existing = rows.first(where: { $0.fileName == clinicalFileName }) {
+            _ = try? await TranscriptCorrectionService(store: environment.store, context: { .none })
+                .revertAll(existing.id)
+            return
+        }
+        var clinical = sample()
+        clinical.id = UUID()
+        clinical.fileName = clinicalFileName
+        clinical.titleOverride = clinicalTitle
+        clinical.privacyClass = .clinical
+        try? await environment.store.insert(clinical)
     }
 
     static func sample() -> Transcription {

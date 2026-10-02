@@ -124,4 +124,83 @@ final class TranscriptFindAppTests: XCTestCase {
             clinical.note, "Saved in Settings → Text rules for all transcripts. Don’t add patient names.")
         XCTAssertEqual(TranscriptFindCopy.ruleAdded, "Rule added. New transcripts get this fix as a correction.")
     }
+
+    // MARK: - Fix round 1
+
+    /// I4: the current match has a cue that is not a colour: bold and a solid underline (other matches neither).
+    func testCurrentMatchIsBoldAndUnderlined() throws {
+        let heard = row().text(.heard)
+        let line = try XCTUnwrap(heard.lines.first)
+        let attributed = TranscriptLineText.attributed(
+            line, tokens: heard.tokens, find: marks(line, query: "met for men", current: 1))
+        let cued = attributed.runs.compactMap { run -> String? in
+            guard run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true,
+                run.underlineStyle == Text.LineStyle(pattern: .solid, color: Tokens.Color.ink)
+            else { return nil }
+            return String(attributed[run.range].characters)
+        }
+        XCTAssertEqual(cued, ["Met for men"])
+        for run in attributed.runs where run.backgroundColor == Tokens.Color.findMatchFill {
+            XCTAssertNil(run.inlinePresentationIntent)
+            XCTAssertNil(run.underlineStyle)
+        }
+    }
+
+    /// I2, M2, C1: the result line says what happened, counts only.
+    func testResultLineSaysWhatWasLeftAndWhyThereIsNoRule() {
+        let plan = TranscriptCorrectionPlan(remove: [UUID()])
+        let outcome = ReplaceOutcome(
+            undo: plan, count: 3, skipped: 2, skippedInCorrections: 2,
+            ruleWithheld: LearnedRuleSuggestion.numbersReason)
+        let result = ReplaceResult.make(outcome, privacyClass: .clinical)
+        XCTAssertEqual(result.message, "Replaced 3. 2 in a corrected passage were left as they are.")
+        XCTAssertTrue(result.canUndo)
+        XCTAssertNil(result.suggestion)
+        XCTAssertEqual(result.withheld, "Rules can’t contain numbers, so a dose is never changed automatically.")
+        XCTAssertEqual(
+            ReplaceResult.make(ReplaceOutcome(undo: plan, count: 1, skipped: 1), privacyClass: .personal).message,
+            "Replaced. 1 place had changed, so it was left as it is.")
+        let nothing = ReplaceResult.make(ReplaceOutcome(undo: .init(), count: 0), privacyClass: .personal)
+        XCTAssertEqual(nothing.message, "Nothing changed.")
+        XCTAssertFalse(nothing.canUndo)
+        XCTAssertNil(nothing.withheld)
+        let offered = ReplaceResult.make(
+            ReplaceOutcome(
+                undo: plan, count: 1, ruleSuggestion: LearnedRuleSuggestion(word: "met for men", replacement: "x")),
+            privacyClass: .clinical)
+        XCTAssertEqual(offered.note, LearnedRuleSuggestion.clinicalNote)
+    }
+
+    /// I3, M3: announcements carry counts and what can be done, never transcript text or rule words.
+    func testAnnouncementsCarryNoContent() {
+        let plan = TranscriptCorrectionPlan(remove: [UUID()])
+        let offered = ReplaceResult.make(
+            ReplaceOutcome(
+                undo: plan, count: 2, ruleSuggestion: LearnedRuleSuggestion(word: "met for men", replacement: "x")),
+            privacyClass: .personal)
+        XCTAssertEqual(
+            offered.announcement(matchesLeft: 3), "Replaced. 3 matches left. Undo available. Rule offer available.")
+        let plain = ReplaceResult.make(ReplaceOutcome(undo: plan, count: 1), privacyClass: .personal)
+        XCTAssertEqual(plain.announcement(matchesLeft: 0), "Replaced. No matches left. Undo available.")
+        let nothing = ReplaceResult.make(ReplaceOutcome(undo: .init(), count: 0), privacyClass: .personal)
+        XCTAssertEqual(nothing.announcement(matchesLeft: 1), "Nothing changed.")
+        XCTAssertEqual(
+            TranscriptFindCopy.ruleStatusAnnouncement(.alreadyExists("“met for men” already has a rule")),
+            "That rule already exists.")
+        XCTAssertEqual(TranscriptFindCopy.ruleStatusAnnouncement(.added), TranscriptFindCopy.ruleAdded)
+        XCTAssertEqual(
+            TranscriptFindCopy.ruleStatusAnnouncement(.refused(LearnedRuleSuggestion.numbersReason)),
+            LearnedRuleSuggestion.numbersReason)
+        XCTAssertEqual(TranscriptFindCopy.ruleStatusAnnouncement(.failed("disk full")), "The rule wasn’t saved.")
+    }
+
+    /// M4: a learned rule cannot be saved without its replacement (a manual word can).
+    func testLearnedRuleNeedsAReplacementToSave() {
+        let learned = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
+        let manual = CustomWord(word: "Kenobi")
+        XCTAssertFalse(TextRuleEditorSheet.canSave(.word(learned), first: "met for men", second: "  "))
+        XCTAssertTrue(TextRuleEditorSheet.canSave(.word(learned), first: "met for men", second: "metformin"))
+        XCTAssertTrue(TextRuleEditorSheet.canSave(.word(manual), first: "Kenobi", second: ""))
+        XCTAssertFalse(TextRuleEditorSheet.canSave(.newSnippet, first: "my sig", second: ""))
+    }
 }

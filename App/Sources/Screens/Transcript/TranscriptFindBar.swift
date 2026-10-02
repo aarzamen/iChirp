@@ -19,6 +19,8 @@ struct TranscriptFindBar: View {
     @Binding var replacement: String
     @Binding var showsReplace: Bool
     var isFocused: FocusState<Bool>.Binding
+    /// The Replace field's focus, so a finished replace can put the keyboard away (fix round 1, I3).
+    var isReplaceFocused: FocusState<Bool>.Binding
     let counter: String
     let canNavigate: Bool
     /// "Play from 12:04" for the current match, or nil when there is nothing to play.
@@ -77,7 +79,11 @@ struct TranscriptFindBar: View {
                     .autocorrectionDisabled()
                     .submitLabel(.next)
                     .focused(isFocused)
-                    .onSubmit(onNext)
+                    .onSubmit {
+                        onNext()
+                        // Fix round 1, M5: Return steps and keeps the keyboard, so the next Return steps again.
+                        isFocused.wrappedValue = true
+                    }
                     .onKeyPress(.escape) {
                         if !query.isEmpty {
                             query = ""
@@ -208,6 +214,7 @@ struct TranscriptFindBar: View {
 
     private var replaceField: some View {
         ChirpTextField("Replace with", text: $replacement)
+            .focused(isReplaceFocused)
             .chirpFont(16)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -246,8 +253,39 @@ struct ReplaceResult: Identifiable, Equatable {
     var undo: TranscriptCorrectionPlan
     var suggestion: LearnedRuleSuggestion?
     var note: String?
+    /// Why there is no rule offer, when that is worth saying (fix round 1, C1: a number).
+    var withheld: String?
     /// What Add Rule did ("Rule added…", or why not).
     var ruleStatus: String?
+
+    /// Undo is offered only when the replace changed something (fix round 1, M2).
+    var canUndo: Bool { !undo.isEmpty }
+
+    /// The banner for `outcome`: "Replaced 3." (or "Nothing changed."), what was left alone and why, the rule offer
+    /// with the clinical note on a clinical item, or why there is none.
+    static func make(_ outcome: ReplaceOutcome, privacyClass: PrivacyClass) -> ReplaceResult {
+        guard outcome.count > 0 else {
+            return ReplaceResult(message: TranscriptFindCopy.nothingChanged, undo: .init())
+        }
+        var message = TranscriptFindCopy.replaced(count: outcome.count)
+        let stale = outcome.skipped - outcome.skippedInCorrections
+        if outcome.skippedInCorrections > 0 {
+            message += " " + TranscriptFindCopy.skippedInCorrections(outcome.skippedInCorrections)
+        }
+        if stale > 0 { message += " " + TranscriptFindCopy.skipped(stale) }
+        let note = outcome.ruleSuggestion.flatMap { TranscriptFindCopy.rulePrompt($0, privacyClass: privacyClass).note }
+        return ReplaceResult(
+            message: message, undo: outcome.undo, suggestion: outcome.ruleSuggestion, note: note,
+            withheld: outcome.ruleSuggestion == nil ? outcome.ruleWithheld : nil)
+    }
+
+    /// What VoiceOver says when the result arrives (fix round 1, I3): counts and what can be done, no content.
+    func announcement(matchesLeft: Int) -> String {
+        guard canUndo else { return TranscriptFindCopy.nothingChanged }
+        var text = TranscriptFindCopy.replacedAnnouncement(left: matchesLeft) + " Undo available."
+        if suggestion != nil { text += " Rule offer available." }
+        return text
+    }
 }
 
 struct ReplaceResultBanner: View {
@@ -263,12 +301,18 @@ struct ReplaceResultBanner: View {
                     HStack(spacing: Tokens.Spacing.s) {
                         message
                         Spacer(minLength: 0)
-                        undoButton
+                        if result.canUndo { undoButton }
                     }
                     VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
                         message
-                        undoButton
+                        if result.canUndo { undoButton }
                     }
+                }
+                if let withheld = result.withheld {
+                    Text(withheld)
+                        .chirpFont(13)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let suggestion = result.suggestion {
                     // Beside the question at ordinary sizes; under it at accessibility sizes.
@@ -354,7 +398,26 @@ enum TranscriptFindCopy {
             : "\(count) places had changed, so they were left as they are."
     }
 
-    static let nothingReplaced = "Nothing was replaced: the text there had changed."
+    /// A replace that changed nothing (the places already read as the replacement, or their text changed).
+    static let nothingChanged = "Nothing changed."
+
+    /// Fix round 1, I2: matches in a passage corrected earlier are left alone (reverting this replace never takes that
+    /// correction with it).
+    static func skippedInCorrections(_ count: Int) -> String {
+        count == 1
+            ? "1 in a corrected passage was left as it is."
+            : "\(count) in a corrected passage were left as they are."
+    }
+
+    /// What VoiceOver says after Add Rule (fix round 1, M3): never the rule's words.
+    static func ruleStatusAnnouncement(_ outcome: TextRulesViewModel.LearnedRuleOutcome) -> String {
+        switch outcome {
+        case .added: ruleAdded
+        case .alreadyExists: "That rule already exists."
+        case .refused(let reason): reason
+        case .failed: "The rule wasn’t saved."
+        }
+    }
 
     /// "Also fix “met for men” in future transcripts?", plus the clinical note on a clinical item (D6: learned rules
     /// are global, outside any item's class).

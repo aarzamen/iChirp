@@ -246,6 +246,8 @@ struct TextRuleEditorSheet: View {
     @State private var second = ""
     @State private var isSaving = false
     @State private var isConfirmingCancel = false
+    /// Fix round 1, M4: Delete rule is asking.
+    @State private var isConfirmingDelete = false
 
     /// The two fields as the sheet opened (empty for a new word or snippet).
     static func original(_ editor: TextRulesScreen.Editor) -> (first: String, second: String) {
@@ -274,10 +276,24 @@ struct TextRuleEditorSheet: View {
         }
     }
 
-    private var canSave: Bool {
+    /// A learned rule ("Fixes from your corrections") being edited: it must keep a replacement (fix round 1, M4).
+    private var learnedRule: CustomWord? {
+        if case .word(let word) = editor, word.source == .learned { return word }
+        return nil
+    }
+
+    private var canSave: Bool { Self.canSave(editor, first: first, second: second) }
+
+    /// Save needs the first field; a snippet and a learned rule also need the second (fix round 1, M4: a learned rule
+    /// without a replacement fixes nothing; Delete Rule is how it stops).
+    static func canSave(_ editor: TextRulesScreen.Editor, first: String, second: String) -> Bool {
         let hasFirst = !first.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasSecond = !second.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return isWord ? hasFirst : hasFirst && hasSecond
+        switch editor {
+        case .newWord: return hasFirst
+        case .word(let word): return word.source == .learned ? hasFirst && hasSecond : hasFirst
+        case .newSnippet, .snippet: return hasFirst && hasSecond
+        }
     }
 
     var body: some View {
@@ -302,6 +318,29 @@ struct TextRuleEditorSheet: View {
                     Section {
                         Text(error)
                             .foregroundStyle(AppColor.error)
+                    }
+                }
+                if let rule = learnedRule {
+                    // Fix round 1, M4: an empty replacement is no rule; deleting it is how it stops.
+                    Section {
+                        Button("Delete Rule", role: .destructive) { isConfirmingDelete = true }
+                            .foregroundStyle(AppColor.error)
+                    } footer: {
+                        Text(TextRulesCopy.learnedEditorFooter)
+                    }
+                    .confirmationDialog(
+                        "Delete the fix for “\(rule.word)”?", isPresented: $isConfirmingDelete,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Delete Fix", role: .destructive) {
+                            Task {
+                                await model.deleteWords([rule.id])
+                                close()
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("New transcripts no longer get this fix. Fixes already made stay until you revert them.")
                     }
                 }
             }
@@ -338,7 +377,7 @@ struct TextRuleEditorSheet: View {
     private var title: String {
         switch editor {
         case .newWord: "Add word"
-        case .word: "Edit word"
+        case .word(let word): word.source == .learned ? "Edit fix" : "Edit word"
         case .newSnippet: "Add snippet"
         case .snippet: "Edit snippet"
         }
@@ -377,6 +416,9 @@ enum TextRulesCopy {
     static let learnedFooter =
         "Parakeet makes these fixes in new transcripts as corrections you can see and undo, in Raw and Clean. The words "
         + "it heard are kept."
+    static let learnedEditorFooter =
+        "A fix always writes something, and rules can’t contain numbers, so a dose is never changed automatically. To "
+        + "stop a fix, delete it."
     static let learnedEmpty =
         "None yet. After you replace a word in a transcript with Find, Parakeet can fix it in new transcripts too."
 }

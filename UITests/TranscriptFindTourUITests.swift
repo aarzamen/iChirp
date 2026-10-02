@@ -20,14 +20,16 @@ final class TranscriptFindTourUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-ChirpSeedCorrectionsSample"]
+        app.launchArguments = ["-ChirpSeedCorrectionsSample", "-ChirpSeedClinicalFindSample"]
     }
 
     func testTourOfFindInTranscript() throws {
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: 20))
         app.tabBars.buttons["Library"].tap()
-        let row = app.buttons.containing(NSPredicate(format: "label CONTAINS[c] 'met for men'")).firstMatch
+        let row = app.buttons.containing(
+            NSPredicate(format: "label CONTAINS[c] 'met for men' AND NOT (label CONTAINS[c] 'clinical')")
+        ).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the seeded sample is in the Library")
         row.tap()
         let heardLine = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Dr. Smyth'")).firstMatch
@@ -42,8 +44,10 @@ final class TranscriptFindTourUITests: XCTestCase {
         XCTAssertTrue(counter.waitForExistence(timeout: 5))
         waitForLabel(counter, "1 of 2")
         shot("find-first")
-        app.buttons["Next match"].tap()
+        // Return steps to the next match and keeps the keyboard (fix round 1, M5).
+        field.typeText("\n")
         waitForLabel(counter, "2 of 2")
+        XCTAssertTrue(field.value(forKey: "hasKeyboardFocus") as? Bool ?? false, "the field keeps the keyboard")
         shot("find-second")
 
         // "Smyth" → Show Replace, "Smith", Replace.
@@ -83,6 +87,40 @@ final class TranscriptFindTourUITests: XCTestCase {
                 .waitForExistence(timeout: 5))
         app.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(heardLine.waitForExistence(timeout: 5))
+
+        // Fix round 1, M10: a clinical item's rule offer carries the clinical note; a number withholds the offer.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let clinicalRow = app.buttons.containing(
+            NSPredicate(format: "label CONTAINS[c] 'Synthetic clinical find sample'")
+        ).firstMatch
+        XCTAssertTrue(clinicalRow.waitForExistence(timeout: 10))
+        clinicalRow.tap()
+        app.buttons["Find in Transcript"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("met for men")
+        waitForLabel(counter, "1 of 1")
+        app.buttons["Show Replace"].tap()
+        XCTAssertTrue(replaceField.waitForExistence(timeout: 5))
+        replaceField.tap()
+        replaceField.typeText("metformin")
+        app.buttons["Replace"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Saved in Settings → Text rules for all transcripts. Don’t add patient names."]
+                .waitForExistence(timeout: 10))
+        shot("rule-offer-clinical")
+        app.buttons["Undo"].tap()
+        waitForLabel(counter, "1 of 1")
+        replaceField.tap()
+        replaceField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12) + "metformin 500")
+        app.buttons["Replace"].tap()
+        XCTAssertTrue(
+            app.staticTexts["Rules can’t contain numbers, so a dose is never changed automatically."]
+                .waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Add Rule"].exists)
+        shot("rule-withheld-numbers")
+        app.buttons["Undo"].tap()
+        waitForLabel(counter, "1 of 1")
+        app.buttons["Done"].firstMatch.tap()
 
         // Settings → Custom words & snippets → Fixes from your corrections.
         app.navigationBars.buttons.element(boundBy: 0).tap()

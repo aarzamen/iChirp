@@ -378,6 +378,8 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
         let rule = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
         let saved = await service(store, rules: [rule]).applyLearnedRules(original.id)
         XCTAssertEqual(saved?.textCorrections?.items.map(\.origin), [.rule])
+        XCTAssertEqual(saved?.learnedRuleFixCount, 1)
+        XCTAssertEqual(original.learnedRuleFixCount, 0)
         XCTAssertEqual(saved?.textCorrections?.items.map(\.ruleID), [rule.id])
         XCTAssertEqual(saved?.textCorrections?.items.map(\.text), ["metformin"])
         XCTAssertEqual(saved?.plainText(.shown(.raw)), "The patient takes metformin daily. She feels well today.")

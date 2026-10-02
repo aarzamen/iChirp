@@ -357,6 +357,28 @@ final class ContrastTests: XCTestCase {
         }
     }
 
+    /// Plan 025 fix round 1, I4: a Find match reads on the dark ground (1.5:1), both fills have Increase Contrast
+    /// values that step further from the ground, and the current match is not told apart by colour alone: it is bold
+    /// with a solid underline (`TranscriptFindAppTests.testCurrentMatchIsBoldAndUnderlined`), because the light fills
+    /// cannot be 3:1 apart while ink stays 4.5:1 on both.
+    func testFindFillsReadOnTheGroundAndHaveIncreaseContrastValues() {
+        for appearance in [Appearance.dark, .darkHighContrast] {
+            XCTAssertGreaterThanOrEqual(
+                Self.contrastRatio(P.findMatchFill.hex(in: appearance), P.ground.hex(in: appearance)), 1.5,
+                "match fill on ground in \(appearance.rawValue)")
+        }
+        for fill in [P.findMatchFill, P.findCurrentFill] {
+            // Both have Increase Contrast values. In light mode ink is the same with Increase Contrast, so a darker
+            // fill would lower ink's contrast (testIncreaseContrastNeverLowersContrast): the light variant is a more
+            // saturated amber instead. In dark mode it steps further from the ground.
+            XCTAssertNotEqual(fill.lightHighContrast, fill.light)
+            XCTAssertNotEqual(fill.darkHighContrast, fill.dark)
+            XCTAssertGreaterThan(
+                Self.contrastRatio(fill.darkHighContrast, P.ground.darkHighContrast),
+                Self.contrastRatio(fill.dark, P.ground.dark))
+        }
+    }
+
     func testDarkPillsDoNotGlare() {
         // A light pill on a near-black screen glares (audit F6: "Runs on this iPhone"). In dark mode every filled
         // chip is a deep tinted fill, close to the surface it sits on rather than a bright patch.

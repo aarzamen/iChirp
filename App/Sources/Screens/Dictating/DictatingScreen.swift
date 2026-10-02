@@ -22,6 +22,8 @@ struct DictatingScreen: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// The question Cancel is asking, while it is up (F72).
     @State private var discardPrompt: DictationDiscardPrompt?
+    /// Plan 025 fix round 1, I1: the dictation's transcript, opened from "N words fixed by your rules".
+    @State private var showsTranscript = false
 
     private var dictation: DictationCoordinator { environment.dictation }
 
@@ -282,8 +284,55 @@ struct DictatingScreen: View {
             }
             .accessibilityElement(children: .combine)
         } else {
-            copiedFinalText
+            VStack(alignment: .leading, spacing: 14) {
+                copiedFinalText
+                ruleFixesRow
+            }
         }
+    }
+
+    /// Plan 025 fix round 1, I1: the person's learned rules changed the copied text, so the Done screen says how many
+    /// places (a count only, never the words) and opens the transcript, where each fix is marked and can be reverted.
+    @ViewBuilder private var ruleFixesRow: some View {
+        if dictation.learnedRuleFixes > 0, dictation.transcriptionID != nil {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    ruleFixesLabel
+                    Spacer(minLength: 0)
+                    showTranscriptButton
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ruleFixesLabel
+                    showTranscriptButton
+                }
+            }
+            .sheet(isPresented: $showsTranscript) {
+                if let id = dictation.transcriptionID {
+                    NavigationStack {
+                        LibraryItemScreen(id: id, environment: environment)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Close") { showsTranscript = false }
+                                }
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+    private var ruleFixesLabel: some View {
+        Label(DictationCoordinator.learnedRuleFixesText(dictation.learnedRuleFixes), systemImage: "wand.and.stars")
+            .chirpFont(13.5, .semibold)
+            .foregroundStyle(.white.opacity(0.94))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var showTranscriptButton: some View {
+        Button("Show in transcript") { showsTranscript = true }
+            .buttonStyle(.chirp(.quiet, size: .compact))
+            .fixedSize()
+            .accessibilityHint("Opens the transcript, where each fix is marked")
     }
 
     private var copiedFinalText: some View {

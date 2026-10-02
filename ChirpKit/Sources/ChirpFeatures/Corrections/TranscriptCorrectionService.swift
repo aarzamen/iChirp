@@ -300,6 +300,14 @@ public struct TranscriptCorrectionService: Sendable {
     }
 }
 
+extension Transcription {
+    /// Plan 025 fix round 1, I1: how many places the person's learned rules fixed (`rule` corrections), for the
+    /// summaries that show a dictation's text (a count only, never the words).
+    public var learnedRuleFixCount: Int {
+        textCorrections?.items.filter { $0.origin == .rule }.count ?? 0
+    }
+}
+
 /// The Correct passage sheet's rules, testable without the GUI (plan 025 D5): Save is off while the text is blank or
 /// has no change other than spacing.
 public struct CorrectionDraft: Sendable, Equatable {
