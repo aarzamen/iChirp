@@ -15,6 +15,8 @@ public struct ReplaceOutcome: Sendable, Equatable {
     public var skipped: Int
     /// "Also fix … in future transcripts?", when D8 allows it.
     public var ruleSuggestion: LearnedRuleSuggestion?
+    public var skippedInCorrections: Int = 0  // STUB
+    public var ruleWithheld: String?  // STUB
 
     public init(
         undo: TranscriptCorrectionPlan, count: Int, skipped: Int = 0, ruleSuggestion: LearnedRuleSuggestion? = nil
@@ -51,6 +53,8 @@ public struct LearnedRuleSuggestion: Sendable, Equatable {
         else { return nil }
         return LearnedRuleSuggestion(word: query, replacement: trimmedReplacement)
     }
+
+    public static let numbersReason = ""  // STUB
 
     /// The banner's question: "Also fix “met for men” in future transcripts?"
     public var question: String { "Also fix “\(word)” in future transcripts?" }

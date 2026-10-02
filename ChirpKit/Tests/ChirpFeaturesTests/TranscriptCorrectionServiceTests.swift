@@ -427,6 +427,55 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
         XCTAssertEqual(writes, 0)
     }
 
+    // MARK: - Learned rules, fix round 1
+
+    /// M7: the rules are planned outside the store's transaction; when the words changed meanwhile, the write is skipped
+    /// (nil, no error, nothing written).
+    func testApplyLearnedRulesSkipsWhenTheWordsChangedMeanwhile() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let rule = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
+        let hold = await store.holdNext([.updateTextCorrections])
+        let ruleService = service(store, rules: [rule])
+        let id = original.id
+        let job = Task { await ruleService.applyLearnedRules(id) }
+        await hold.entered.wait()
+        var changed = original
+        changed.wordTimestamps = changed.wordTimestamps.map { words in
+            words.map { WordTimestamp(word: $0.word, startMs: $0.startMs + 1, endMs: $0.endMs + 1, confidence: 0.9) }
+        }
+        _ = try await store.savePreservingUserMetadata(changed)
+        hold.release.fire()
+        let saved = await job.value
+        XCTAssertNil(saved)
+        let writes = await store.textCorrectionWrites
+        XCTAssertEqual(writes, 0)
+    }
+
+    /// M8: rules never re-apply to a transcript that already has a correction history (a Retry of a row the person
+    /// corrected or reverted): a place the person reverted stays as heard.
+    func testApplyLearnedRulesSkipsATranscriptWithCorrectionHistory() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let rule = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
+        let first = await service(store, rules: [rule]).applyLearnedRules(original.id)
+        XCTAssertEqual(first?.textCorrections?.items.count, 1)
+        _ = try await service(store).revertAll(original.id)
+        let again = await service(store, rules: [rule]).applyLearnedRules(original.id)
+        XCTAssertNil(again, "the reverted place stays as heard")
+        let stored = await store.row(original.id)
+        XCTAssertEqual(stored?.textCorrections?.items, [])
+    }
+
+    /// C1 defense in depth: a stored rule with a number is never applied.
+    func testApplyLearnedRulesSkipsRulesWithNumbers() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let rule = CustomWord(word: "daily", replacement: "2 times daily", source: .learned)
+        let saved = await service(store, rules: [rule]).applyLearnedRules(original.id)
+        XCTAssertNil(saved)
+    }
+
     // MARK: - Draft rules
 
     func testCannotSaveBlankOrUnchanged() {

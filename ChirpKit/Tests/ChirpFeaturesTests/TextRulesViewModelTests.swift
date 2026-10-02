@@ -150,4 +150,36 @@ final class TextRulesViewModelTests: XCTestCase {
         let enabled = try await store.enabledLearnedRules()
         XCTAssertEqual(enabled.map(\.word), [])
     }
+
+    // MARK: - Fix round 1
+
+    /// C1: a learned rule may not contain a number, in what it finds or what it writes (a dose is never changed
+    /// automatically); M4: it needs a replacement. Both on add and on edit.
+    func testLearnedRulesCannotContainNumbersOrLoseTheirReplacement() async throws {
+        let store = FakeTextRulesStore()
+        let model = TextRulesViewModel(store: store)
+        let dose = await model.addLearnedRule(word: "0.5 mg", replacement: "5 mg")
+        XCTAssertEqual(dose, .refused("Rules can’t contain numbers, so a dose is never changed automatically."))
+        let count = await model.addLearnedRule(word: "twice", replacement: "2 times")
+        XCTAssertEqual(count, .refused("Rules can’t contain numbers, so a dose is never changed automatically."))
+        let stored = try await store.customWords()
+        XCTAssertEqual(stored.count, 0)
+
+        _ = await model.addLearnedRule(word: "met for men", replacement: "metformin")
+        var rule = try XCTUnwrap(model.learnedRules.first)
+        rule.replacement = "metformin 500"
+        let numbered = await model.update(rule)
+        XCTAssertFalse(numbered)
+        XCTAssertEqual(model.lastError, "Rules can’t contain numbers, so a dose is never changed automatically.")
+        model.dismissError()
+        rule.replacement = "  "
+        let blank = await model.update(rule)
+        XCTAssertFalse(blank)
+        XCTAssertEqual(model.lastError, "A fix needs what Parakeet writes instead. To stop it, delete the rule.")
+        let kept = try await store.customWords()
+        XCTAssertEqual(kept.map(\.replacement), ["metformin"])
+        // Manual words may still hold numbers ("COVID-19").
+        let manual = await model.addWord("covid 19", replacement: "COVID-19")
+        XCTAssertTrue(manual)
+    }
 }

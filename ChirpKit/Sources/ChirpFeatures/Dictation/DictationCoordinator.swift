@@ -147,6 +147,8 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
     @ObservationIgnored private let voiceCommands: (any DictationVoiceCommanding)?
     /// Plan 025 D8: the person's learned rules, applied as corrections right after the final pass saves.
     @ObservationIgnored private let applyLearnedRules: @Sendable (UUID) async -> Transcription?
+    public private(set) var learnedRuleFixes = 0  // STUB
+    public static func learnedRuleFixesText(_ count: Int) -> String { "" }  // STUB
     @ObservationIgnored private let logger = Log.logger("dictation")
 
     /// The current recording: its row id, WAV and class. Set when recording starts, kept after a failure for Retry.

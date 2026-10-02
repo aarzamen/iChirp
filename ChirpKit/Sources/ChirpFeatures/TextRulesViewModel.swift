@@ -84,6 +84,7 @@ import Observation
         case alreadyExists(String)
         /// The rule could not be saved; the message says why.
         case failed(String)
+        case refused(String)  // STUB
     }
 
     /// Saves "Also fix `word` in future transcripts" as a learned rule (`CustomWord.Source.learned`) replacing it with

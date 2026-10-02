@@ -110,4 +110,17 @@ final class LearnedRuleMatcherTests: XCTestCase {
         // Diacritics count for a rule (find ignores them; a rule would not find the place).
         XCTAssertFalse(LearnedRuleMatcher.isWholeWord(NSRange(location: 0, length: 4), in: "café", word: "cafe"))
     }
+
+    /// Fix round 1, C1: a rule with a number (in either text) is never applied, even one saved before the rule
+    /// existed, so a dose is never changed automatically.
+    func testRulesWithNumbersAreNeverApplied() {
+        let row = transcription("Give 0.5 mg met for men twice daily")
+        let plan = LearnedRuleMatcher.plan(
+            row.text(.heard),
+            rules: [rule("0.5 mg", "5 mg"), rule("twice", "2 times"), rule("met for men", "metformin")], now: now)
+        XCTAssertEqual(plan.add.map(\.text), ["metformin"])
+        XCTAssertTrue(LearnedRuleMatcher.containsNumber("0.5 mg"))
+        XCTAssertTrue(LearnedRuleMatcher.containsNumber("½ tablet"))
+        XCTAssertFalse(LearnedRuleMatcher.containsNumber("metformin"))
+    }
 }

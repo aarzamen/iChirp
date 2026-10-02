@@ -73,6 +73,8 @@ public enum LearnedRuleMatcher {
         return regex.matches(in: text, range: NSRange(location: 0, length: length)).contains { $0.range == range }
     }
 
+    public static func containsNumber(_ text: String) -> Bool { false }  // STUB
+
     /// `CustomWordReplacer`'s pattern for one word.
     private static func regex(for word: String) -> NSRegularExpression? {
         let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)

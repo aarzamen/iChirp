@@ -221,6 +221,28 @@ final class DictationCoordinatorTests: XCTestCase {
         }
     }
 
+    /// Fix round 1, I1: the Done screen says how many places the rules fixed (a count only), and the next dictation
+    /// starts from none.
+    func testDoneSaysHowManyPlacesRulesFixed() async throws {
+        let rules = [
+            CustomWord(word: "kenobi", replacement: "Kenobi-sama", source: .learned),
+            CustomWord(word: "hello", replacement: "Hullo", source: .learned),
+        ]
+        let h = Harness(testCase: self, learnedRules: rules)
+        await h.startRecording()
+        h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+        await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.learnedRuleFixes, 2)
+        XCTAssertEqual(DictationCoordinator.learnedRuleFixesText(2), "2 words fixed by your rules")
+        XCTAssertEqual(DictationCoordinator.learnedRuleFixesText(1), "1 word fixed by your rules")
+
+        let plain = Harness(testCase: self)
+        await plain.startRecording()
+        plain.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+        await plain.stopAndWait()
+        XCTAssertEqual(plain.coordinator.learnedRuleFixes, 0)
+    }
+
     /// Learned-rule corrections run before the voice commands, so the commands see (and keep) the fixed words.
     func testVoiceCommandsSeeRuleCorrectedWords() async throws {
         let cases: [(finalPass: String, copied: String, origins: Set<TranscriptCorrection.Origin>)] = [

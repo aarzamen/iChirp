@@ -95,6 +95,15 @@ final class TranscriptSearchIndexTests: XCTestCase {
         XCTAssertEqual(texts, ["MET for men", "met FOR MEN", "Met for men"])
     }
 
+    /// Fix round 1, M1: a match starts on a Character's first folded unit and ends on its last, as upstream's NSString
+    /// search does ("ß" folds to "ss", "ﬁ" to "fi": half of one is no match).
+    func testMatchesStartAndEndOnCharacterBoundaries() {
+        XCTAssertEqual(matches(["Straße"], "as"), [])
+        XCTAssertEqual(matches(["Straße"], "strasse"), [match(0, 0, 6)])
+        XCTAssertEqual(matches(["ﬁle"], "f"), [])
+        XCTAssertEqual(matches(["ﬁle"], "file"), [match(0, 0, 3)])
+    }
+
     func testEmptyBlocksAndNoBlocks() {
         XCTAssertEqual(matches([], "a"), [])
         XCTAssertEqual(matches(["", "a"], "a"), [match(1, 0, 1)])
@@ -144,8 +153,9 @@ final class TranscriptSearchIndexPerformanceTests: XCTestCase {
     func testBenchmarkReportsTimesAndMatches() {
         let result = TranscriptSearchBenchmark.run(words: 2_000)
         XCTAssertGreaterThan(result.totalMatches, 0)
-        XCTAssertGreaterThan(result.indexMs, 0)
-        XCTAssertGreaterThanOrEqual(result.queryP95Ms, 0)
+        // Fix round 1, M9: the first (cold) index build and the median query.
+        XCTAssertGreaterThan(result.coldIndexMs, 0)
+        XCTAssertGreaterThanOrEqual(result.queryMedianMs, 0)
         XCTAssertEqual(TranscriptSearchBenchmark.queries.count, 20)
         let first = TranscriptSearchBenchmark.syntheticBlocks(words: 20_000)
         XCTAssertEqual(first, TranscriptSearchBenchmark.syntheticBlocks(words: 20_000), "deterministic")

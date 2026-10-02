@@ -13,6 +13,8 @@ public enum TranscriptSearchBenchmark {
         public var queryP95Ms: Double
         /// Matches found over all queries (proof the queries searched something).
         public var totalMatches: Int
+        public var coldIndexMs: Double { indexMs }  // STUB
+        public var queryMedianMs: Double { queryP95Ms }  // STUB
     }
 
     /// The budget D4 sets for the iPhone.

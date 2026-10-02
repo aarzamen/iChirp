@@ -185,4 +185,85 @@ final class TranscriptViewModelReplaceTests: XCTestCase {
             query: "patient", replacement: "client", replaced: [(Self.first, NSRange(location: 4, length: 7))])
         XCTAssertEqual(one, LearnedRuleSuggestion(word: "patient", replacement: "client"))
     }
+
+    // MARK: - Fix round 1
+
+    /// I2: a match inside a passage corrected earlier (another batch) is skipped and counted, so reverting this Replace
+    /// all never takes the person's correction with it.
+    func testReplaceAllSkipsMatchesInsideAnotherCorrection() async throws {
+        var row = Transcription(sourceType: .file, fileName: "Synthetic visit.m4a", status: .completed)
+        let text = "Take met for men twice daily. Walk twice a week."
+        row.wordTimestamps = text.split(separator: " ").enumerated().map { index, word in
+            WordTimestamp(word: String(word), startMs: index * 300, endMs: index * 300 + 250, confidence: 0.9)
+        }
+        row.rawTranscript = text
+        let now = Date(timeIntervalSinceReferenceDate: 790_000_000)
+        _ = try row.applyCorrections(
+            TranscriptCorrectionPlan(add: [
+                TranscriptCorrection(
+                    wordRange: 1..<5, heard: "", text: "metformin twice", origin: .edit, createdAt: now,
+                    updatedAt: now)
+            ]), now: now)
+        let (model, _) = await loaded(row)
+        XCTAssertEqual(model.lines.first?.text, "Take metformin twice daily. Walk twice a week.")
+        let outcome = try await model.replaceAll(find("twice", in: model), query: "twice", with: "two times")
+        XCTAssertEqual(outcome.count, 1)
+        XCTAssertEqual(outcome.skipped, 1)
+        XCTAssertEqual(outcome.skippedInCorrections, 1)
+        XCTAssertEqual(model.lines.first?.text, "Take metformin twice daily. Walk two times a week.")
+        // Reverting the Replace all batch (the Corrections sheet's row) leaves the person's correction.
+        let batch = Set(model.corrections.filter { $0.origin == .replaceAll }.map(\.id))
+        try await model.revert(batch)
+        XCTAssertEqual(model.lines.first?.text, "Take metformin twice daily. Walk twice a week.")
+    }
+
+    /// M2: a replace that changes nothing says so: no count, no undo, no rule offer.
+    func testNoOpReplaceSaysNothingChanged() async throws {
+        let (model, store) = await loaded()
+        let writes = await store.textCorrectionWrites
+        let outcome = try await model.replaceAll(
+            find("patient", in: model), query: "patient", with: "patient")
+        XCTAssertEqual(outcome.count, 0)
+        XCTAssertTrue(outcome.undo.isEmpty)
+        XCTAssertNil(outcome.ruleSuggestion)
+        let after = await store.textCorrectionWrites
+        XCTAssertEqual(after, writes)
+        // A lowercase query whose match already reads as the replacement ("the" finds "The"): nothing changes.
+        let (other, _) = await loaded()
+        let same = try await other.replace(find("the", in: other)[0], query: "the", with: "The")
+        XCTAssertEqual(same.count, 0)
+        XCTAssertTrue(same.undo.isEmpty)
+    }
+
+    /// M6: an untrimmed query keeps its edge spacing, so words never merge.
+    func testUntrimmedQueryKeepsItsSpacing() async throws {
+        let (model, _) = await loaded()
+        let matches = find(" for ", in: model)
+        XCTAssertEqual(matches.count, 2)
+        try await model.replaceAll(matches, query: " for ", with: "4")
+        XCTAssertEqual(model.lines.map(\.text), ["The patient takes met 4 men daily.", "Continue met 4 men and recheck."])
+    }
+
+    /// C1: a replacement or a query with a number is never offered as a rule, and the outcome says why.
+    func testRuleOfferWithheldForNumbers() async throws {
+        let (model, _) = await loaded()
+        let outcome = try await model.replaceAll(
+            find("met for men", in: model), query: "met for men", with: "metformin 500")
+        XCTAssertNil(outcome.ruleSuggestion)
+        XCTAssertEqual(outcome.ruleWithheld, LearnedRuleSuggestion.numbersReason)
+        XCTAssertEqual(
+            LearnedRuleSuggestion.numbersReason, "Rules can’t contain numbers, so a dose is never changed automatically.")
+        XCTAssertNil(
+            LearnedRuleSuggestion.make(
+                query: "takes", replacement: "takes 2", replaced: [(Self.first, NSRange(location: 12, length: 5))]))
+        XCTAssertNil(
+            LearnedRuleSuggestion.make(
+                query: "0.5 mg", replacement: "5 mg", replaced: [("Give 0.5 mg now", NSRange(location: 5, length: 6))]))
+        // No number: the offer stands and nothing is withheld.
+        try await model.revertAll()
+        let plain = try await model.replaceAll(
+            find("met for men", in: model), query: "met for men", with: "metformin")
+        XCTAssertNotNil(plain.ruleSuggestion)
+        XCTAssertNil(plain.ruleWithheld)
+    }
 }
