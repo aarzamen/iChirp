@@ -153,17 +153,19 @@ mkdir -p "$SANDBOX/ss/bin"
 cat >"$SANDBOX/ss/bin/trufflehog" <<'STUB'
 #!/usr/bin/env bash
 # Stub: `git` mode reports what $STUB_FINDING_FILE names (a repository-relative path, as trufflehog's git mode does),
-# `filesystem` mode reports what $STUB_FS_FINDING_FILE names (an ABSOLUTE path, as its filesystem mode does);
-# STUB_FAIL=1 stands for a trufflehog that errors.
+# `filesystem` mode reports what $STUB_FS_FINDING_FILE names (an ABSOLUTE path, as its filesystem mode does), both with
+# the matched value $STUB_RAW (default: not-a-secret); STUB_FAIL=1 stands for a trufflehog that errors.
 if [ "${STUB_FAIL:-0}" = "1" ]; then
   echo "boom: could not open the repository" >&2
   exit 3
 fi
 if [ "${1:-}" = "git" ] && [ -n "${STUB_FINDING_FILE:-}" ]; then
-  printf '{"DetectorName":"Stub","Raw":"not-a-secret","SourceMetadata":{"Data":{"Git":{"file":"%s","commit":"0123456789abcdef"}}}}\n' "$STUB_FINDING_FILE"
+  printf '{"DetectorName":"Stub","Raw":"%s","SourceMetadata":{"Data":{"Git":{"file":"%s","commit":"0123456789abcdef"}}}}\n' \
+    "${STUB_RAW:-not-a-secret}" "$STUB_FINDING_FILE"
 fi
 if [ "${1:-}" = "filesystem" ] && [ -n "${STUB_FS_FINDING_FILE:-}" ]; then
-  printf '{"DetectorName":"Stub","Raw":"not-a-secret","SourceMetadata":{"Data":{"Filesystem":{"file":"%s"}}}}\n' "$STUB_FS_FINDING_FILE"
+  printf '{"DetectorName":"Stub","Raw":"%s","SourceMetadata":{"Data":{"Filesystem":{"file":"%s"}}}}\n' \
+    "${STUB_RAW:-not-a-secret}" "$STUB_FS_FINDING_FILE"
 fi
 exit 0
 STUB
@@ -276,6 +278,39 @@ if [ "$status" = "1" ]; then
   pass "scan_secrets.sh strips .claude/worktrees/<name>/ only at the start of the path"
 else
   fail "scan_secrets.sh allows a MediaPlatformTests.swift under notes/.claude/worktrees (exit $status)"
+fi
+
+# Two placeholder links with a user name and the password "secret", in ChirpIngest's link classifier and its tests (they
+# prove such a link is refused). The history keeps the commits that added them and cannot be rewritten, so they are
+# allowed by their exact value wherever they appear; any other link with credentials is still a finding. The URLs are
+# assembled from parts so that this file holds no link with credentials of its own (the scanner reads it too).
+slashes="//"
+placeholder_short="https:${slashes}name:secret@host"
+placeholder_long="https:${slashes}jane:secret@cdn.example.com"
+other_credentials="https:${slashes}alice:hunter2@host"
+status=$(scan_in "$repo" STUB_FINDING_FILE=ChirpKit/Sources/ChirpIngest/Links/Example.swift STUB_RAW="$placeholder_short")
+if [ "$status" = "0" ]; then
+  pass "scan_secrets.sh allows the placeholder link with credentials in the link classifier's comment (git history)"
+else
+  fail "scan_secrets.sh flags the placeholder link in the link classifier's comment (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FS_FINDING_FILE="$worktree/ChirpKit/Tests/ChirpIngestTests/Example.swift" STUB_RAW="$placeholder_long")
+if [ "$status" = "0" ]; then
+  pass "scan_secrets.sh allows the placeholder link in the link classifier's tests (a lane worktree)"
+else
+  fail "scan_secrets.sh flags the placeholder link in the link classifier's tests (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FINDING_FILE=ChirpKit/Sources/ChirpIngest/Links/Example.swift STUB_RAW="$other_credentials")
+if [ "$status" = "1" ] && grep -q "Possible secrets" "$SANDBOX/out"; then
+  pass "scan_secrets.sh still flags any other link with credentials"
+else
+  fail "scan_secrets.sh lets another link with credentials through (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FINDING_FILE=ChirpKit/Sources/ChirpIngest/Links/Example.swift STUB_RAW="${placeholder_short}x")
+if [ "$status" = "1" ]; then
+  pass "scan_secrets.sh allows the placeholder links by exact value only, not by shape or prefix"
+else
+  fail "scan_secrets.sh allows a link that merely starts like a placeholder (exit $status)"
 fi
 
 # 6. stamp_build_identity.sh (R8-24): the app and its widget extension get the same build date and CFBundleVersion even

@@ -49,8 +49,14 @@ scan tree filesystem "$PWD" --exclude-paths="$TMP/exclude.txt"
 # not "anywhere a file has that name". The working-tree pass also walks every lane worktree under .claude/worktrees (on
 # purpose: that is where unmerged work lives), and each holds its own copy of the file, so the same two paths count
 # inside `.claude/worktrees/<name>/` too (the documented run from the repo root printed ~49 false findings without it).
+#
+# Known false positives by value: two placeholder links with a user name and the password "secret" in ChirpIngest's link
+# classifier and its tests, where they show that such a link is refused. The git history keeps the commits that added
+# them and cannot be rewritten, so a rewording would not clear the scan; they are allowed by the SHA-256 of their exact
+# text wherever they appear (every lane worktree, review diffs), and no other value is. Digests, not the links: this
+# file is scanned too.
 FINDINGS=$(python3 - "$TMP/git.json" "$TMP/tree.json" <<'PY'
-import json, os, re, sys
+import hashlib, json, os, re, sys
 # trufflehog's filesystem mode reports absolute paths as it was given them (`$PWD`, which may go through a symlink such as
 # /var -> /private/var), while Python's cwd is the resolved path: try each spelling of the repository root.
 roots = [os.getcwd(), os.path.realpath("."), os.environ.get("PWD", "")]
@@ -58,6 +64,10 @@ worktree_prefix = re.compile(r"^\.claude/worktrees/[^/]+/")
 allow = {
     "upstream/macparakeet/Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift",
     "Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift",
+}
+placeholder_digests = {
+    "35d571a97d9e020b8fb73d368d27cad2078bb7f1656226733a0fd71d4a634ba1",  # 24 characters, user name, password "secret"
+    "8608db761b42fa325b17cbc43516cc8a5c0f7e76cc9ee85830faf5b5e315bdd0",  # 35 characters, user "jane", password "secret"
 }
 
 
@@ -80,6 +90,8 @@ for path in sys.argv[1:]:
         if relative in allow:
             continue
         raw = d.get("Raw", "")
+        if hashlib.sha256(raw.encode()).hexdigest() in placeholder_digests:
+            continue
         key = (d.get("DetectorName"), where, len(raw))
         if key in seen:
             continue
