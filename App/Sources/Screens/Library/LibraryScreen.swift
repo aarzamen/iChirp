@@ -18,7 +18,7 @@ struct LibraryScreen: View {
     @Environment(AppEnvironment.self) private var environment
 
     @State private var path: [LibraryRoute] = []
-    @State private var pendingDelete: Transcription?
+    @State private var pendingDelete: TranscriptionSummary?
     @State private var placeholder: Placeholder?
     @State private var actionError: String?
     @FocusState private var searchFocused: Bool
@@ -72,7 +72,8 @@ struct LibraryScreen: View {
             searchField
             chips
             if let error = environment.library.searchError {
-                Text("Couldn’t search inside documents: \(error)")
+                // Review R1-1: transcripts are searched in the store too now, so the line names both.
+                Text("Couldn’t search inside transcripts or documents: \(error)")
                     .chirpFont(12.5)
                     .foregroundStyle(AppColor.error)
                     .fixedSize(horizontal: false, vertical: true)
@@ -290,7 +291,7 @@ struct LibraryScreen: View {
         .listRowBackground(Color.clear)
     }
 
-    private func row(_ item: Transcription) -> some View {
+    private func row(_ item: TranscriptionSummary) -> some View {
         LibraryItemRow(
             item: item,
             progress: environment.jobCenter.progress[item.id],
@@ -375,7 +376,7 @@ struct LibraryScreen: View {
 
     // MARK: - Actions
 
-    private func delete(_ item: Transcription) async {
+    private func delete(_ item: TranscriptionSummary) async {
         do {
             try await environment.delete(item.id)
             path.removeAll { $0 == .item(item.id) }
@@ -384,7 +385,7 @@ struct LibraryScreen: View {
         }
     }
 
-    private func toggleFavorite(_ item: Transcription) async {
+    private func toggleFavorite(_ item: TranscriptionSummary) async {
         do {
             try await environment.library.toggleFavorite(item.id)
         } catch {
@@ -411,13 +412,13 @@ enum LibraryRoute: Hashable {
 /// Deleting a row also deletes the documents made from it (the `deliverables` foreign key cascades), so the message
 /// says so, and names them when the caller knows them (plan 023: "the 2 documents made from it (SOAP note, Summary)").
 enum LibraryDeleteCopy {
-    static func title(for item: Transcription) -> String {
+    static func title(for item: some TranscriptionRowFields) -> String {
         item.isTextItem
             ? "Delete this text?" : item.isDocument ? "Delete this document?" : "Delete transcript and its audio?"
     }
 
     /// - Parameter documentTitles: the template names of the documents made from `item`, newest first.
-    static func message(for item: Transcription, documentTitles: [String] = []) -> String {
+    static func message(for item: some TranscriptionRowFields, documentTitles: [String] = []) -> String {
         let name = "“\(item.displayTitle)”"
         let made = documentsPhrase(documentTitles)
         let what =

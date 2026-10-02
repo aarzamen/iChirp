@@ -140,7 +140,7 @@ struct TemplateLaunchSheet: View {
     @State private var host: TransformRunHost
     @State private var choice: LanguageModelChoice
     @State private var notes = ""
-    @State private var runTranscript: Transcription?
+    @State private var runTranscript: TranscriptionSummary?
     @State private var isConfirmingDiscard = false
 
     init(template: PromptTemplate, environment: AppEnvironment) {
@@ -218,7 +218,7 @@ struct TemplateLaunchSheet: View {
         ) { dismiss() }
     }
 
-    private func transcriptRow(_ item: Transcription) -> some View {
+    private func transcriptRow(_ item: TranscriptionSummary) -> some View {
         HStack(spacing: 12) {
             TranscriptionCover(item: item, size: 40, radius: Tokens.Radius.coverSmall)
             VStack(alignment: .leading, spacing: 2) {

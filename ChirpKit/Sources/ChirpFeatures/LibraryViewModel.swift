@@ -32,9 +32,9 @@ public struct LibraryDocument: Sendable, Equatable, Identifiable {
     public var typeTitle: String { summary.title }
 }
 
-/// One Library row: a recording, typed text or imported document (`Transcription`), or a generated document.
+/// One Library row: a recording, typed text or imported document (its `TranscriptionSummary`), or a generated document.
 public enum LibraryEntry: Sendable, Equatable, Identifiable {
-    case item(Transcription)
+    case item(TranscriptionSummary)
     case document(LibraryDocument)
 
     /// Transcriptions and documents have separate id spaces.
@@ -72,7 +72,8 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
 ///
 /// Nothing is capped: `showMore()` adds pages until `hasMore` is false, and the Documents filter and search reach every
 /// document. Filtering and paging run on the main actor over values already in memory (linear, a few milliseconds for
-/// thousands of rows); search reads transcript text off the main actor and document text in the store.
+/// thousands of rows). The rows are summaries (review R1-1): no transcript text, word timings, segments or pages are
+/// read or kept for the list, so search reads the text of transcripts and of documents in the store.
 @MainActor @Observable public final class LibraryViewModel {
     /// The Library's filter chips. F63 (renaming "Video" and "Local") is still the owner's decision.
     public enum Filter: String, CaseIterable, Sendable {
@@ -109,8 +110,9 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
         }
     }
 
-    /// Every transcription in the store, newest first, kept current while `start()`'s observation runs.
-    public private(set) var items: [Transcription] = [] {
+    /// Every transcription in the store as its row shows it, newest first, kept current while `start()`'s observation
+    /// runs. A summary, not the transcript: open an item (`TranscriptionStoring.fetch(id:)`) for its text and timings.
+    public private(set) var items: [TranscriptionSummary] = [] {
         didSet { dataChanged() }
     }
     /// Every generated document, newest first (empty when the Library has no `DeliverableListing`).
@@ -137,7 +139,7 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
     public private(set) var hasMore = false
     /// A search for the current text is still running; the list shows the previous result meanwhile.
     public private(set) var isSearching = false
-    /// Set when the text of the documents could not be searched (titles still were).
+    /// Set when the text of the items or documents could not be searched (titles and file names still were).
     public private(set) var searchError: String?
     /// Set when the initial load failed; the observation may still fill `items` later.
     public private(set) var loadError: String?
@@ -203,7 +205,7 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
     // MARK: - Derived lists
 
     /// The transcriptions among `visibleEntries`.
-    public var visibleItems: [Transcription] {
+    public var visibleItems: [TranscriptionSummary] {
         visibleEntries.compactMap { entry in
             if case .item(let item) = entry { item } else { nil }
         }
@@ -226,10 +228,10 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
     /// Loads the rows and the documents, then keeps both current from the store observations until `stop()` or
     /// deinit.
     public func start() async {
-        let stream = store.observeAll()
+        let stream = store.observeSummaries(limit: nil)
         let documentStream = listing?.observeDeliverableSummaries()
         do {
-            items = try await store.fetchAll()
+            items = try await store.fetchSummaries(limit: nil)
             loadError = nil
         } catch {
             loadError = error.localizedDescription
@@ -326,7 +328,7 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
             let updated = try await store.updateFavorite(id: id, isFavorite: !current.isFavorite)
         else { return }
         if let index = items.firstIndex(where: { $0.id == id }) {
-            items[index] = updated
+            items[index] = TranscriptionSummary(updated)
         }
     }
 
@@ -348,7 +350,7 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
             if !documentsBySource.isEmpty { documentsBySource = [:] }
             return
         }
-        var sources: [UUID: Transcription] = [:]
+        var sources: [UUID: TranscriptionSummary] = [:]
         sources.reserveCapacity(items.count)
         for item in items where sources[item.id] == nil {
             sources[item.id] = item
@@ -392,7 +394,7 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
 
     /// Both inputs arrive newest first from their stores; a merge keeps every row of both (an input that is not
     /// perfectly ordered only changes the order, never what is listed). An item wins a tie with a document.
-    nonisolated static func mergedNewestFirst(_ items: [Transcription], _ documents: [LibraryDocument])
+    nonisolated static func mergedNewestFirst(_ items: [TranscriptionSummary], _ documents: [LibraryDocument])
         -> [LibraryEntry]
     {
         var merged: [LibraryEntry] = []
@@ -463,21 +465,30 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
         }
     }
 
-    /// Transcripts: title, text, file name and speaker labels, compared off the main actor. Documents: template name
-    /// and source title here, text in the store. Lands only if the text is still `query`.
+    /// Transcripts: title, text, file name and speaker labels, in the store (`TranscriptionSearch`, off the main actor).
+    /// Documents: template name and source title here, text in the store. When the store cannot search, titles and file
+    /// names still match and `searchError` says so. Lands only if the text is still `query`.
     private func runSearch(_ query: String) async {
-        let rows = items
         let documentRows = documents
-        let itemMatches = await Task.detached(priority: .userInitiated) {
-            Self.itemIDs(in: rows, matching: query)
-        }.value
-        var documentMatches = Set<UUID>()
+        var itemMatches = Set<UUID>()
         var failure: String?
+        do {
+            itemMatches = try await store.searchTranscriptions(matching: query)
+        } catch is CancellationError {
+            return
+        } catch {
+            failure = error.localizedDescription
+            itemMatches = Self.itemIDs(in: items, matchingTitleOrFileName: query)
+            logger.error(
+                "library_item_search_failed error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
+        }
+        var documentMatches = Set<UUID>()
         if let listing, !documentRows.isEmpty {
             do {
                 documentMatches = try await listing.searchDeliverables(matching: query)
             } catch {
-                failure = error.localizedDescription
+                failure = failure ?? error.localizedDescription
                 logger.error(
                     "library_document_search_failed error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
                 )
@@ -493,16 +504,16 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
         rebuildEntries()
     }
 
-    nonisolated static func itemIDs(in items: [Transcription], matching query: String) -> Set<UUID> {
-        Set(items.lazy.filter { matches($0, query: query) }.map(\.id))
-    }
-
-    /// Case-insensitive over title, text, file name and speaker labels.
-    nonisolated static func matches(_ item: Transcription, query: String) -> Bool {
-        item.displayTitle.localizedCaseInsensitiveContains(query)
-            || item.displayText.localizedCaseInsensitiveContains(query)
-            || item.fileName.localizedCaseInsensitiveContains(query)
-            || (item.speakers ?? []).contains { $0.label.localizedCaseInsensitiveContains(query) }
+    /// Items whose title or file name contains `query`, ignoring case: what still matches from the rows in hand when the
+    /// store cannot search the text.
+    nonisolated static func itemIDs(in items: [TranscriptionSummary], matchingTitleOrFileName query: String)
+        -> Set<UUID>
+    {
+        let matching = items.lazy.filter { item in
+            item.displayTitle.localizedCaseInsensitiveContains(query)
+                || item.fileName.localizedCaseInsensitiveContains(query)
+        }
+        return Set(matching.map(\.id))
     }
 
     /// A document's template name or its source's title (its text is searched in the store).

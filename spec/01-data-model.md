@@ -90,6 +90,11 @@ import ──► processing ──► completed
 - Rows written by a newer build still read: list reads decode row by row and skip (and log, id only) a row that
   can't decode, and an unknown raw value reads as a safe fallback (`status` → `interrupted`, `privacyClass` →
   `clinical`, `sourceType` → `file`). Writing such a row back keeps the newer build's raw value.
+- The Library and Capture lists read `TranscriptionSummary` rows (review R1-1): only the columns a row shows, a
+  PDF's page and OCR counts, and a document's or text item's word count, never the word timings, speakers,
+  diarization or segment JSON. A row whose JSON this build cannot read therefore still lists (opening it reports the
+  error); their observation is not re-run by a write the list does not show (notes, `updatedAt`, timings). Search
+  reads the title, text, file name and speaker columns in the store (`TranscriptionSearch`).
 - Every other write that can race a job is field-level and atomic (`updateTitleOverride`, `updateFavorite`,
   `transitionStatus(from:to:)`, and M3's `updateUserNotes`, `renameSpeaker`, `markAudioRemoved`): one transaction
   updates only those columns (and `updatedAt`), so a rename, a star or a failure mark can never overwrite a transcript

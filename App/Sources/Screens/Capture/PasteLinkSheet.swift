@@ -430,7 +430,7 @@ struct PasteLinkSheet: View {
             + "iPhone, where it is transcribed. Only the link leaves this iPhone; your Mac keeps nothing."
     }
 
-    static func statusLine(for item: Transcription, progress: JobProgress?) -> String {
+    static func statusLine(for item: some TranscriptionRowFields, progress: JobProgress?) -> String {
         if item.status == .completed {
             return item.sourceType == .url && item.mediaRelativePath == nil ? "Captions saved" : "Transcribed"
         }

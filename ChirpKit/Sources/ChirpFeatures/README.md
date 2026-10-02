@@ -100,7 +100,9 @@ pipeline's `Task`s and publishes its progress to the UI.
 - `IncomingFileInbox.swift`: the app's `Documents/Inbox/`, where iOS copies a file another app hands to Parakeet
   (Share sheet → Parakeet, Files → Open in; M1.5). `contains(_:)` and `removeIfInside(_:)` only ever touch files
   strictly inside that folder, never a file the user picked with the document picker.
-- `LibraryViewModel.swift`: all rows from `observeAll()` and (plan 023, UX audit F43) every generated document from
+- `LibraryViewModel.swift`: every row's `TranscriptionSummary` from `observeSummaries(limit: nil)` (review R1-1: no
+  transcript text, word timings, segments or pages are read or kept for the list) and (plan 023, UX audit F43) every
+  generated document from
   `DeliverableListing.observeDeliverableSummaries()` as `LibraryDocument` (summary, source title and kind, and the
   effective class: the stricter of its own, its source's and its siblings' classes; clinical when the source row is
   unknown). `visibleEntries` merges both newest first as `LibraryEntry` (`.item` / `.document`, separate id spaces),
@@ -108,8 +110,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   show no documents) and the settled search. `sections` ("Today" / "Yesterday" / "MMM d", with the year for another
   year) hold only the first `pageSize` (100) rows plus one page per `showMore()`, until `hasMore` is false.
   `documents(madeFrom:)` is an item's "Made from this", newest first. Search runs after `searchDebounce` (150 ms):
-  transcript title, text, file name and speakers off the main actor; document template name and source title in
-  memory; document text in the store (`searchError` when that fails; `searchSettled()` for tests). Delete (row plus
+  transcript title, text, file name and speakers in the store (`searchTranscriptions(matching:)`, the shared
+  `TranscriptionSearch` rule); document template name and source title in memory; document text in the store. When
+  either store search fails, `searchError` says so and titles and file names still match (`searchSettled()` for
+  tests). Delete (row plus
   its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
   favorite, and `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
@@ -154,7 +158,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   model is never a dead end; Retry resolves the route again.
 - `SpeechRouteStore.swift` (M7): `SpeechRouteStoring` and `UserDefaultsSpeechRouteStore`. The live and final routes
   are saved as JSON under `ichirp.speechRoutes`. A missing or unreadable value means Parakeet on both.
-- `CaptureViewModel.swift`: the three newest rows for Capture's "Recent".
+- `CaptureViewModel.swift`: the three newest rows for Capture's "Recent", as summaries from a three-row
+  `observeSummaries(limit: 3)` query (review R6a-8), never a second read of the whole Library.
 - `Dictation/DictationFlowStateMachine.swift` (M2): port of upstream's pure dictation flow (events in → state and
   effects out, a generation that rejects stale completions): `idle → starting → recording ⇄ paused → stopping →
   done | failed | cancelled`, stop-while-starting as `pendingStop`, a start during the final pass shows "busy" and
@@ -631,8 +636,8 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `sweepOrphanedTemporaryAudio()` at launch; it skips ids running in this process, folders whose name is not a UUID,
   and every source file.
 - **Observed lists converge; they are not instant.** `LibraryViewModel.delete` removes the row from `items` (and its
-  documents from the list) right away, but a snapshot queued in `observeAll()` or `observeDeliverableSummaries()`
-  before the delete can briefly re-add it until the next snapshot.
+  documents from the list) right away, but a snapshot queued in `observeSummaries(limit:)` or
+  `observeDeliverableSummaries()` before the delete can briefly re-add it until the next snapshot.
 - **The Library stays smooth at thousands of rows** (plan 023). Every change rebuilds the merged list once
   (linear; 8,000 rows in a few milliseconds in a debug build on the Mac, `LibraryDocumentsTests`), the screen lays out
   one page at a time, and search never scans text on the main actor. Keep new per-row work out of `rebuildEntries`

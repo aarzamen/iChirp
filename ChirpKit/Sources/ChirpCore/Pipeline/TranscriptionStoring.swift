@@ -30,13 +30,26 @@ public protocol TranscriptionStoring: Sendable {
         errorMessage: String?
     ) async throws -> Transcription?
     func fetch(id: UUID) async throws -> Transcription?
-    /// Newest first.
+    /// Newest first. Every row in full (word timings and all): for lists, use `fetchSummaries(limit:)`.
     func fetchAll() async throws -> [Transcription]
     func delete(id: UUID) async throws
     /// processing → interrupted for rows left over from a killed process; returns count.
     func markStaleProcessingAsInterrupted() async throws -> Int
-    /// Emits on every change, newest first.
+    /// Emits on every change, newest first. Every row in full: for lists, use `observeSummaries(limit:)`.
     func observeAll() -> AsyncStream<[Transcription]>
+
+    // Lists (review R1-1, R6a-8): what a row shows, never the transcript itself. The extension below derives them from
+    // `fetchAll()` / `observeAll()` for stores without a list query (test fakes); `GRDBTranscriptionStore` reads only
+    // the columns a row shows.
+
+    /// Every row as a list shows it, newest first; at most `limit` rows when given.
+    func fetchSummaries(limit: Int?) async throws -> [TranscriptionSummary]
+    /// The same list now, then again after each change to what it shows (latest only: a slow consumer skips to the
+    /// newest list). Ends when the consumer stops iterating.
+    func observeSummaries(limit: Int?) -> AsyncStream<[TranscriptionSummary]>
+    /// Ids of the rows whose title, text, file name or a speaker's label contains `query`, ignoring case
+    /// (`TranscriptionSearch`; surrounding whitespace is ignored, an empty query matches nothing).
+    func searchTranscriptions(matching query: String) async throws -> Set<UUID>
 
     // M3 meetings. Each is a field-level write; the protocol extension below gives conformers without their own
     // version a fetch → change → update fallback (fine for fakes; real stores implement them atomically).
@@ -52,6 +65,29 @@ public protocol TranscriptionStoring: Sendable {
 }
 
 extension TranscriptionStoring {
+    public func fetchSummaries(limit: Int?) async throws -> [TranscriptionSummary] {
+        TranscriptionSummary.newest(try await fetchAll(), limit: limit)
+    }
+
+    public func observeSummaries(limit: Int?) -> AsyncStream<[TranscriptionSummary]> {
+        let rows = observeAll()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let relay = Task {
+                for await all in rows {
+                    continuation.yield(TranscriptionSummary.newest(all, limit: limit))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in relay.cancel() }
+        }
+    }
+
+    public func searchTranscriptions(matching query: String) async throws -> Set<UUID> {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return [] }
+        return Set(try await fetchAll().filter { $0.matchesSearch(needle) }.map(\.id))
+    }
+
     public func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
         guard var row = try await fetch(id: id) else { return nil }
         row.userNotes = userNotes

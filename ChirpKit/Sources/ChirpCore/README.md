@@ -14,12 +14,22 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 
 - `Models/Transcript.swift`: word, speaker, diarization and transcript segment value types, ported from
   MacParakeet without the correction-only fields.
-- `Models/Transcription.swift`: the `Transcription` record, with `displayTitle` and `displayText`. M3 adds
+- `Models/Transcription.swift`: the `Transcription` record, with `displayText` (and `displayTitle` from
+  `TranscriptionRowFields`); the static `displayTitle(titleOverride:sourceTitle:derivedTitle:fileName:)` and
+  `displayText(cleanTranscript:rawTranscript:)` are the one rule for both, also for a store reading only those
+  columns. M3 adds
   `userNotes`, `isPartialAudio`, `audioRemovedAt` and `renameSpeaker(_:to:)` (roster and segment labels together);
   M5 adds `sourceURL`, `sourceTitle` (wins over the derived title), `documentFormat` and `documentPages`
   ([contract](../../../spec/contracts/document-items-v1.md)).
+- `Models/TranscriptionSummary.swift` (review R1-1): `TranscriptionRowFields`, the fields a row, a status line or a
+  Retry choice reads (with `displayTitle`, `isDocument`, `isTextItem`, `isTextOnly`), adopted by `Transcription` and
+  by `TranscriptionSummary`, the Library's and Capture's row: those fields plus a PDF's page and OCR counts and a
+  document's or text item's word count, never the transcript's text, word timings, segments or pages (a distinct
+  type, so a row can never stand in for a full transcript). `TranscriptionSearch.matches` is the Library's search
+  rule (title shown, text shown, file name, then speaker labels), with `Transcription.matchesSearch(_:)`.
 - `Models/Document.swift`: M5 `DocumentFormat` (pdf, txt, md, rtf, html, docx; from a file extension) and
-  `DocumentPage` (page number, text, `textLayer` / `ocr` / `empty`), plus `Transcription.isDocument`.
+  `DocumentPage` (page number, text, `textLayer` / `ocr` / `empty`), plus `Transcription.ocrPageCount`
+  (`isDocument` comes from `TranscriptionRowFields`).
 - `Models/PrivacyClass.swift`: `general` / `personal` (default) / `clinical` sensitivity classes, ordered by
   `strictness`, with `stricter(_:)`.
 - `Models/LanguageModelProvider.swift`: `LanguageModelProviderKind` (stable engine ids),
@@ -119,7 +129,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `spec/contracts/file-transcription-audio-tracks-v1.md`).
 - `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore. M3 adds the
   field-level `updateUserNotes`, `renameSpeaker` and `markAudioRemoved`, with fetch-and-update defaults in a
-  protocol extension so other conformers (fakes) keep compiling; real stores implement them atomically.
+  protocol extension so other conformers (fakes) keep compiling; real stores implement them atomically. The lists
+  (review R1-1, R6a-8) use `fetchSummaries(limit:)`, `observeSummaries(limit:)` (latest value only) and
+  `searchTranscriptions(matching:)`, never `fetchAll()` / `observeAll()`; their extension defaults derive them from
+  the full rows for fakes, and `GRDBTranscriptionStore` reads only the columns a row shows.
 - `Pipeline/AudioCapturing.swift`: the M2 microphone-recording contract (`AudioCapturing`, `CaptureUpdate`,
   `CaptureEvent`, `RecordedAudio`, `MicrophonePermission`, `AudioCaptureError`) implemented by ChirpAudio's
   `DictationRecorder`, and `SpeechAudio` (16 kHz, the 0.3 s minimum).

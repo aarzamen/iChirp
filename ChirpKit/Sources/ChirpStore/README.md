@@ -64,7 +64,16 @@ ChirpStore depends on ChirpText.
   that speaker, one transaction) / `markAudioRemoved` (completed rows only); `savePreservingUserMetadata` keeps the
   stored `userNotes`,
   and `observeAll()` bridging a GRDB `ValueObservation` to an `AsyncStream`.
-  `decodeRows` is the one row-by-row decoder behind both list reads.
+  `decodeRows` is the one row-by-row decoder behind both full-row list reads.
+- `TranscriptionListingStore.swift` (review R1-1, R6a-8) — the Library's and Capture's lists, no schema change:
+  `fetchSummaries(limit:)` / `observeSummaries(limit:)` read only the columns a row shows (`TranscriptionSummary`,
+  columns read by position, newest first, `LIMIT` for Capture's three), never `wordTimestamps`, `speakers`,
+  `diarizationSegments` or `transcriptSegments`; a PDF's `documentPages` only for its page and OCR counts (its
+  `method`s are decoded, never its text), and the text only of a document or text item without pages, for its word
+  count. The observation tracks an explicit region (`TranscriptionListingQueries.observedRegions`): the row columns,
+  the text and `speakers` (a rename changes what the Library's search finds), never `userNotes`, `updatedAt` or the
+  timing columns, so a notes keystroke does not re-read the list. `searchTranscriptions(matching:)` applies the
+  shared `TranscriptionSearch` rule to the title, text, file name and speaker columns only.
 - `LanguageModelSchema.swift` — the M4 tables created by migration
   `v3-language-models`: `prompts`, `prompt_versions` (immutable: SQLite triggers
   abort every UPDATE and DELETE), `deliverables` (cascade-deleted with their
@@ -124,6 +133,12 @@ values this build does not know. Two rules keep the Library usable:
   error's type name only. Never log the error's description: GRDB's decoding
   errors quote the whole row, transcript text included. `fetch(id:)` still
   throws for such a row, so a screen opening it can show the error.
+- *The lists read summaries.* `fetchSummaries` / `observeSummaries` never read
+  the timing, speaker or segment JSON, so a row whose JSON this build cannot
+  read still lists (opening it reports the error, and it can be deleted); a
+  PDF whose pages cannot be read lists without counts. Only a row whose own
+  columns (id, date, kind, name, status, class, flags) cannot be read is
+  skipped, logged by id as `row_summary_skipped_unreadable`.
 
 **Writes never overwrite a value this build could not read.** The field-level
 methods write only their own columns (review R1-2): one `UPDATE … SET <their
@@ -175,11 +190,13 @@ Transcript screen therefore never decodes an hour of word timings on the main
 thread, whatever the module's default isolation becomes. Keep new methods the
 same way.
 
-**`observeAll()` owns its `ValueObservation` lifecycle.** It schedules on a
+**`observeAll()` and `observeSummaries(limit:)` own their `ValueObservation` lifecycle.** Each schedules on a
 dedicated serial `DispatchQueue` (GRDB requires a serial queue for
 `.async(onQueue:)`, and this store isn't tied to `@MainActor`) and cancels
 the underlying GRDB observation in the `AsyncStream`'s `onTermination`, so an
-abandoned consumer doesn't leak a live database observation.
+abandoned consumer doesn't leak a live database observation. Both streams
+buffer the newest value only, so a busy main actor gets the latest list
+instead of a queue of old snapshots.
 
 **In-memory databases for tests.** `DatabaseManager.inMemory()` returns a
 `DatabaseQueue` with the same migrator applied. Use this in tests — never

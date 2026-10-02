@@ -17,7 +17,8 @@ import GRDB
 /// All JSON encoding and decoding happens inside GRDB's database closures, on GRDB's own queues, never on the
 /// caller's actor: a long transcript's word timings are never decoded on the main thread.
 public final class GRDBTranscriptionStore: TranscriptionStoring {
-    private let database: DatabaseManager
+    /// Internal for the list queries in `TranscriptionListingStore.swift`.
+    let database: DatabaseManager
     /// Serial so `observeAll()` notifications never reorder; GRDB requires a serial queue here.
     private let observationQueue = DispatchQueue(label: "com.ichirp.chirpstore.observeAll")
     private static let logger = Log.logger("store")
@@ -197,9 +198,10 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     }
 
     /// Emits every readable row, newest first, on each change. Unreadable rows are skipped the same way as in
-    /// `fetchAll()`, so one bad row never empties the Library.
+    /// `fetchAll()`, so one bad row never empties a list. Every row in full: lists use `observeSummaries(limit:)`.
+    /// Latest value only, so a busy consumer never queues snapshots of the whole library.
     public func observeAll() -> AsyncStream<[Transcription]> {
-        AsyncStream { continuation in
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let observation = ValueObservation.tracking { db in
                 Self.decodeRows(try Row.fetchAll(db, Self.newestFirst))
             }
