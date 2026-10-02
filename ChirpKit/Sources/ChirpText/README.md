@@ -68,6 +68,14 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   between stable points the changed stretch of heard words becomes one correction with the result's text there (a
   scratched sentence or a paragraph break takes the word before it). Falls back to one correction over every word;
   nil when the change cannot be stored (the caller then sends nothing on).
+- `Find/TranscriptSearchIndex.swift` (plan 025 B1, semantics from upstream `TranscriptFindModel`): the Transcript
+  screen's find matcher. Built once per text change from the lines' texts (blocks); every Character is folded
+  (case- and diacritic-insensitive, ASCII fast path) and each folded UTF-16 unit remembers its Character's original
+  UTF-16 start and end, so `matches(for:)` is one scan per keystroke and every `TranscriptFindMatch` (`blockIndex`,
+  UTF-16 `NSRange`) covers whole Characters of the shown text. Blank queries match nothing; the untrimmed query is
+  searched; matches never overlap or cross a block. Budget (D4): 20,000 words, index ≤ 50 ms and query ≤ 8 ms p95 on
+  the iPhone (the device smoke's `FIND BENCH` line); `TranscriptSearchIndexPerformanceTests` checks a looser Mac debug
+  bound.
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name
