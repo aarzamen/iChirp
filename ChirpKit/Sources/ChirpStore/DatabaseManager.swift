@@ -174,6 +174,19 @@ public final class DatabaseManager: Sendable {
                 index: "idx_llm_runs_deliverable_id", on: "llm_runs", columns: ["deliverableId"], options: .ifNotExists)
         }
 
+        // Plan 024 Task 8 (reviews R3-1, R4-2; contract spec/contracts/deliverables-v1.md): a document, or one of its
+        // versions, that the model stopped writing at its length limit is kept and marked incomplete. Two additive
+        // columns, false for every existing row; no row changes. (ADD COLUMN does not fire the versions' update
+        // trigger.)
+        migrator.registerMigration("v10-deliverable-cut-off") { db in
+            try db.alter(table: "deliverables") { t in
+                t.add(column: "isCutOff", .boolean).notNull().defaults(to: false)
+            }
+            try db.alter(table: "deliverable_versions") { t in
+                t.add(column: "isCutOff", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

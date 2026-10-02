@@ -1,7 +1,7 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/TextProcessing/TranscriptCueBuilder.swift @ bbae9e0e
-// Changes: `build(from: Transcription)` uses `wordTimestamps` only — ChirpCore's `Transcription` has no
-// `transcriptTextAlignment`/`isTextEdited` correction machinery, so the segment-projection branch was
-// dropped.
+// Changes: `build(from: Transcription)` reads the word stream (`TranscriptTokens.words(of:)`, plan 024 Task 8);
+// ChirpCore's `Transcription` has no `transcriptTextAlignment`/`isTextEdited` correction machinery, so the
+// segment-projection branch was dropped.
 
 import ChirpCore
 import Foundation
@@ -24,7 +24,7 @@ public enum TranscriptCueBuilder {
     /// Groups a transcription's word timestamps into cues suitable for subtitles, playback overlays,
     /// and AI context.
     public static func build(from transcription: Transcription) -> [TranscriptCue] {
-        build(from: transcription.wordTimestamps ?? [])
+        build(from: TranscriptTokens.words(of: transcription))
     }
 
     /// Groups word timestamps into compact cues suitable for subtitles,

@@ -46,6 +46,11 @@ struct DeliverableDetailScreen: View {
                     if deliverable.privacyClass == .clinical {
                         ClinicalDraftNote()
                     }
+                    if let notice = document.cutOffNotice {
+                        // Plan 024 Task 8: no rerun from here; the Transform tab makes it again, or edit it by hand.
+                        CutOffNote(
+                            message: notice + " Make it again from its transcript, or finish it by hand.")
+                    }
                     editActions
                     DocumentEditor(document: document)
                         .frame(minHeight: 360)

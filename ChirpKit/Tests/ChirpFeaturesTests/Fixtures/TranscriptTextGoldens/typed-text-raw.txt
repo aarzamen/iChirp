@@ -1,0 +1,58 @@
+=== model input ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== copy ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== txt ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== markdown ===
+# Typed note
+
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== srt ===
+error: noTimestamps
+
+=== vtt ===
+error: noTimestamps
+
+=== json ===
+{
+  "createdAt" : "2026-09-21T14:13:20Z",
+  "id" : "00000000-0000-0000-0000-000000000004",
+  "privacyClass" : "personal",
+  "schema" : "ichirp.transcript/v1",
+  "segments" : [
+
+  ],
+  "speakers" : [
+
+  ],
+  "text" : "Typed note: BP 120/80.\nFollow up in 2 weeks with labs.",
+  "title" : "Typed note",
+  "words" : [
+
+  ]
+}
+
+=== pdf and word ===
+Typed note
+Date: <date>
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+Made with Parakeet on iPhone
+
+=== jev excerpt ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== jev paragraphs ===
+p01: Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+indexes: [0]

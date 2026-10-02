@@ -9,7 +9,9 @@ import Observation
         case template(id: UUID, userNotes: String?)
         case ask(question: String)
         /// Plan 022: rewrite the document `deliverableID` from an instruction, stored as its next version.
-        case edit(deliverableID: UUID, instruction: String, spoken: Bool)
+        /// `baseText` is the screen's unsaved draft when there is one (review R5-9): the edit rewrites that draft, and
+        /// the draft is saved as a version before the rewrite; nil edits the stored text.
+        case edit(deliverableID: UUID, instruction: String, spoken: Bool, baseText: String? = nil)
     }
 
     public enum Phase: Equatable {
@@ -31,6 +33,16 @@ import Observation
     public private(set) var text = ""
     /// The route of the current run, for the locality chip ("On this iPhone", "Mac Studio", "Claude").
     public private(set) var route: ModelRoute?
+
+    /// What the screen says when the model stopped at its length limit (reviews R3-1, R4-2): the document or answer
+    /// is kept but incomplete; the screen offers to try again. Nil for a whole result or while running.
+    public var cutOffNotice: String? {
+        switch phase {
+        case .completed(let deliverable): deliverable.isCutOff ? Deliverable.cutOffMessage : nil
+        case .answered(let answer): answer.isCutOff ? AskAnswer.cutOffMessage : nil
+        default: nil
+        }
+    }
 
     @ObservationIgnored private let service: DeliverableService
     @ObservationIgnored private let model: any LanguageModel
@@ -62,7 +74,7 @@ import Observation
         if case .template(let id, _) = request { templateID = id } else { templateID = nil }
         do {
             let decision: RouteDecision
-            if case .edit(let deliverableID, _, _) = request {
+            if case .edit(let deliverableID, _, _, _) = request {
                 decision = try await service.routeEdit(deliverableID: deliverableID, model: model)
             } else {
                 decision = try await service.route(
@@ -129,10 +141,10 @@ import Observation
                 templateID: id, transcriptionID: transcriptionID, userNotes: notes, model: model, override: override)
         case .ask(let question):
             stream = service.ask(question: question, transcriptionID: transcriptionID, model: model, override: override)
-        case .edit(let deliverableID, let instruction, let spoken):
+        case .edit(let deliverableID, let instruction, let spoken, let baseText):
             stream = service.edit(
                 deliverableID: deliverableID, instruction: instruction, spoken: spoken, model: model,
-                override: override)
+                override: override, baseText: baseText)
         }
         let task = Task { await consume(stream) }
         self.task = task

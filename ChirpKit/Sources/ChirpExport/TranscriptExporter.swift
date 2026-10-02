@@ -83,30 +83,14 @@ public struct TranscriptExporter: Sendable {
         return url
     }
 
-    // MARK: - Text used when there is nothing timed to build from
+    // MARK: - Text
 
-    /// The whole-transcript text used by TXT/Markdown when there are no word timestamps to build
-    /// paragraphs from, and by JSON's `text` field. When `wordTimestamps` is non-empty, TXT/Markdown
-    /// build their paragraphs from the words instead — this text is not consulted in that case, and
-    /// `cleanupMode` has no effect on the word-derived path (words are the engine's literal output
-    /// regardless of cleanup mode).
-    ///
-    /// The fallback rule matches the app's Raw/Clean product default (Raw shows the engine's literal
-    /// output; Clean shows the deterministically cleaned copy) rather than always preferring whichever
-    /// transcript happens to be non-empty:
-    /// - `.raw`: `rawTranscript`, falling back to `cleanTranscript` only if raw is absent (a
-    ///   transcription should always have a raw transcript once completed; the clean fallback covers
-    ///   an unexpected gap rather than ever being the intended path).
-    /// - `.clean`: `transcription.displayText` — the non-empty `cleanTranscript` if there is one, else
-    ///   `rawTranscript`. So `.clean` on a transcription whose `cleanTranscript` is nil or blank still
-    ///   exports the raw text, it does not produce an empty export.
-    private func preferredText(_ transcription: Transcription) -> String {
-        switch cleanupMode {
-        case .raw:
-            return transcription.rawTranscript ?? transcription.cleanTranscript ?? ""
-        case .clean:
-            return transcription.displayText
-        }
+    /// The text the person sees in the current clean-up mode (`Transcription.text(.shown(cleanupMode))`, plan 024
+    /// Task 8): TXT, Markdown, PDF and Word print its lines (reading paragraphs with their speakers), JSON's `text` is
+    /// its whole text, the same text Copy writes. So a Clean export of a timed transcript carries the clean text, custom
+    /// words included (review R1-3, ADR-009). SRT, VTT and JSON's `segments` and `words` stay the words as heard.
+    private func shown(_ transcription: Transcription) -> TranscriptText {
+        transcription.text(.shown(cleanupMode))
     }
 
     // MARK: - Privacy
@@ -128,53 +112,50 @@ public struct TranscriptExporter: Sendable {
 
     private func renderPlainText(_ transcription: Transcription) -> String {
         let header = clinicalHeader(transcription).map { [$0, ""] } ?? []
-        guard let words = transcription.wordTimestamps, !words.isEmpty else {
-            let text = preferredText(transcription)
-            guard let line = header.first else { return text }
-            return text.isEmpty ? line : line + "\n\n" + text
+        let text = shown(transcription)
+        guard text.hasWordTimings else {
+            guard let line = header.first else { return text.plainText }
+            return text.plainText.isEmpty ? line : line + "\n\n" + text.plainText
         }
 
-        let paragraphs = TranscriptParagraphBuilder.build(from: words)
         var lines: [String] = header
-        var lastSpeakerId: String?
-        for (index, paragraph) in paragraphs.enumerated() {
+        for (index, line) in text.lines.enumerated() {
             if lines.count > header.count { lines.append("") }
-            if let label = speakerLabel(for: paragraph.speakerId, in: transcription.speakers),
-                index == 0 || paragraph.speakerId != lastSpeakerId
-            {
+            if let label = Self.newSpeaker(at: index, in: text.lines) {
                 lines.append("\(label):")
             }
-            lastSpeakerId = paragraph.speakerId
-            lines.append(paragraph.text)
+            lines.append(line.text)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// The line's speaker name when it starts a turn (the first line, or a different speaker than the line before);
+    /// nil without real speakers.
+    private static func newSpeaker(at index: Int, in lines: [TranscriptTextLine]) -> String? {
+        guard let label = lines[index].speakerLabel else { return nil }
+        return index == 0 || lines[index].speakerId != lines[index - 1].speakerId ? label : nil
     }
 
     // MARK: - Markdown
 
     private func renderMarkdown(_ transcription: Transcription) -> String {
         let top = ["# \(transcription.displayTitle)", ""] + (clinicalHeader(transcription).map { [$0, ""] } ?? [])
-        guard let words = transcription.wordTimestamps, !words.isEmpty else {
+        let text = shown(transcription)
+        guard text.hasWordTimings else {
             var lines = top
-            let text = preferredText(transcription)
-            if !text.isEmpty {
-                lines.append(text)
+            if !text.plainText.isEmpty {
+                lines.append(text.plainText)
             }
             return lines.joined(separator: "\n")
         }
 
-        let paragraphs = TranscriptParagraphBuilder.build(from: words)
         var lines: [String] = top
-        var lastSpeakerId: String?
-        for (index, paragraph) in paragraphs.enumerated() {
-            if let label = speakerLabel(for: paragraph.speakerId, in: transcription.speakers),
-                index == 0 || paragraph.speakerId != lastSpeakerId
-            {
+        for (index, line) in text.lines.enumerated() {
+            if let label = Self.newSpeaker(at: index, in: text.lines) {
                 lines.append("**\(label)**")
                 lines.append("")
             }
-            lastSpeakerId = paragraph.speakerId
-            lines.append(paragraph.text)
+            lines.append(line.text)
             lines.append("")
         }
         return lines.joined(separator: "\n")
@@ -233,11 +214,11 @@ public struct TranscriptExporter: Sendable {
         text.split(whereSeparator: \.isNewline).joined(separator: " ")
     }
 
+    /// Cues from the words as heard (the word stream, `TranscriptCueBuilder.build(from: Transcription)`).
     private func subtitleCues(for transcription: Transcription) throws -> [TranscriptCue] {
-        guard let words = transcription.wordTimestamps, !words.isEmpty else {
-            throw ExportError.noTimestamps
-        }
-        return TranscriptCueBuilder.build(from: words)
+        let cues = TranscriptCueBuilder.build(from: transcription)
+        guard !cues.isEmpty else { throw ExportError.noTimestamps }
+        return cues
     }
 
     /// SRT format: 00:01:23,456
@@ -293,9 +274,10 @@ public struct TranscriptExporter: Sendable {
             engine: transcription.engine,
             engineVariant: transcription.engineVariant,
             language: transcription.language,
-            text: preferredText(transcription),
+            text: transcription.plainText(.shown(cleanupMode)),
             privacyClass: privacyClass(of: transcription),
             speakers: transcription.speakers ?? [],
+            // The stored segments and the engine's words: the evidence as heard (spec/contracts/transcript-json-v1.md).
             segments: transcription.transcriptSegments ?? [],
             words: transcription.wordTimestamps ?? []
         )

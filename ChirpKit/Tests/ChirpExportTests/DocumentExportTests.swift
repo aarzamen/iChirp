@@ -69,6 +69,22 @@ final class DocumentExportTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(turns.count, 720, "every paragraph kept")
     }
 
+    /// Review R1-3: a Clean PDF or Word file of a timed transcript prints the clean text on its timed turns.
+    func testACleanFileOfATimedTranscriptPrintsTheCleanText() {
+        var row = Transcription(sourceType: .file, fileName: "Visit.m4a", status: .completed)
+        row.wordTimestamps = ["um", "zarelto", "20", "mg", "daily."].enumerated().map {
+            WordTimestamp(word: $0.element, startMs: $0.offset * 300, endMs: $0.offset * 300 + 250, confidence: 1)
+        }
+        row.rawTranscript = "um zarelto 20 mg daily."
+        row.cleanTranscript = "Xarelto 20 mg daily."
+        XCTAssertEqual(
+            ExportDocument.transcript(row, cleanupMode: .clean).blocks,
+            [.turn(speaker: nil, timestamp: "00:00", text: "Xarelto 20 mg daily.")])
+        XCTAssertEqual(
+            ExportDocument.transcript(row, cleanupMode: .raw).blocks,
+            [.turn(speaker: nil, timestamp: "00:00", text: "um zarelto 20 mg daily.")])
+    }
+
     func testAClinicalItemSaysSoInItsFacts() {
         var row = Transcription(sourceType: .text, fileName: "Text", status: .completed, privacyClass: .clinical)
         row.rawTranscript = "Synthetic line one.\n\nSynthetic line two."

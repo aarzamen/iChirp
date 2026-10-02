@@ -155,6 +155,14 @@ public struct Deliverable: Codable, Sendable, Equatable, Identifiable {
     public var createdAt: Date
     public var updatedAt: Date
     public var editedAt: Date?
+    /// The model stopped at its length limit while writing the current text (its output allowance or a full context
+    /// window; `GenerationUsage.isLengthCapped`), so the text is **incomplete** (reviews R3-1, R4-2). The text is kept
+    /// (never lose work) and every screen says so (`cutOffMessage`). Set by a run or an edit that was cut off; a hand
+    /// edit keeps it (the person may not have finished it); a restore takes the restored version's.
+    public var isCutOff: Bool
+
+    /// What a screen says about a cut-off document.
+    public static let cutOffMessage = "The model stopped at its length limit — this document is incomplete."
 
     public init(
         id: UUID = UUID(),
@@ -171,7 +179,8 @@ public struct Deliverable: Codable, Sendable, Equatable, Identifiable {
         userNotes: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
-        editedAt: Date? = nil
+        editedAt: Date? = nil,
+        isCutOff: Bool = false
     ) {
         self.id = id
         self.transcriptionID = transcriptionID
@@ -188,6 +197,7 @@ public struct Deliverable: Codable, Sendable, Equatable, Identifiable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.editedAt = editedAt
+        self.isCutOff = isCutOff
     }
 }
 

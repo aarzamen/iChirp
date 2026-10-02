@@ -86,6 +86,27 @@ final class DeliverableListingStoreTests: XCTestCase {
         XCTAssertFalse(summary.snippet.contains("\n"))
     }
 
+    /// Plan 024 Task 8 (controller ruling, fix round 1): a list can mark a document the model stopped at its length
+    /// limit; the mark follows the current text (an edit that finished whole clears it).
+    func testSummariesCarryTheCutOffMark() async throws {
+        let transcript = try await insertTranscript()
+        var cut = document("Summary", from: transcript, secondsAfterBase: 1, text: "A summary that stops")
+        cut.isCutOff = true
+        let whole = document("Agenda", from: transcript, secondsAfterBase: 2)
+        try await store.insertDeliverable(cut)
+        try await store.insertDeliverable(whole)
+
+        var summaries = try await store.fetchDeliverableSummaries()
+        XCTAssertEqual(summaries.map(\.isCutOff), [false, true])
+        XCTAssertEqual(DeliverableSummary(cut).isCutOff, true, "a full document's summary carries it too")
+
+        _ = try await store.appendDeliverableVersion(
+            DeliverableVersionDraft(text: "A whole summary.", origin: .typedEdit, privacyClass: .personal),
+            deliverableID: cut.id)
+        summaries = try await store.fetchDeliverableSummaries()
+        XCTAssertEqual(summaries.map(\.isCutOff), [false, false])
+    }
+
     func testUnknownStoredClassReadsClinical() async throws {
         let transcript = try await insertTranscript()
         let made = document("Summary", from: transcript, secondsAfterBase: 1, privacy: .general)

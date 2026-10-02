@@ -1,5 +1,6 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/TextProcessing/TranscriptParagraphBuilder.swift @ bbae9e0e
-// Changes: none — direct port, `WordTimestamp` comes from ChirpCore.
+// Changes: `WordTimestamp` comes from ChirpCore; `buildWithWordRanges(from:)` (plan 024 Task 8) returns each paragraph
+// with the half-open range of words it holds, so `TranscriptText` lines keep stable boundaries; `build(from:)` maps it.
 
 import ChirpCore
 import Foundation
@@ -26,23 +27,35 @@ public enum TranscriptParagraphBuilder {
     private static let paragraphPauseMs = 2_500
 
     public static func build(from words: [WordTimestamp]) -> [TranscriptParagraph] {
+        buildWithWordRanges(from: words).map(\.paragraph)
+    }
+
+    /// The same paragraphs as `build(from:)`, each with the half-open range of `words` it holds. The ranges cover
+    /// every word exactly once, in order.
+    public static func buildWithWordRanges(
+        from words: [WordTimestamp]
+    ) -> [(paragraph: TranscriptParagraph, wordRange: Range<Int>)] {
         guard let firstWord = words.first else { return [] }
 
-        var paragraphs: [TranscriptParagraph] = []
+        var paragraphs: [(paragraph: TranscriptParagraph, wordRange: Range<Int>)] = []
         var paragraphWords: [String] = []
+        var paragraphFirstIndex = 0
         var paragraphStartMs = firstWord.startMs
         var paragraphEndMs = firstWord.endMs
         var paragraphSpeakerId = firstWord.speakerId
         var sentenceCount = 0
 
-        func appendParagraph() {
+        func appendParagraph(endingBefore end: Int) {
             guard !paragraphWords.isEmpty else { return }
             paragraphs.append(
-                TranscriptParagraph(
-                    startMs: paragraphStartMs,
-                    endMs: paragraphEndMs,
-                    text: paragraphWords.joined(separator: " "),
-                    speakerId: paragraphSpeakerId
+                (
+                    TranscriptParagraph(
+                        startMs: paragraphStartMs,
+                        endMs: paragraphEndMs,
+                        text: paragraphWords.joined(separator: " "),
+                        speakerId: paragraphSpeakerId
+                    ),
+                    paragraphFirstIndex..<end
                 )
             )
         }
@@ -51,8 +64,9 @@ public enum TranscriptParagraphBuilder {
             let speakerChanged = word.speakerId != paragraphSpeakerId
             let pauseReached = word.startMs - paragraphEndMs >= paragraphPauseMs
             if !paragraphWords.isEmpty, speakerChanged || pauseReached {
-                appendParagraph()
+                appendParagraph(endingBefore: index)
                 paragraphWords.removeAll(keepingCapacity: true)
+                paragraphFirstIndex = index
                 paragraphStartMs = word.startMs
                 paragraphSpeakerId = word.speakerId
                 sentenceCount = 0
@@ -69,8 +83,9 @@ public enum TranscriptParagraphBuilder {
                 continue
             }
 
-            appendParagraph()
+            appendParagraph(endingBefore: index + 1)
             paragraphWords.removeAll(keepingCapacity: true)
+            paragraphFirstIndex = index + 1
             sentenceCount = 0
 
             if words.indices.contains(index + 1) {
@@ -81,7 +96,7 @@ public enum TranscriptParagraphBuilder {
             }
         }
 
-        appendParagraph()
+        appendParagraph(endingBefore: words.count)
         return paragraphs
     }
 

@@ -53,6 +53,22 @@ final class DeliverableVersionStoreTests: XCTestCase {
         XCTAssertNil(stored?.editedAt, "a model's edit is not the person's hand edit")
     }
 
+    /// Plan 024 Task 8 fix round 1 (review R5-9): Edit by voice of an unsaved draft appends the draft as a hand edit,
+    /// then the rewrite; the model's text stays version 1 with its provenance.
+    func testADraftAppendedBeforeAnEditKeepsTheGeneratedOriginal() async throws {
+        _ = try await store.appendDeliverableVersion(
+            DeliverableVersionDraft(text: "The person's unsaved draft.", origin: .handEdit, privacyClass: .personal),
+            deliverableID: document.id)
+        let result = try await store.appendDeliverableVersion(draft("The rewrite."), deliverableID: document.id)
+        let versions = try XCTUnwrap(result).versions
+        XCTAssertEqual(
+            versions.map(\.text),
+            ["Synthetic summary, first draft.", "The person's unsaved draft.", "The rewrite."])
+        XCTAssertEqual(versions.map(\.origin), [.original, .handEdit, .spokenEdit])
+        XCTAssertEqual(versions[0].engineID, "fake.engine", "the original keeps the model's provenance")
+        XCTAssertNil(versions[1].engineID, "the draft is the person's")
+    }
+
     func testAHandEditIsKeptBeforeTheNextChange() async throws {
         _ = try await store.appendDeliverableVersion(draft("Version two text."), deliverableID: document.id)
         _ = try await store.updateDeliverableText(id: document.id, text: "The person typed this.")

@@ -1,0 +1,159 @@
+=== model input ===
+[00:00] Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== copy ===
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== txt ===
+Privacy: Clinical: contains patient information
+
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== markdown ===
+# Synthetic visit 3
+
+Privacy: Clinical: contains patient information
+
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+
+=== srt ===
+1
+00:00:00,000 --> 00:00:02,080
+Um, patient on zarelto 20 mg daily.
+
+2
+00:00:02,100 --> 00:00:03,580
+Recheck potassium in 2 weeks.
+
+
+=== vtt ===
+WEBVTT
+
+NOTE Privacy: Clinical: contains patient information
+
+00:00:00.000 --> 00:00:02.080
+Um, patient on zarelto 20 mg daily.
+
+00:00:02.100 --> 00:00:03.580
+Recheck potassium in 2 weeks.
+
+
+=== json ===
+{
+  "createdAt" : "2026-09-21T14:13:20Z",
+  "durationMs" : 3780,
+  "engine" : "fluidaudio.parakeet-tdt",
+  "engineVariant" : "v3",
+  "id" : "00000000-0000-0000-0000-000000000003",
+  "language" : "en",
+  "privacyClass" : "clinical",
+  "schema" : "ichirp.transcript/v1",
+  "segments" : [
+    {
+      "endMs" : 3580,
+      "id" : "00000000-0000-0000-0000-000000000101",
+      "speakerLabel" : "Unknown Speaker",
+      "startMs" : 0,
+      "text" : "Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.",
+      "wordRange" : {
+        "endIndexExclusive" : 12,
+        "startIndex" : 0
+      }
+    }
+  ],
+  "speakers" : [
+
+  ],
+  "text" : "Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.",
+  "title" : "Synthetic visit 3",
+  "words" : [
+    {
+      "confidence" : 0.9,
+      "endMs" : 280,
+      "startMs" : 0,
+      "word" : "Um,"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 580,
+      "startMs" : 300,
+      "word" : "patient"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 880,
+      "startMs" : 600,
+      "word" : "on"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1180,
+      "startMs" : 900,
+      "word" : "zarelto"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1480,
+      "startMs" : 1200,
+      "word" : "20"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1780,
+      "startMs" : 1500,
+      "word" : "mg"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2080,
+      "startMs" : 1800,
+      "word" : "daily."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2380,
+      "startMs" : 2100,
+      "word" : "Recheck"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2680,
+      "startMs" : 2400,
+      "word" : "potassium"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2980,
+      "startMs" : 2700,
+      "word" : "in"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3280,
+      "startMs" : 3000,
+      "word" : "2"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3580,
+      "startMs" : 3300,
+      "word" : "weeks."
+    }
+  ]
+}
+
+=== pdf and word ===
+Synthetic visit 3
+Date: <date>
+Duration: 00:03
+Privacy: Clinical: contains patient information
+[00:00] Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+Made with Parakeet on iPhone
+
+=== jev excerpt ===
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== jev paragraphs ===
+p01: Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+indexes: [0]

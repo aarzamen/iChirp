@@ -18,8 +18,8 @@ import Observation
 
     public let id: UUID
     public private(set) var transcription: Transcription?
-    /// Reading paragraphs, rebuilt whenever `transcription` changes (from the words; one paragraph of
-    /// `displayText` when there are no words).
+    /// Reading paragraphs, rebuilt whenever `transcription` changes: the `.heard` view's lines (from the words; one
+    /// paragraph of the text when there are no words).
     public private(set) var paragraphs: [TranscriptParagraph] = []
     /// Set when `load()` could not read the row.
     public private(set) var loadError: String?
@@ -63,14 +63,11 @@ import Observation
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// The whole transcript for Copy, following the exporter's rule for the current clean-up mode:
-    /// Raw → raw transcript (clean only if raw is missing); Clean → `displayText` (clean, else raw).
+    /// The whole transcript for Copy: the text the person sees in the current clean-up mode
+    /// (`Transcription.plainText(.shown(_:))`, plan 024 Task 8), the same text the exports and model input use.
     public var plainText: String {
         guard let transcription else { return "" }
-        switch settings.load().cleanupMode {
-        case .raw: return transcription.rawTranscript ?? transcription.cleanTranscript ?? ""
-        case .clean: return transcription.displayText
-        }
+        return transcription.plainText(.shown(settings.load().cleanupMode))
     }
 
     /// Writes the transcript as `format` into `<tmp>/export-<id>/` and returns the file, for the share sheet. The folder
@@ -80,10 +77,14 @@ import Observation
     public func exportFile(_ format: ExportFormat) async throws -> URL {
         guard let transcription else { throw TranscriptError.notLoaded }
         let cleanupMode = settings.load().cleanupMode
+        // The class the privacy rules use (its documents' raise it), so a clinical item's TXT, Markdown and VTT carry the
+        // clinical line and its JSON says clinical (review R1-13; the JSON contract's `privacyClass` is the effective one).
+        let effectiveClass = await effectivePrivacyClass(of: transcription)
         let directory = ExportTempFiles.directory(for: transcription.id)
         return try await Task.detached(priority: .userInitiated) {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            return try TranscriptExporter(cleanupMode: cleanupMode).write(transcription, as: format, to: directory)
+            return try TranscriptExporter(cleanupMode: cleanupMode, effectivePrivacyClass: effectiveClass)
+                .write(transcription, as: format, to: directory)
         }.value
     }
 
@@ -138,13 +139,13 @@ import Observation
             paragraphs = []
             return
         }
-        if let words = row.wordTimestamps, !words.isEmpty {
-            paragraphs = TranscriptParagraphBuilder.build(from: words)
-            return
+        // The words as heard (ADR-009: the timed screen always shows the engine's words); one paragraph of the text
+        // without timings.
+        let heard = row.text(.heard)
+        paragraphs = heard.lines.map { line in
+            TranscriptParagraph(
+                startMs: line.startMs ?? 0, endMs: line.endMs ?? row.durationMs ?? 0, text: line.text,
+                speakerId: line.speakerId)
         }
-        let text = row.displayText
-        paragraphs =
-            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? [] : [TranscriptParagraph(startMs: 0, endMs: row.durationMs ?? 0, text: text, speakerId: nil)]
     }
 }

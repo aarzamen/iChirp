@@ -280,6 +280,10 @@ private struct ExchangeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if case .answered(let answer) = run.phase {
+                if let notice = run.cutOffNotice {
+                    // Plan 024 Task 8 (reviews R3-1, R4-2).
+                    CutOffNote(message: notice + " Ask again, or ask for a shorter answer.")
+                }
                 citations(answer.citations)
                 if answer.citations.isEmpty {
                     // F61: the intro promises citations "when they can"; say when this one has none.

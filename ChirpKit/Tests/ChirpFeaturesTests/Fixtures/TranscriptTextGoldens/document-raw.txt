@@ -1,0 +1,77 @@
+=== model input ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== copy ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== txt ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== markdown ===
+# Discharge summary
+
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== srt ===
+error: noTimestamps
+
+=== vtt ===
+error: noTimestamps
+
+=== json ===
+{
+  "createdAt" : "2026-09-21T14:13:20Z",
+  "id" : "00000000-0000-0000-0000-000000000005",
+  "privacyClass" : "personal",
+  "schema" : "ichirp.transcript/v1",
+  "segments" : [
+
+  ],
+  "speakers" : [
+
+  ],
+  "text" : "Discharge summary\n\nDose: 2.5 mg twice daily.\n\nReturn if symptoms worsen.",
+  "title" : "Discharge summary",
+  "words" : [
+
+  ]
+}
+
+=== pdf and word ===
+Discharge summary
+Date: <date>
+Discharge summary
+Dose: 2.5 mg twice daily.
+Return if symptoms worsen.
+Made with Parakeet on iPhone
+
+=== jev excerpt ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== jev paragraphs ===
+p01: Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+indexes: [0]

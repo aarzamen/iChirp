@@ -45,15 +45,11 @@ public enum DecisionInputWindow {
         return String(characters[0..<limit])
     }
 
-    /// The paragraphs the Transcript screen shows (the same rule as `TranscriptViewModel`): built from the words when
-    /// there are timings, else one paragraph of `displayText`.
-    public static func paragraphs(of transcription: Transcription) -> [TranscriptParagraph] {
-        if let words = transcription.wordTimestamps, !words.isEmpty {
-            return TranscriptParagraphBuilder.build(from: words)
-        }
-        let text = transcription.displayText
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        return [TranscriptParagraph(startMs: 0, endMs: transcription.durationMs ?? 0, text: text, speakerId: nil)]
+    /// The text Jev reads: the text the person sees in `mode` (`Transcription.text(.shown(_:))`, plan 024 Task 8),
+    /// the same text Copy writes and the models get. Its lines are the Transcript screen's paragraphs: a line's `id`
+    /// is the paragraph index the screen shows a tag on.
+    public static func text(of transcription: Transcription, mode: CleanupMode) -> TranscriptText {
+        transcription.text(.shown(mode))
     }
 
     /// Content-free facts: duration, speaker count, paragraph count and the kind of source. Never names or titles.
@@ -87,10 +83,24 @@ public enum DecisionInputWindow {
     public static func paragraphExcerpt(_ paragraphs: [TranscriptParagraph], limit: Int = limit) -> (
         text: String, indexes: [Int]
     ) {
+        paragraphExcerpt(numbered: paragraphs.enumerated().map { ($0.offset, $0.element.text) }, limit: limit)
+    }
+
+    /// The same for a view's lines: each line is numbered with its `id` (the screen's paragraph index), so a tag lands
+    /// on the paragraph it was asked about even when a Clean line that held only fillers is left out.
+    public static func paragraphExcerpt(_ lines: [TranscriptTextLine], limit: Int = limit) -> (
+        text: String, indexes: [Int]
+    ) {
+        paragraphExcerpt(numbered: lines.map { ($0.id, $0.text) }, limit: limit)
+    }
+
+    private static func paragraphExcerpt(numbered paragraphs: [(index: Int, text: String)], limit: Int) -> (
+        text: String, indexes: [Int]
+    ) {
         var text = ""
         var indexes: [Int] = []
-        for (index, paragraph) in paragraphs.prefix(maximumTaggedParagraphs).enumerated() {
-            let body = paragraph.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for (index, paragraph) in paragraphs.prefix(maximumTaggedParagraphs) {
+            let body = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !body.isEmpty else { continue }
             let separator = text.isEmpty ? "" : "\n\n"
             let prefix = "\(paragraphID(index)): "

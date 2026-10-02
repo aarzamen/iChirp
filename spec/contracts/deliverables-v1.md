@@ -37,7 +37,7 @@ database and every screen that lists or edits documents.
 |---|---|
 | `prompts` | `id`, `name`, `category` (`deliverable` / `transform`), `isBuiltIn`, `canonicalKey` (unique when set), `canonicalRevision`, `outputPrivacyClass`, `sortOrder`, `activeVersionId`, `userCustomizedAt`, `deletedAt`, `createdAt`, `updatedAt` |
 | `prompt_versions` | `id`, `promptId` → prompts (restrict), `versionNumber` (unique per prompt), `content`, `origin` (`builtIn` / `user` / `systemUpdate`), `createdAt` |
-| `deliverables` | `id`, `transcriptionId` → transcriptions (**cascade**), `promptId` / `promptVersionId` (set null), `title`, `engineId`, `provider`, `model`, `locality`, `text`, `privacyClass`, `userNotes`, `createdAt`, `updatedAt`, `editedAt` |
+| `deliverables` | `id`, `transcriptionId` → transcriptions (**cascade**), `promptId` / `promptVersionId` (set null), `title`, `engineId`, `provider`, `model`, `locality`, `text`, `privacyClass`, `userNotes`, `createdAt`, `updatedAt`, `editedAt`, `isCutOff` (migration `v10-deliverable-cut-off`, BOOLEAN NOT NULL DEFAULT 0; see "Cut off at the length limit") |
 | `llm_runs` | `id`, `feature` (`deliverable` / `ask` / `decision` (M6a, `DecisionService`) / `edit` (plan 022, Edit by voice)), `status` (`succeeded` / `failed` / `cancelled` / `refused`), `transcriptionId` / `deliverableId` / `promptVersionId` (set null), `engineId`, `provider`, `model`, `locality`, `privacyClass`, `privacyOverride`, `errorType`, `promptTokens`, `completionTokens`, `latencyMs`, `inputCharacters`, `outputCharacters`, `callCount`, `createdAt`. Indexed on `createdAt`, `transcriptionId` and (migration `v9-llm-runs-deliverable-index`, review R1-17) `deliverableId`, so the set-null of a document's delete finds its rows without scanning the ledger |
 
 **Rules**
@@ -74,7 +74,7 @@ database and every screen that lists or edits documents.
 - `deliverable_versions` (`DeliverableVersion`): `id`, `deliverableId` (cascade on the document's delete),
   `versionNumber` (1, 2, … per document, unique), `text`, `origin` (`original` · `handEdit` · `spokenEdit` ·
   `typedEdit` · `restore`), `instruction` (an edit's instruction), `restoredFrom`, `engineId`, `provider`, `model`,
-  `locality`, `privacyClass`, `createdAt`.
+  `locality`, `privacyClass`, `createdAt`, `isCutOff` (migration `v10-deliverable-cut-off`).
 - **Append-only.** SQLite triggers abort every `UPDATE` and every `DELETE` while the document exists; only deleting
   the document (or its transcript) removes its versions. `appendDeliverableVersion` runs in one transaction: when the
   document's current text is not the newest version it is kept first (`original` the first time, `handEdit` after the
@@ -87,7 +87,34 @@ database and every screen that lists or edits documents.
   class, with the same override token rules, re-checked before the call. A document that does not fit one call (in
   and back out) fails with `documentTooLongToEdit` before anything is sent. The instruction is stored only in the
   version row on the phone; it is never logged and never in the ledger. Restore appends the chosen text as a
-  `restore` version (no model).
+  `restore` version (no model). The call is sent with the class it is allowed under at that moment (review R4-12).
+  When the screen holds an unsaved draft, the edit rewrites that draft (`baseText`, review R5-9): once the edit
+  succeeds the draft is appended as a `handEdit` version (with no engine provenance; the append first keeps the stored
+  text, as the `original` with the model's provenance on a document without versions) and the rewrite becomes the
+  next version; a failed edit stores nothing.
+
+### Cut off at the length limit (plan 024 Task 8, reviews R3-1 and R4-2; migration `v10-deliverable-cut-off`)
+
+- A model call whose usage says it stopped at the length limit (`GenerationUsage.isLengthCapped`: the output allowance
+  or a full context window) still ends its stream, but its text is not whole. `DeliverableService` keeps the result
+  (never lose work) and marks it: `deliverables.isCutOff` for a generated document (any call of the run: a cut-off map
+  step loses its part's last facts, a cut-off combine loses the end), `deliverable_versions.isCutOff` and the
+  document's `isCutOff` for an edit, `AskAnswer.isCutOff` for an answer (not stored). An engine that reports no stop
+  reason is unknown and marks nothing.
+- The mark follows the current text: a new edit sets it from its own call, a restore takes the restored version's,
+  the version kept for the text before a change carries the document's mark, and a hand edit keeps it (only the person
+  knows whether they finished the text). Screens say "The model stopped at its length limit — this document is
+  incomplete." (`Deliverable.cutOffMessage`).
+- Additive: both columns are `NOT NULL DEFAULT 0`, so every row written before reads as not cut off; an older build
+  ignores the column and its updates leave it as written.
+
+### Stored class and the ledger (plan 024 Task 8)
+
+- A document is stored with the strictest class its run saw: the routed class, every per-call re-check, and the
+  effective class re-read just before the insert (review R4-11: a transcript raised to clinical mid-run makes the
+  document clinical). The ledger row records that class.
+- The ledger counts every call that went out, including the calls of a run that then fails, is cancelled or is
+  refused mid-run, with their token counts; `inputCharacters` is 0 when no call went out (review R4-4).
 
 ### Listing (plan 023, UX audit F43; no schema change)
 
@@ -96,7 +123,8 @@ database and every screen that lists or edits documents.
   newest first (`createdAt`, then id): there is no limit anywhere, so no document can become unreachable.
   `observeDeliverableSummaries()` emits the same list now and after every change to `deliverables` (a new document,
   an edit, a new version, a raised class, a delete, a transcript's cascade).
-- A `DeliverableSummary` carries everything but the full text: `textStart` is the first 320 characters. The same
+- A `DeliverableSummary` carries everything but the full text: `textStart` is the first 320 characters, and
+  `isCutOff` (plan 024 Task 8) lets a list mark a document the model stopped at its length limit. The same
   fallbacks as a full read apply (an unknown class reads `clinical`, an unknown locality `cloud`); a row that cannot
   be read at all is skipped and logged by id only, so one bad row never empties the list.
 - `searchDeliverables(matching:)` returns the ids whose title or text contains the query, ignoring case; `%` and `_`
@@ -143,7 +171,14 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
   transcript untouched; ledger rows carry no content; every line of a 60-minute synthetic transcript sent exactly
   once; condensing instead of cutting; `transcriptTooLong` instead of truncation; re-planning on `contextTooLong`;
   cancellation; only `DeliverableService` calls `LanguageModel.generate`.
-- `TranscriptPromptTextTests` (ChirpTextTests): chunker never loses text; citations only for real segments.
+- `TranscriptPromptTextTests` (ChirpTextTests): chunker never loses text and never cuts a word or number (property
+  test); citations only for real line starts; model input without "Unknown Speaker".
+- `DeliverableCutOffAndLedgerTests` (ChirpFeaturesTests): a single call, a map step, the combine step, an Ask and an
+  edit stopped at the limit are kept and marked; unknown and finished stops are not; restore follows the mark; the
+  ledger counts calls of failed, cancelled and refused runs; a class raised mid-run is the stored and ledgered class
+  and the class an edit is sent with; an edit of a draft keeps the draft as a version. `DeliverableCutOffMigrationTests`
+  (ChirpStoreTests): `v10-deliverable-cut-off` on a v9 database adds both columns false and keeps every row; the mark
+  survives a relaunch and a hand edit and follows a restore.
 
 ## When this changes
 

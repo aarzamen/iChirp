@@ -91,6 +91,23 @@ import Observation
         return draft != deliverable.text
     }
 
+    /// What the document screen says when the model stopped at its length limit while writing the current text
+    /// (reviews R3-1, R4-2): the text is kept but incomplete. It stays after a hand edit (only the person knows
+    /// whether they finished it) and follows a restored version's mark.
+    public var cutOffNotice: String? {
+        deliverable?.isCutOff == true ? Deliverable.cutOffMessage : nil
+    }
+
+    /// Shows a document an edit just stored (Edit by voice, review R5-9): the edit was made from the draft on screen
+    /// (`DeliverableRunViewModel.Request.edit(baseText:)`), so its result replaces that draft instead of hiding
+    /// behind it.
+    public func applyEdit(_ edited: Deliverable) {
+        guard edited.id == id else { return }
+        deliverable = edited
+        draft = edited.text
+        saveError = nil
+    }
+
     public func load() async {
         do {
             guard let found = try await store.fetchDeliverable(id: id) else {

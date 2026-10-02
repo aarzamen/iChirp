@@ -108,6 +108,8 @@ struct DeliverableRecord: Codable, Equatable, Sendable, FetchableRecord, Persist
     var createdAt: Date
     var updatedAt: Date
     var editedAt: Date?
+    /// Migration `v10-deliverable-cut-off`.
+    var isCutOff: Bool
 
     init(_ deliverable: Deliverable) {
         id = deliverable.id
@@ -125,6 +127,7 @@ struct DeliverableRecord: Codable, Equatable, Sendable, FetchableRecord, Persist
         createdAt = deliverable.createdAt
         updatedAt = deliverable.updatedAt
         editedAt = deliverable.editedAt
+        isCutOff = deliverable.isCutOff
     }
 
     func toDeliverable() -> Deliverable {
@@ -143,7 +146,8 @@ struct DeliverableRecord: Codable, Equatable, Sendable, FetchableRecord, Persist
             userNotes: userNotes,
             createdAt: createdAt,
             updatedAt: updatedAt,
-            editedAt: editedAt
+            editedAt: editedAt,
+            isCutOff: isCutOff
         )
     }
 }

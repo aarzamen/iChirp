@@ -38,6 +38,8 @@ public struct DeliverableVersion: Codable, Sendable, Equatable, Identifiable {
     /// The class the text had when it was stored.
     public var privacyClass: PrivacyClass
     public var createdAt: Date
+    /// The model stopped at its length limit while writing this text: it is incomplete (`Deliverable.isCutOff`).
+    public var isCutOff: Bool
 
     public init(
         id: UUID = UUID(),
@@ -52,7 +54,8 @@ public struct DeliverableVersion: Codable, Sendable, Equatable, Identifiable {
         model: String? = nil,
         locality: EngineLocality? = nil,
         privacyClass: PrivacyClass,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        isCutOff: Bool = false
     ) {
         self.id = id
         self.deliverableID = deliverableID
@@ -67,6 +70,7 @@ public struct DeliverableVersion: Codable, Sendable, Equatable, Identifiable {
         self.locality = locality
         self.privacyClass = privacyClass
         self.createdAt = createdAt
+        self.isCutOff = isCutOff
     }
 }
 
@@ -82,6 +86,9 @@ public struct DeliverableVersionDraft: Sendable, Equatable {
     public var locality: EngineLocality?
     public var privacyClass: PrivacyClass
     public var createdAt: Date
+    /// The model stopped at its length limit while writing `text`. A restore takes the restored version's mark
+    /// (the store looks it up), whatever this says.
+    public var isCutOff: Bool
 
     public init(
         text: String,
@@ -93,7 +100,8 @@ public struct DeliverableVersionDraft: Sendable, Equatable {
         model: String? = nil,
         locality: EngineLocality? = nil,
         privacyClass: PrivacyClass,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        isCutOff: Bool = false
     ) {
         self.text = text
         self.origin = origin
@@ -105,6 +113,7 @@ public struct DeliverableVersionDraft: Sendable, Equatable {
         self.locality = locality
         self.privacyClass = privacyClass
         self.createdAt = createdAt
+        self.isCutOff = isCutOff
     }
 }
 

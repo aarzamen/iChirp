@@ -72,7 +72,8 @@ final class DeliverableVersionsMigrationTests: XCTestCase {
         XCTAssertEqual(before["deliverables"]?.count, 1)
         XCTAssertEqual(before["llm_runs"]?.count, 1)
 
-        _ = try DatabaseManager(writer: queue)
+        // Up to this migration only: a later additive column (v10's `isCutOff`) is that migration's own test.
+        try DatabaseManager.migrator.migrate(queue, upTo: "v8-text-items")
 
         XCTAssertEqual(try snapshot(queue), before, "no existing row changes")
         let applied = try queue.read { db in try DatabaseManager.migrator.appliedIdentifiers(db) }

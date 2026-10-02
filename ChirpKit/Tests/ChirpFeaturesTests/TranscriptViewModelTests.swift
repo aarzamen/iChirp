@@ -225,6 +225,27 @@ final class TranscriptViewModelTests: XCTestCase {
             bytes.range(of: Data("Clinical: contains patient information".utf8)), "the effective class marks the file")
     }
 
+    /// Review R1-13 (wired in plan 024 Task 8): the text and JSON files of a personal transcript with a clinical SOAP
+    /// note say clinical too, as its PDF and Word files do.
+    func testTheTextAndJSONFilesOfATranscriptWithAClinicalNoteSayClinical() async throws {
+        var row = completedRow()
+        row.privacyClass = .personal
+        let deliverables = FakeDeliverableStore()
+        try await deliverables.insertDeliverable(
+            Deliverable(
+                transcriptionID: row.id, promptID: nil, promptVersionID: nil, title: "SOAP note", engineID: "x",
+                provider: "x", model: nil, locality: .onDevice, text: "Synthetic SOAP note.", privacyClass: .clinical))
+        let viewModel = TranscriptViewModel(
+            id: row.id, store: FakeStore(rows: [row]), paths: makePaths(), settings: InMemorySettingsStore(),
+            deliverables: deliverables)
+        await viewModel.load()
+        let txt = try await viewModel.exportFile(.txt)
+        defer { try? FileManager.default.removeItem(at: txt.deletingLastPathComponent()) }
+        XCTAssertTrue(try String(contentsOf: txt, encoding: .utf8).hasPrefix("Privacy: Clinical"))
+        let json = try String(contentsOf: try await viewModel.exportFile(.json), encoding: .utf8)
+        XCTAssertTrue(json.contains("\"privacyClass\" : \"clinical\""))
+    }
+
     func testLoadOfMissingRowLeavesTranscriptionNil() async {
         let store = FakeStore()
         let viewModel = TranscriptViewModel(

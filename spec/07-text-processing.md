@@ -23,8 +23,39 @@ word's start is its first token's start, its end the last token's end, its confi
 
 - `SpeakerMerger.mergeWordTimestampsWithSpeakers` assigns each word the diarization speaker with maximum overlap,
   then applies isolated-assignment smoothing ([`06-speech-engines.md`](06-speech-engines.md#diarization-speaker-labels)).
-- `TranscriptSegmenter` / `FileTranscriptSegments.materialize` build `TranscriptSegmentRecord`s: speaker turns with
-  a half-open word range, start/end times, label and text. With no speakers the label falls back to the speaker id.
+- `FileTranscriptSegments.materialize` builds the stored `TranscriptSegmentRecord`s: 200–500-character chunks with a
+  half-open word range, start/end times, label and text. The label is the roster's name, else the speaker id, and
+  "Unknown Speaker" for words with no speaker id (upstream's rule). It is stored and exported in JSON `segments`, but
+  nothing shows it: every consumer reads the accessor below, which names speakers only when the item has a roster
+  (review R2-1). `TranscriptSegmenter` is kept for upstream parity and its tests; no production code calls it
+  (review R2-17).
+
+## One accessor for the text the person sees (`TranscriptText`)
+
+Plan 024 Task 8 (reviews R2-1, R4-1, R1-3; the read seam plan 025 builds corrections on).
+`Transcription.text(_:context:)` is the one way a consumer reads a transcript's text; nothing else reads
+`rawTranscript`, `cleanTranscript`, `displayText`, `wordTimestamps` or `transcriptSegments` except the pipelines that
+write them, ChirpCore, ChirpStore and the device smoke.
+
+| View | Text | Used by |
+|---|---|---|
+| `.heard` | The engine's words (ADR-009); without words, the clean text, else the raw one | The timed Transcript screen, SRT, VTT |
+| `.shown(.raw)` | The raw transcript (clean only if raw is missing); a dictation that stored polished text shows that text | Copy, model input (Transform, Ask, Create), Jev, TXT, Markdown, PDF, Word, JSON `text` in Raw |
+| `.shown(.clean)` | The clean transcript when it is not blank, else the raw one | The same, in Clean |
+
+- **Lines** are the reading paragraphs (`TranscriptParagraphBuilder` over the engine's words), each with a stable
+  `id` (the screen's paragraph index), times, speaker id and a speaker name only when the row has a roster. Model
+  input is one `[mm:ss] Name: text` line per paragraph; Ask's citations resolve to line starts. Untimed rows have one
+  untimed line, and their model input is the text as it is.
+- **A Clean view of a timed row** keeps those lines and puts the stored clean text on them: a word diff anchors the
+  words both texts share, and replaced or added words go with the line of the words they replaced. Every clean word
+  appears, in order; a line that held only fillers is left out, and ids never move.
+- **The dictation rule** (review R4-1): "Polish after" (on by default) cleans a dictation even in Raw, and its Done
+  screen copies that text, so a dictation's stored polished text is its shown text in either mode. Its words stay on
+  the screen and in SRT/VTT/JSON.
+- Pinned by `TranscriptTextTests` and the goldens in `ChirpFeaturesTests/TranscriptTextGoldenTests` (model input,
+  Copy, every export and Jev's input for a timed row with and without speakers, a dictation, a typed text and a
+  document, in Raw and Clean).
 
 ## Clean-up pipeline (`TextRefinement`, Clean mode only)
 
@@ -57,7 +88,7 @@ wins and is preserved if made while a job runs.
 
 | Builder | Rule (ported exactly) | Used by |
 |---|---|---|
-| `TranscriptParagraphBuilder` | Paragraphs of at most 3 sentences or 80 words; break on a pause of 2.5 s or more | Transcript view, TXT, Markdown |
+| `TranscriptParagraphBuilder` | Paragraphs of at most 3 sentences or 80 words; break on a pause of 2.5 s or more | `TranscriptText` lines: the Transcript view, model input, TXT, Markdown, PDF, Word, Jev |
 | `TranscriptCueBuilder` | New cue on speaker change, on sentence end once the cue has at least 2 words, on a gap over 800 ms, at 12 words, or past 7 s | SRT, VTT |
 
 ## Generated documents: screen, Copy, PDF and Word (`ChirpText/Markdown`)
@@ -92,8 +123,8 @@ and code as plain text; the PDF and Word files use real heading styles, bullets 
 
 | Format | Content | Notes |
 |---|---|---|
-| TXT | Paragraphs, with a speaker-label prefix when speakers exist | Text follows the clean-up mode |
-| Markdown | Title, then paragraphs with speaker labels when present | Ported from upstream `formatMarkdown` |
+| TXT | Paragraphs, with a speaker-label prefix when speakers exist | Text follows the clean-up mode (`.shown(mode)`), also for timed rows (review R1-3) |
+| Markdown | Title, then paragraphs with speaker labels when present | Ported from upstream `formatMarkdown`; text follows the clean-up mode |
 | SRT | Numbered cues, `HH:MM:SS,mmm` | Throws `noTimestamps` without words |
 | VTT | `WEBVTT` header, cues with `HH:MM:SS.mmm` | Throws `noTimestamps` without words |
 | JSON | `ichirp.transcript/v1`, with `privacyClass` and always-present `speakers`/`segments`/`words` arrays | Contract: [`contracts/transcript-json-v1.md`](contracts/transcript-json-v1.md) |
@@ -103,7 +134,7 @@ line (review R1-13): TXT starts with "Privacy: Clinical: contains patient inform
 its title, VTT has it as a `NOTE` block (players never show it), PDF and Word list it under the title, and JSON says
 `"privacyClass": "clinical"`. SRT has no comment syntax, so it carries no marker.
 
-With no words, TXT and Markdown fall back to `displayText`. The exported file name is the sanitized display title
+With no words, TXT and Markdown print the shown text whole. The exported file name is the sanitized display title
 plus the extension, cut on a character boundary to at most 200 UTF-8 bytes so it fits every file system's 255-unit
 name limit (`ExportFileName`, one rule for every export; review R1-9). PDF and Word (`DocumentExporter`, plan 022: Core Text and a minimal OOXML writer; the Gemini
 stand-ins that wrote plain text into a `.docx` are rejected) lay out a transcript's paragraphs, or a generated

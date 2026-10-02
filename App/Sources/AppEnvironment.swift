@@ -300,8 +300,10 @@ import Observation
         let providerStore = UserDefaultsLanguageModelProviderStore(secrets: KeychainSecretStore())
         self.providerStore = providerStore
         self.deliverableStore = deliverableStore
+        // Plan 024 Task 8: the models read the text the person sees in their clean-up mode, as Copy does.
         self.deliverables = DeliverableService(
-            transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() })
+            transcripts: store, deliverables: deliverableStore, routingPolicy: { providerStore.routingPolicy() },
+            cleanupMode: { settings.load().cleanupMode })
         // M7 (ADR-015): small models on this iPhone (llama.cpp), files next to Needle's under Models/llm/.
         let localLanguageModels = AppLocalLanguageModels(
             modelsDirectory: paths.root.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true))
@@ -316,7 +318,7 @@ import Observation
         self.jevSettings = jevSettings
         self.decisions = DecisionService(
             transcripts: store, ledger: deliverableStore, routingPolicy: { providerStore.routingPolicy() },
-            settings: jevSettings, factory: decisionFactory)
+            settings: jevSettings, factory: decisionFactory, cleanupMode: { settings.load().cleanupMode })
         self.jevSettingsModel = JevSettingsViewModel(store: jevSettings, factory: decisionFactory)
         // Plan 020. Routing reads the companion's trust at every chunk.
         // Plan 019's Settings → Mac companion store is the voices' companion configuration (DEBUG: the voice tour's
