@@ -217,7 +217,8 @@ public struct PDFDocumentRenderer: Sendable {
     }
 
     /// A nested list item starts 18 points further in per level (level 0 is where every item started before
-    /// nesting was kept); capped at eight levels, Word's own limit, so a deep list never runs off the page.
+    /// nesting was kept); capped at level 8, the deepest of Word's nine list levels, so a deep list never runs off
+    /// the page.
     static func listIndent(_ level: Int) -> CGFloat {
         CGFloat(min(max(level, 0), 8)) * 18
     }

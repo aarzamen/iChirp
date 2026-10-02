@@ -46,7 +46,7 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 - `PDFDocumentRenderer.swift` — Core Text (`CTFramesetter`) into a Core Graphics PDF context (upstream used AppKit):
   US Letter, 0.75-inch margins, explicit colors, two passes so every page says "title · Page k of N", pages break
   between lines, and a heading or speaker line never ends a page alone (`keepWithNext`). A nested list item starts
-  18 pt further in per level (`listIndent`, at most eight levels); level 0 is unchanged. Nothing is ever cut.
+  18 pt further in per level (`listIndent`, up to level 8); level 0 is unchanged. Nothing is ever cut.
 - `DOCXDocumentWriter.swift` and `ZipStoreWriter.swift` — a minimal valid Office Open XML package (content types,
   relationships, document, styles with Title/Heading1/Heading2/Speaker/Metadata, numbering for real bullets with
   Word's nine list levels, core properties with the title) in a stored ZIP with CRC-32 and UTF-8 names; a numbered
