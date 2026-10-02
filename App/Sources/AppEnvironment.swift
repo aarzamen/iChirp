@@ -277,7 +277,8 @@ import Observation
         dictation.onStateChange = { [weak liveActivity, weak dictation] state in
             // Review R2-6: why a recording stopped on its own reaches the Lock Screen with the outcome.
             liveActivity?.update(
-                for: state, recordedSeconds: dictation?.recordedSeconds ?? 0, notice: dictation?.captureNotice)
+                for: state, recordedSeconds: dictation?.recordedSeconds ?? 0, notice: dictation?.captureNotice,
+                voiceCommands: dictation?.voiceCommandsNotSaved)
         }
         let ingestHTTP = IngestHTTPClient()
         let companionSettings = CompanionSettingsStore(secrets: KeychainSecretStore())
