@@ -185,6 +185,30 @@ enum SyntheticDOCX {
         return SyntheticZip.make(files, deflate: deflate)
     }
 
+    /// The namespaces Word declares on `w:document` that the hand-written bodies below use.
+    static let namespaces = [
+        #"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#,
+        #"xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006""#,
+        #"xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape""#,
+        #"xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing""#,
+        #"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main""#,
+        #"xmlns:v="urn:schemas-microsoft-com:vml""#,
+        #"xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml""#,
+        #"xmlns:w16se="http://schemas.microsoft.com/office/word/2015/wordml/symex""#,
+    ].joined(separator: " ")
+
+    /// A Word document whose `w:body` is `bodyXML`, written by the test (symbols, text boxes, tab stops).
+    static func make(bodyXML: String) -> Data {
+        let document = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:document \(namespaces) mc:Ignorable="w14 w16se"><w:body>\(bodyXML)</w:body></w:document>
+            """
+        return SyntheticZip.make([
+            ("[Content_Types].xml", Data(#"<?xml version="1.0"?><Types/>"#.utf8)),
+            ("word/document.xml", Data(document.utf8)),
+        ])
+    }
+
     private static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")

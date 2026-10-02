@@ -71,8 +71,15 @@
   not WebKit: `NSAttributedString`'s HTML import must run on the main thread and loads WebKit; blocks become line
   breaks, list items bullets, cells tabs; scripts, styles and comments are dropped; `<title>` is the title; nothing is
   fetched) and `RichTextReader` (RTF through `NSAttributedString`, UIKit on iOS / AppKit on the Mac test host).
-- `Documents/DOCXReader.swift`: unzips `word/document.xml` and reads `w:p` / `w:t` (with `w:tab`, `w:br`), skipping
-  tracked deletions and field codes; the title from `docProps/core.xml`. Apple's DOCX importer is macOS-only.
+- `Documents/DOCXReader.swift`: unzips `word/document.xml` and reads `w:p` / `w:t` (with `w:tab`, `w:br`,
+  `w:noBreakHyphen` as U+2011, and symbol-font characters `w:sym` / `w16se:symEx`), skipping tracked deletions, field
+  codes and tab-stop definitions; the title from `docProps/core.xml`. Content Word writes twice
+  (`mc:AlternateContent`, e.g. a text box's drawing and its VML copy) is read once: the first `mc:Choice`, and the
+  `mc:Fallback` only when that choice held no text. A text box's paragraphs come out before the paragraph that
+  anchors it. Apple's DOCX importer is macOS-only.
+- `Documents/SymbolFontMap.swift`: symbol-font codes → Unicode. The Symbol font in full (so "≥", "≤", "±", "°", "µ"
+  survive; slot 0x6D is the micro sign U+00B5), Wingdings only for Word's check boxes, check and cross marks and square
+  bullet; any other symbol becomes U+FFFD (visible, counted in the log), never dropped.
 - `Documents/ZipArchiveReader.swift`: a read-only ZIP central-directory reader on Foundation (stored and deflated
   entries via `NSData.decompressed(using: .zlib)`, CRC-32 checked, ZIP64 and encryption refused, 128 MB per entry).
   It replaces ZIPFoundation, so M5 adds **no dependency** (nothing new in `THIRD_PARTY_LICENSES.md`).
