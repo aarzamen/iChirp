@@ -168,6 +168,7 @@ public enum HTTPLanguageModels {
         case .anthropic: return 200_000
         case .openAICompatible: return configuration.locality == .cloud ? 128_000 : 4_096
         case .ollama: return 8_192
+        // Not served by this target (`make` refuses it); here only because the switch is exhaustive.
         case .appleFoundationModels: return 4_096
         }
     }
@@ -189,6 +190,7 @@ public enum HTTPLanguageModels {
         switch kind {
         case .anthropic: AnthropicLLMHTTPAdapter()
         case .ollama: OllamaLLMHTTPAdapter()
+        // `.appleFoundationModels` never gets here (`make` refuses it); the switch is exhaustive.
         case .openAICompatible, .appleFoundationModels: OpenAICompatibleLLMHTTPAdapter()
         }
     }

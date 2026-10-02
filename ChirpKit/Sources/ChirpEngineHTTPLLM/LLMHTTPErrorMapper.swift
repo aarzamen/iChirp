@@ -120,6 +120,7 @@ enum LLMHTTPStreamCompletionPolicy {
             return true
         case .openAICompatible:
             return ["api.openai.com", "openrouter.ai"].contains(settings.host ?? "")
+        // `.appleFoundationModels` never reaches an HTTP adapter (`make` refuses it); the switch is exhaustive.
         case .ollama, .appleFoundationModels:
             return false
         }

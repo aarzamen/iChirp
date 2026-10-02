@@ -42,7 +42,11 @@ Then read `ParakeetEngine.swift`.
   `ParakeetWorker`) from an idle pool; all of them share one read-only `AsrModels`. A manager whose transcription
   threw or was cancelled is dropped, never returned to the pool. It transcribes a 16 kHz mono file with a fresh
   `TdtDecoderState` inside the gate, forwards that manager's chunk progress for files longer than 15 s, and maps a
-  BCP-47 `languageHint` onto FluidAudio's v3 script filter. M2: a `.dictation`-purpose call decodes a clip that still
+  BCP-47 `languageHint` onto FluidAudio's v3 script filter. Words go through `contractWords` (review R3-14): after
+  `WordTimingBuilder`, starts never go back, ends never precede their start and confidence is clamped to 0…1, as
+  WhisperKit and Apple Speech do, whatever order FluidAudio's chunk merge returns. The engine id and the v3 language
+  list are the registry's (`SpeechEngineCapabilityRegistry.parakeetEngineID`, `parakeetV3Languages`; review R3-16),
+  and a test pins each descriptor to its registry row. M2: a `.dictation`-purpose call decodes a clip that still
   fits one model window into memory and appends 0.5 s of silence (`paddedDictationSamples`, upstream issue #562);
   `transcribePreview` runs one in-memory preview window; `makeLiveSession` (`LiveSpeechSessionProviding`) returns a
   `TailWindowPreviewSession`, or nil without the model. Memory fit (fix/speech-memory-fit): before a new load,
@@ -57,7 +61,8 @@ Then read `ParakeetEngine.swift`.
   copies' code is identical; review R3-4) keeps them from drifting. Change both together.
 - `FluidAudioDiarizer.swift`: the `SpeakerDiarizing` actor. Holds upstream's `highAccuracyConfig`
   (`stepRatio 0.1`, `minSegmentDurationSeconds 0`, zero-vote re-embed), maps no-speech to an empty
-  `DiarizationOutput`, renumbers speakers `S1…Sn` by first speech with `Speaker N` labels, and repairs a malformed
+  `DiarizationOutput`, drops a span whose time is not a finite number before converting to milliseconds (review
+  R3-18: it would trap), renumbers speakers `S1…Sn` by first speech with `Speaker N` labels, and repairs a malformed
   PLDA JSON during `downloadAssets`. It builds `OfflineDiarizerModels` from the local `.mlmodelc` bundles and
   `plda-parameters.json` itself, because `OfflineDiarizerModels.load` downloads missing files.
 - `ParakeetASRConfig.swift`: the `ASRConfig` and encoder compute units policy, plus `ChirpTuning` (the on-device
@@ -129,7 +134,8 @@ Then read `ParakeetEngine.swift`.
 - Model folders are excluded from device backups after every successful download, because they can be
   re-downloaded. User data stays in backups (see ChirpCore's `AppPaths`).
 - `WordTimingBuilder` must stay behavior-identical to ChirpText's `WordTimingBuilder`. `WordTimingParityTests`
-  pins the shared token fixtures. Change both together.
+  pins the shared token fixtures. Change both together. The contract's word rules apply after it
+  (`ParakeetEngine.contractWords`, `ParakeetWordInvariantTests`), not inside it.
 - ChirpCore's engine protocols are contracts. Conform to them; do not change them from this target.
 
 ## How to verify

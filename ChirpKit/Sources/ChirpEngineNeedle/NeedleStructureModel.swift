@@ -70,7 +70,8 @@ public final class NeedleStructureModel: StructureModel, ModelAssetManaging {
         throw StructureModelError.unsupported("Needle 3 on needle-rs has no embedding head.")
     }
 
-    /// Frees the loaded model (memory warning, or when the feature closes).
+    /// Frees the loaded model. Nothing in the app calls this yet: unlike llama.cpp, Needle does not observe memory
+    /// warnings, and its 35 MB model stays loaded until Delete (review R3-17: the comment used to promise more).
     public func unload() async {
         await runtime.unload()
     }

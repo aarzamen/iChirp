@@ -42,13 +42,8 @@ struct ParakeetRuntime: Sendable {
 /// `memoryToLoadBytes` is compared with what `availableMemory` says iOS lets the app use now; a load that does not fit
 /// throws `SpeechEngineError.insufficientMemory` and loads nothing.
 public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
-    public static let engineID = "fluidaudio.parakeet-tdt"
-
-    /// Parakeet TDT v3's 25 European languages (BCP-47), per the model card.
-    static let v3Languages = [
-        "bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
-        "lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
-    ]
+    /// The registry's id, never a copy (review R3-16).
+    public static let engineID = SpeechEngineCapabilityRegistry.parakeetEngineID
 
     public nonisolated let variant: ParakeetVariant
     /// FluidAudio models root; the model lives in `<modelsRoot>/<repo folder>`.
@@ -111,7 +106,8 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
             license: "CC-BY-4.0 (model) / Apache-2.0 (FluidAudio)",
             approximateDownloadBytes: 500_000_000,
             providesWordTimestamps: true,
-            supportedLanguages: variant == .v3 ? v3Languages : ["en"]
+            // Parakeet TDT v3's 25 European languages come from the registry row (review R3-16).
+            supportedLanguages: variant == .v3 ? SpeechEngineCapabilityRegistry.parakeetV3Languages : ["en"]
         )
     }
 
@@ -265,7 +261,7 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
         guard !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw SpeechEngineError.emptyTranscript
         }
-        let words = WordTimingBuilder.words(from: result.tokenTimings)
+        let words = Self.contractWords(from: result.tokenTimings)
         // Drain the forwarder first so no chunk value can arrive after the final 1.
         progressTask?.cancel()
         await progressTask?.value
@@ -278,6 +274,23 @@ public actor ParakeetEngine: SpeechEngine, SpeechEngineUnloading {
             engineID: Self.engineID,
             engineVariant: variant.rawValue
         )
+    }
+
+    /// FluidAudio's token timings as words that meet the speech-engine contract (review R3-14), as WhisperKit's and
+    /// Apple Speech's do: `WordTimingBuilder` (kept identical to ChirpText's) merges the tokens, then every start is at
+    /// least the previous word's start and never negative, every end at least its own start, and confidence lies in
+    /// 0…1 (a confidence that is not a number counts 0). FluidAudio's chunk merge is not relied on to never go back.
+    static func contractWords(from tokenTimings: [TokenTiming]?) -> [WordTimestamp] {
+        var lastStart = 0
+        return WordTimingBuilder.words(from: tokenTimings).map { word in
+            var word = word
+            let start = max(lastStart, word.startMs)
+            word.startMs = start
+            word.endMs = max(start, word.endMs)
+            word.confidence = word.confidence.isFinite ? min(1, max(0, word.confidence)) : 0
+            lastStart = start
+            return word
+        }
     }
 
     // MARK: - Live preview (M2)
