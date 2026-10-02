@@ -9,8 +9,13 @@ import AppKit
 
 /// Plain text and Markdown: UTF-8 (or a BOM-marked UTF-16), else Windows-1252. Binary data is refused.
 enum PlainTextReader {
-    static func read(_ data: Data, format: DocumentFormat) throws -> ExtractedDocument {
+    /// `isCancelled` is checked between the decoding and tidying steps (`CancellationError`).
+    static func read(_ data: Data, format: DocumentFormat, isCancelled: () -> Bool = { false }) throws
+        -> ExtractedDocument
+    {
+        try BlockingWork.checkCancellation(isCancelled)
         let text = try decode(data, format: format)
+        try BlockingWork.checkCancellation(isCancelled)
         let tidied = DocumentTextExtractor.tidy(text)
         guard !tidied.isEmpty else { throw DocumentExtractionError.noText(format) }
         let title = format == .markdown ? markdownTitle(in: tidied) : nil
@@ -66,29 +71,35 @@ enum PlainTextReader {
 /// converter keeps block structure (paragraphs, headings, list items, line breaks), drops scripts, styles and markup,
 /// and decodes character references. Deterministic, off the main thread, and nothing is fetched (no images, no CSS).
 enum HTMLTextReader {
-    static func read(_ data: Data) throws -> ExtractedDocument {
+    /// `isCancelled` is checked between the conversion's passes (`CancellationError`).
+    static func read(_ data: Data, isCancelled: () -> Bool = { false }) throws -> ExtractedDocument {
+        try BlockingWork.checkCancellation(isCancelled)
         let html = try PlainTextReader.decode(data, format: .html)
         let title = firstMatch(of: /(?is)<title[^>]*>(.*?)<\/title>/, in: html).map {
             HTMLEntities.decode(collapseSpaces($0))
         }
-        let text = DocumentTextExtractor.tidy(text(fromHTML: html))
+        let text = DocumentTextExtractor.tidy(try text(fromHTML: html, isCancelled: isCancelled))
         guard !text.isEmpty else { throw DocumentExtractionError.noText(.html) }
         return ExtractedDocument(text: text, title: DocumentTextExtractor.plausibleTitle(title))
     }
 
-    static func text(fromHTML html: String) -> String {
+    static func text(fromHTML html: String, isCancelled: () -> Bool = { false }) throws -> String {
         var body = html
         // Drop everything that is not readable text.
         body = body.replacing(/(?is)<!--.*?-->/, with: "")
+        try BlockingWork.checkCancellation(isCancelled)
         body = body.replacing(/(?is)<(script|style|head|noscript|template|svg|iframe)\b[^>]*>.*?<\/\1\s*>/, with: "")
+        try BlockingWork.checkCancellation(isCancelled)
         // Block structure → line breaks, list items → bullets, cells → tabs.
         body = body.replacing(/(?i)<br\s*\/?>/, with: "\n")
         body = body.replacing(/(?i)<li\b[^>]*>/, with: "\n• ")
         body = body.replacing(/(?i)<\/?(td|th)\b[^>]*>/, with: "\t")
+        try BlockingWork.checkCancellation(isCancelled)
         body = body.replacing(
             /(?i)<\/?(p|div|h[1-6]|ul|ol|dl|dt|dd|tr|table|section|article|header|footer|blockquote|pre|hr|main|aside|nav|figure|figcaption|address)\b[^>]*>/,
             with: "\n\n")
         body = body.replacing(/(?s)<[^>]*>/, with: "")
+        try BlockingWork.checkCancellation(isCancelled)
         let lines = body.split(separator: "\n", omittingEmptySubsequences: false).map { line in
             HTMLEntities.decode(collapseSpaces(String(line))).trimmingCharacters(in: .whitespaces)
         }
@@ -107,7 +118,9 @@ enum HTMLTextReader {
 
 /// RTF through `NSAttributedString` (RTF is one of the document types iOS imports; no WebKit involved).
 enum RichTextReader {
-    static func read(_ data: Data) throws -> ExtractedDocument {
+    /// `isCancelled` is checked before and after the import, which is one blocking call (`CancellationError`).
+    static func read(_ data: Data, isCancelled: () -> Bool = { false }) throws -> ExtractedDocument {
+        try BlockingWork.checkCancellation(isCancelled)
         guard data.starts(with: Data("{\\rtf".utf8)) else {
             throw DocumentExtractionError.malformed(.rtf, "it is not an RTF file.")
         }
@@ -119,6 +132,7 @@ enum RichTextReader {
         } catch {
             throw DocumentExtractionError.unreadable(.rtf)
         }
+        try BlockingWork.checkCancellation(isCancelled)
         let text = DocumentTextExtractor.tidy(attributed.string.replacingOccurrences(of: "\u{2028}", with: "\n"))
         guard !text.isEmpty else { throw DocumentExtractionError.noText(.rtf) }
         return ExtractedDocument(text: text, title: DocumentTextExtractor.plausibleTitle(infoTitle(in: data)))

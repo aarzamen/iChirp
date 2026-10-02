@@ -67,10 +67,15 @@
   `ExtractedDocument` (text, PDF pages, a plausible title), `DocumentExtractionError` (unsupported, unreadable,
   password-protected, no text, damaged; each worded for the person) and `DocumentTextExtractor`, which dispatches by
   `DocumentFormat`. `tidy` collapses blank runs; `plausibleTitle` drops file names and placeholders ("Untitled",
-  "Microsoft Word - …").
+  "Microsoft Word - …"). All blocking work (reading the file, unzipping, parsing, PDF text and rendering) runs on the
+  ingest document queue (`Support/BlockingWork.swift`), never on Swift's cooperative pool, and a cancelled import
+  stops with `CancellationError` between pages or between a reader's steps (the DOCX parse checks every 256
+  elements).
 - `Documents/PDFTextExtractor.swift`: PDFKit per page. A page whose text layer has fewer than 20 visible characters is
   rendered (crop box, rotation applied, ~2,200 px long side, on white) and read with `PageTextRecognizing`; the longer
-  result wins. Pages record `textLayer`, `ocr` or `empty`. Cancellable between pages.
+  result wins. Pages record `textLayer`, `ocr` or `empty`. Opening the file and each page's text and rendering run on
+  the document queue one step at a time (`OpenedPDF`); recognition is awaited between them. Cancellable between
+  pages.
 - `Documents/PageTextRecognizer.swift`: `VisionPageTextRecognizer`, Vision's `RecognizeDocumentsRequest` (paragraphs
   in reading order), falling back to `RecognizeTextRequest` lines. On-device, so allowed for clinical items.
 - `Documents/TextDocumentReaders.swift`: `PlainTextReader` (TXT and Markdown: UTF-8, BOM-marked UTF-16, else
@@ -93,3 +98,6 @@
   (at most 128 MB): an entry that lies about its size ("zip bomb") is refused as damaged with memory bounded by that
   declaration. It replaces ZIPFoundation, so M5 adds **no dependency** (nothing new in `THIRD_PARTY_LICENSES.md`).
 - `Support/HTMLEntities.swift`: character-reference decoding for HTML documents and YouTube caption text.
+- `Support/BlockingWork.swift`: the ingest document queue (`com.aarzamen.ichirp.ingest.documents`, concurrent,
+  user-initiated) and its async bridge, with a cancellation check for the blocking side (the
+  `AVAudioNormalizer.runOnDecodeQueue` pattern).

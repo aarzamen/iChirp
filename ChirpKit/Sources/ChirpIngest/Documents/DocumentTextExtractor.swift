@@ -58,6 +58,10 @@ public protocol DocumentTextExtracting: Sendable {
 }
 
 /// The app's extractor: PDFKit plus Vision OCR for PDFs, and the text readers for everything else.
+///
+/// All blocking work (reading the file, unzipping, parsing, PDF text and page rendering) runs on the ingest document
+/// queue (`BlockingWork`), never on Swift's cooperative pool, and stops with `CancellationError` between pages (PDF) or
+/// between a reader's parts (others) when the import is cancelled.
 public struct DocumentTextExtractor: DocumentTextExtracting {
     private let pdf: PDFTextExtractor
 
@@ -66,6 +70,8 @@ public struct DocumentTextExtractor: DocumentTextExtracting {
         pdf = PDFTextExtractor(recognizer: recognizer)
     }
 
+    /// `@concurrent`: always runs off the caller's actor, whatever the module's default isolation becomes.
+    @concurrent
     public func extract(
         from url: URL,
         format: DocumentFormat,
@@ -78,6 +84,18 @@ public struct DocumentTextExtractor: DocumentTextExtracting {
         if format == .pdf {
             return try await pdf.extract(from: url, progress: progress)
         }
+        return try await BlockingWork.run { isCancelled in
+            try Self.readTextDocument(at: url, format: format, progress: progress, isCancelled: isCancelled)
+        }
+    }
+
+    /// The non-PDF path, blocking: runs on the document queue only (`BlockingWork`).
+    static func readTextDocument(
+        at url: URL,
+        format: DocumentFormat,
+        progress: (Int, Int) -> Void,
+        isCancelled: @escaping () -> Bool
+    ) throws -> ExtractedDocument {
         progress(0, 1)
         let data: Data
         do {
@@ -88,15 +106,16 @@ public struct DocumentTextExtractor: DocumentTextExtracting {
         guard data.count <= Self.maximumTextDocumentBytes else {
             throw DocumentExtractionError.malformed(format, "it is too large to read (over 100 MB).")
         }
-        try Task.checkCancellation()
+        try BlockingWork.checkCancellation(isCancelled)
         let document: ExtractedDocument
         switch format {
-        case .plainText, .markdown: document = try PlainTextReader.read(data, format: format)
-        case .html: document = try HTMLTextReader.read(data)
-        case .rtf: document = try RichTextReader.read(data)
-        case .docx: document = try DOCXReader.read(data)
+        case .plainText, .markdown: document = try PlainTextReader.read(data, format: format, isCancelled: isCancelled)
+        case .html: document = try HTMLTextReader.read(data, isCancelled: isCancelled)
+        case .rtf: document = try RichTextReader.read(data, isCancelled: isCancelled)
+        case .docx: document = try DOCXReader.read(data, isCancelled: isCancelled)
         case .pdf: throw DocumentExtractionError.unsupportedFormat("pdf")
         }
+        try BlockingWork.checkCancellation(isCancelled)
         progress(1, 1)
         return document
     }

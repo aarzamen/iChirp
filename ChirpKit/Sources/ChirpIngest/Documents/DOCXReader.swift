@@ -8,7 +8,9 @@ import Foundation
 /// first `mc:Choice`, and the `mc:Fallback` only when that choice held no text. The title comes from
 /// `docProps/core.xml` (`dc:title`). Apple's DOCX importer is macOS-only, hence this reader.
 enum DOCXReader {
-    static func read(_ data: Data) throws -> ExtractedDocument {
+    /// `isCancelled` is checked after unzipping, every few hundred XML elements while parsing, and before tidying; a
+    /// cancelled read throws `CancellationError`.
+    static func read(_ data: Data, isCancelled: @escaping () -> Bool = { false }) throws -> ExtractedDocument {
         let archive: ZipArchiveReader
         do {
             archive = try ZipArchiveReader(data: data)
@@ -25,7 +27,9 @@ enum DOCXReader {
         } catch {
             throw DocumentExtractionError.malformed(.docx, describe(error))
         }
-        let paragraphs = try BodyParser.paragraphs(in: body)
+        try BlockingWork.checkCancellation(isCancelled)
+        let paragraphs = try BodyParser.paragraphs(in: body, isCancelled: isCancelled)
+        try BlockingWork.checkCancellation(isCancelled)
         let text = DocumentTextExtractor.tidy(paragraphs.joined(separator: "\n\n"))
         guard !text.isEmpty else { throw DocumentExtractionError.noText(.docx) }
         let title = (try? archive.contents(of: "docProps/core.xml")).flatMap(CoreTitleParser.title(in:))
@@ -57,6 +61,10 @@ enum DOCXReader {
         /// One entry per open `mc:AlternateContent`.
         private var alternates: [Alternate] = []
         private(set) var unmappedSymbols = 0
+        /// Elements seen, for the periodic cancellation check.
+        private var elements = 0
+        private(set) var wasCancelled = false
+        private let isCancelled: () -> Bool
 
         private struct Alternate {
             var sawChoice = false
@@ -64,18 +72,36 @@ enum DOCXReader {
             var choiceProducedText = false
         }
 
-        static func paragraphs(in data: Data) throws -> [String] {
+        private init(isCancelled: @escaping () -> Bool) {
+            self.isCancelled = isCancelled
+        }
+
+        static func paragraphs(in data: Data, isCancelled: @escaping () -> Bool) throws -> [String] {
             let parser = XMLParser(data: data)
-            let delegate = BodyParser()
+            let delegate = BodyParser(isCancelled: isCancelled)
             parser.delegate = delegate
-            guard parser.parse() else {
+            let parsed = parser.parse()
+            if delegate.wasCancelled { throw CancellationError() }
+            guard parsed else {
                 throw DocumentExtractionError.malformed(.docx, "its document body is not valid XML.")
             }
-            if delegate.unmappedSymbols > 0 {
-                Log.logger("documents").notice(
-                    "docx_symbols_unmapped count=\(delegate.unmappedSymbols, privacy: .public)")
+            return delegate.collected()
+        }
+
+        /// Every paragraph, plus any text left outside one (malformed bodies), so nothing read is dropped.
+        private func collected() -> [String] {
+            if unmappedSymbols > 0 {
+                Log.logger("documents").notice("docx_symbols_unmapped count=\(self.unmappedSymbols, privacy: .public)")
             }
-            return delegate.paragraphs + delegate.open.filter { !$0.isEmpty }
+            return paragraphs + open.filter { !$0.isEmpty }
+        }
+
+        /// Every 256 elements: stops the parse when the import was cancelled.
+        private func checkCancellation(_ parser: XMLParser) {
+            elements += 1
+            guard elements % 256 == 0, isCancelled() else { return }
+            wasCancelled = true
+            parser.abortParsing()
         }
 
         private func emit(_ text: String) {
@@ -95,6 +121,7 @@ enum DOCXReader {
             _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
             qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
         ) {
+            checkCancellation(parser)
             if skipDepth > 0 {
                 skipDepth += 1
                 return
