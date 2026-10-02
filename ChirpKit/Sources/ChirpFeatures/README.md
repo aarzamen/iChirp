@@ -605,8 +605,8 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   `updateTitleOverride` / `updateFavorite`; failure and cancel marking use `transitionStatus(from: [.processing])`;
   retry uses `transitionStatus(from: [.failed, .cancelled, .interrupted], to: .processing)`. Each is one store
   transaction on the current row, so a star can never revert a just-completed transcript to `processing`, and a
-  failure mark never erases a rename. Never fetch → change → `update` a row here; the tests' `FakeStore` counts
-  whole-row updates and the race tests assert zero.
+  failure mark never erases a rename. `TranscriptionStoring` has no whole-row update (review R1-16); the tests'
+  `FakeStore` keeps one as a helper and counts it, and the race tests assert zero.
 - **A row deleted during a job stays deleted.** `savePreservingUserMetadata` returns nil for a missing row and
   never inserts; the pipeline then logs, deletes its temp WAV and removes the media folder only if it is empty.
 - **`process(id:)` runs only for a `.processing` row** (a fresh import, or one `retry` moved back); any other row is

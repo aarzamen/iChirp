@@ -128,8 +128,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `AudioTrackProbing` and `AudioTrackSelectionError` (M1.5; contract
   `spec/contracts/file-transcription-audio-tracks-v1.md`).
 - `Pipeline/TranscriptionStoring.swift`: the persistence contract implemented by ChirpStore. M3 adds the
-  field-level `updateUserNotes`, `renameSpeaker` and `markAudioRemoved`, with fetch-and-update defaults in a
-  protocol extension so other conformers (fakes) keep compiling; real stores implement them atomically. The lists
+  field-level `updateUserNotes`, `renameSpeaker` and `markAudioRemoved`, which every conformer implements
+  atomically. There is no whole-row update (review R1-16: a fetch → change → save of a whole row races a job);
+  pipeline output goes through `savePreservingUserMetadata`, everything else through a field-level method. The lists
   (review R1-1, R6a-8) use `fetchSummaries(limit:)`, `observeSummaries(limit:)` (latest value only) and
   `searchTranscriptions(matching:)`, never `fetchAll()` / `observeAll()`; their extension defaults derive them from
   the full rows for fakes, and `GRDBTranscriptionStore` reads only the columns a row shows.

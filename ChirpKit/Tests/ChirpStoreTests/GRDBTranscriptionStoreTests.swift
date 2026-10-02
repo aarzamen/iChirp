@@ -174,11 +174,9 @@ final class GRDBTranscriptionStoreTests: XCTestCase {
         original.isFavorite = true
         try await store.insert(original)
 
-        // Simulate the user editing metadata while the job is still "processing".
-        var edited = original
-        edited.titleOverride = "Edited While Processing"
-        edited.isFavorite = true
-        try await store.update(edited)
+        // The user edits metadata while the job is still "processing" (the field-level writes the screens use).
+        _ = try await store.updateTitleOverride(id: original.id, titleOverride: "Edited While Processing")
+        _ = try await store.updateFavorite(id: original.id, isFavorite: true)
 
         // Pipeline output completes the job — does not know about the user's edits, and would
         // normally overwrite titleOverride/isFavorite if saved as a plain `update`.
@@ -342,9 +340,7 @@ final class GRDBTranscriptionStoreTests: XCTestCase {
         try await store.insert(original)
 
         // The user marks the item clinical while the job runs.
-        var marked = original
-        marked.privacyClass = .clinical
-        try await store.update(marked)
+        _ = try await store.updatePrivacyClass(id: original.id, privacyClass: .clinical)
 
         // Pipeline output still carries the class it read when the job started.
         var pipelineOutput = original

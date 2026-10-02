@@ -55,14 +55,6 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         }
     }
 
-    public func update(_ transcription: Transcription) async throws {
-        try await database.writer.write { db in
-            let record = try TranscriptionRecord(transcription)
-            let stored = try TranscriptionRecord.fetchOne(db, key: record.id)
-            try record.keepingUnknownRawValues(of: stored).update(db)
-        }
-    }
-
     public func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription? {
         try await updateColumns(id: id) { _ in [Column("titleOverride").set(to: titleOverride)] }
     }

@@ -164,8 +164,9 @@ extension TranscriptionRecord {
     private static let logger = Log.logger("store")
 
     /// This record with `stored`'s enum raw values put back wherever `stored` held a value this build does not know
-    /// and this record still carries the fallback it read as. A rename or favorite made on an older build therefore
-    /// never overwrites a newer build's value; an explicit change (a Retry moving the status) still lands.
+    /// and this record still carries the fallback it read as (`savePreservingUserMetadata`, the one whole-row write).
+    /// A job finishing on an older build therefore never overwrites a newer build's value; an explicit change still
+    /// lands. The field-level writes never rewrite those columns at all (`GRDBTranscriptionStore.updateColumns`).
     func keepingUnknownRawValues(of stored: TranscriptionRecord?) -> TranscriptionRecord {
         guard let stored else { return self }
         var result = self

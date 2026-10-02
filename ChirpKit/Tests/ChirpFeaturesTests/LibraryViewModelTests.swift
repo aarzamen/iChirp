@@ -382,7 +382,6 @@ final class ListRecordingStore: TranscriptionStoring {
     func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription? {
         try await inner.savePreservingUserMetadata(transcription)
     }
-    func update(_ transcription: Transcription) async throws { try await inner.update(transcription) }
     func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription? {
         try await inner.updateTitleOverride(id: id, titleOverride: titleOverride)
     }
@@ -400,4 +399,13 @@ final class ListRecordingStore: TranscriptionStoring {
     func fetch(id: UUID) async throws -> Transcription? { try await inner.fetch(id: id) }
     func delete(id: UUID) async throws { try await inner.delete(id: id) }
     func markStaleProcessingAsInterrupted() async throws -> Int { try await inner.markStaleProcessingAsInterrupted() }
+    func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
+        try await inner.updateUserNotes(id: id, userNotes: userNotes)
+    }
+    func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
+        try await inner.renameSpeaker(id: id, speakerId: speakerId, to: label)
+    }
+    func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
+        try await inner.markAudioRemoved(id: id, at: date)
+    }
 }

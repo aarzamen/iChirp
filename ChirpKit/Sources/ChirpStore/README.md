@@ -58,7 +58,7 @@ ChirpStore depends on ChirpText.
   inside the stored `speakers` / `transcriptSegments` JSON through `JSONSerialization`, so keys a newer build wrote
   survive.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
-  insert/update/fetch/fetchAll/delete, `savePreservingUserMetadata`, the
+  insert/fetch/fetchAll/delete, `savePreservingUserMetadata` (the one whole-row write), the
   field-level `updateTitleOverride` / `updateFavorite` / `updatePrivacyClass` /
   `transitionStatus`, and M3's `updateUserNotes` / `renameSpeaker` (the roster label and every segment label of
   that speaker, one transaction) / `markAudioRemoved` (completed rows only); `savePreservingUserMetadata` keeps the
@@ -151,8 +151,8 @@ Before writing, a field-level method reads only the raw `status` and
 `privacyClass`: moving an unknown value to the fallback it already reads as
 (`updatePrivacyClass(.clinical)` on an unknown class, `transitionStatus(to:
 .interrupted)` on an unknown status) keeps the stored value, and any other
-explicit change (Retry moving the status to `processing`) lands. Whole-row
-writes (`update`, `savePreservingUserMetadata`) call
+explicit change (Retry moving the status to `processing`) lands. The one
+whole-row write, `savePreservingUserMetadata`, calls
 `TranscriptionRecord.keepingUnknownRawValues(of:)`: where the stored row held an
 unknown raw value and the outgoing row still carries the fallback it was read
 as, the stored raw value is written back unchanged. `GRDBTextRulesStore.save`
@@ -177,11 +177,12 @@ nothing: it never inserts, so a deleted transcript is never resurrected
 `updateFavorite` and `transitionStatus(id:from:to:errorMessage:)` each run one
 write transaction that changes only their columns plus `updatedAt` and returns
 the row as stored (nil when the row is gone; for `transitionStatus` also when
-the stored status is not in `from`, leaving the row untouched). A fetch → change → whole-row `update` from a view model or
-the pipeline would overwrite whatever landed in between (for example a
-completed transcript reverted to `processing` by a stale favorite write), so
-`update(_:)` is only for rows nothing else can be writing. Ports upstream's
-`updateTitleOverride`, `updateFavorite` and `transitionStatus`.
+the stored status is not in `from`, leaving the row untouched). A fetch →
+change → whole-row save from a view model or the pipeline would overwrite
+whatever landed in between (for example a completed transcript reverted to
+`processing` by a stale favorite write), so the store has no whole-row update
+at all (review R1-16). Ports upstream's `updateTitleOverride`, `updateFavorite`
+and `transitionStatus`.
 
 **JSON work never runs on the caller's actor.** Every method encodes
 (`TranscriptionRecord(_:)`) and decodes (`toTranscription()`) inside its GRDB
