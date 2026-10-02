@@ -18,8 +18,7 @@ struct DecisionModelsSection: View {
         SettingsGroup(title: "Decision models", footer: Self.explanation) {
             SettingsRow(title: "Jev (TypeSafe AI, cloud)", caption: caption(jev)) {
                 Toggle("Jev (TypeSafe AI, cloud)", isOn: Binding(get: { jev.isEnabled }, set: { setEnabled($0) }))
-                    .labelsHidden()
-                    .tint(Tokens.Color.success)
+                    .toggleStyle(.chirpSwitch)
             }
             Button {
                 jev.refresh()
@@ -27,12 +26,8 @@ struct DecisionModelsSection: View {
             } label: {
                 SettingsRow(
                     title: "Jev API key",
-                    caption: jev.hasStoredKey ? "Stored in the Keychain" : "Not added yet"
-                ) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.mutedText)
-                }
+                    caption: jev.hasStoredKey ? "Stored in the Keychain" : "Not added yet", showsChevron: true
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -77,13 +72,16 @@ struct JevKeySheet: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField(jev.keyPlaceholder, text: $jev.keyText)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityLabel("Jev API key")
-                        .onChange(of: jev.keyText) { _, _ in jev.keyEdited() }
+                    SecureField(text: $jev.keyText, prompt: .chirpPlaceholder(jev.keyPlaceholder)) {
+                        Text("Jev API key")
+                    }
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel("Jev API key")
+                    .onChange(of: jev.keyText) { _, _ in jev.keyEdited() }
                     if jev.hasStoredKey {
                         Toggle("Remove the stored key", isOn: $jev.removesStoredKey)
+                            .toggleStyle(.chirp)
                             .disabled(!jev.keyText.isEmpty)
                             .onChange(of: jev.removesStoredKey) { _, _ in jev.keyEdited() }
                     }

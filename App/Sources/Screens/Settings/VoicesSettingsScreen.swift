@@ -12,12 +12,8 @@ struct VoiceSettingsGroup: View {
             NavigationLink {
                 VoicesSettingsScreen()
             } label: {
-                SettingsRow(title: "Voices", caption: environment.voiceSettings.summary) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.mutedText)
-                }
-                .contentShape(Rectangle())
+                SettingsRow(title: "Voices", caption: environment.voiceSettings.summary, showsChevron: true)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
@@ -29,6 +25,7 @@ struct VoiceSettingsGroup: View {
 /// Settings → Voices: Mac companion or Grok voices; the companion's voices and style; Grok's stock voices, a
 /// free-text Voice ID and the xAI key (Keychain only); Test voice. No Apple voices (owner's choice).
 struct VoicesSettingsScreen: View {
+    @State private var isConfirmingRemoveKey = false
     @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
@@ -59,6 +56,16 @@ struct VoicesSettingsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .task { await model.refresh() }
+        // R6b-13: a pasted but unsaved key never lingers in the long-lived view model (as Jev's key, review L4 M7).
+        .onDisappear { model.keyDraft = "" }
+        .confirmationDialog(
+            "Remove the xAI key?", isPresented: $isConfirmingRemoveKey, titleVisibility: .visible
+        ) {
+            Button("Remove Key", role: .destructive) { model.removeKey() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Grok voices stop working until you paste a key again.")
+        }
         // The Test voice reading belongs to this screen: its now-playing bar (Stop, Retry) shows here, and it stops
         // when the screen goes away, so no stale "Couldn't read aloud" follows the owner elsewhere (review L2 M5).
         .voiceReading(environment.voicePlayer, owns: { $0 == .voiceTest })
@@ -157,7 +164,7 @@ struct VoicesSettingsScreen: View {
                 Text("Style")
                     .chirpFont(15.5)
                     .foregroundStyle(Tokens.Color.ink)
-                TextField("Optional, e.g. calm and unhurried", text: $model.settings.companionStyle)
+                ChirpTextField("Optional, e.g. calm and unhurried", text: $model.settings.companionStyle)
                     .chirpFont(15)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -216,7 +223,7 @@ struct VoicesSettingsScreen: View {
                 Text("Voice ID")
                     .chirpFont(15.5)
                     .foregroundStyle(Tokens.Color.ink)
-                TextField("Optional: a voice ID from your xAI account", text: $model.settings.xaiCustomVoiceID)
+                ChirpTextField("Optional: a voice ID from your xAI account", text: $model.settings.xaiCustomVoiceID)
                     .chirpFont(15)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -245,8 +252,12 @@ struct VoicesSettingsScreen: View {
                     .multilineTextAlignment(.trailing)
             }
             SecureField(
-                model.keyState == .missing ? "Paste your key" : "Paste a new key to replace it", text: $model.keyDraft
-            )
+                text: $model.keyDraft,
+                prompt: .chirpPlaceholder(
+                    model.keyState == .missing ? "Paste your key" : "Paste a new key to replace it")
+            ) {
+                Text("xAI API key")
+            }
             .chirpFont(15)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
@@ -268,7 +279,7 @@ struct VoicesSettingsScreen: View {
                     .buttonStyle(.plain)
                     .disabled(model.keyState == .checking)
                     Button {
-                        model.removeKey()
+                        isConfirmingRemoveKey = true  // R6b-13: one tap never deletes the Keychain item
                     } label: {
                         CapsuleButtonLabel(title: "Remove", kind: .destructive)
                     }

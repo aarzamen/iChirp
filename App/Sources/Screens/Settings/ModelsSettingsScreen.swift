@@ -12,11 +12,9 @@ struct ModelsSettingsLink: View {
         NavigationLink {
             ModelsSettingsScreen()
         } label: {
-            SettingsRow(title: "Models for Ask and Transforms", caption: "\(choice.name) · \(choice.place)") {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.mutedText)
-            }
+            SettingsRow(
+                title: "Models for Ask and Transforms", caption: "\(choice.name) · \(choice.place)", showsChevron: true
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -91,11 +89,9 @@ struct ModelsSettingsScreen: View {
                         Button {
                             editing = models.draft(editing: provider)
                         } label: {
-                            SettingsRow(title: provider.displayName, caption: providerCaption(provider)) {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Tokens.Color.mutedText)
-                            }
+                            SettingsRow(
+                                title: provider.displayName, caption: providerCaption(provider), showsChevron: true
+                            )
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

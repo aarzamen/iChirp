@@ -100,11 +100,13 @@ struct TransformRunView: View {
     let run: DeliverableRunViewModel
     let request: TransformRunHost.Request
     let transcriptTitle: String
-    let onChooseAnother: () -> Void
+    /// Back to the template list. Nil where there is no list (the SOAP hand-off, R6b-4): no "Templates" item, and a
+    /// failed run offers Close instead of "Choose another".
+    let onChooseAnother: (() -> Void)?
     let onDone: () -> Void
 
     @State private var shareText: ShareText?
-    @State private var copied = false
+    @State private var copied = CopyFeedback()
     @State private var isConfirmingStop = false
 
     /// Done closes a finished or stopped run at once; a run still writing asks first (nothing is saved until it ends).
@@ -139,7 +141,7 @@ struct TransformRunView: View {
                 if RunStatus.isActive(run.phase) {
                     Button("Stop") { host.cancel() }
                         .accessibilityHint("Stops this run; nothing is saved")
-                } else {
+                } else if let onChooseAnother {
                     Button {
                         onChooseAnother()
                     } label: {
@@ -192,13 +194,13 @@ struct TransformRunView: View {
                 // The real route once the router has answered; the chosen model before that.
                 if let route = run.route {
                     LocalityChip(
-                        text: "Runs \(route.placeWithName)",
-                        staysPrivate: route.locality == .onDevice
-                            || (route.locality == .localNetwork && request.choice.isTrustedForClinical))
+                        text: "Runs \(route.placeWithName)", locality: route.locality,
+                        trustedForClinical: request.choice.isTrustedForClinical)
                     PrivacyClassBadge(privacyClass: route.privacyClass)
                 } else {
                     LocalityChip(
-                        text: "Runs \(request.choice.placeWithName)", staysPrivate: request.choice.staysPrivate)
+                        text: "Runs \(request.choice.placeWithName)", locality: request.choice.locality,
+                        trustedForClinical: request.choice.isTrustedForClinical)
                 }
             }
         }
@@ -227,14 +229,16 @@ struct TransformRunView: View {
                             CapsuleButtonLabel(title: "Retry", kind: .filled)
                         }
                         .buttonStyle(.plain)
-                        Button(action: onChooseAnother) {
-                            CapsuleButtonLabel(title: "Choose another", kind: .tinted)
+                        Button(action: onChooseAnother ?? onDone) {
+                            CapsuleButtonLabel(
+                                title: onChooseAnother == nil ? "Close" : "Choose another", kind: .tinted)
                         }
                         .buttonStyle(.plain)
                     }
                 } else if run.phase == .idle {
-                    Button(action: onChooseAnother) {
-                        CapsuleButtonLabel(title: "Choose another model", kind: .tinted)
+                    Button(action: onChooseAnother ?? onDone) {
+                        CapsuleButtonLabel(
+                            title: onChooseAnother == nil ? "Close" : "Choose another model", kind: .tinted)
                     }
                     .buttonStyle(.plain)
                 }
@@ -254,7 +258,7 @@ struct TransformRunView: View {
                 CutOffNote(message: notice) { Task { await host.retry() } }
             }
             DocumentEditor(document: document)
-                .frame(minHeight: 320)
+                .frame(minHeight: 320, alignment: .top)
             Text(savedCaption(document))
                 .chirpFont(12)
                 .foregroundStyle(document.saveError == nil ? Tokens.Color.secondary : AppColor.error)
@@ -277,54 +281,25 @@ struct TransformRunView: View {
 
     private func savedCaption(_ document: DeliverableDocumentViewModel) -> String {
         if let error = document.saveError { return "Couldn’t save your edit: \(error)" }
-        return document.hasUnsavedChanges ? "Editing…" : "Saved in Transforms. Your edits save as you type."
+        // R7-14: documents live in the Library (plan 023 F43).
+        return document.hasUnsavedChanges ? "Editing…" : "Saved in your Library. Your edits save as you type."
     }
 
+    /// The one ChirpUI action bar (R7-12): labels never shrink; it re-flows at accessibility sizes.
     private func bottomBar(text: String, deliverable: Deliverable) -> some View {
-        HStack(spacing: 0) {
+        ChirpActionBar {
             // Plan 020: Listen to the result as edited now.
             ListenBarButton(source: .deliverable(id: deliverable.id), privacyClass: deliverable.privacyClass) {
                 host.document(for: deliverable).draft
             }
-            Button {
-                // UX audit F23: clean plain text on the clipboard, not raw `**`/`##`. Share (below) is unchanged.
+            // UX audit F23: clean plain text on the clipboard, not raw `**`/`##`. Share (below) is unchanged.
+            ChirpActionBarItem(
+                copied.isShowing ? "Copied" : "Copy", systemImage: copied.isShowing ? "checkmark" : "doc.on.doc"
+            ) {
                 LocalPasteboard.copy(PlainTextFlattener.flatten(text))
-                copied = true
-                Task {
-                    try? await Task.sleep(for: .seconds(1.5))
-                    copied = false
-                }
-            } label: {
-                barLabel(copied ? "Copied" : "Copy", copied ? "checkmark" : "doc.on.doc")
+                copied.flash()
             }
-            .buttonStyle(.plain)
-            Button {
-                shareText = ShareText(text: text)
-            } label: {
-                barLabel("Share", "square.and.arrow.up")
-            }
-            .buttonStyle(.plain)
+            ChirpActionBarItem("Share", systemImage: "square.and.arrow.up") { shareText = ShareText(text: text) }
         }
-        .frame(minHeight: 58)
-        .background(
-            Tokens.Color.ground.opacity(0.94)
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
-
-    private func barLabel(_ title: String, _ systemImage: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.system(size: 19, weight: .medium))
-                .frame(height: 22)  // one icon box for every bar item, so the labels line up (UX audit F40)
-            Text(title)
-                .chirpFont(11, .semibold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .foregroundStyle(Tokens.Color.ink)
-        .frame(maxWidth: .infinity, minHeight: 58)
-        .contentShape(Rectangle())
     }
 }

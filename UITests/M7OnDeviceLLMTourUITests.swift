@@ -86,7 +86,8 @@ final class M7OnDeviceLLMTourUITests: XCTestCase {
         button(containing: "SOAP note").tap()
         XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 3), "no clinical confirmation on device")
         shot("transform-running")
-        let saved = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved in Transforms'")).firstMatch
+        let saved = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved in your Library'"))
+            .firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 600))
         shot("transform-result")
         app.buttons["Done"].tap()

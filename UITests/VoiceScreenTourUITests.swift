@@ -94,7 +94,8 @@ final class VoiceScreenTourUITests: XCTestCase {
         if modelQuestion.waitForExistence(timeout: 3), modelQuestion.label.hasPrefix("Send this clinical") {
             modelQuestion.buttons["Send"].tap()
         }
-        let saved = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved in Transforms'")).firstMatch
+        let saved = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Saved in your Library'"))
+            .firstMatch
         if !saved.waitForExistence(timeout: 60) {
             shot("transform-not-saved")
             XCTFail("the SOAP note from the stub was not saved")

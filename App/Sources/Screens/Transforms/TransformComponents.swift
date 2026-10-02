@@ -62,6 +62,19 @@ struct PrivacyClassBadge: View {
     }
 }
 
+/// A generated document's class as the privacy rules use it: its own class raised by its transcript's effective class
+/// (the transcript and every document made from it). The same class the Library row badges, Listen reads and an
+/// export marks (known issue K4: the document screen used to show only the stored class).
+enum DocumentPrivacy {
+    /// Nil when the document is gone; clinical when it could not be read.
+    @MainActor
+    static func effectiveClass(of documentID: UUID, environment: AppEnvironment) async -> PrivacyClass? {
+        await VoiceSourcePrivacy.current(
+            for: .deliverable(id: documentID), transcripts: environment.store,
+            deliverables: environment.deliverableStore)
+    }
+}
+
 /// The Transcript and Document screens' privacy-class control. Changes go through `DeliverableService.setPrivacyClass`
 /// (the caller's `apply`), which also raises the transcript's documents. Lowering a clinical transcript asks first.
 ///
@@ -105,7 +118,7 @@ struct PrivacyClassControl: View {
             HStack(spacing: 3) {
                 PrivacyClassBadge(privacyClass: raised?.effective ?? current, text: raised?.label)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .chirpGlyph(9, .bold, relativeTo: .caption)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
             }
@@ -115,7 +128,7 @@ struct PrivacyClassControl: View {
         .accessibilityLabel(
             raised.map { "Privacy class: \($0.label). Marked \(current.title)" } ?? "Privacy class: \(current.title)"
         )
-        .accessibilityHint("Changes who may read this transcript")
+        .accessibilityHint("Changes who may read it")
         .alert(
             "Mark as \(pendingLowering?.title ?? "")?",
             isPresented: Binding(get: { pendingLowering != nil }, set: { if !$0 { pendingLowering = nil } }),
@@ -124,9 +137,7 @@ struct PrivacyClassControl: View {
             Button("Mark as \(value.title)") { Task { await set(value) } }
             Button("Keep Clinical", role: .cancel) {}
         } message: { _ in
-            Text(
-                "Parakeet will no longer ask before sending this transcript to a cloud model. Documents already made "
-                    + "from it stay clinical.")
+            Text(Self.loweringMessage)
         }
         .alert(
             "Couldn’t change the privacy class",
@@ -137,6 +148,14 @@ struct PrivacyClassControl: View {
             Text(error ?? "")
         }
     }
+
+    /// What lowering a clinical mark changes (review R6b-9). The routers use the stricter of the item and every
+    /// document made from it (`EffectivePrivacyClass`), so a clinical document such as a SOAP note keeps the item
+    /// clinical while it exists; the sentence says so instead of promising that nothing will ask any more. It names
+    /// no noun: the control is on transcripts, typed text and imported documents.
+    static let loweringMessage =
+        "Parakeet stops asking before sending it to a cloud model, unless a clinical document made from it, such as "
+        + "a SOAP note, still makes it count as clinical. Documents already made from it keep their own class."
 
     private func choose(_ value: PrivacyClass) {
         guard value != current else { return }
@@ -158,6 +177,16 @@ struct PrivacyClassControl: View {
 
 // MARK: - Templates
 
+/// One symbol per kind of output (R7-11): Create's tiles, the Create run's header and the Transforms template list use
+/// the same glyph for the same thing, and no glyph means two things (Summary is not the text-item cover's
+/// `text.alignleft`, nor Extract fields' `list.bullet.rectangle`).
+enum OutputSymbol {
+    static let transcript = "text.quote"
+    static let summary = "list.bullet.clipboard"
+    static let document = "doc.richtext"
+    static let voiceMessage = "waveform.badge.plus"
+}
+
 /// How a template looks in lists: an icon and one line on what it makes. Built-ins by canonical key; user templates
 /// get a generic style.
 struct TemplateStyle: Equatable {
@@ -165,7 +194,7 @@ struct TemplateStyle: Equatable {
     let summary: String
 
     static let builtIns: [String: TemplateStyle] = [
-        "summary": TemplateStyle(systemImage: "text.alignleft", summary: "The main points in a few paragraphs"),
+        "summary": TemplateStyle(systemImage: OutputSymbol.summary, summary: "The main points in a few paragraphs"),
         "meeting-notes": TemplateStyle(systemImage: "person.2", summary: "Summary, decisions and owners"),
         "action-items": TemplateStyle(systemImage: "checklist", summary: "Who does what, by when"),
         "agenda": TemplateStyle(systemImage: "list.number", summary: "Topics and time boxes for the next meeting"),
@@ -194,7 +223,7 @@ struct TemplateRow: View {
             ZStack {
                 Circle().fill(AppColor.tintFill)
                 Image(systemName: style.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+                    .chirpGlyph(16, .semibold, relativeTo: .body)
                     .foregroundStyle(Tokens.Color.accentInk)
             }
             .frame(width: 38, height: 38)
@@ -214,7 +243,7 @@ struct TemplateRow: View {
             }
             if let trailing {
                 Image(systemName: trailing)
-                    .font(.system(size: 13, weight: .semibold))
+                    .chirpGlyph(13, .semibold, relativeTo: .subheadline)
                     .foregroundStyle(Tokens.Color.mutedText)
                     .accessibilityHidden(true)
             }
@@ -230,21 +259,32 @@ struct TemplateRow: View {
 
 // MARK: - Model choice and locality
 
-/// The locality chip: where content goes. Green lock when it stays on the iPhone or a trusted Mac. The text wraps to a
-/// second line rather than hiding the model's name.
+/// The locality chip: where content goes. A lock only where clinical text may go without a question (this iPhone, or a
+/// home-network host the person trusts), a network glyph for a home-network host that asks, a cloud for the internet
+/// (review R6b-21: the menu and the chip used to disagree). The private chip draws its lock and words in
+/// `privacyBadgeInk` on an opaque `privacyBadgeFill` (R7-10: no opacity blend, a measured pair). The text wraps to a
+/// second line, left-aligned, rather than hiding the model's name, and "on-device" never breaks at its hyphen.
 struct LocalityChip: View {
     let text: String
+    let systemImage: String
     let staysPrivate: Bool
 
+    init(text: String, locality: EngineLocality, trustedForClinical: Bool) {
+        self.text = text
+        systemImage = LocalityGlyph.symbol(locality: locality, trustedForClinical: trustedForClinical)
+        staysPrivate = LocalityGlyph.staysPrivate(locality: locality, trustedForClinical: trustedForClinical)
+    }
+
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: staysPrivate ? "lock.fill" : "icloud")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(staysPrivate ? Tokens.Color.success : Tokens.Color.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: systemImage)
+                .chirpGlyph(11, .bold, relativeTo: .footnote)
+                .foregroundStyle(staysPrivate ? Tokens.Color.privacyBadgeInk : Tokens.Color.secondary)
                 .accessibilityHidden(true)
-            Text(text)
+            Text(LocalityGlyph.unbroken(text))
                 .chirpFont(12.5, .semibold)
-                .foregroundStyle(Tokens.Color.ink)
+                .foregroundStyle(staysPrivate ? Tokens.Color.privacyBadgeInk : Tokens.Color.ink)
+                .multilineTextAlignment(.leading)
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .fixedSize(horizontal: false, vertical: true)
@@ -252,7 +292,26 @@ struct LocalityChip: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .frame(minHeight: 28)
-        .background(Capsule().fill(staysPrivate ? Tokens.Color.privacyBadgeFill.opacity(0.7) : AppColor.quietFill))
+        .background(Capsule().fill(staysPrivate ? Tokens.Color.privacyBadgeFill : AppColor.quietFill))
+    }
+}
+
+/// The one map from where a model runs to its glyph (review R6b-21), for the chooser's menu, its chip and a run's
+/// route chip.
+enum LocalityGlyph {
+    /// Clinical text may go there without a question: this iPhone, or a home-network host the person trusts.
+    static func staysPrivate(locality: EngineLocality, trustedForClinical: Bool) -> Bool {
+        locality == .onDevice || (locality == .localNetwork && trustedForClinical)
+    }
+
+    static func symbol(locality: EngineLocality, trustedForClinical: Bool) -> String {
+        if staysPrivate(locality: locality, trustedForClinical: trustedForClinical) { return "lock.fill" }
+        return locality == .localNetwork ? "network" : "icloud"
+    }
+
+    /// "Apple on-device model" with a non-breaking hyphen, so a wrapped chip never reads "on-" / "device" (R7-10).
+    static func unbroken(_ text: String) -> String {
+        text.replacingOccurrences(of: "on-device", with: "on\u{2011}device")
     }
 }
 
@@ -264,6 +323,10 @@ extension LanguageModelChoice {
     /// place already names it ("in the cloud (Claude)").
     var placeWithName: String {
         locality == .onDevice ? "\(place) · \(name)" : place
+    }
+
+    var localitySymbol: String {
+        LocalityGlyph.symbol(locality: locality, trustedForClinical: isTrustedForClinical)
     }
 }
 
@@ -290,7 +353,7 @@ struct ModelChoiceMenu: View {
                         Text(option.name)
                         Text(option.place.prefix(1).uppercased() + option.place.dropFirst())
                     } icon: {
-                        Image(systemName: option.locality == .cloud ? "icloud" : "lock")
+                        Image(systemName: option.localitySymbol)
                     }
                     .tag(option)
                 }
@@ -311,9 +374,11 @@ struct ModelChoiceMenu: View {
             }
         } label: {
             HStack(spacing: 4) {
-                LocalityChip(text: "\(prefix) \(choice.placeWithName)", staysPrivate: choice.staysPrivate)
+                LocalityChip(
+                    text: "\(prefix) \(choice.placeWithName)", locality: choice.locality,
+                    trustedForClinical: choice.isTrustedForClinical)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .chirpGlyph(9, .bold, relativeTo: .caption)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
             }
@@ -343,6 +408,69 @@ struct ModelUnavailableNote: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CardBackground(radius: Tokens.Radius.s, fill: AppColor.quietFill, stroke: .clear))
+    }
+}
+
+/// What a run is about, for the clinical heads-up's words.
+enum ModelRunSubject {
+    /// Create: whatever the person brings (a dictation, text, a link, a file).
+    case item
+    case transcript
+    case document
+
+    var noun: String {
+        switch self {
+        case .item: "item"
+        case .transcript: "transcript"
+        case .document: "document"
+        }
+    }
+}
+
+/// The one clinical heads-up under every model chooser (Create, Transform, Ask, Edit by voice; review R6b-8): one rule,
+/// one wording, matching what `PrivacyRoutingPolicy` does. Clinical text goes to this iPhone, or to a home-network host
+/// the person trusts, without a question; to anything else (the internet, or a home-network host that is not trusted)
+/// it asks before each run.
+enum ModelClinicalNote {
+    /// - Parameters:
+    ///   - isClinical: the subject counts as clinical now (its effective class; Create: the Clinical switch).
+    ///   - makesDocuments: the run writes a document, so a SOAP note template asks too.
+    static func text(
+        for choice: LanguageModelChoice, subject: ModelRunSubject, isClinical: Bool, makesDocuments: Bool
+    ) -> String? {
+        if choice.locality == .onDevice { return nil }
+        if choice.isTrustedForClinical {
+            guard isClinical else { return nil }
+            return "This \(subject.noun) is clinical. You trust \(choice.name) for clinical text, so it goes there "
+                + "without asking."
+        }
+        if isClinical {
+            return "This \(subject.noun) is clinical, so Parakeet asks before sending it to \(choice.name)."
+        }
+        let what = makesDocuments ? "Clinical \(subject.noun)s and SOAP notes" : "Clinical \(subject.noun)s"
+        return "\(what) ask before anything is sent to \(choice.name)."
+    }
+}
+
+/// The notes under a model chooser: why the picked model cannot run now, or the clinical heads-up.
+struct ModelRunNotes: View {
+    @Environment(AppEnvironment.self) private var environment
+    let choice: LanguageModelChoice
+    let subject: ModelRunSubject
+    let isClinical: Bool
+    var makesDocuments = false
+
+    var body: some View {
+        if let message = environment.unavailableMessage(for: choice) {
+            ModelUnavailableNote(message: message)
+        } else if let note = ModelClinicalNote.text(
+            for: choice, subject: subject, isClinical: isClinical, makesDocuments: makesDocuments)
+        {
+            Text(note)
+                .chirpFont(12.5)
+                .foregroundStyle(Tokens.Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -418,8 +546,13 @@ extension MarkdownDocumentStyle {
 /// the raw source in a `TextEditor` — the interaction UX audit F23 asked us to pick and document. Both write the
 /// same `document.draft`, so autosave (about a second after typing stops, and when the editor goes away) and
 /// Versions are unaffected by which one is showing.
+///
+/// Plan 024 Task 10: the Formatted | Edit switch is ChirpUI's segmented control (warm palette, Dynamic Type; R7-4,
+/// R7-5), and a screen may put its own controls on the same row (`accessory`: the document screen's Edit by voice and
+/// Versions, R7-6), which stack under it when they do not fit.
 struct DocumentEditor: View {
     @Bindable var document: DeliverableDocumentViewModel
+    var accessory: AnyView?
     @State private var mode: Mode = .formatted
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -430,13 +563,21 @@ struct DocumentEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("Document view", selection: $mode) {
-                ForEach(Mode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
+            if let accessory {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Tokens.Spacing.s) {
+                        modePicker
+                        Spacer(minLength: 0)
+                        accessory
+                    }
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+                        modePicker
+                        accessory
+                    }
                 }
+            } else {
+                modePicker
             }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Document view")
 
             switch mode {
             case .formatted: formatted
@@ -453,6 +594,13 @@ struct DocumentEditor: View {
         .onDisappear {
             Task { await document.save() }
         }
+    }
+
+    private var modePicker: some View {
+        ChirpSegmentedControl(
+            "Document view", selection: $mode,
+            segments: Mode.allCases.map { .init($0.rawValue, value: $0) },
+            width: accessory == nil ? .fill : .fit)
     }
 
     /// UX audit F23: headings, bulleted and numbered lists, bold and italics rendered instead of raw `**`/`##`. No
@@ -498,10 +646,8 @@ struct CutOffNote: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let onTryAgain {
-                Button(action: onTryAgain) {
-                    CapsuleButtonLabel(title: tryAgainTitle, kind: .tinted)
-                }
-                .buttonStyle(.plain)
+                Button(tryAgainTitle, action: onTryAgain)
+                    .buttonStyle(.chirp(.tinted, size: .compact))
             }
         }
         .padding(10)

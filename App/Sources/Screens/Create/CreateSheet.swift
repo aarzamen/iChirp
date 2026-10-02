@@ -256,10 +256,10 @@ struct CreateSheet: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "link")
-                    .font(.system(size: 15, weight: .semibold))
+                    .chirpGlyph(15, .semibold, relativeTo: .body)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
-                TextField("Podcast, YouTube or web link", text: $draft.link, axis: .vertical)
+                ChirpTextField("Podcast, YouTube or web link", text: $draft.link, axis: .vertical)
                     .chirpFont(15)
                     .lineLimit(1...3)
                     .keyboardType(.URL)
@@ -298,7 +298,7 @@ struct CreateSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: draft.file == nil ? "folder" : "doc.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .chirpGlyph(17, .semibold, relativeTo: .body)
                     .foregroundStyle(Tokens.Color.accentInk)
                     .frame(width: 34, height: 34)
                     .background(
@@ -321,7 +321,7 @@ struct CreateSheet: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .chirpGlyph(12, .semibold, relativeTo: .footnote)
                     .foregroundStyle(Tokens.Color.mutedText)
                     .accessibilityHidden(true)
             }
@@ -344,12 +344,9 @@ struct CreateSheet: View {
             templateMenu
             modelRow
         case .voiceMessage:
-            Picker("Speak", selection: $draft.voiceSummarizeFirst) {
-                Text("The whole text").tag(false)
-                Text("A summary").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("What the voice message says")
+            ChirpSegmentedControl(
+                "What the voice message says", selection: $draft.voiceSummarizeFirst,
+                segments: [.init("The whole text", value: false), .init("A summary", value: true)], width: .fill)
             voiceRow
             if draft.voiceSummarizeFirst { modelRow }
         }
@@ -389,7 +386,7 @@ struct CreateSheet: View {
                     PrivacyClassBadge(privacyClass: .clinical)
                 }
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
+                    .chirpGlyph(11, .semibold, relativeTo: .footnote)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
             }
@@ -403,18 +400,8 @@ struct CreateSheet: View {
     private var modelRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             ModelChoiceMenu(prefix: "Runs", choice: $choice)
-            if let message = environment.unavailableMessage(for: choice) {
-                ModelUnavailableNote(message: message)
-            } else if !choice.isTrustedForClinical {
-                Text(
-                    draft.isClinical
-                        ? "Clinical: Parakeet will ask before anything is sent to \(choice.name)."
-                        : "Clinical items and SOAP notes ask before anything is sent to \(choice.name)."
-                )
-                .chirpFont(12.5)
-                .foregroundStyle(Tokens.Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            // One heads-up for every model chooser (review R6b-8).
+            ModelRunNotes(choice: choice, subject: .item, isClinical: draft.isClinical, makesDocuments: true)
         }
     }
 
@@ -424,9 +411,9 @@ struct CreateSheet: View {
             CreateNote(text: problem, systemImage: "speaker.slash", isProblem: true)
         } else if let provider = voices.settings.provider {
             CreateNote(
-                text: "Spoken by \(provider.displayName) (\(provider.place.lowercasedFirst)). "
-                    + (draft.isClinical || provider == .xai
-                        ? "Clinical text asks before it is sent." : "Saved with the item as an audio file."),
+                text: CreateVoiceNote.text(
+                    provider: provider, isClinical: draft.isClinical,
+                    companionTrusted: environment.companionConfiguration.companionEndpoint()?.isTrusted == true),
                 systemImage: "speaker.wave.2")
         }
     }
@@ -464,7 +451,7 @@ struct CreateSheet: View {
             }
         let row = HStack(spacing: 12) {
             Image(systemName: existing == nil ? "bookmark" : "bookmark.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .chirpGlyph(16, .semibold, relativeTo: .body)
                 .foregroundStyle(Tokens.Color.accentInk)
                 .frame(width: 34, height: 34)
                 .background(
@@ -534,36 +521,27 @@ struct CreateSheet: View {
             draft, speechModelReady: environment.isSpeechModelReady,
             modelProblem: environment.unavailableMessage(for: choice),
             voiceProblem: environment.voiceSettings.setupProblem)
-        return VStack(spacing: 6) {
-            if let problem, !isShownInline(problem) {
-                Text(problem)
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+        // The ChirpUI bar and primary button (R6b-18): disabled is the text-safe quiet capsule, not white on grey.
+        return ChirpBottomBar {
+            VStack(spacing: 6) {
+                if let problem, !isShownInline(problem) {
+                    Text(problem)
+                        .chirpFont(12.5)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button {
+                    start()
+                } label: {
+                    Label(
+                        draft.input == .speak ? "Start speaking" : "Create",
+                        systemImage: draft.input == .speak ? "mic.fill" : "sparkles")
+                }
+                .buttonStyle(.chirpPrimary)
+                .disabled(problem != nil)
             }
-            Button {
-                start()
-            } label: {
-                Label(
-                    draft.input == .speak ? "Start speaking" : "Create",
-                    systemImage: draft.input == .speak ? "mic.fill" : "sparkles"
-                )
-                .chirpFont(16, .bold)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Capsule().fill(problem == nil ? Tokens.Color.accentFill : Tokens.Color.mutedText))
-            }
-            .buttonStyle(.plain)
-            .disabled(problem != nil)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(
-            Tokens.Color.ground
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom))
     }
 
     /// The notes above already say it (the speech model, the voice, Apple's model): the bar does not repeat it.
@@ -576,7 +554,7 @@ struct CreateSheet: View {
     private func start() {
         guard let request = draft.request else { return }
         // A recipe's own choices are not Create's last answers; anything changed here is.
-        if recipe?.choices != draft.choices { choicesStore.save(draft.choices) }
+        // (`onChange(of: draft.choices)` already saved any change made here; R6b-19's redundant save is gone.)
         textFocused = false
         linkFocused = false
         host.start(
@@ -585,6 +563,33 @@ struct CreateSheet: View {
 
     private func outputTitle(for output: CreateOutput) -> String {
         CreateReadiness.outputTitle(for: output, templates: templates)
+    }
+}
+
+/// Create's line under the voice (review R6b-3), worded from what the voice router does
+/// (`PrivacyRoutingPolicy().trusting(companion)`, spec/12 Voices): clinical text goes to a Mac companion the person
+/// trusts without a question; to an untrusted Mac, or to Grok voices on the internet, it asks before each reading.
+/// Settings → Voices says the same per provider ("trusted for clinical" / "asks for clinical").
+enum CreateVoiceNote {
+    static func text(provider: VoiceProviderKind, isClinical: Bool, companionTrusted: Bool) -> String {
+        let spoken = "Spoken by \(provider.displayName) (\(provider.place.lowercasedFirst)). "
+        switch provider {
+        case .companion where companionTrusted:
+            return spoken
+                + (isClinical
+                    ? "You trust this Mac for clinical text, so it goes there without asking."
+                    : "Saved with the item as an audio file.")
+        case .companion:
+            return spoken
+                + (isClinical
+                    ? "This Mac is not trusted for clinical text, so Parakeet asks before it is sent."
+                    : "Saved with the item as an audio file.")
+        case .xai:
+            return spoken
+                + (isClinical
+                    ? "Clinical text goes over the internet, so Parakeet asks before it is sent."
+                    : "Clinical text always asks before it is sent.")
+        }
     }
 }
 

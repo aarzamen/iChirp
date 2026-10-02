@@ -17,9 +17,18 @@ struct ProviderEditorSheet: View {
     @State private var isLoadingModels = false
     @State private var confirmingDelete = false
     @State private var error: String?
+    /// The form as it opened, so Cancel and swipe-down know whether something typed would be lost (R6b-20).
+    @State private var original: LanguageModelProviderDraft
+    @State private var isConfirmingCancel = false
 
     init(draft: LanguageModelProviderDraft) {
         _draft = State(initialValue: draft)
+        _original = State(initialValue: draft)
+    }
+
+    /// Closing now would drop a typed address, name, model or key.
+    static func hasChanges(_ draft: LanguageModelProviderDraft, from original: LanguageModelProviderDraft) -> Bool {
+        draft != original
     }
 
     var body: some View {
@@ -48,7 +57,12 @@ struct ProviderEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        switch DiscardDecision.onCancel(hasInput: Self.hasChanges(draft, from: original)) {
+                        case .close: dismiss()
+                        case .ask: isConfirmingCancel = true
+                        }
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { save() }
@@ -75,6 +89,11 @@ struct ProviderEditorSheet: View {
             }
         }
         .tint(AppColor.accentText)
+        // R6b-20: typed text is never lost to a dismissal (F19/F24), as every other sheet with input.
+        .discardInputConfirmation(
+            "Discard your changes?", message: "The address, model and key you typed are not saved.",
+            hasInput: Self.hasChanges(draft, from: original), isAsking: $isConfirmingCancel
+        ) { dismiss() }
     }
 
     // MARK: - Sections
@@ -92,12 +111,12 @@ struct ProviderEditorSheet: View {
 
     private var addressSection: some View {
         Section {
-            TextField("Address", text: $draft.baseURLText)
+            ChirpTextField("Address", text: $draft.baseURLText)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Server address")
-            TextField("Name (\(draft.configuration.displayName))", text: $draft.displayName)
+            ChirpTextField("Name (\(draft.configuration.displayName))", text: $draft.displayName)
                 .accessibilityLabel("Name")
         } header: {
             Text("Server")
@@ -108,7 +127,7 @@ struct ProviderEditorSheet: View {
 
     private var modelSection: some View {
         Section {
-            TextField("Model name", text: $draft.modelName)
+            ChirpTextField("Model name", text: $draft.modelName)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             if !serverModels.isEmpty {
@@ -146,13 +165,17 @@ struct ProviderEditorSheet: View {
     private var keySection: some View {
         Section {
             SecureField(
-                draft.hadStoredKey ? "Stored in the Keychain · type to replace" : "API key", text: $draft.apiKeyText
-            )
+                text: $draft.apiKeyText,
+                prompt: .chirpPlaceholder(draft.hadStoredKey ? "Stored in the Keychain · type to replace" : "API key")
+            ) {
+                Text("API key")
+            }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .accessibilityLabel("API key")
             if draft.hadStoredKey {
                 Toggle("Remove the stored key", isOn: $draft.removesStoredKey)
+                    .toggleStyle(.chirp)
                     .disabled(!draft.apiKeyText.isEmpty)
             }
         } header: {
@@ -168,7 +191,7 @@ struct ProviderEditorSheet: View {
     private var trustSection: some View {
         Section {
             Toggle("Trust for clinical transcripts", isOn: $draft.trustsLocalNetworkHost)
-                .tint(Tokens.Color.success)
+                .toggleStyle(.chirp)
         } header: {
             Text("Clinical transcripts")
         } footer: {
@@ -182,7 +205,7 @@ struct ProviderEditorSheet: View {
 
     private var advancedSection: some View {
         Section {
-            TextField("Context window (tokens)", text: $draft.contextWindowText)
+            ChirpTextField("Context window (tokens)", text: $draft.contextWindowText)
                 .keyboardType(.numberPad)
         } header: {
             Text("Advanced")

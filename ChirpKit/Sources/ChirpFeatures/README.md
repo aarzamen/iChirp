@@ -155,7 +155,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   transcript with a clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
-  ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
+  ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), the diarizer's
+  `diarizerDescriptor` (so Settings reads its download size without importing an engine target, review R3-15), and
   `settingsValue`, which saves on every set — only the fields Settings edits, onto the freshest stored value, so the
   dictation screen's "Polish after" (M2) is never overwritten by an older copy.
 - `SpeechEnginesViewModel.swift` (M7, plan 016): Settings → Speech engines.
@@ -353,7 +354,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   unreachable past the first 50; UX audit F43; every document is also in the Library, plan 023) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
 - `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
-  time; answers are not stored (the ledger records each run without content).
+  time; answers are not stored (the ledger records each run without content). It also keeps the model picked on the
+  tab (`choice`) and the unsent question (`draftQuestion`), because the tab's view is rebuilt on every tab switch
+  (review R6b-1).
 
 ## Meetings (M3, `Meeting/`)
 

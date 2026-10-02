@@ -242,6 +242,28 @@ final class AskSessionViewModelTests: XCTestCase {
         XCTAssertTrue(runs.isEmpty)
     }
 
+    /// Review R6b-1: the Ask tab's view is rebuilt on every tab switch; the session (owned by the Transcript screen)
+    /// keeps the model the person picked and a half-typed question, so a cloud default never comes back unasked.
+    func testTheSessionKeepsTheChosenModelAndTheUnsentQuestion() async throws {
+        let harness = try await DeliverableHarness(privacy: .personal)
+        let session = AskSessionViewModel(service: harness.service, transcriptionID: harness.transcript.id)
+        let cloud = LanguageModelChoice(
+            source: .provider(UUID()), name: "Claude", locality: .cloud, host: "api.example.com",
+            isTrustedForClinical: false)
+        XCTAssertNil(session.choice, "no pick yet: the view shows the Settings default")
+        XCTAssertEqual(session.choice(default: cloud), cloud)
+
+        session.choice = .onDevice
+        session.draftQuestion = "What did they agree on"
+        // A view made again later reads the same session.
+        XCTAssertEqual(session.choice(default: cloud), .onDevice)
+        XCTAssertEqual(session.draftQuestion, "What did they agree on")
+
+        await session.ask(session.draftQuestion, model: Destination.onDevice.makeModel(), choice: .onDevice)
+        XCTAssertEqual(session.draftQuestion, "", "a sent question leaves the field")
+        XCTAssertEqual(session.choice(default: cloud), .onDevice, "the pick stays for the next question")
+    }
+
     func testBlankQuestionIsIgnored() async throws {
         let harness = try await DeliverableHarness(privacy: .personal)
         let model = Destination.onDevice.makeModel()

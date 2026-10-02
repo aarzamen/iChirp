@@ -70,10 +70,10 @@ struct RecipeTile: View {
             HStack(alignment: .top, spacing: 8) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
-                        .fill(isAccent ? Tokens.Color.accent : AppColor.tintFill)
+                        .fill(isAccent ? Tokens.Color.accentFill : AppColor.tintFill)
                     Image(systemName: RecipeWords.systemImage(recipe))
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isAccent ? .white : Tokens.Color.accentInk)
+                        .foregroundStyle(isAccent ? Tokens.Color.onAccent : Tokens.Color.accentInk)
                 }
                 .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 2) {
@@ -156,6 +156,7 @@ struct RecipesSheet: View {
                             + "Reorder to choose which ones show."
                     )
                 }
+                .listRowBackground(Tokens.Color.surface)
                 if !recipes.missingStarters.isEmpty, !recipes.isFull {
                     Section {
                         Button("Add back the starter recipes") { recipes.restoreStarters() }
@@ -163,6 +164,7 @@ struct RecipesSheet: View {
                     } footer: {
                         Text("Dictate, Type or paste, Paste a link and Import a file, as Capture had them.")
                     }
+                    .listRowBackground(Tokens.Color.surface)
                 }
                 Section {
                     Button {
@@ -181,7 +183,11 @@ struct RecipesSheet: View {
                             : "In Create, choose what you have and what you want, then tap Save as recipe."
                     )
                 }
+                .listRowBackground(Tokens.Color.surface)
             }
+            // R7-5: the warm ground and card surface, not the system's cool grouped greys.
+            .scrollContentBackground(.hidden)
+            .background(Tokens.Color.ground)
             .environment(\.editMode, $editMode)
             .navigationTitle("Recipes")
             .navigationBarTitleDisplayMode(.inline)

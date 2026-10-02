@@ -15,7 +15,7 @@ struct CreateRunView: View {
     let outputTitle: String
     let open: (CreateDestination) -> Void
 
-    @State private var copied = false
+    @State private var copied = CopyFeedback()
     @State private var shareItem: ShareItem?
 
     var body: some View {
@@ -79,7 +79,7 @@ struct CreateRunView: View {
             HStack(spacing: 6) {
                 Label(request.input.kind.title, systemImage: request.input.kind.systemImage)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 10, weight: .bold))
+                    .chirpGlyph(10, .bold, relativeTo: .footnote)
                     .accessibilityHidden(true)
                 Label(outputTitle, systemImage: outputSymbol)
                 if request.privacyClass == .clinical {
@@ -106,10 +106,10 @@ struct CreateRunView: View {
 
     private var outputSymbol: String {
         switch request.output {
-        case .transcript: "text.alignleft"
-        case .summary: "list.bullet.rectangle"
-        case .document: "doc.richtext"
-        case .voiceMessage: "waveform.badge.plus"
+        case .transcript: OutputSymbol.transcript
+        case .summary: OutputSymbol.summary
+        case .document: OutputSymbol.document
+        case .voiceMessage: OutputSymbol.voiceMessage
         }
     }
 
@@ -146,7 +146,8 @@ struct CreateRunView: View {
                         .tint(Tokens.Color.accent)
                         .padding(.top, 2)
                 }
-                if isFailed(status) {
+                // R6b-23: a failed voice message shows its Retry once, on the voice-message card below.
+                if isFailed(status), !(stage == .output && showsVoiceMessageCard) {
                     Button {
                         host.retry(choice: choice, environment: environment)
                     } label: {
@@ -170,19 +171,19 @@ struct CreateRunView: View {
             switch status {
             case .done:
                 Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .chirpGlyph(13, .bold, relativeTo: .subheadline)
+                    .foregroundStyle(Tokens.Color.onAccent)
             case .running:
                 if flow.phase == .waitingForAnswer(stage) {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .chirpGlyph(12, .bold, relativeTo: .footnote)
                         .foregroundStyle(AppColor.accentText)
                 } else {
                     ProgressView().controlSize(.small)
                 }
             case .failed:
                 Image(systemName: "exclamationmark")
-                    .font(.system(size: 13, weight: .bold))
+                    .chirpGlyph(13, .bold, relativeTo: .subheadline)
                     .foregroundStyle(AppColor.error)
             case .pending, .skipped:
                 Text("\((visibleStages.firstIndex(of: stage) ?? stage.rawValue) + 1)")
@@ -224,7 +225,8 @@ struct CreateRunView: View {
             case .file(let url): url.lastPathComponent
             }
         case .transcribe: isDocumentInput ? "Read" : "Transcribe"
-        case .operation: outputTitle.replacingOccurrences(of: "Voice message of a summary", with: "Summary")
+        // R6b-19: a voice message of a summary writes a Summary first; decided from the request, not the title's words.
+        case .operation: request.output == .voiceMessage(summarizeFirst: true) ? "Summary" : outputTitle
         case .output:
             switch request.output {
             case .transcript: "Transcript"
@@ -265,8 +267,9 @@ struct CreateRunView: View {
             }
             return [step, place].compactMap { $0 }.joined(separator: " · ") + "…"
         case (.operation, .done):
-            guard let document = flow.deliverable else { return "Saved in Transforms" }
-            return "Saved in Transforms · "
+            // R7-14: every document lives in the Library (plan 023 F43); Transforms is where one is started.
+            guard let document = flow.deliverable else { return "Saved in your Library" }
+            return "Saved in your Library · "
                 + ModelPlace.phrase(locality: document.locality, name: document.provider)
         case (.output, .running):
             if flow.phase == .waitingForAnswer(.output) { return "Waiting for your answer. Nothing has been sent." }
@@ -402,6 +405,9 @@ struct CreateRunView: View {
         // rendering — headings, bulleted and numbered lists, bold, italics — is what "Open document" leads to
         // (`DeliverableDetailScreen`'s `DocumentEditor`); a fixed-height card preview has no good way to truncate a
         // multi-block rendering to N lines the way `.lineLimit` truncates plain text.
+        //
+        // R7-15 (plan 024 Task 10): the preview is the formatted document, as "Open document" shows it (real bullets
+        // and headings, not "- " and "Key Points:"), cut at a fixed height with a fade; Copy stays plain text.
         let plainText = PlainTextFlattener.flatten(document.text)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -411,12 +417,16 @@ struct CreateRunView: View {
                 Spacer(minLength: 8)
                 PrivacyClassBadge(privacyClass: document.privacyClass)
             }
-            Text(plainText)
-                .chirpFont(14.5)
-                .lineSpacing(4)
-                .foregroundStyle(Tokens.Color.ink)
-                .lineLimit(14)
-                .textSelection(.enabled)
+            MarkdownDocument(document.text, style: .chirp)
+                .frame(maxWidth: .infinity, maxHeight: Self.previewHeight, alignment: .topLeading)
+                .clipped()
+                .mask {
+                    LinearGradient(
+                        stops: [.init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+                        startPoint: .top, endPoint: .bottom)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Start of the document")
             if document.privacyClass == .clinical {
                 ClinicalDraftNote()
             }
@@ -437,13 +447,9 @@ struct CreateRunView: View {
             .buttonStyle(.plain)
             Button {
                 LocalPasteboard.copy(text)
-                copied = true
-                Task {
-                    try? await Task.sleep(for: .seconds(1.5))
-                    copied = false
-                }
+                copied.flash()
             } label: {
-                CapsuleButtonLabel(title: copied ? "Copied" : "Copy", kind: .tinted)
+                CapsuleButtonLabel(title: copied.isShowing ? "Copied" : "Copy", kind: .tinted)
             }
             .buttonStyle(.plain)
         }
@@ -452,63 +458,36 @@ struct CreateRunView: View {
 
     // MARK: - Bottom bar
 
+    /// The ChirpUI bar and buttons (R6b-18, R7-12): one height, font and fill per kind on every sheet.
     private var bottomBar: some View {
-        HStack(spacing: 10) {
-            if flow.isActive {
-                Button {
-                    flow.cancel()
-                } label: {
-                    Text("Stop")
-                        .chirpFont(15.5, .semibold)
-                        .foregroundStyle(AppColor.error)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Capsule().fill(AppColor.quietFill))
+        ChirpBottomBar {
+            ChirpButtonRow {
+                if flow.isActive {
+                    Button("Stop") { flow.cancel() }
+                        .buttonStyle(.chirp(.destructive))
+                        .accessibilityHint("Stops the steps that have not finished. What is already made stays.")
+                    Button("Hide") { host.hide() }
+                        .buttonStyle(.chirpPrimary)
+                        .accessibilityHint("Keeps going; Capture shows the progress")
+                } else {
+                    Button("Create another") { host.startOver() }
+                        .buttonStyle(.chirpSecondary)
+                    Button("Done") { host.done() }
+                        .buttonStyle(.chirpPrimary)
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Stops the steps that have not finished. What is already made stays.")
-                Button {
-                    host.hide()
-                } label: {
-                    Text("Hide")
-                        .chirpFont(15.5, .bold)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Capsule().fill(Tokens.Color.accentFill))
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Keeps going; Capture shows the progress")
-            } else {
-                Button {
-                    host.startOver()
-                } label: {
-                    Text("Create another")
-                        .chirpFont(15.5, .semibold)
-                        // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
-                        .foregroundStyle(AppColor.accentTextOnTint)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Capsule().fill(AppColor.tintFill))
-                }
-                .buttonStyle(.plain)
-                Button {
-                    host.done()
-                } label: {
-                    Text("Done")
-                        .chirpFont(15.5, .bold)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Capsule().fill(Tokens.Color.accentFill))
-                }
-                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(
-            Tokens.Color.ground
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom))
     }
+
+    /// The voice message's own card (with its Retry) is on screen.
+    private var showsVoiceMessageCard: Bool {
+        guard case .voiceMessage = request.output, let voice = flow.voiceMessage as? VoiceMessageExporter else {
+            return false
+        }
+        return voice.phase != .idle
+    }
+
+    static let previewHeight: CGFloat = 320
 
     private func shareVoiceMessage(_ file: VoiceMessageFile) {
         guard let item = flow.item else { return }

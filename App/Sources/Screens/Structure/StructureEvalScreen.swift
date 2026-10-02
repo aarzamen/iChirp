@@ -34,7 +34,7 @@ struct StructureEvalScreen: View {
 
                 Toggle("Numeric normalizer (the model copies tags)", isOn: $eval.normalizerOn)
                     .chirpFont(14)
-                    .tint(Tokens.Color.success)
+                    .toggleStyle(.chirp)
                     .disabled(eval.isRunning)
 
                 HStack(spacing: 10) {
@@ -183,7 +183,7 @@ struct StructureEvalScreen: View {
             .padding(.top, 4)
         }
         .padding(14)
-        .background(CardBackground(radius: 16))
+        .background(CardBackground(radius: Tokens.Radius.m))
     }
 
     private func metric(_ title: String, _ value: String) -> some View {

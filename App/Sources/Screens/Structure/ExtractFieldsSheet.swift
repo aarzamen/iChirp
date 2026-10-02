@@ -101,26 +101,30 @@ struct ExtractFieldsSheet: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Tokens.Color.partialAudioFill))
+                RoundedRectangle(cornerRadius: Tokens.Radius.inset, style: .continuous).fill(
+                    Tokens.Color.partialAudioFill))
         }
     }
 
     /// Always visible: which engine answers (STUB is never labelled Needle), the model hash, why Needle did not run.
     @ViewBuilder private var engineBadge: some View {
         let settings = environment.structureSettings
-        let text: String = {
+        // R6b-19: whether the rules engine answers is a fact, not a guess from the badge's wording.
+        let (text, isStub): (String, Bool) = {
             // A finished run names the engine that answered; before and during a run, the chosen one.
-            if model.draft != nil, !isRunning { return model.engineBadge }
+            if let draft = model.draft, !isRunning { return (model.engineBadge, draft.isStub) }
             switch settings.settingsValue.engine {
-            case .stub: return "STUB · rules, not Needle"
+            case .stub: return ("STUB · rules, not Needle", true)
             case .needle:
-                if !settings.needleInBuild { return "STUB · Needle is not in this build" }
+                if !settings.needleInBuild { return ("STUB · Needle is not in this build", true) }
                 return settings.isNeedleReady
-                    ? "Needle 3 · model \(settings.needleModelSHA256?.prefix(8) ?? "") · \(NeedleExperimental.chip)"
-                    : "STUB · Needle 3 not downloaded"
+                    ? (
+                        "Needle 3 · model \(settings.needleModelSHA256?.prefix(8) ?? "") · \(NeedleExperimental.chip)",
+                        false
+                    )
+                    : ("STUB · Needle 3 not downloaded", true)
             }
         }()
-        let isStub = text.hasPrefix("STUB")
         StatusChip(
             text, icon: .system(isStub ? "wrench.adjustable" : "cpu"),
             ink: isStub ? Tokens.Color.partialAudioInk : Tokens.Color.privacyBadgeInk,
@@ -285,13 +289,13 @@ struct ExtractFieldsSheet: View {
         .padding(.leading, 12)
         .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Tokens.Radius.inset, style: .continuous)
                 .strokeBorder(
                     item.needsReview ? AppColor.error.opacity(0.6) : Tokens.Color.border,
                     style: StrokeStyle(lineWidth: dashed ? 1.5 : 1, dash: dashed ? [5, 4] : [])
                 )
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Tokens.Color.surface))
+                    RoundedRectangle(cornerRadius: Tokens.Radius.inset, style: .continuous).fill(Tokens.Color.surface))
         )
         .accessibilityElement(children: .contain)
     }
@@ -410,7 +414,7 @@ struct ReviewFieldSheet: View {
                 Section {
                     ForEach(item.editableFields) { field in
                         LabeledContent(field.label) {
-                            TextField(
+                            ChirpTextField(
                                 field.label,
                                 text: Binding(get: { values[field.key, default: ""] }, set: { values[field.key] = $0 })
                             )
@@ -459,9 +463,11 @@ struct SOAPFromFieldsSheet: View {
         NavigationStack {
             Group {
                 if let host, let run = host.run, let request = host.request {
+                    // R6b-4: no template list in this flow, so no "Templates" back item and no "Choose another";
+                    // the run view's own Stop and Done (which asks while it writes, F38) are the only bar items.
                     TransformRunView(
                         host: host, run: run, request: request, transcriptTitle: transcriptTitle,
-                        onChooseAnother: { dismiss() }, onDone: { dismiss() })
+                        onChooseAnother: nil, onDone: { dismiss() })
                 } else if let error = host?.startError {
                     message(error)
                 } else if missingTemplate {
@@ -472,10 +478,13 @@ struct SOAPFromFieldsSheet: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") {
-                        host?.cancel()
-                        dismiss()
+                // Only before the run view shows (it has its own bar); nothing is running then.
+                if host?.run == nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Close") {
+                            host?.cancel()
+                            dismiss()
+                        }
                     }
                 }
             }

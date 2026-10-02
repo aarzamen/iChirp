@@ -5,10 +5,41 @@ import SwiftUI
 
 /// Settings → Text → Custom words & snippets (M2). Custom words fix how Parakeet writes a word; snippets expand a
 /// phrase you say into longer text. Both apply whenever Clean runs (dictation's "Polish after", or the Clean
-/// clean-up mode). Swipe a row to delete it; the switch turns one off without deleting it.
+/// clean-up mode). Swipe a row to delete it (it asks first: a long snippet is hard to type again; review R6b-5); the
+/// switch turns one off without deleting it.
 struct TextRulesScreen: View {
     let model: TextRulesViewModel
     @State private var editor: Editor?
+    /// The row a swipe asked to delete, waiting for the confirmation.
+    @State private var deleting: Deletion?
+
+    /// A custom word or snippet waiting for "Delete …?".
+    enum Deletion: Identifiable {
+        case word(CustomWord)
+        case snippet(TextSnippet)
+
+        var id: String {
+            switch self {
+            case .word(let word): "word-\(word.id)"
+            case .snippet(let snippet): "snippet-\(snippet.id)"
+            }
+        }
+
+        /// "Delete “kubernetes”?" / "Delete the snippet “my address”?"
+        var question: String {
+            switch self {
+            case .word(let word): "Delete “\(word.word)”?"
+            case .snippet(let snippet): "Delete the snippet “\(snippet.trigger)”?"
+            }
+        }
+
+        var buttonTitle: String {
+            switch self {
+            case .word: "Delete Word"
+            case .snippet: "Delete Snippet"
+            }
+        }
+    }
 
     /// What the add/edit sheet is editing.
     enum Editor: Identifiable {
@@ -33,9 +64,9 @@ struct TextRulesScreen: View {
                 ForEach(model.words) { word in
                     wordRow(word)
                 }
+                // A full swipe asks first (R6b-5), as Recipes and the Library do.
                 .onDelete { offsets in
-                    let ids = Set(offsets.map { model.words[$0].id })
-                    Task { await model.deleteWords(ids) }
+                    if let index = offsets.first { deleting = .word(model.words[index]) }
                 }
                 Button("Add word", systemImage: "plus") { editor = .newWord }
                     .foregroundStyle(AppColor.accentText)
@@ -44,6 +75,7 @@ struct TextRulesScreen: View {
             } footer: {
                 Text("Parakeet writes the word exactly as you typed it, or its replacement when you give one.")
             }
+            .listRowBackground(Tokens.Color.surface)
 
             Section {
                 if model.snippets.isEmpty {
@@ -53,8 +85,7 @@ struct TextRulesScreen: View {
                     snippetRow(snippet)
                 }
                 .onDelete { offsets in
-                    let ids = Set(offsets.map { model.snippets[$0].id })
-                    Task { await model.deleteSnippets(ids) }
+                    if let index = offsets.first { deleting = .snippet(model.snippets[index]) }
                 }
                 Button("Add snippet", systemImage: "plus") { editor = .newSnippet }
                     .foregroundStyle(AppColor.accentText)
@@ -65,6 +96,7 @@ struct TextRulesScreen: View {
                     "Custom words and snippets apply when Clean runs: “Polish after” on a dictation, or Clean in "
                         + "Settings → Text for every transcription.")
             }
+            .listRowBackground(Tokens.Color.surface)
         }
         .scrollContentBackground(.hidden)
         .background(Tokens.Color.ground)
@@ -76,6 +108,16 @@ struct TextRulesScreen: View {
         .sheet(item: $editor) { editor in
             TextRuleEditorSheet(model: model, editor: editor)
         }
+        .confirmationDialog(
+            deleting?.question ?? "",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible, presenting: deleting
+        ) { deletion in
+            Button(deletion.buttonTitle, role: .destructive) { delete(deletion) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("It is removed for good. To stop using it for now, turn its switch off instead.")
+        }
         .alert(
             "Couldn’t save that",
             isPresented: Binding(
@@ -84,6 +126,16 @@ struct TextRulesScreen: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(model.lastError ?? "")
+        }
+    }
+
+    private func delete(_ deletion: Deletion) {
+        deleting = nil
+        Task {
+            switch deletion {
+            case .word(let word): await model.deleteWords([word.id])
+            case .snippet(let snippet): await model.deleteSnippets([snippet.id])
+            }
         }
     }
 
@@ -120,8 +172,7 @@ struct TextRulesScreen: View {
                         Task { await model.update(edited) }
                     })
             )
-            .labelsHidden()
-            .tint(Tokens.Color.success)
+            .toggleStyle(.chirpSwitch)
             .accessibilityLabel("\(word.word) on")
         }
     }
@@ -154,22 +205,43 @@ struct TextRulesScreen: View {
                         Task { await model.update(edited) }
                     })
             )
-            .labelsHidden()
-            .tint(Tokens.Color.success)
+            .toggleStyle(.chirpSwitch)
             .accessibilityLabel("\(snippet.trigger) on")
         }
     }
 }
 
 /// Add or edit one custom word or snippet. Save stays disabled until the required fields have text; a duplicate
-/// shows its message here and keeps the sheet open.
-private struct TextRuleEditorSheet: View {
+/// shows its message here and keeps the sheet open. Typed text is never lost to a dismissal (R6b-5, F19/F24): while
+/// something was typed or changed, swipe-down is off and Cancel asks first.
+struct TextRuleEditorSheet: View {
     let model: TextRulesViewModel
     let editor: TextRulesScreen.Editor
     @Environment(\.dismiss) private var dismiss
     @State private var first = ""
     @State private var second = ""
     @State private var isSaving = false
+    @State private var isConfirmingCancel = false
+
+    /// The two fields as the sheet opened (empty for a new word or snippet).
+    static func original(_ editor: TextRulesScreen.Editor) -> (first: String, second: String) {
+        switch editor {
+        case .word(let word): (word.word, word.replacement ?? "")
+        case .snippet(let snippet): (snippet.trigger, snippet.expansion)
+        case .newWord, .newSnippet: ("", "")
+        }
+    }
+
+    /// Closing now would lose something typed: a field differs from how the sheet opened, ignoring spaces at the ends.
+    static func hasChanges(_ editor: TextRulesScreen.Editor, first: String, second: String) -> Bool {
+        let original = original(editor)
+        func same(_ a: String, _ b: String) -> Bool {
+            a.trimmingCharacters(in: .whitespacesAndNewlines) == b.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return !same(first, original.first) || !same(second, original.second)
+    }
+
+    private var hasChanges: Bool { Self.hasChanges(editor, first: first, second: second) }
 
     private var isWord: Bool {
         switch editor {
@@ -188,10 +260,10 @@ private struct TextRuleEditorSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField(isWord ? "Word, as it should be written" : "What you say", text: $first)
+                    ChirpTextField(isWord ? "Word, as it should be written" : "What you say", text: $first)
                         .textInputAutocapitalization(isWord ? .never : .sentences)
                         .autocorrectionDisabled()
-                    TextField(
+                    ChirpTextField(
                         isWord ? "Replacement (optional)" : "What Parakeet writes", text: $second, axis: .vertical
                     )
                     .lineLimit(isWord ? 1...2 : 2...6)
@@ -214,8 +286,10 @@ private struct TextRuleEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        model.dismissError()
-                        dismiss()
+                        switch DiscardDecision.onCancel(hasInput: hasChanges) {
+                        case .close: close()
+                        case .ask: isConfirmingCancel = true
+                        }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -226,6 +300,15 @@ private struct TextRuleEditorSheet: View {
             .onAppear(perform: fill)
         }
         .presentationDetents([.medium, .large])
+        .discardInputConfirmation(
+            "Discard your changes?", message: "What you typed here is not saved.", hasInput: hasChanges,
+            isAsking: $isConfirmingCancel
+        ) { close() }
+    }
+
+    private func close() {
+        model.dismissError()
+        dismiss()
     }
 
     private var title: String {
@@ -238,16 +321,7 @@ private struct TextRuleEditorSheet: View {
     }
 
     private func fill() {
-        switch editor {
-        case .word(let word):
-            first = word.word
-            second = word.replacement ?? ""
-        case .snippet(let snippet):
-            first = snippet.trigger
-            second = snippet.expansion
-        case .newWord, .newSnippet:
-            break
-        }
+        (first, second) = Self.original(editor)
     }
 
     private func save() async {
