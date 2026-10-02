@@ -172,8 +172,7 @@ struct TextRulesScreen: View {
                         Task { await model.update(edited) }
                     })
             )
-            .labelsHidden()
-            .toggleStyle(.chirp)
+            .toggleStyle(.chirpSwitch)
             .accessibilityLabel("\(word.word) on")
         }
     }
@@ -206,8 +205,7 @@ struct TextRulesScreen: View {
                         Task { await model.update(edited) }
                     })
             )
-            .labelsHidden()
-            .toggleStyle(.chirp)
+            .toggleStyle(.chirpSwitch)
             .accessibilityLabel("\(snippet.trigger) on")
         }
     }

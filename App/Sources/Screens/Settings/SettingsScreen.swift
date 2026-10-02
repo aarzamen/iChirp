@@ -81,8 +81,7 @@ struct SettingsScreen: View {
             }
             SettingsRow(title: "Keep dictation audio", caption: "For playback and Retry in the Library") {
                 Toggle("Keep dictation audio", isOn: $speech.settingsValue.keepDictationAudio)
-                    .labelsHidden()
-                    .toggleStyle(.chirp)
+                    .toggleStyle(.chirpSwitch)
             }
         }
     }
@@ -123,8 +122,7 @@ struct SettingsScreen: View {
                 caption: speakerLabelsCaption
             ) {
                 Toggle("Speaker labels", isOn: $speech.settingsValue.speakerLabelsEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.chirp)
+                    .toggleStyle(.chirpSwitch)
             }
             if speech.isDiarizerAvailable {
                 ModelAssetRow(

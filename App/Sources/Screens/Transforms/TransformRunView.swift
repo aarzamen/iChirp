@@ -258,7 +258,7 @@ struct TransformRunView: View {
                 CutOffNote(message: notice) { Task { await host.retry() } }
             }
             DocumentEditor(document: document)
-                .frame(minHeight: 320)
+                .frame(minHeight: 320, alignment: .top)
             Text(savedCaption(document))
                 .chirpFont(12)
                 .foregroundStyle(document.saveError == nil ? Tokens.Color.secondary : AppColor.error)

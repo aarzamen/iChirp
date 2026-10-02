@@ -194,6 +194,16 @@ struct CreateOptionTile: View {
                         .foregroundStyle(isSelected ? Tokens.Color.onAccent : Tokens.Color.accentInk)
                 }
                 .frame(width: 32, height: 32)
+                // R7-24: the selected tile's check sits on its icon, so it never collides with the title.
+                .overlay(alignment: .topTrailing) {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .chirpGlyph(13, .semibold, relativeTo: .footnote)
+                            .foregroundStyle(Tokens.Color.accent)
+                            .background(Circle().fill(Tokens.Color.surface))
+                            .offset(x: 6, y: -6)
+                    }
+                }
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
@@ -208,8 +218,6 @@ struct CreateOptionTile: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 8)
-                // R7-24: room for the selected tile's check, so a long title never runs under it.
-                .padding(.trailing, 18)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 11)
@@ -219,15 +227,6 @@ struct CreateOptionTile: View {
                     radius: Tokens.Radius.s, fill: isSelected ? AppColor.tintFill : Tokens.Color.surface,
                     stroke: isSelected ? AppColor.tintStrokeSelected : Tokens.Color.border)
             )
-            .overlay(alignment: .topTrailing) {
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .chirpGlyph(14, .semibold, relativeTo: .footnote)
-                        .foregroundStyle(Tokens.Color.accent)
-                        .padding(6)
-                        .accessibilityHidden(true)
-                }
-            }
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous))
         }
         .buttonStyle(.plain)

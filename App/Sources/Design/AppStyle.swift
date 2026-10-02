@@ -159,3 +159,24 @@ struct CapsuleButtonLabel: View {
         }
     }
 }
+
+/// ChirpUI's switch (`.chirp`, R7-5) with no visible label, for a row whose title already names it. `.labelsHidden()`
+/// does not reach a custom toggle style, so the label is kept at zero width instead: VoiceOver still reads it, and the
+/// switch takes only its own width beside the row's title.
+struct ChirpSwitchOnlyStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Toggle(isOn: configuration.$isOn) {
+            // One line at its own size inside a 0 × 0 frame: never drawn, never wrapped into a tall column.
+            configuration.label.lineLimit(1).fixedSize().frame(width: 0, height: 0).clipped()
+        }
+        .toggleStyle(.chirp)
+        .fixedSize()
+        // The style keeps its label-to-switch spacing; take it back so the switch lines up with the row's text.
+        .padding(.leading, -Tokens.Spacing.s)
+    }
+}
+
+extension ToggleStyle where Self == ChirpSwitchOnlyStyle {
+    /// The ChirpUI switch without its label (see `ChirpSwitchOnlyStyle`).
+    static var chirpSwitch: ChirpSwitchOnlyStyle { ChirpSwitchOnlyStyle() }
+}

@@ -68,7 +68,7 @@ struct DeliverableDetailScreen: View {
                         .accessibilityHint("Runs the same template on the same transcript; this document stays")
                     }
                     DocumentEditor(document: document, accessory: AnyView(editButtons))
-                        .frame(minHeight: 360)
+                        .frame(minHeight: 360, alignment: .top)
                     if let error = document.saveError {
                         Text("Couldn’t save your edit: \(error)")
                             .chirpFont(12)
@@ -230,7 +230,15 @@ struct DeliverableDetailScreen: View {
     /// Plan 022 Step 4: Edit by voice (a new version, never an overwrite) and the version list. Compact tinted pills on
     /// the Formatted | Edit row (R7-6: the filled coral button was louder than the document).
     private var editButtons: some View {
-        HStack(spacing: Tokens.Spacing.xs) {
+        // Side by side, or one under the other at large text, so a pill never breaks a word ("Versio" / "ns").
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Tokens.Spacing.xs) { editButtonItems }
+            VStack(alignment: .leading, spacing: Tokens.Spacing.xxs) { editButtonItems }
+        }
+    }
+
+    @ViewBuilder private var editButtonItems: some View {
+        Group {
             Button {
                 isEditingByVoice = true
             } label: {
@@ -245,6 +253,7 @@ struct DeliverableDetailScreen: View {
             }
             .buttonStyle(.chirp(.quiet, size: .compact))
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     /// The document's title, provenance and text (as edited now) into `<tmp>/export-<transcript id>/`, which goes with

@@ -49,8 +49,7 @@ struct StructureModelsSettingsGroup: View {
                     + NeedleExperimental.commandChip + "."
             ) {
                 Toggle("Voice commands", isOn: $structure.settingsValue.voiceCommandsEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.chirp)
+                    .toggleStyle(.chirpSwitch)
             }
             NavigationLink {
                 VoiceCommandTesterScreen()
@@ -169,6 +168,7 @@ struct StructureGateScreen: View {
     ) -> some View {
         SettingsRow(title: title, caption: caption) {
             Slider(value: value, in: range, step: 0.01) { Text(title) }
+                .tint(Tokens.Color.accent)
                 .frame(width: dynamicTypeSize.isAccessibilitySize ? nil : 150)
                 .frame(minWidth: 150)
                 .accessibilityValue("\(Self.percent(value.wrappedValue)) percent")

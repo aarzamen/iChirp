@@ -82,8 +82,7 @@ struct MacCompanionScreen: View {
                 SettingsGroup(title: "Clinical text", footer: trustFooter) {
                     SettingsRow(title: "Trusted for clinical text") {
                         Toggle("Trusted for clinical text", isOn: $model.isTrusted)
-                            .labelsHidden()
-                            .toggleStyle(.chirp)
+                            .toggleStyle(.chirpSwitch)
                             .disabled(model.isInternetAddress)
                     }
                 }

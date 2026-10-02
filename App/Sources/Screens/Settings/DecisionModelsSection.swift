@@ -18,8 +18,7 @@ struct DecisionModelsSection: View {
         SettingsGroup(title: "Decision models", footer: Self.explanation) {
             SettingsRow(title: "Jev (TypeSafe AI, cloud)", caption: caption(jev)) {
                 Toggle("Jev (TypeSafe AI, cloud)", isOn: Binding(get: { jev.isEnabled }, set: { setEnabled($0) }))
-                    .labelsHidden()
-                    .toggleStyle(.chirp)
+                    .toggleStyle(.chirpSwitch)
             }
             Button {
                 jev.refresh()

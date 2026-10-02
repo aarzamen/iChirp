@@ -46,8 +46,7 @@ struct ASRBenchmarkScreen: View {
                         caption: "\(model.referenceItems.count) synthetic recordings with known words"
                     ) {
                         Toggle("Reference set", isOn: Bindable(model).includeReferenceSet)
-                            .labelsHidden()
-                            .toggleStyle(.chirp)
+                            .toggleStyle(.chirpSwitch)
                     }
                     ForEach(model.userItems) { item in
                         SettingsRow(title: item.title, caption: "Copied for this run only") {
@@ -113,8 +112,7 @@ struct ASRBenchmarkScreen: View {
                 engine.name,
                 isOn: Binding(get: { model.selected.contains(engine.key) }, set: { _ in model.toggle(engine.key) })
             )
-            .labelsHidden()
-            .toggleStyle(.chirp)
+            .toggleStyle(.chirpSwitch)
             .disabled(!engine.isReady || model.isRunning)
         }
     }

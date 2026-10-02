@@ -116,13 +116,20 @@ struct SettingsRowLayout: Layout {
     /// The share of the row the title column keeps beside the control.
     static let minimumTitleShare: CGFloat = 0.45
 
-    /// Side by side when the control leaves the title at least `minimumTitleShare` of `width`.
-    static func sideBySide(width: CGFloat, trailingWidth: CGFloat, spacing: CGFloat = 10) -> Bool {
-        trailingWidth <= 0 || width - trailingWidth - spacing >= width * minimumTitleShare
+    /// Side by side when the control leaves the title at least `minimumTitleShare` of `width`, or room for the title
+    /// on one line (a short title such as "Language" beside a long value).
+    static func sideBySide(
+        width: CGFloat, trailingWidth: CGFloat, titleWidth: CGFloat = .infinity, spacing: CGFloat = 10
+    ) -> Bool {
+        let room = width - trailingWidth - spacing
+        return trailingWidth <= 0 || room >= width * minimumTitleShare || room >= titleWidth
     }
 
-    private func fitsSideBySide(width: CGFloat, trailing: CGSize) -> Bool {
-        !stacks && Self.sideBySide(width: width, trailingWidth: trailing.width, spacing: spacing)
+    private func fitsSideBySide(width: CGFloat, trailing: CGSize, subviews: Subviews) -> Bool {
+        guard !stacks else { return false }
+        return Self.sideBySide(
+            width: width, trailingWidth: trailing.width, titleWidth: subviews[0].sizeThatFits(.unspecified).width,
+            spacing: spacing)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -131,7 +138,7 @@ struct SettingsRowLayout: Layout {
         }
         let width = proposal.width ?? subviews[0].sizeThatFits(.unspecified).width
         let trailing = subviews[1].sizeThatFits(.unspecified)
-        if fitsSideBySide(width: width, trailing: trailing) {
+        if fitsSideBySide(width: width, trailing: trailing, subviews: subviews) {
             let titleWidth = max(0, width - (trailing.width > 0 ? trailing.width + spacing : 0))
             let title = subviews[0].sizeThatFits(ProposedViewSize(width: titleWidth, height: nil))
             return CGSize(width: width, height: max(title.height, trailing.height))
@@ -148,7 +155,7 @@ struct SettingsRowLayout: Layout {
             return
         }
         let trailing = subviews[1].sizeThatFits(.unspecified)
-        if fitsSideBySide(width: bounds.width, trailing: trailing) {
+        if fitsSideBySide(width: bounds.width, trailing: trailing, subviews: subviews) {
             let titleWidth = max(0, bounds.width - (trailing.width > 0 ? trailing.width + spacing : 0))
             let titleProposal = ProposedViewSize(width: titleWidth, height: nil)
             let title = subviews[0].sizeThatFits(titleProposal)
