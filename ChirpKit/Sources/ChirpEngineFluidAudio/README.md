@@ -44,10 +44,15 @@ Then read `ParakeetEngine.swift`.
   `TdtDecoderState` inside the gate, forwards that manager's chunk progress for files longer than 15 s, and maps a
   BCP-47 `languageHint` onto FluidAudio's v3 script filter. Words go through `contractWords` (review R3-14): after
   `WordTimingBuilder`, starts never go back, ends never precede their start and confidence is clamped to 0…1, as
-  WhisperKit and Apple Speech do, whatever order FluidAudio's chunk merge returns. The engine id and the v3 language
+  WhisperKit and Apple Speech do, whatever order FluidAudio's chunk merge returns. Before the builder, a token time
+  it cannot count in milliseconds (not a finite number, or past `maximumTokenSeconds`) is repaired, never dropped
+  (`usableTokenTimings`, review M8): the token keeps its text, takes the last usable time before it, and only the
+  number of repaired tokens is logged. The engine id and the v3 language
   list are the registry's (`SpeechEngineCapabilityRegistry.parakeetEngineID`, `parakeetV3Languages`; review R3-16),
   and a test pins each descriptor to its registry row. M2: a `.dictation`-purpose call decodes a clip that still
-  fits one model window into memory and appends 0.5 s of silence (`paddedDictationSamples`, upstream issue #562);
+  fits one model window into memory and appends 0.5 s of silence (`paddedDictationSamples`, upstream issue #562).
+  `everySample` reads until the file's length is consumed: one read of the recorder's 32-bit float WAV returns
+  whole 1,024-frame blocks only, which dropped up to 64 ms from the end of a dictation (plan 024 follow-up);
   `transcribePreview` runs one in-memory preview window; `makeLiveSession` (`LiveSpeechSessionProviding`) returns a
   `TailWindowPreviewSession`, or nil without the model. Memory fit (fix/speech-memory-fit): before a new load,
   `SpeechEngineCapabilityRegistry.checkMemoryFit` compares its registry row's `memoryToLoadBytes` (0.8 GB) with the
@@ -135,7 +140,11 @@ Then read `ParakeetEngine.swift`.
   re-downloaded. User data stays in backups (see ChirpCore's `AppPaths`).
 - `WordTimingBuilder` must stay behavior-identical to ChirpText's `WordTimingBuilder`. `WordTimingParityTests`
   pins the shared token fixtures. Change both together. The contract's word rules apply after it
-  (`ParakeetEngine.contractWords`, `ParakeetWordInvariantTests`), not inside it.
+  (`ParakeetEngine.contractWords`, `ParakeetWordInvariantTests`), and the repair of token times it cannot count
+  before it (`ParakeetEngine.usableTokenTimings`), never inside it.
+- **Read audio files in a loop.** One `AVAudioFile.read(into:)` may return fewer frames than asked (whole
+  1,024-frame blocks for a 32-bit float WAV). Read until `length` is consumed or a read returns nothing
+  (`ParakeetEngine.everySample`, `ParakeetDictationPadTests`).
 - ChirpCore's engine protocols are contracts. Conform to them; do not change them from this target.
 
 ## How to verify
