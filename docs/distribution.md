@@ -12,8 +12,13 @@
 | **B. IPA + SideStore (optional fallback)** | A device that cannot use path A | `scripts/build_ipa.sh`, then SideStore | Ad-hoc in the IPA; SideStore re-signs with the Apple ID it is signed in to |
 | Simulator | Screens and quick checks, no phone | `scripts/run_sim.sh` | Not signed |
 
-Not available today: TestFlight and the App Store. There is no Apple Distribution certificate, and GPL-3.0 would need
-the MacParakeet copyright holder's permission for the App Store.
+Not available today: TestFlight and the App Store. An Apple Distribution certificate exists, but App Store Connect has
+no agreement or app record for the team (its stale "Membership Expired" state; only an Apple Developer Support ticket
+from the Account Holder fixes it: see [`APPLE_DEVELOPER_WARNING.md`](../APPLE_DEVELOPER_WARNING.md)), and GPL-3.0 would
+need the MacParakeet copyright holder's permission for the App Store. For the day an upload is possible: the app already
+ships a privacy manifest (`App/PrivacyInfo.xcprivacy`, kept honest by `scripts/check_scripts.sh`), and the App Privacy
+questions (what is "collected" when the person sends text to a cloud model or voice they chose with their own key) are
+the owner's to answer then.
 
 ## The hard rules (from `APPLE_DEVELOPER_WARNING.md`)
 
@@ -53,19 +58,24 @@ DEVICE_ID=<id> scripts/run_device.sh        # target one specific device for thi
 ```
 
 **Which phone it targets.** The script never guesses between phones. It uses, in order: `DEVICE_ID` from the
-environment; then `Config/Device.local` (gitignored, one line `DEVICE_ID=<identifier>`; copy
-`Config/Device.local.example`, which holds the owner's iPhone 17 Pro); then the one iPhone that `xcrun devicectl list
+environment; then a `DEVICE_ID=<identifier>` line in `Config/Device.local` (gitignored; copy
+`Config/Device.local.example` and put your iPhone's identifier in it: the example holds only a commented-out
+placeholder, and a file without a `DEVICE_ID` line counts as no file); then the one iPhone that `xcrun devicectl list
 devices` shows as "available (paired)" or "connected". If more than one iPhone is reachable and neither is set, it
-stops and lists them (name, model, identifier). `scripts/device_smoke.sh` uses the same choice.
+stops and lists them (name, model, identifier). `scripts/device_smoke.sh`, `device_llm_smoke.sh` and
+`device_benchmark.sh` write real data to the phone, so they use only the first two steps: without `DEVICE_ID` or a
+`DEVICE_ID` line in `Config/Device.local` they refuse instead of guessing.
 
 What the script does:
 
 1. Chooses the device as described above.
 2. Regenerates the project (`scripts/gen.sh`).
 3. Builds the Debug app for that device with automatic signing and team `XM6E4PUXTU`, using the profiles already on
-   this Mac (the team's wildcard profile covers `com.aarzamen.ichirp`). It passes **no** provisioning flags. Since
-   M2 the app embeds a widget extension, `com.aarzamen.ichirp.widgets` (the dictation Live Activity and Control),
-   with **no** capabilities, entitlements or App Group, so the same wildcard profile should sign it too.
+   this Mac. It passes **no** provisioning flags. The app carries the Increased Memory Limit entitlement
+   (`project.yml`), which lives on the App ID: a profile from before 2026-09-23 may not include it, and then one
+   automatic-signing build in the Xcode app (the owner's step, below) refreshes it. Since M2 the app embeds a widget
+   extension, `com.aarzamen.ichirp.widgets` (the dictation Live Activity and Control), with **no** capabilities,
+   entitlements or App Group, so it needs its own plain profile and nothing special.
 4. Installs the Debug `.app` with `xcrun devicectl device install app`, then launches it with
    `xcrun devicectl device process launch --terminate-existing com.aarzamen.ichirp`.
 
@@ -76,6 +86,8 @@ Trust the install message from `devicectl`, not just "build succeeded".
 | Message | Meaning | What to do |
 |---|---|---|
 | "Unlock your iPhone and rerun." | The phone is locked | Unlock it, rerun |
+| "Signing failed. Do NOT try to fix the Apple Developer account from a script…" | An error line in the build log names a signing problem (profile, account, certificate, `CodeSign`) | Follow the message (rows below) |
+| "That is not a signing problem." | The build failed for another reason, usually a Swift error in the code; the error lines are printed above it | Do not open the Xcode signing flow. Send the error lines to whoever is making the change |
 | No paired device found | Not paired, not on the same network, or Developer Mode off | Redo one-time setup steps 1–2 |
 | `No profiles for 'com.aarzamen.ichirp' were found` or a stale profile | The Mac lacks a matching profile | **Owner:** `scripts/gen.sh`, open `iChirp.xcodeproj` in Xcode, target iChirp → Signing & Capabilities → Team "Aaron Arzamendi (XM6E4PUXTU)", Automatic; choose the phone and press Run once. Then rerun the script |
 | `No profiles for 'com.aarzamen.ichirp.widgets' were found` (M2) | The widget extension has no matching profile on this Mac | **Owner:** the same one-time Xcode GUI Run as above; Automatic signing also covers target iChirpWidgets. Agents never register the App ID |
@@ -148,8 +160,12 @@ against this budget in its plan.
 
 - Parakeet in the main app fits normal memory limits. Models are never loaded in extensions (keyboard ~48–60 MB,
   widget ~30 MB, share ~120 MB budgets).
-- The paid team can add **Increased Memory Limit** if measurements show a need; that is an account and profile change,
-  so ask the owner first. Builds without it (including SideStore IPAs) should keep total model weights around 2–3 GB.
+- **Increased Memory Limit** is already in every build: the owner approved it on 2026-09-23 and `project.yml` declares
+  it (spec/06 has the numbers). It needs the matching capability on the App ID, which one automatic-signing build in the
+  Xcode app switches on; Apple grants the raised limit only on some devices, so the app checks
+  `os_proc_available_memory()` at run time. Builds without it (including SideStore IPAs, which drop entitlements the
+  profile lacks) should keep total model weights around 2–3 GB. Any further capability is an account change: ask the
+  owner first.
 - **iOS 27** requires `com.apple.developer.background-tasks.continued-processing.inference` for Neural Engine work in
   the background. Requesting it is an account change: ask the owner. Until then, background jobs plan for CPU
   fallback.
@@ -157,5 +173,15 @@ against this budget in its plan.
 ## Which build is on this phone?
 
 Open **Settings → About** in Parakeet: version (build), commit, branch, build date and a dirty flag, with "Copy build
-info". The build number is a UTC timestamp, so a larger number is always newer. The same summary is in the launch log
-and in `smoke-result.json`.
+info". The build number is the UTC build time to the second (`YYYYMMDDHHMMSS`), so of two builds made at least a second
+apart the larger number is the later one. The app and its widget extension get the same number and the same build date
+in one build (the extension is stamped first and the app reads its time back; `scripts/stamp_build_identity.sh`), which
+is what the App Store wants. Earlier builds used the minute (12 digits), and the app and extension could differ when a
+build crossed a minute boundary. The same summary is in the launch log and in `smoke-result.json`.
+
+## Package versions in app builds
+
+`ChirpKit/Package.resolved` records the dependency versions the package tests ran against. The generated Xcode project
+(gitignored) has no `Package.resolved` of its own, so a device, simulator, CI or IPA build resolves packages again.
+FluidAudio and WhisperKit are pinned exactly in `ChirpKit/Package.swift`, but GRDB is `from: "7.0.0"`, so an app build can
+link a newer GRDB than the tested one. If that ever matters, pin GRDB exactly in `Package.swift` (the owner's call).

@@ -147,20 +147,21 @@ state. An engine can be chosen for a route only when its model is on disk.
   and logs it.
 - Model folders are excluded from backup; the user's data is not.
 
-## Engine matrix (plan)
+## Engine matrix (built and planned)
 
-From [`docs/research/2026-09-22-on-device-runtimes.md`](../docs/research/2026-09-22-on-device-runtimes.md).
-P0 = first to build, P1 = next, P2 = later or gated.
+From [`docs/research/2026-09-22-on-device-runtimes.md`](../docs/research/2026-09-22-on-device-runtimes.md), updated to
+what the ADRs decided and the code now has. **Built** is on `main`; **Next** is planned; **Later / gated** is not
+scheduled or sits behind a license or an entitlement.
 
-| Kind | P0 | P1 | P2 / gated |
+| Kind | Built | Next | Later / gated |
 |---|---|---|---|
-| Speech | FluidAudio Parakeet TDT v3 (batch), Silero VAD, offline diarization; Apple SpeechTranscriber (iOS-managed model, iOS 26, device only; **built M7**) | FluidAudio Parakeet EOU / Nemotron streaming for live; WhisperKit large-v3 turbo (632 MB, 99 languages; **built M7**, plus Whisper base) | FluidAudio Cohere (1.8 GB, iOS 18+); Core AI Parakeet/Whisper (iOS 27); Cactus STT (license-gated) |
-| Language | Apple Foundation Models (4K context, `@Generable`); AnyLanguageModel as the plug-in layer; HTTP cloud and LAN providers | MLX Swift (foreground only); llama.cpp GGUF (Qwen3.5-2B, LFM2.5-1.2B, Qwen3-4B-Instruct-2507) | LiteRT-LM (Gemma 4), ExecuTorch, Core AI (iOS 27); Apple Private Cloud Compute (entitlement-gated) |
-| Structure | none in M1 | Needle 3 (`libneedle.a`, personal builds) | Jev (cloud, opt-in, non-clinical); Laya (needs Core ML conversion); FluidAudio CUA-S1-FORMS |
+| Speech | FluidAudio Parakeet TDT v3 (batch), Silero VAD, offline diarization (M1); Apple SpeechTranscriber (iOS-managed model, iOS 26, device only) and WhisperKit Base and large-v3 turbo (632 MB, 99 languages) (M7) | FluidAudio Parakeet EOU / Nemotron streaming for live (M7 Step 3, not built) | FluidAudio Cohere (1.8 GB, iOS 18+); Core AI Parakeet/Whisper (iOS 27); Cactus STT (license-gated) |
+| Language | Apple Foundation Models (4K context, `@Generable`); HTTP cloud and LAN providers, as direct ports in `ChirpEngineHTTPLLM` and `ChirpEngineAppleFM` ([ADR-011](adr/011-language-model-providers-direct-ports.md): AnyLanguageModel is not used); llama.cpp GGUF on the iPhone, Qwen3.5-2B and Qwen3-4B-Instruct-2507 ([ADR-015](adr/015-on-device-llm-llama-cpp.md): MLX Swift is not adopted) | LFM2.5-1.2B on llama.cpp | LiteRT-LM (Gemma 4), ExecuTorch, Core AI (iOS 27); Apple Private Cloud Compute (entitlement-gated) |
+| Structure | Needle 3 built from needle-rs source (MIT) with Apache-2.0 weights, so no license gate ([ADR-012](adr/012-needle-from-needle-rs-source.md)); Jev (cloud, opt-in, never clinical; [ADR-013](adr/013-jev-decision-model.md)) | | Laya (needs Core ML conversion); FluidAudio CUA-S1-FORMS; Cactus's binary `libneedle.a` (the [ADR-010](adr/010-plugin-license-gate.md) gate: personal builds only) |
 
-**Memory budget.** The owner approved the Increased Memory Limit entitlement on 2026-09-23 (commit `745ea14c` on
-`ichirp/foundation`; it reaches the App ID with one automatic-signing build in Xcode, and Apple grants the raised limit
-only on some devices). Builds without it, including SideStore IPAs, should keep total model weights around 2–3 GB or
+**Memory budget.** The owner approved the Increased Memory Limit entitlement on 2026-09-23 (commit `745ea14c`, now on
+`main`; it reaches the App ID with one automatic-signing build in Xcode, and Apple grants the raised limit only on some
+devices). Builds without it, including SideStore IPAs, should keep total model weights around 2–3 GB or
 less (a 3.65 GB model failed to load on an iPhone 17 Pro without the entitlement).
 
 **Run-time memory fit** (fix/speech-memory-fit). Whisper Large v3 Turbo's first load was killed by iOS on the owner's

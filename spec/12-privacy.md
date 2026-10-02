@@ -136,7 +136,8 @@ contract that proves no content or identifiers leave the device.
   source kind, engine id, class, counts and `SpeechSynthesisError.kindName`, never text.
 - Provider error text is scrubbed of key artifacts; it can still echo prompt text, so it is shown to the user but
   never logged or stored (logs and the ledger carry `LanguageModelError.kindName`).
-- The Apple Developer team id may appear in `Config/Signing.local.xcconfig.example` while the repo is private.
+- The Apple Developer team id never appears as a literal in code or config: it comes only from the environment
+  (`DEVELOPMENT_TEAM`) or the gitignored `Config/Signing.local.xcconfig` (the committed example holds a placeholder).
   Certificates, `.p12`, `.p8`, `.mobileprovision` and keychains never enter the repo.
 
 ## PHI rules for code, tests and the repo
@@ -161,5 +162,10 @@ contract that proves no content or identifiers leave the device.
 - The database and media live in the app's Application Support folder under iOS Data Protection's default class
   (files are unreadable until the phone is first unlocked after a restart), and are included in device backups.
   A stricter class for clinical items is an M3/M4 decision (it would stop background work while locked).
+- **Backups (R8-7).** Because the recordings are in device backups, with iCloud Backup on they reach Apple inside the
+  person's own backup. Parakeet itself never uploads a recording, and the microphone prompt says exactly that ("Parakeet
+  never uploads recordings; like other app data, they are part of your iPhone backup"), not that audio never leaves the
+  phone. Excluding clinical items' `media/` from backup would trade a wording problem for data loss when a phone is
+  replaced, so it is the owner's decision, not a default.
 - Deleting a transcript removes its row and its `media/<id>/` folder.
 - Downloaded models are excluded from backups because they can be downloaded again.

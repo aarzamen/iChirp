@@ -18,7 +18,7 @@
 - **Effort:** L (several independent engine targets plus a benchmark harness; parallel lanes)
 - **Risk:** MEDIUM (memory, model downloads, a breaking WhisperKit upgrade)
 - **Depends on:** plans 003 and 011 IMPLEMENTED; 013 for the language-model engines
-- **Governing docs:** [spec/06 engine matrix](../../spec/06-speech-engines.md#engine-matrix-plan),
+- **Governing docs:** [spec/06 engine matrix](../../spec/06-speech-engines.md#engine-matrix-built-and-planned),
   [ADR-004](../../spec/adr/004-engine-plugin-architecture.md), [speech-engine plug-in contract](../../spec/contracts/speech-engine-plugin-v1.md),
   [on-device runtimes research](../research/2026-09-22-on-device-runtimes.md)
 - **Planned at:** commit `bd8cfc7c`, 2026-09-22
