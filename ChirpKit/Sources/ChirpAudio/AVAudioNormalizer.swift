@@ -156,9 +156,15 @@ public struct AVAudioNormalizer: AudioNormalizing, AudioTrackProbing {
                 try? FileManager.default.removeItem(at: outputURL)
                 throw CancellationError()
             }
-            guard let pcmBuffer = Self.pcmBuffer(from: sampleBuffer, format: file.processingFormat) else {
-                continue
+            let decoded: AVAudioPCMBuffer?
+            do {
+                decoded = try Self.pcmBuffer(from: sampleBuffer, format: file.processingFormat)
+            } catch {
+                // Review R2-13: never a silent gap in the audio.
+                reader.cancelReading()
+                throw error
             }
+            guard let pcmBuffer = decoded else { continue }  // a buffer with no samples
             do {
                 try file.write(from: pcmBuffer)
             } catch {
@@ -243,14 +249,17 @@ public struct AVAudioNormalizer: AudioNormalizing, AudioTrackProbing {
 
     /// Copies one decoded `CMSampleBuffer` (already 16 kHz mono Float32 PCM, per
     /// `readerOutputSettings`) into a fresh `AVAudioPCMBuffer` matching `format`, ready for
-    /// `AVAudioFile.write(from:)`.
-    private static func pcmBuffer(from sampleBuffer: CMSampleBuffer, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+    /// `AVAudioFile.write(from:)`. Nil for a buffer with no samples (nothing to keep).
+    ///
+    /// Review R2-13: a buffer that has samples but cannot be copied throws `.readerFailed`. Skipping it would
+    /// shorten the audio with no word said, and move every later word's time against what the player plays.
+    static func pcmBuffer(from sampleBuffer: CMSampleBuffer, format: AVAudioFormat) throws -> AVAudioPCMBuffer? {
         let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frameCount > 0,
-            let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+        guard frameCount > 0 else { return nil }
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
             let destination = pcmBuffer.floatChannelData?[0]
         else {
-            return nil
+            throw AudioNormalizationError.readerFailed(unreadableBufferMessage)
         }
         pcmBuffer.frameLength = frameCount
 
@@ -266,17 +275,21 @@ public struct AVAudioNormalizer: AudioNormalizing, AudioTrackProbing {
             flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
             blockBufferOut: &blockBuffer
         )
-        guard status == noErr, let sourceData = audioBufferList.mBuffers.mData else { return nil }
-
-        let byteCount = min(
-            Int(audioBufferList.mBuffers.mDataByteSize),
-            Int(frameCount) * MemoryLayout<Float>.size
-        )
+        guard status == noErr, let sourceData = audioBufferList.mBuffers.mData else {
+            throw AudioNormalizationError.readerFailed("\(unreadableBufferMessage), CoreMedia error \(status)")
+        }
+        let byteCount = Int(frameCount) * MemoryLayout<Float>.size
+        guard Int(audioBufferList.mBuffers.mDataByteSize) >= byteCount else {
+            // Fewer bytes than samples: the rest of the buffer would be written as noise.
+            throw AudioNormalizationError.readerFailed(unreadableBufferMessage)
+        }
         _ = destination.withMemoryRebound(to: UInt8.self, capacity: byteCount) { destinationBytes in
             memcpy(destinationBytes, sourceData, byteCount)
         }
         return pcmBuffer
     }
+
+    static let unreadableBufferMessage = "part of the decoded audio could not be read"
 }
 
 /// A one-way flag set from a task's cancellation handler and read from a dispatch thread.

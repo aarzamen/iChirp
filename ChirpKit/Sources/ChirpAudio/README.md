@@ -37,6 +37,11 @@ Since M2 it also owns microphone capture and the audio session (see
   straight into an `AVAudioFile` opened on `outputURL`. `AudioNormalizationError`
   has two cases: `.noAudioTrack` (no audio track found) and `.readerFailed`
   (any `AVAssetReader`/`AVAudioFile` failure, with AVFoundation's own message).
+  Review R2-13: a decoded buffer that holds samples but cannot be copied is a
+  `.readerFailed`, never skipped (a skip would shorten the audio and move every
+  later word against the source); only a buffer with no samples is passed over.
+  Review R2-14: `testBothChannelsOfAStereoFileSurviveNormalization` proves a
+  tone on either channel of a stereo file reaches the mono output.
 - **Audio tracks (M1.5).** `audioTracks(in:)` lists the file's audio tracks
   (ordinal, container track id, language code, default marker) from
   metadata only. `normalize(sourceURL:outputURL:audioTrackOrdinal:)` decodes
