@@ -1,0 +1,37 @@
+# CI for the Mac companion (companion/): its pytest suite, which holds the pairing-token guard, the body limit, the link
+# allowlist and the content-free log (R8-5). Runs only when companion/ or this file changes. Fakes only: no models and
+# no network beyond installing the locked dependencies. Nothing here signs or touches the Apple Developer account.
+name: Companion
+
+on:
+  push:
+    branches: [main]
+    paths: ["companion/**", ".github/workflows/companion.yml"]
+  pull_request:
+    paths: ["companion/**", ".github/workflows/companion.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: companion-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    # Apple silicon, like the Mac the companion runs on (mlx-audio's wheels are for it).
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      # Pinned by commit, not by a tag that can move (R8-17): v4.4.0.
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install uv
+        run: brew install uv
+
+      # The README's own command. --frozen: exactly the versions in companion/uv.lock, never a new resolution.
+      - name: Companion tests
+        working-directory: companion
+        run: uv run --frozen --python 3.12 pytest -q

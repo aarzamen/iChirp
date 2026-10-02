@@ -1,11 +1,12 @@
-# CI for iChirp: README reference check, strict format lint, ChirpKit package tests, and an unsigned iOS Simulator
-# build of the app. Nothing here signs, archives or touches the Apple Developer account. The real-model test stays
-# skipped (it runs only with CHIRP_MODEL_TESTS=1), so CI never downloads models.
+# CI for iChirp: README reference check, script self-checks, strict format lint, ChirpKit package tests, and an unsigned
+# iOS Simulator build of the app and its app-hosted tests. Nothing here signs, archives or touches the Apple Developer
+# account. The real-model test stays skipped (it runs only with CHIRP_MODEL_TESTS=1), so CI never downloads models.
+# The Mac companion's tests run in their own workflow (companion.yml, only when companion/ changes).
 name: CI
 
 on:
   push:
-    branches: [main, "ichirp/**"]
+    branches: [main]
     paths-ignore: ["docs/**"]
   pull_request:
     paths-ignore: ["docs/**"]
@@ -15,26 +16,52 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     # runner label unverified; use the newest macOS image with Xcode 26
     runs-on: macos-26
     timeout-minutes: 60
     steps:
+      # Actions are pinned by commit, not by a tag that can move (R8-17): v4.4.0.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - name: Select the newest Xcode 26
+      - name: Select the newest stable Xcode 26
         run: |
-          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          # Skips betas and release candidates; keeps the image's default when there is no stable Xcode_26*.
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -viE 'beta|release_candidate|_rc' | sort -V | tail -1 || true)
           if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
           xcodebuild -version
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      # XcodeGen is pinned by version and checked against the release's published sha256 (R8-17), so a new XcodeGen
+      # cannot change the generated project under a green build. To bump it: take the new release's xcodegen.zip digest
+      # (`gh api repos/yonaskolb/XcodeGen/releases/tags/<version> --jq '.assets[].digest'`), run scripts/gen.sh with it
+      # locally, then change both values here.
+      - name: Install XcodeGen 2.45.4
+        env:
+          XCODEGEN_VERSION: "2.45.4"
+          XCODEGEN_SHA256: "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          BIN=$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen | head -1)
+          test -n "$BIN"
+          chmod +x "$BIN"
+          echo "$(dirname "$BIN")" >> "$GITHUB_PATH"
+          "$BIN" --version
 
       - name: Module README references
         run: scripts/check_readme_references.sh
+
+      # The scripts' own logic: syntax under macOS's bash 3.2, the run_device.sh failure classifier, device selection,
+      # bootstrap, the secret scanner's rules, the build stamp, and the privacy manifest against the sources.
+      - name: Script and manifest checks
+        run: scripts/check_scripts.sh
 
       - name: Format lint
         run: swift format lint --strict --recursive ChirpKit/Sources App/Sources App/Shared Widgets
@@ -59,9 +86,16 @@ jobs:
       - name: Generate iChirp.xcodeproj
         run: scripts/gen.sh
 
-      - name: Build app for iOS Simulator (unsigned)
+      # build-for-testing compiles the app AND its app-hosted tests (AppTests: the clinical-confirmation tests that keep
+      # clinical text from leaving without the confirm button, the Keychain test, ...), so a break in them shows here
+      # without booting a simulator. Running them stays in the documented final gate (scripts/test.sh): a simulator job
+      # is not added until it is proven reliable on these runners (R8-5).
+      # Package versions: the generated project has no committed Package.resolved, so this build resolves packages
+      # itself. FluidAudio and WhisperKit are pinned exactly in ChirpKit/Package.swift; GRDB is a range (from 7.0.0), so
+      # the app can link a newer GRDB than the tested ChirpKit/Package.resolved (docs/distribution.md).
+      - name: Build the app and its tests for the iOS Simulator (unsigned)
         run: |
-          xcodebuild build \
+          xcodebuild build-for-testing \
             -project iChirp.xcodeproj \
             -scheme iChirp \
             -destination 'generic/platform=iOS Simulator' \
