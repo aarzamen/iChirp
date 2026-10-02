@@ -10,6 +10,10 @@ public enum IngestNetworkError: Error, Equatable, LocalizedError {
     case notHTTP
     case tooLarge
     case failed(String)
+    /// iOS refused a plain-http request to an internet host (App Transport Security).
+    case insecureLink
+    /// A plain-http link was tried over https (see `SecureLink`) and the server did not answer securely.
+    case httpsUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +21,12 @@ public enum IngestNetworkError: Error, Equatable, LocalizedError {
             "You’re offline. Connect to the internet and try again."
         case .timedOut:
             "The server took too long to answer. Try again."
+        case .insecureLink:
+            "iPhone apps can’t download from the internet over plain http, which this link uses. Look for an https "
+                + "link, or save the file and share it to Parakeet."
+        case .httpsUnavailable:
+            "This link uses plain http, and its server didn’t answer over a secure connection (https), which iPhone "
+                + "apps need for internet downloads. Look for an https link, or save the file and share it to Parakeet."
         case .httpStatus(let code):
             switch code {
             case 401, 403: "The server refused the request (HTTP \(code)). The link may be private or expired."
@@ -33,20 +43,32 @@ public enum IngestNetworkError: Error, Equatable, LocalizedError {
         }
     }
 
-    /// Maps a URLSession error; cancellation stays `CancellationError`.
-    static func map(_ error: any Error) -> any Error {
+    /// Maps a URLSession error; cancellation stays `CancellationError`. `upgradedFromHTTP`: the request was a plain-http
+    /// link sent over https (`SecureLink`), so a failed secure connection means the server has no https.
+    static func map(_ error: any Error, upgradedFromHTTP: Bool = false) -> any Error {
         if error is CancellationError || error is IngestNetworkError { return error }
         if let urlError = error as? URLError {
+            if upgradedFromHTTP, httpsFailures.contains(urlError.code) {
+                return IngestNetworkError.httpsUnavailable
+            }
             switch urlError.code {
             case .cancelled: return CancellationError()
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
                 return IngestNetworkError.offline
             case .timedOut: return IngestNetworkError.timedOut
+            case .appTransportSecurityRequiresSecureConnection: return IngestNetworkError.insecureLink
             default: return IngestNetworkError.failed(urlError.localizedDescription)
             }
         }
         return IngestNetworkError.failed(error.localizedDescription)
     }
+
+    /// Failures that mean "no working https here" when an http link was upgraded.
+    private static let httpsFailures: Set<URLError.Code> = [
+        .secureConnectionFailed, .serverCertificateHasBadDate, .serverCertificateUntrusted,
+        .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .clientCertificateRejected,
+        .clientCertificateRequired, .cannotConnectToHost,
+    ]
 }
 
 /// Small requests for the link features (podcast lookup, feeds, YouTube captions, the content-type probe).
@@ -99,12 +121,14 @@ public struct IngestHTTPClient: Sendable {
         try await perform(request, body: .upTo(maximumBytes))
     }
 
+    /// Sends `request` (a plain-http link to an internet host goes out over https, `SecureLink`, and so does every
+    /// redirect) and collects its answer under `body`.
     func perform(_ request: URLRequest, body: BodyLimit) async throws -> (Data, HTTPURLResponse) {
-        var request = request
+        var (request, upgraded) = SecureLink.upgrade(request)
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
             request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         }
-        let collector = ResponseCollector(limit: body)
+        let collector = ResponseCollector(limit: body, upgradedFromHTTP: upgraded)
         let session = URLSession(configuration: configuration, delegate: collector, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let task = session.dataTask(with: request)
@@ -161,17 +185,35 @@ private final class ResponseCollector: NSObject, URLSessionDataDelegate, Sendabl
         var body = Data()
         /// Decided before the transfer ended (a refused status, a body over the limit, headers-only done).
         var outcome: Result<(Data, HTTPURLResponse), any Error>?
+        /// The request, or a redirect it followed, was a plain-http link sent over https.
+        var upgradedFromHTTP: Bool
     }
 
     private let limit: IngestHTTPClient.BodyLimit
-    private let state = Mutex(State())
+    private let state: Mutex<State>
 
-    init(limit: IngestHTTPClient.BodyLimit) {
+    init(limit: IngestHTTPClient.BodyLimit, upgradedFromHTTP: Bool) {
         self.limit = limit
+        state = Mutex(State(upgradedFromHTTP: upgradedFromHTTP))
     }
 
     func attach(_ continuation: CheckedContinuation<(Data, HTTPURLResponse), any Error>) {
         state.withLock { $0.continuation = continuation }
+    }
+
+    /// A redirect to plain http is followed over https (`SecureLink`).
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        let (secure, upgraded) = SecureLink.upgrade(request)
+        if upgraded {
+            state.withLock { $0.upgradedFromHTTP = true }
+        }
+        completionHandler(secure)
     }
 
     func urlSession(
@@ -231,7 +273,7 @@ private final class ResponseCollector: NSObject, URLSessionDataDelegate, Sendabl
                 return (continuation, outcome)
             }
             if let error {
-                return (continuation, .failure(IngestNetworkError.map(error)))
+                return (continuation, .failure(IngestNetworkError.map(error, upgradedFromHTTP: state.upgradedFromHTTP)))
             }
             guard let response = state.response else {
                 return (continuation, .failure(IngestNetworkError.notHTTP))

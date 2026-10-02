@@ -92,7 +92,7 @@ public enum UnsupportedLink: Sendable, Equatable {
         case .notALink:
             "That doesn’t look like a link. Copy the link from the Share sheet and paste it here."
         case .notWeb:
-            "Only web links (https) can be downloaded."
+            "Only web links (starting with https:// or http://) can be downloaded."
         case .platform(let name):
             "Parakeet can’t download from \(name). Save the video or audio to Files, then share it to Parakeet."
         case .format(let name):
@@ -168,10 +168,17 @@ public enum LinkClassifier {
         return .webLink(url)
     }
 
-    /// The first http(s)-looking link in `text`: the whole text when it is one, else the first link a data detector
-    /// finds (so "Listen: https://…" works), else the text with `https://` added when it looks like a bare host.
+    /// The first http(s)-looking link in `text`: the whole text when it is one; a bare host ("cdn.example.com/a.mp3")
+    /// with `https://` added, before the data detector, which would add `http://` (iOS blocks plain http to internet
+    /// hosts); else the first link a data detector finds (so "Listen: https://…" works).
     static func firstLink(in text: String) -> URL? {
-        if !text.contains(where: \.isWhitespace), let url = URL(string: text), url.scheme != nil, url.host() != nil {
+        let isOneWord = !text.contains(where: \.isWhitespace)
+        if isOneWord, let url = URL(string: text), url.scheme != nil, url.host() != nil {
+            return url
+        }
+        if isOneWord, text.contains("."), URL(string: text)?.scheme == nil, let url = URL(string: "https://\(text)"),
+            url.host() != nil
+        {
             return url
         }
         if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
@@ -179,11 +186,6 @@ public enum LinkClassifier {
             if let match = detector.firstMatch(in: text, options: [], range: range), let url = match.url {
                 return url
             }
-        }
-        if !text.contains(where: \.isWhitespace), text.contains("."), let url = URL(string: "https://\(text)"),
-            url.host() != nil
-        {
-            return url
         }
         return nil
     }

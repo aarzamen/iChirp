@@ -14,6 +14,18 @@ struct IngestStubResponse: Sendable {
     /// the stub waits (up to 50 ms) for the client to stop the load, and stops sending once it has, like a server
     /// whose connection was closed. `IngestStubURLProtocol.deliveredBytes` counts what was sent.
     var streamed: (chunk: Data, count: Int)?
+    /// When set, the answer is a redirect (`status`, 302 by default) to this URL, which the client then requests.
+    var redirectTo: URL?
+    /// When set, the request fails with this transport error instead of answering.
+    var failure: URLError?
+
+    static func redirect(to url: URL, status: Int = 302) -> IngestStubResponse {
+        IngestStubResponse(status: status, headers: ["Location": url.absoluteString], redirectTo: url)
+    }
+
+    static func fail(_ code: URLError.Code) -> IngestStubResponse {
+        IngestStubResponse(failure: URLError(code))
+    }
 
     static func body(_ data: Data, status: Int = 200, contentType: String?, extraHeaders: [String: String] = [:])
         -> IngestStubResponse
@@ -99,8 +111,19 @@ final class IngestStubURLProtocol: URLProtocol, @unchecked Sendable {
             return state.handler
         }
         let response = handler?(recorded) ?? IngestStubResponse(status: 500, chunks: [Data("no stub".utf8)])
+        if let failure = response.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
         let http = HTTPURLResponse(
             url: request.url!, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: response.headers)!
+        if let target = response.redirectTo {
+            var next = URLRequest(url: target)
+            next.allHTTPHeaderFields = request.allHTTPHeaderFields
+            next.httpMethod = request.httpMethod
+            client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: http)
+            return
+        }
         client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
         if response.hangsAfterFirstChunk {
             if let first = response.chunks.first {

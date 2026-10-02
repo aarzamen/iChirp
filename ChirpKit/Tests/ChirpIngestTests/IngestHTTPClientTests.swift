@@ -84,6 +84,75 @@ final class IngestHTTPClientTests: XCTestCase {
         XCTAssertEqual(response.statusCode, 200)
     }
 
+    // MARK: - Plain http (review R2-2)
+
+    /// iOS blocks plain http to internet hosts, so the request goes out over https.
+    func testPlainHTTPToAnInternetHostIsRequestedOverHTTPS() async throws {
+        IngestStubURLProtocol.reset { _ in .text("<rss/>", contentType: "application/rss+xml") }
+        _ = try await client.get(URL(string: "http://feeds.example.com/show.rss?x=1")!)
+        XCTAssertEqual(
+            IngestStubURLProtocol.requests.map(\.url.absoluteString), ["https://feeds.example.com/show.rss?x=1"])
+
+        IngestStubURLProtocol.reset { _ in IngestStubResponse(status: 200, headers: ["Content-Type": "audio/mpeg"]) }
+        let probed = try await client.probe(URL(string: "http://cdn.example.com:80/get?id=1")!)
+        XCTAssertEqual(IngestStubURLProtocol.requests.first?.url.absoluteString, "https://cdn.example.com/get?id=1")
+        XCTAssertEqual(probed.kind, .media)
+    }
+
+    /// The home network may use plain http (iOS allows it there), so those links are left alone.
+    func testPlainHTTPOnTheHomeNetworkStaysHTTP() async throws {
+        IngestStubURLProtocol.reset { _ in .text("<rss/>", contentType: "application/rss+xml") }
+        for link in ["http://192.168.1.20/feed.rss", "http://nas.local/feed.rss", "http://nas/feed.rss"] {
+            _ = try await client.get(URL(string: link)!)
+        }
+        XCTAssertEqual(
+            IngestStubURLProtocol.requests.map(\.url.absoluteString),
+            ["http://192.168.1.20/feed.rss", "http://nas.local/feed.rss", "http://nas/feed.rss"])
+    }
+
+    /// A redirect to plain http is followed over https.
+    func testARedirectToPlainHTTPIsFollowedOverHTTPS() async throws {
+        IngestStubURLProtocol.reset { request in
+            request.url.path() == "/start"
+                ? .redirect(to: URL(string: "http://cdn.example.com/feed.rss")!)
+                : .text("<rss/>", contentType: "application/rss+xml")
+        }
+        _ = try await client.get(URL(string: "https://example.com/start")!)
+        XCTAssertEqual(
+            IngestStubURLProtocol.requests.map(\.url.absoluteString),
+            ["https://example.com/start", "https://cdn.example.com/feed.rss"])
+    }
+
+    /// When the upgraded link fails over https, the error says why in plain words.
+    func testAnUpgradedLinkThatFailsOverHTTPSSaysWhy() async {
+        IngestStubURLProtocol.reset { _ in .fail(.secureConnectionFailed) }
+        do {
+            _ = try await client.get(URL(string: "http://old.example.com/feed.rss")!)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? IngestNetworkError, .httpsUnavailable)
+            let message = (error as? IngestNetworkError)?.errorDescription ?? ""
+            XCTAssertTrue(message.contains("https"), message)
+            XCTAssertFalse(message.contains("App Transport Security"), message)
+        }
+        // The same failure on a link that was https all along keeps the general message.
+        IngestStubURLProtocol.reset { _ in .fail(.secureConnectionFailed) }
+        do {
+            _ = try await client.get(URL(string: "https://old.example.com/feed.rss")!)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertNotEqual(error as? IngestNetworkError, .httpsUnavailable)
+        }
+    }
+
+    func testAppTransportSecurityRefusalReadsAsAPlainSentence() {
+        let mapped = IngestNetworkError.map(URLError(.appTransportSecurityRequiresSecureConnection))
+        XCTAssertEqual(mapped as? IngestNetworkError, .insecureLink)
+        let message = (mapped as? IngestNetworkError)?.errorDescription ?? ""
+        XCTAssertFalse(message.contains("App Transport Security"), message)
+        XCTAssertTrue(message.contains("https"), message)
+    }
+
     func testNon2xxIsAReadableError() async {
         IngestStubURLProtocol.reset { _ in .text("slow down", status: 429) }
         do {

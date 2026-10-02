@@ -52,6 +52,22 @@ final class LinkClassifierTests: XCTestCase {
         XCTAssertEqual(kind, .directMedia(URL(string: "https://cdn.example.com/audio/episode-12.mp3")!))
     }
 
+    /// Review R2-2: a pasted bare host becomes an https link (iOS would block the http one), and a link inside
+    /// shared text keeps its own scheme.
+    func testABareHostBecomesAnHTTPSLink() {
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com/talk.mp3"),
+            .directMedia(URL(string: "https://cdn.example.com/talk.mp3")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("  feeds.example.com/show.rss \n"),
+            .podcastFeed(URL(string: "https://feeds.example.com/show.rss")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("Listen: http://cdn.example.com/a.mp3"),
+            .directMedia(URL(string: "http://cdn.example.com/a.mp3")!))
+        XCTAssertEqual(LinkClassifier.classify("mailto:someone@example.com"), .unsupported(.notWeb))
+        XCTAssertFalse(UnsupportedLink.notWeb.message.contains("(https)"), "http links are accepted too")
+    }
+
     func testYouTubeVideoIdIsExtracted() {
         guard case .youtube(let id, _) = LinkClassifier.classify("youtube.com/watch?v=AAAAAAAAAAA&list=x") else {
             return XCTFail("expected YouTube")

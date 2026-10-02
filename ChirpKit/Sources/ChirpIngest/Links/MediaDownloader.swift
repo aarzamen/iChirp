@@ -158,7 +158,8 @@ public final class MediaDownloader: MediaDownloading {
         resume: ResumePoint?,
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> Outcome {
-        var request = URLRequest(url: url)
+        // A plain-http link to an internet host goes out over https (`SecureLink`); `url` stays the download's identity.
+        var (request, upgraded) = SecureLink.upgrade(URLRequest(url: url))
         request.setValue(IngestHTTPClient.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("audio/*, video/*, application/octet-stream;q=0.9, */*;q=0.8", forHTTPHeaderField: "Accept")
         if let resume {
@@ -166,7 +167,8 @@ public final class MediaDownloader: MediaDownloading {
             request.setValue(resume.validator, forHTTPHeaderField: "If-Range")
         }
         let delegate = DownloadDelegate(
-            url: url, partURL: partURL, infoURL: infoURL, resumeOffset: resume?.offset ?? 0, onProgress: progress)
+            url: url, partURL: partURL, infoURL: infoURL, resumeOffset: resume?.offset ?? 0, upgradedFromHTTP: upgraded,
+            onProgress: progress)
         let session = URLSession(configuration: makeConfiguration(), delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         let task = session.dataTask(with: request)
@@ -309,6 +311,8 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
         var failure: (any Error)?
         var lastReportedPermille = -1
         var lastReportedBytes: Int64 = 0
+        /// The request, or a redirect it followed, was a plain-http link sent over https.
+        var upgradedFromHTTP = false
     }
 
     private let url: URL
@@ -319,7 +323,7 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
     private let state = Mutex(State())
 
     init(
-        url: URL, partURL: URL, infoURL: URL, resumeOffset: Int64,
+        url: URL, partURL: URL, infoURL: URL, resumeOffset: Int64, upgradedFromHTTP: Bool,
         onProgress: @escaping @Sendable (DownloadProgress) -> Void
     ) {
         self.url = url
@@ -327,10 +331,27 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
         self.infoURL = infoURL
         self.resumeOffset = resumeOffset
         self.onProgress = onProgress
+        state.withLock { $0.upgradedFromHTTP = upgradedFromHTTP }
     }
 
     func attach(_ continuation: CheckedContinuation<MediaDownloader.Outcome, any Error>) {
         state.withLock { $0.continuation = continuation }
+    }
+
+    /// A redirect to plain http is followed over https (`SecureLink`); the request's headers (`Range`, `If-Range`)
+    /// stay on it.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        let (secure, upgraded) = SecureLink.upgrade(request)
+        if upgraded {
+            state.withLock { $0.upgradedFromHTTP = true }
+        }
+        completionHandler(secure)
     }
 
     func urlSession(
@@ -451,7 +472,8 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
                 return Ending(continuation: continuation, result: .failure(failure))
             }
             if let error {
-                return Ending(continuation: continuation, result: .failure(IngestNetworkError.map(error)))
+                let mapped = IngestNetworkError.map(error, upgradedFromHTTP: state.upgradedFromHTTP)
+                return Ending(continuation: continuation, result: .failure(mapped))
             }
             guard let response = state.response else {
                 return Ending(continuation: continuation, result: .failure(IngestNetworkError.notHTTP))

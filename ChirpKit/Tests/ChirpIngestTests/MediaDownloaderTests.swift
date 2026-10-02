@@ -189,6 +189,34 @@ final class MediaDownloaderTests: XCTestCase {
         XCTAssertEqual(resume, MediaDownloader.ResumePoint(offset: 40_000, validator: "\"v2\""))
     }
 
+    /// Review R2-2: an http enclosure (common in older feeds) downloads over https; resume still matches the link.
+    func testPlainHTTPMediaIsDownloadedOverHTTPS() async throws {
+        IngestStubURLProtocol.reset { request in
+            request.url.path() == "/old/episode.mp3"
+                ? .redirect(to: URL(string: "http://media.example.com/episode.mp3")!)
+                : .body(Self.payload, contentType: "audio/mpeg", extraHeaders: ["ETag": "\"v1\""])
+        }
+        let link = URL(string: "http://cdn.example.com/old/episode.mp3")!
+        let file = try await downloader.download(from: link, into: directory, fileStem: "source", progress: { _ in })
+        XCTAssertEqual(try Data(contentsOf: file.fileURL), Self.payload)
+        XCTAssertEqual(file.fileURL.lastPathComponent, "source.mp3")
+        XCTAssertEqual(
+            IngestStubURLProtocol.requests.map(\.url.absoluteString),
+            ["https://cdn.example.com/old/episode.mp3", "https://media.example.com/episode.mp3"])
+    }
+
+    func testAnUpgradedDownloadThatFailsOverHTTPSSaysWhy() async {
+        IngestStubURLProtocol.reset { _ in .fail(.serverCertificateUntrusted) }
+        do {
+            _ = try await downloader.download(
+                from: URL(string: "http://cdn.example.com/a.mp3")!, into: directory, fileStem: "source",
+                progress: { _ in })
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? IngestNetworkError, .httpsUnavailable)
+        }
+    }
+
     func testNonHTTPLinksAreRefused() async {
         do {
             _ = try await downloader.download(

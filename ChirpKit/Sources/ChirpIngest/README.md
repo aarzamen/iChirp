@@ -19,7 +19,7 @@
 ### Links
 
 - `Links/LinkClassifier.swift`: `LinkKind` (Apple Podcasts episode or show, feed, direct media, YouTube, web link,
-  unsupported with a reason) from pasted text. Platforms that need yt-dlp (X, TikTok, Instagram, Facebook, Vimeo,
+  unsupported with a reason) from pasted text. A bare host ("cdn.example.com/talk.mp3") becomes an `https://` link. Platforms that need yt-dlp (X, TikTok, Instagram, Facebook, Vimeo,
   SoundCloud, Twitch, Spotify) and formats iOS cannot decode (Ogg, Opus, WebM) are refused up front with a clear
   message.
 - `Links/YouTubeURLValidator.swift`, `Links/PodcastURLValidator.swift`: ports of upstream's validators.
@@ -27,7 +27,12 @@
   link's content type (HEAD, else a one-byte ranged GET) before anything is downloaded. Each request streams through
   its own session delegate: a body over its limit (16 MB by default) is refused as soon as the declared length or the
   bytes received pass it, and the probe reads headers only and cancels the transfer, so a server that ignores `Range`
-  and sends a whole video never fills memory. `IngestNetworkError` words failures for the person.
+  and sends a whole video never fills memory. `IngestNetworkError` words failures for the person (iOS refusing plain
+  http is `insecureLink`; an http link whose server has no working https is `httpsUnavailable`).
+- `Links/SecureLink.swift`: plain-http links to internet hosts (older feeds' enclosures, pasted links, redirects) are
+  requested over https, because iOS's App Transport Security blocks plain http there (the app's ATS settings allow it
+  only on the home network and are not loosened). Home-network hosts (`LocalNetworkHost`) and single-label names keep
+  http. `IngestHTTPClient` and `MediaDownloader` apply it to every request and every redirect.
 - `Links/MediaDownloader.swift`: `MediaDownloading` on a `URLSession` data task. The body streams into
   `media/<id>/download.part` (with `download.part.json`: URL, ETag / Last-Modified, total), with byte progress and
   cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. The finished

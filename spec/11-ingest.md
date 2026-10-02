@@ -76,6 +76,11 @@ SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a messa
   the `?i=` value from the share link against the show's episodes, with the RSS feed as a fallback (port of upstream
   `PodcastEpisodeResolver`).
 - Download to a file with `URLSession`, then decode with `AVAssetReader` (documented for files).
+- **Plain http (review R2-2).** iOS blocks plain http to internet hosts (App Transport Security; the app allows it
+  only on the home network, and that setting is not loosened). A pasted bare host becomes `https://`, and every
+  request and redirect for an `http://` link to an internet host (an older feed's enclosure, a pasted link) asks for
+  the same address over https (`SecureLink`). Home-network hosts keep http. When the server has no working https,
+  the row fails with a plain sentence saying so and suggesting an https link or sharing the file.
 
 ## YouTube (M5): ranked strategy
 
