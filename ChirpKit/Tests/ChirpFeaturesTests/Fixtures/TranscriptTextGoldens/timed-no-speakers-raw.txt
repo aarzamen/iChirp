@@ -1,0 +1,263 @@
+=== model input ===
+[00:00] Unknown Speaker: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:07] Unknown Speaker: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== copy ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== txt ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+
+Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== markdown ===
+# Synthetic visit 2
+
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+
+Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+
+=== srt ===
+1
+00:00:00,000 --> 00:00:02,380
+Um, the patient takes zarelto 20 mg daily.
+
+2
+00:00:02,400 --> 00:00:04,180
+Blood pressure was 120 over 80.
+
+3
+00:00:07,200 --> 00:00:09,280
+Uh, increase the dose to 2.5 mg.
+
+4
+00:00:09,300 --> 00:00:10,480
+Recheck in 2 weeks.
+
+
+=== vtt ===
+WEBVTT
+
+00:00:00.000 --> 00:00:02.380
+Um, the patient takes zarelto 20 mg daily.
+
+00:00:02.400 --> 00:00:04.180
+Blood pressure was 120 over 80.
+
+00:00:07.200 --> 00:00:09.280
+Uh, increase the dose to 2.5 mg.
+
+00:00:09.300 --> 00:00:10.480
+Recheck in 2 weeks.
+
+
+=== json ===
+{
+  "createdAt" : "2026-09-21T14:13:20Z",
+  "durationMs" : 10680,
+  "engine" : "fluidaudio.parakeet-tdt",
+  "engineVariant" : "v3",
+  "id" : "00000000-0000-0000-0000-000000000002",
+  "language" : "en",
+  "privacyClass" : "personal",
+  "schema" : "ichirp.transcript/v1",
+  "segments" : [
+    {
+      "endMs" : 4180,
+      "id" : "00000000-0000-0000-0000-000000000101",
+      "speakerLabel" : "Unknown Speaker",
+      "startMs" : 0,
+      "text" : "Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.",
+      "wordRange" : {
+        "endIndexExclusive" : 14,
+        "startIndex" : 0
+      }
+    },
+    {
+      "endMs" : 10480,
+      "id" : "00000000-0000-0000-0000-000000000102",
+      "speakerLabel" : "Unknown Speaker",
+      "startMs" : 7200,
+      "text" : "Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.",
+      "wordRange" : {
+        "endIndexExclusive" : 25,
+        "startIndex" : 14
+      }
+    }
+  ],
+  "speakers" : [
+
+  ],
+  "text" : "Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.",
+  "title" : "Synthetic visit 2",
+  "words" : [
+    {
+      "confidence" : 0.9,
+      "endMs" : 280,
+      "startMs" : 0,
+      "word" : "Um,"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 580,
+      "startMs" : 300,
+      "word" : "the"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 880,
+      "startMs" : 600,
+      "word" : "patient"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1180,
+      "startMs" : 900,
+      "word" : "takes"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1480,
+      "startMs" : 1200,
+      "word" : "zarelto"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1780,
+      "startMs" : 1500,
+      "word" : "20"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2080,
+      "startMs" : 1800,
+      "word" : "mg"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2380,
+      "startMs" : 2100,
+      "word" : "daily."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2680,
+      "startMs" : 2400,
+      "word" : "Blood"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2980,
+      "startMs" : 2700,
+      "word" : "pressure"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3280,
+      "startMs" : 3000,
+      "word" : "was"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3580,
+      "startMs" : 3300,
+      "word" : "120"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3880,
+      "startMs" : 3600,
+      "word" : "over"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 4180,
+      "startMs" : 3900,
+      "word" : "80."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 7480,
+      "startMs" : 7200,
+      "word" : "Uh,"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 7780,
+      "startMs" : 7500,
+      "word" : "increase"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 8080,
+      "startMs" : 7800,
+      "word" : "the"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 8380,
+      "startMs" : 8100,
+      "word" : "dose"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 8680,
+      "startMs" : 8400,
+      "word" : "to"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 8980,
+      "startMs" : 8700,
+      "word" : "2.5"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 9280,
+      "startMs" : 9000,
+      "word" : "mg."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 9580,
+      "startMs" : 9300,
+      "word" : "Recheck"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 9880,
+      "startMs" : 9600,
+      "word" : "in"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 10180,
+      "startMs" : 9900,
+      "word" : "2"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 10480,
+      "startMs" : 10200,
+      "word" : "weeks."
+    }
+  ]
+}
+
+=== pdf and word ===
+Synthetic visit 2
+Date: <date>
+Duration: 00:10
+[00:00] Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:07] Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+Made with Parakeet on iPhone
+
+=== jev excerpt ===
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== jev paragraphs ===
+p01: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+
+p02: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+indexes: [0, 1]

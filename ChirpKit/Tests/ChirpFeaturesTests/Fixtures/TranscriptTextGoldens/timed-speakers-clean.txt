@@ -1,0 +1,369 @@
+=== model input ===
+[00:00] Speaker 1: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:04] Dana: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+[00:10] Speaker 1: Okay, I will tell her.
+
+=== copy ===
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+
+=== txt ===
+Speaker 1:
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+
+Dana:
+Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+Speaker 1:
+Okay, I will tell her.
+
+=== markdown ===
+# Synthetic visit 1
+
+**Speaker 1**
+
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+
+**Dana**
+
+Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+**Speaker 1**
+
+Okay, I will tell her.
+
+
+=== srt ===
+1
+00:00:00,000 --> 00:00:02,380
+Speaker 1: Um, the patient takes zarelto 20 mg daily.
+
+2
+00:00:02,400 --> 00:00:04,180
+Speaker 1: Blood pressure was 120 over 80.
+
+3
+00:00:04,200 --> 00:00:06,280
+Dana: Uh, increase the dose to 2.5 mg.
+
+4
+00:00:06,300 --> 00:00:07,480
+Dana: Recheck in 2 weeks.
+
+5
+00:00:10,500 --> 00:00:11,980
+Speaker 1: Okay, I will tell her.
+
+
+=== vtt ===
+WEBVTT
+
+00:00:00.000 --> 00:00:02.380
+<v Speaker 1>Um, the patient takes zarelto 20 mg daily.</v>
+
+00:00:02.400 --> 00:00:04.180
+<v Speaker 1>Blood pressure was 120 over 80.</v>
+
+00:00:04.200 --> 00:00:06.280
+<v Dana>Uh, increase the dose to 2.5 mg.</v>
+
+00:00:06.300 --> 00:00:07.480
+<v Dana>Recheck in 2 weeks.</v>
+
+00:00:10.500 --> 00:00:11.980
+<v Speaker 1>Okay, I will tell her.</v>
+
+
+=== json ===
+{
+  "createdAt" : "2026-09-21T14:13:20Z",
+  "durationMs" : 12180,
+  "engine" : "fluidaudio.parakeet-tdt",
+  "engineVariant" : "v3",
+  "id" : "00000000-0000-0000-0000-000000000001",
+  "language" : "en",
+  "privacyClass" : "personal",
+  "schema" : "ichirp.transcript/v1",
+  "segments" : [
+    {
+      "endMs" : 4180,
+      "id" : "00000000-0000-0000-0000-000000000101",
+      "speakerId" : "S1",
+      "speakerLabel" : "Speaker 1",
+      "startMs" : 0,
+      "text" : "Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.",
+      "wordRange" : {
+        "endIndexExclusive" : 14,
+        "startIndex" : 0
+      }
+    },
+    {
+      "endMs" : 7480,
+      "id" : "00000000-0000-0000-0000-000000000102",
+      "speakerId" : "S2",
+      "speakerLabel" : "Dana",
+      "startMs" : 4200,
+      "text" : "Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.",
+      "wordRange" : {
+        "endIndexExclusive" : 25,
+        "startIndex" : 14
+      }
+    },
+    {
+      "endMs" : 11980,
+      "id" : "00000000-0000-0000-0000-000000000103",
+      "speakerId" : "S1",
+      "speakerLabel" : "Speaker 1",
+      "startMs" : 10500,
+      "text" : "Okay, I will tell her.",
+      "wordRange" : {
+        "endIndexExclusive" : 30,
+        "startIndex" : 25
+      }
+    }
+  ],
+  "speakers" : [
+    {
+      "id" : "S1",
+      "label" : "Speaker 1"
+    },
+    {
+      "id" : "S2",
+      "label" : "Dana"
+    }
+  ],
+  "text" : "The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.",
+  "title" : "Synthetic visit 1",
+  "words" : [
+    {
+      "confidence" : 0.9,
+      "endMs" : 280,
+      "speakerId" : "S1",
+      "startMs" : 0,
+      "word" : "Um,"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 580,
+      "speakerId" : "S1",
+      "startMs" : 300,
+      "word" : "the"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 880,
+      "speakerId" : "S1",
+      "startMs" : 600,
+      "word" : "patient"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1180,
+      "speakerId" : "S1",
+      "startMs" : 900,
+      "word" : "takes"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1480,
+      "speakerId" : "S1",
+      "startMs" : 1200,
+      "word" : "zarelto"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 1780,
+      "speakerId" : "S1",
+      "startMs" : 1500,
+      "word" : "20"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2080,
+      "speakerId" : "S1",
+      "startMs" : 1800,
+      "word" : "mg"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2380,
+      "speakerId" : "S1",
+      "startMs" : 2100,
+      "word" : "daily."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2680,
+      "speakerId" : "S1",
+      "startMs" : 2400,
+      "word" : "Blood"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 2980,
+      "speakerId" : "S1",
+      "startMs" : 2700,
+      "word" : "pressure"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3280,
+      "speakerId" : "S1",
+      "startMs" : 3000,
+      "word" : "was"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3580,
+      "speakerId" : "S1",
+      "startMs" : 3300,
+      "word" : "120"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 3880,
+      "speakerId" : "S1",
+      "startMs" : 3600,
+      "word" : "over"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 4180,
+      "speakerId" : "S1",
+      "startMs" : 3900,
+      "word" : "80."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 4480,
+      "speakerId" : "S2",
+      "startMs" : 4200,
+      "word" : "Uh,"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 4780,
+      "speakerId" : "S2",
+      "startMs" : 4500,
+      "word" : "increase"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 5080,
+      "speakerId" : "S2",
+      "startMs" : 4800,
+      "word" : "the"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 5380,
+      "speakerId" : "S2",
+      "startMs" : 5100,
+      "word" : "dose"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 5680,
+      "speakerId" : "S2",
+      "startMs" : 5400,
+      "word" : "to"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 5980,
+      "speakerId" : "S2",
+      "startMs" : 5700,
+      "word" : "2.5"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 6280,
+      "speakerId" : "S2",
+      "startMs" : 6000,
+      "word" : "mg."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 6580,
+      "speakerId" : "S2",
+      "startMs" : 6300,
+      "word" : "Recheck"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 6880,
+      "speakerId" : "S2",
+      "startMs" : 6600,
+      "word" : "in"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 7180,
+      "speakerId" : "S2",
+      "startMs" : 6900,
+      "word" : "2"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 7480,
+      "speakerId" : "S2",
+      "startMs" : 7200,
+      "word" : "weeks."
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 10780,
+      "speakerId" : "S1",
+      "startMs" : 10500,
+      "word" : "Okay,"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 11080,
+      "speakerId" : "S1",
+      "startMs" : 10800,
+      "word" : "I"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 11380,
+      "speakerId" : "S1",
+      "startMs" : 11100,
+      "word" : "will"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 11680,
+      "speakerId" : "S1",
+      "startMs" : 11400,
+      "word" : "tell"
+    },
+    {
+      "confidence" : 0.9,
+      "endMs" : 11980,
+      "speakerId" : "S1",
+      "startMs" : 11700,
+      "word" : "her."
+    }
+  ]
+}
+
+=== pdf and word ===
+Synthetic visit 1
+Date: <date>
+Duration: 00:12
+Speakers: Speaker 1, Dana
+Speaker 1 [00:00] Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+Dana [00:04] Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+Speaker 1 [00:10] Okay, I will tell her.
+Made with Parakeet on iPhone
+
+=== jev excerpt ===
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+
+=== jev paragraphs ===
+p01: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+
+p02: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+p03: Okay, I will tell her.
+indexes: [0, 1, 2]
