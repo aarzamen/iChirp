@@ -1,0 +1,58 @@
+=== heard lines ===
+#0 untimed words 0..<0: Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== heard text ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== heard text without lines ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== shown lines ===
+#0 untimed words 0..<0: Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== shown text ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== shown text without lines ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== tokens ===
+
+
+=== screen paragraphs ===
+0-0 -: Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.
+
+=== extract fields source ===
+Discharge summary
+
+Dose: 2.5 mg twice daily.
+
+Return if symptoms worsen.

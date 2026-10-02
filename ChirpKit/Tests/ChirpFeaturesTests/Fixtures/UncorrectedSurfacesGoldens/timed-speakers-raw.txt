@@ -1,0 +1,32 @@
+=== heard lines ===
+#0 0-4180 words 0..<14 Speaker 1: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+#1 4200-7480 words 14..<25 Dana: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+#2 10500-11980 words 25..<30 Speaker 1: Okay, I will tell her.
+
+=== heard text ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+
+=== heard text without lines ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+
+=== shown lines ===
+#0 0-4180 words 0..<14 Speaker 1: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+#1 4200-7480 words 14..<25 Dana: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+#2 10500-11980 words 25..<30 Speaker 1: Okay, I will tell her.
+
+=== shown text ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+
+=== shown text without lines ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+
+=== tokens ===
+Um,@0 the@300 patient@600 takes@900 zarelto@1200 20@1500 mg@1800 daily.@2100 Blood@2400 pressure@2700 was@3000 120@3300 over@3600 80.@3900 Uh,@4200 increase@4500 the@4800 dose@5100 to@5400 2.5@5700 mg.@6000 Recheck@6300 in@6600 2@6900 weeks.@7200 Okay,@10500 I@10800 will@11100 tell@11400 her.@11700
+
+=== screen paragraphs ===
+0-4180 S1: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+4200-7480 S2: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+10500-11980 S1: Okay, I will tell her.
+
+=== extract fields source ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.

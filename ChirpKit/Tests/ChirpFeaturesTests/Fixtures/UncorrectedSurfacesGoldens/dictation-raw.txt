@@ -1,0 +1,26 @@
+=== heard lines ===
+#0 0-3580 words 0..<12: Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== heard text ===
+Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== heard text without lines ===
+Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== shown lines ===
+#0 0-3580 words 0..<12: Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== shown text ===
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== shown text without lines ===
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== tokens ===
+Um,@0 patient@300 on@600 zarelto@900 20@1200 mg@1500 daily.@1800 Recheck@2100 potassium@2400 in@2700 2@3000 weeks.@3300
+
+=== screen paragraphs ===
+0-3580 -: Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+
+=== extract fields source ===
+Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
