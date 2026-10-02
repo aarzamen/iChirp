@@ -128,6 +128,7 @@ dictation coordinator's `textRules` ([`07-text-processing.md`](07-text-processin
 | M6 | **Built:** `v7-structured-results` (`structured_runs`, `structured_fields`, `structured_eval_runs`) | Structure-model evidence ledger: runs, fields with source spans, gate verdicts and review state, eval runs ([contract](contracts/structured-results-v1.md)) |
 | Plan 022 | **Built:** `v8-text-items` (`deliverable_versions`, append-only) | Edit by voice: every text a generated document has had ([contract](contracts/deliverables-v1.md), Versions); text items need no column |
 | Review 2026-10-01 | **Built:** `v9-llm-runs-deliverable-index` (an index on `llm_runs.deliverableId`; no column) | A document's delete sets its ledger rows' `deliverableId` to NULL without scanning the ledger (R1-17) |
+| Plan 024 Task 8 | **Built:** `v10-deliverable-cut-off` (`isCutOff` BOOLEAN NOT NULL DEFAULT 0 on `deliverables` and `deliverable_versions`) | A document or version the model stopped writing at its length limit is kept and marked incomplete (R3-1, R4-2; [contract](contracts/deliverables-v1.md), Cut off at the length limit) |
 | M6 | `embeddings` (or a vector index) | Semantic search, after benchmarking against plain text search |
 
 Keep YAGNI: a table appears only with the feature that reads it.

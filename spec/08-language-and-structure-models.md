@@ -81,8 +81,12 @@ confirmation). Other classes keep each model's own settings.
 **Answers cut off at a length limit (review R3-1).** Every engine reports why a generation stopped:
 `GenerationUsage.isLengthCapped` is true for Anthropic `max_tokens` or `model_context_window_exceeded` and for
 OpenAI-compatible, Ollama and llama.cpp `length` (and for an HTTP provider that sent no stop word but used the whole
-output allowance). The stream still finishes, but the text is not a whole document; `DeliverableService` does not
-read the flag yet (plan 024, wave 2). A clinical llama.cpp draft cut off at the limit fails instead. Apple's model
+output allowance). The stream still finishes, but the text is not a whole document: `DeliverableService` keeps it
+and marks it (plan 024 Task 8): a document (`Deliverable.isCutOff`, stored, migration `v10-deliverable-cut-off`;
+any cut-off call of a map-reduce run counts), an edit's version, or an Ask answer (`AskAnswer.isCutOff`). The run
+view, the Ask answer and the document screen say "The model stopped at its length limit — this document is
+incomplete." and the run view offers Try again. An engine that reports no stop reason is unknown: nothing is marked.
+A clinical llama.cpp draft cut off at the limit fails instead. Apple's model
 gets no response cap, because FoundationModels would end the answer early without saying so; an answer that outgrows
 its 4K window throws `contextTooLong`. A provider's safety stop part-way (Anthropic `refusal`, OpenAI
 `content_filter`) fails with `refused`.
@@ -108,11 +112,18 @@ Rules ([deliverables-v1](contracts/deliverables-v1.md)):
 - Template text lives in immutable `prompt_versions` (the database rejects updates); a deliverable records the
   version it used. `{{transcript}}` and `{{userNotes}}` render in one pass; without `{{transcript}}` the transcript
   is appended as a tagged data block. Source text is declared data, never instructions.
-- Results are stored as separate `deliverables` linked to the transcript; the transcript is never overwritten.
+- Results are stored as separate `deliverables` linked to the transcript; the transcript is never overwritten. A
+  result is stored with the strictest class its run saw (a transcript raised to clinical mid-run; review R4-11).
 - The SOAP note template's output class is clinical: a SOAP run is routed and stored as clinical whatever the
   transcript's class.
-- **Ask** answers cite timestamps (`[04:06]`); only citations that match a real segment start are returned, so a
-  chip always seeks somewhere real.
+- **The text the model reads** is the text the person sees (plan 024 Task 8, reviews R2-1 / R4-1;
+  [spec/07](07-text-processing.md#one-accessor-for-the-text-the-person-sees-transcripttext)): the shown view in the
+  person's clean-up mode (Clean, custom words and a dictation's polished text included), one `[mm:ss] Name: text` line
+  per reading paragraph, the name only when the item has speakers; an untimed item's text as it is. Long input is
+  split at paragraph, line, sentence or whitespace boundaries, never inside a word or a number (review R4-16).
+- **Ask** answers cite timestamps (`[04:06]`); only citations that match the start of a line the model was shown are
+  returned, so a chip always seeks somewhere real. A source without timestamps (a document, typed text) asks for short
+  quotations instead, with no example timestamp to copy (review R4-14).
 - The run ledger (`llm_runs`) records engine, provider, model, locality, class, whether an override was used,
   status, duration, token and character counts, **never content** (upstream `llm_runs` rule, enforced by the schema).
 - Clinical output is always a draft for the clinician to review and sign; the SOAP template tells the model never to

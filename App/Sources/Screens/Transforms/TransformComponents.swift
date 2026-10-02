@@ -479,6 +479,40 @@ struct DocumentEditor: View {
 }
 
 /// Clinical output is a draft the clinician reviews before use (spec/12).
+/// Plan 024 Task 8 (reviews R3-1, R4-2): the model stopped at its length limit, so the text above is kept but
+/// incomplete. Says so in plain words and, when the screen can, offers to try again.
+struct CutOffNote: View {
+    let message: String
+    var tryAgainTitle = "Try again"
+    var onTryAgain: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(AppColor.error)
+                    .accessibilityHidden(true)
+                Text(message)
+                    .chirpFont(13, .semibold)
+                    .foregroundStyle(AppColor.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let onTryAgain {
+                Button(action: onTryAgain) {
+                    CapsuleButtonLabel(title: tryAgainTitle, kind: .tinted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous).stroke(AppColor.error, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+    }
+}
+
 struct ClinicalDraftNote: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {

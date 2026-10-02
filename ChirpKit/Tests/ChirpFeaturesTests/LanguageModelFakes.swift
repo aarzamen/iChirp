@@ -25,6 +25,11 @@ final class RecordingLanguageModel: LanguageModel {
     enum Reply: Sendable {
         case text(String)
         case error(LanguageModelError)
+        /// A finished stream whose usage carries this provider stop word ("length", "max_tokens", "stop", or nil
+        /// for an engine that reported none): review R3-1's cut-off cases.
+        case stopped(String, reason: String?)
+        /// Text, then the stream throws before `.finished` (a call that went out and failed mid-stream).
+        case failsAfter(String, LanguageModelError)
     }
 
     init(
@@ -87,6 +92,17 @@ final class RecordingLanguageModel: LanguageModel {
                         continuation.yield(.finished)
                         continuation.finish()
                     case .error(let error):
+                        continuation.finish(throwing: error)
+                    case .stopped(let text, let reason):
+                        continuation.yield(.text(text))
+                        continuation.yield(
+                            .usage(
+                                GenerationUsage(
+                                    promptTokens: 10, completionTokens: 5, model: "fake-1", stopReason: reason)))
+                        continuation.yield(.finished)
+                        continuation.finish()
+                    case .failsAfter(let text, let error):
+                        continuation.yield(.text(text))
                         continuation.finish(throwing: error)
                     }
                 } catch {
@@ -223,18 +239,24 @@ actor FakeDeliverableStore: DeliverableStoring {
             list.append(
                 DeliverableVersion(
                     deliverableID: deliverableID, versionNumber: next, text: document.text,
-                    origin: list.isEmpty ? .original : .handEdit, privacyClass: document.privacyClass))
+                    origin: list.isEmpty ? .original : .handEdit, privacyClass: document.privacyClass,
+                    isCutOff: document.isCutOff))
             next += 1
         }
         let raised = document.privacyClass.stricter(draft.privacyClass)
+        var isCutOff = draft.isCutOff
+        if draft.origin == .restore, let restored = list.first(where: { $0.versionNumber == draft.restoredFrom }) {
+            isCutOff = restored.isCutOff
+        }
         list.append(
             DeliverableVersion(
                 deliverableID: deliverableID, versionNumber: next, text: draft.text, origin: draft.origin,
                 instruction: draft.instruction, restoredFrom: draft.restoredFrom, engineID: draft.engineID,
                 provider: draft.provider, model: draft.model, locality: draft.locality, privacyClass: raised,
-                createdAt: draft.createdAt))
+                createdAt: draft.createdAt, isCutOff: isCutOff))
         documentVersions[deliverableID] = list
         document.text = draft.text
+        document.isCutOff = isCutOff
         document.privacyClass = raised
         document.updatedAt = draft.createdAt
         deliverables[deliverableID] = document

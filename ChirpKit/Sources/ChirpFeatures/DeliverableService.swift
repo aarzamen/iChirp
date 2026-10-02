@@ -166,6 +166,11 @@ public struct AskAnswer: Sendable, Equatable {
     public var text: String
     public var citations: [TranscriptCitation]
     public var route: ModelRoute
+    /// The model stopped at its length limit while answering: the answer is incomplete (reviews R3-1, R4-2).
+    public var isCutOff = false
+
+    /// What a screen says about a cut-off answer.
+    public static let cutOffMessage = "The model stopped at its length limit — this answer is incomplete."
 }
 
 /// **The only path from a transcript to a `LanguageModel`.** Every run:
@@ -175,8 +180,13 @@ public struct AskAnswer: Sendable, Equatable {
 ///    for exactly that route, and logs the override without content;
 /// 3. checks the route again before every later model call, against the effective class stored at that moment;
 /// 4. splits long input (map-reduce) and never truncates;
-/// 5. stores the result as a new `Deliverable` (never touching the transcript) with the template version and class;
-/// 6. writes one metadata-only `LanguageModelRun`, whatever the outcome.
+/// 5. stores the result as a new `Deliverable` (never touching the transcript) with the template version and the
+///    strictest class the run saw (a transcript raised to clinical mid-run makes the document clinical; review R4-11),
+///    marked `isCutOff` when a call stopped at the model's length limit (the text is kept; reviews R3-1, R4-2);
+/// 6. writes one metadata-only `LanguageModelRun`, whatever the outcome, counting every call that went out
+///    (review R4-4).
+/// Generate, Ask and Edit by voice share one privacy gate (`authorize`), one per-call check (`recheckRoute`) and one
+/// failure path (`finishFailed`) (review R4-9).
 public actor DeliverableService {
     /// How long a confirmed override stays usable.
     public static let overrideLifetime: TimeInterval = 10 * 60
@@ -375,17 +385,34 @@ public actor DeliverableService {
         case ask(question: String)
     }
 
-    /// Mutable bookkeeping for the ledger row.
+    /// Mutable bookkeeping for the ledger row and the stored result.
     private struct RunMetrics: Sendable {
+        /// Calls that went out (counted when a request is handed to the model).
         var calls = 0
         var promptTokens: Int?
         var completionTokens: Int?
         var model: String?
+        /// A call stopped at the model's length limit (`GenerationUsage.isLengthCapped`). An engine that reports no
+        /// stop reason (`normalizedStopReason == nil`) is unknown and never marks a cut-off.
+        var cutOff = false
+        /// The strictest class a per-call check returned (the transcript can be raised mid-run; review R4-11).
+        var raisedClass: PrivacyClass?
 
         mutating func add(_ usage: GenerationUsage) {
             if let tokens = usage.promptTokens { promptTokens = (promptTokens ?? 0) + tokens }
             if let tokens = usage.completionTokens { completionTokens = (completionTokens ?? 0) + tokens }
             model = usage.model ?? model
+            if usage.isLengthCapped { cutOff = true }
+        }
+
+        /// Adds another attempt's calls, tokens and class (not its cut-off: only the attempt that wrote the result
+        /// says whether that result is whole).
+        mutating func merge(_ other: RunMetrics) {
+            calls += other.calls
+            promptTokens = DeliverableService.sum(promptTokens, other.promptTokens)
+            completionTokens = DeliverableService.sum(completionTokens, other.completionTokens)
+            model = other.model ?? model
+            raisedClass = other.raisedClass.map { $0.stricter(raisedClass) } ?? raisedClass
         }
     }
 
@@ -427,31 +454,12 @@ public actor DeliverableService {
         var metrics = RunMetrics()
         let context = LedgerContext(
             runID: runID, started: started, feature: feature, transcriptionID: transcriptionID,
-            promptVersionID: version?.id, route: route)
+            promptVersionID: version?.id, deliverableID: nil, route: route)
 
         // 2. Route before anything is sent.
-        var overrideUsed = false
-        if !isAllowed(route, model: model, override: false) {
-            overrideUsed = consume(token, for: route)
-            guard overrideUsed, isAllowed(route, model: model, override: true) else {
-                let request = issueRequest(
-                    for: route,
-                    reason: await clinicalReason(
-                        transcription,
-                        output: template.flatMap { t in t.outputPrivacyClass.map { ($0, t.name, false) } }
-                    ))
-                privacyLogger.notice(
-                    "privacy_routing_refused run=\(runID, privacy: .public) transcription=\(transcriptionID, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public)"
-                )
-                await writeLedger(
-                    context, metrics, .refused, error: DeliverableError.privacyOverrideRequired(request).kindName,
-                    overrideUsed: false)
-                throw DeliverableError.privacyOverrideRequired(request)
-            }
-            privacyLogger.notice(
-                "privacy_override_used run=\(runID, privacy: .public) transcription=\(transcriptionID, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) host=\(route.host ?? "-", privacy: .private)"
-            )
-        }
+        let overrideUsed = try await authorize(
+            route, model: model, token: token, transcription: transcription,
+            output: template.flatMap { t in t.outputPrivacyClass.map { ($0, t.name, false) } }, context: context)
 
         let source = TranscriptPromptFormatter.modelInput(shown)
         do {
@@ -469,6 +477,14 @@ public actor DeliverableService {
             let text = try await generateText(
                 task: task, source: source, route: route, model: model, overrideUsed: overrideUsed,
                 metrics: &metrics, emit: emit)
+            // Review R4-11: the class the result is stored and ledgered with is the strictest the run saw, re-read
+            // as stored now, so a transcript raised to clinical while it ran makes this document clinical too.
+            let storedClass = try await currentClass(of: route, seen: metrics.raisedClass)
+            var finished = context
+            finished.route.privacyClass = storedClass
+            if metrics.cutOff {
+                logger.notice("run_cut_off run=\(runID, privacy: .public) calls=\(metrics.calls, privacy: .public)")
+            }
 
             switch kind {
             case .template(_, let userNotes):
@@ -476,45 +492,35 @@ public actor DeliverableService {
                     id: UUID(), transcriptionID: transcriptionID, promptID: template?.id,
                     promptVersionID: version?.id, title: template?.name ?? "Document", engineID: route.engineID,
                     provider: route.providerName, model: metrics.model, locality: route.locality, text: text,
-                    privacyClass: route.privacyClass,
+                    privacyClass: storedClass,
                     userNotes: userNotes.flatMap {
                         $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
                     },
-                    createdAt: now())
+                    createdAt: now(), isCutOff: metrics.cutOff)
                 try await deliverables.insertDeliverable(deliverable)
                 await writeLedger(
-                    context, metrics, .succeeded, input: source.count, output: text.count,
+                    finished, metrics, .succeeded, input: source.count, output: text.count,
                     deliverableID: deliverable.id, overrideUsed: overrideUsed)
                 emit(.completed(deliverable))
             case .ask:
                 await writeLedger(
-                    context, metrics, .succeeded, input: source.count, output: text.count, overrideUsed: overrideUsed)
+                    finished, metrics, .succeeded, input: source.count, output: text.count, overrideUsed: overrideUsed)
                 let citations = TranscriptCitationParser.citations(in: text, text: shown)
-                emit(.answered(AskAnswer(text: text, citations: citations, route: route)))
+                emit(
+                    .answered(
+                        AskAnswer(text: text, citations: citations, route: route, isCutOff: metrics.cutOff)))
             }
             logger.info(
                 "run_finished run=\(runID, privacy: .public) status=succeeded calls=\(metrics.calls, privacy: .public)")
         } catch {
-            let errorName = Self.kindName(of: error)
-            let status: LanguageModelRun.Status
-            if error is CancellationError || Task.isCancelled {
-                status = .cancelled
-            } else if case DeliverableError.privacyOverrideRequired = error {
-                status = .refused
-            } else {
-                status = .failed
-            }
-            await writeLedger(
-                context, metrics, status, error: status == .cancelled ? nil : errorName, input: source.count,
-                overrideUsed: overrideUsed)
-            logger.notice(
-                "run_finished run=\(runID, privacy: .public) status=\(status.rawValue, privacy: .public) error_type=\(errorName, privacy: .public) calls=\(metrics.calls, privacy: .public)"
-            )
+            await finishFailed(
+                error, context: context, metrics: metrics, input: source.count, overrideUsed: overrideUsed)
             throw error
         }
     }
 
     /// Plans and runs the model calls, re-planning with a smaller budget when a model says the input was too long.
+    /// `metrics` holds every call that went out, also when this throws (review R4-4).
     private func generateText(
         task: GenerationTask,
         source: String,
@@ -530,14 +536,16 @@ public actor DeliverableService {
             let generator = MapReduceGenerator(
                 task: task, privacyClass: route.privacyClass, budget: GenerationBudget(contextTokens: contextTokens))
             var callMetrics = RunMetrics()
+            let text: String
             do {
-                let text = try await generator.run(
+                text = try await generator.run(
                     source: source,
                     call: { request, phase in
                         // The effective class can rise between calls of the same run (review N2); use the class this
                         // call is actually allowed under, not the one the run started with, so a request sent after
                         // a rise still samples at the clinical (greedy) profile.
                         let currentClass = try await self.recheckRoute(route, model: model, overrideUsed: overrideUsed)
+                        callMetrics.raisedClass = currentClass.stricter(callMetrics.raisedClass)
                         var request = request
                         request.privacyClass = currentClass
                         return try await Self.send(
@@ -550,21 +558,26 @@ public actor DeliverableService {
                         case .writing: emit(.step(.writing))
                         }
                     })
-                metrics.calls += callMetrics.calls
-                metrics.promptTokens = Self.sum(metrics.promptTokens, callMetrics.promptTokens)
-                metrics.completionTokens = Self.sum(metrics.completionTokens, callMetrics.completionTokens)
-                metrics.model = callMetrics.model ?? metrics.model
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { throw DeliverableError.emptyResult }
-                return trimmed
             } catch LanguageModelError.contextTooLong where attempt < 2 {
                 // The estimate was too generous for this model: plan again with half the window. Nothing is cut.
-                metrics.calls += callMetrics.calls
+                metrics.merge(callMetrics)
                 contextTokens /= 2
                 logger.notice("run_replanned reason=context_too_long context_tokens=\(contextTokens, privacy: .public)")
+                continue
             } catch LanguageModelError.contextTooLong {
+                metrics.merge(callMetrics)
                 throw DeliverableError.transcriptTooLong
+            } catch {
+                metrics.merge(callMetrics)
+                throw error
             }
+            metrics.merge(callMetrics)
+            // A call of this attempt that stopped at the length limit leaves the result incomplete: a cut-off part's
+            // notes lose that part's last facts, a cut-off final call loses the document's end (review R4-2).
+            metrics.cutOff = callMetrics.cutOff
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { throw DeliverableError.emptyResult }
+            return trimmed
         }
         throw DeliverableError.transcriptTooLong
     }
@@ -573,18 +586,12 @@ public actor DeliverableService {
     /// configured now, the same override. Returns the class this call must be sent with (review N2): when the route
     /// stays allowed after a class rises — an on-device or trusted-LAN route accepts clinical without a
     /// confirmation — the caller still needs the raised class, or a clinical continuation would sample at the
-    /// personal profile instead of the clinical (greedy) one.
+    /// personal profile instead of the clinical (greedy) one. Generate, Ask and edits all call it (review R4-12).
     private func recheckRoute(
         _ route: ModelRoute, model: any LanguageModel, overrideUsed: Bool
     ) async throws -> PrivacyClass {
-        guard
-            let current = try await EffectivePrivacyClass.current(
-                transcriptionID: route.transcriptionID, transcripts: transcripts, deliverables: deliverables)
-        else {
-            throw DeliverableError.transcriptNotFound
-        }
         var now = route
-        now.privacyClass = current.stricter(route.privacyClass)
+        now.privacyClass = try await currentClass(of: route, seen: nil)
         // An override covers the route it was confirmed for; a class raised since then needs a new confirmation.
         let covered = overrideUsed && now.privacyClass == route.privacyClass
         guard isAllowed(now, model: model, override: covered) else {
@@ -600,7 +607,22 @@ public actor DeliverableService {
         return now.privacyClass
     }
 
-    /// Sends one request and collects its text; only a completed stream (`.finished`) counts.
+    /// The class `route`'s content has now: its effective class as stored now, never lower than the route's or the
+    /// strictest one a check of this run already returned (`seen`).
+    private func currentClass(of route: ModelRoute, seen: PrivacyClass?) async throws -> PrivacyClass {
+        guard
+            let current = try await EffectivePrivacyClass.current(
+                transcriptionID: route.transcriptionID, transcripts: transcripts, deliverables: deliverables)
+        else {
+            throw DeliverableError.transcriptNotFound
+        }
+        return current.stricter(route.privacyClass).stricter(seen)
+    }
+
+    /// Sends one request and collects its text; only a completed stream (`.finished`) counts. The call is counted as
+    /// soon as the request is handed to the model (review R4-4: a call that fails or is cancelled mid-stream went out).
+    /// A finished stream whose usage says it stopped at the length limit is still a result, marked in
+    /// `metrics.cutOff` (reviews R3-1, R4-2).
     private static func send(
         _ request: GenerationRequest,
         to model: any LanguageModel,
@@ -634,7 +656,64 @@ public actor DeliverableService {
         var feature: LanguageModelRun.Feature
         var transcriptionID: UUID
         var promptVersionID: UUID?
+        /// The document an edit changes; nil for generate and Ask (a generate's row names its new document on success).
+        var deliverableID: UUID?
         var route: ModelRoute
+    }
+
+    /// **The one privacy gate** before anything of a run is sent (generate, Ask and Edit by voice; review R4-9).
+    /// Allowed as routed, or with a valid single-use override for exactly this route (consumed here, logged without
+    /// content); otherwise a `refused` ledger row, a new question and `privacyOverrideRequired`. Returns whether an
+    /// override was used.
+    private func authorize(
+        _ route: ModelRoute,
+        model: any LanguageModel,
+        token: PrivacyOverride?,
+        transcription: Transcription,
+        output: ClinicalRunReason.Output?,
+        context: LedgerContext
+    ) async throws -> Bool {
+        guard !isAllowed(route, model: model, override: false) else { return false }
+        let overrideUsed = consume(token, for: route)
+        guard overrideUsed, isAllowed(route, model: model, override: true) else {
+            let request = issueRequest(for: route, reason: await clinicalReason(transcription, output: output))
+            privacyLogger.notice(
+                "privacy_routing_refused run=\(context.runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public)"
+            )
+            await writeLedger(
+                context, RunMetrics(), .refused, error: DeliverableError.privacyOverrideRequired(request).kindName,
+                deliverableID: context.deliverableID, overrideUsed: false)
+            throw DeliverableError.privacyOverrideRequired(request)
+        }
+        privacyLogger.notice(
+            "privacy_override_used run=\(context.runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) host=\(route.host ?? "-", privacy: .private)"
+        )
+        return true
+    }
+
+    /// **The one failure path** (review R4-9): the status (cancelled, refused mid-run, failed), one content-free ledger
+    /// row with every call that went out and the strictest class the run saw, the input size only when a call went
+    /// out (review R4-4), and the log line.
+    private func finishFailed(
+        _ error: Error, context: LedgerContext, metrics: RunMetrics, input: Int, overrideUsed: Bool
+    ) async {
+        let errorName = Self.kindName(of: error)
+        let status: LanguageModelRun.Status
+        if error is CancellationError || Task.isCancelled {
+            status = .cancelled
+        } else if case DeliverableError.privacyOverrideRequired = error {
+            status = .refused
+        } else {
+            status = .failed
+        }
+        var context = context
+        context.route.privacyClass = context.route.privacyClass.stricter(metrics.raisedClass)
+        await writeLedger(
+            context, metrics, status, error: status == .cancelled ? nil : errorName,
+            input: metrics.calls > 0 ? input : 0, deliverableID: context.deliverableID, overrideUsed: overrideUsed)
+        logger.notice(
+            "run_finished run=\(context.runID, privacy: .public) status=\(status.rawValue, privacy: .public) error_type=\(errorName, privacy: .public) calls=\(metrics.calls, privacy: .public)"
+        )
     }
 
     private func writeLedger(
@@ -695,17 +774,22 @@ public actor DeliverableService {
     /// had is kept as a version first; nothing is overwritten). Same routing, override and ledger rules as `generate`;
     /// the ledger row (`feature` `edit`) and the logs never hold the instruction or any text. One model call: a document
     /// that does not fit fails with `documentTooLongToEdit` before anything is sent.
+    ///
+    /// - Parameter baseText: the text to edit when the screen holds an unsaved draft of the document (review R5-9):
+    ///   the model rewrites that draft, and once the edit succeeds the draft is saved first (so it is kept as the
+    ///   person's own version) and the rewrite becomes the next version. Nil edits the stored text.
     public nonisolated func edit(
         deliverableID: UUID,
         instruction: String,
         spoken: Bool,
         model: any LanguageModel,
-        override: PrivacyOverride? = nil
+        override: PrivacyOverride? = nil,
+        baseText: String? = nil
     ) -> AsyncThrowingStream<DeliverableRunEvent, Error> {
         stream { service, emit in
             try await service.runEdit(
                 deliverableID: deliverableID, instruction: instruction, spoken: spoken, model: model,
-                override: override, emit: emit)
+                override: override, baseText: baseText, emit: emit)
         }
     }
 
@@ -725,6 +809,7 @@ public actor DeliverableService {
         spoken: Bool,
         model: any LanguageModel,
         override token: PrivacyOverride?,
+        baseText: String?,
         emit: @escaping @Sendable (DeliverableRunEvent) -> Void
     ) async throws {
         let runID = UUID()
@@ -740,30 +825,15 @@ public actor DeliverableService {
         var metrics = RunMetrics()
         let context = LedgerContext(
             runID: runID, started: started, feature: .edit, transcriptionID: transcription.id, promptVersionID: nil,
-            route: route)
+            deliverableID: deliverableID, route: route)
 
-        // 2. Route before anything is sent.
-        var overrideUsed = false
-        if !isAllowed(route, model: model, override: false) {
-            overrideUsed = consume(token, for: route)
-            guard overrideUsed, isAllowed(route, model: model, override: true) else {
-                let request = issueRequest(
-                    for: route,
-                    reason: await clinicalReason(transcription, output: (document.privacyClass, document.title, true)))
-                privacyLogger.notice(
-                    "privacy_routing_refused run=\(runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public)"
-                )
-                await writeLedger(
-                    context, metrics, .refused, error: DeliverableError.privacyOverrideRequired(request).kindName,
-                    deliverableID: deliverableID, overrideUsed: false)
-                throw DeliverableError.privacyOverrideRequired(request)
-            }
-            privacyLogger.notice(
-                "privacy_override_used run=\(runID, privacy: .public) transcription=\(transcription.id, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) host=\(route.host ?? "-", privacy: .private)"
-            )
-        }
+        // 2. Route before anything is sent (the same gate as every run).
+        let overrideUsed = try await authorize(
+            route, model: model, token: token, transcription: transcription,
+            output: (document.privacyClass, document.title, true), context: context)
 
-        let source = document.text
+        // Review R5-9: the draft on screen when there is one, else the stored text.
+        let source = baseText ?? document.text
         do {
             guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw DeliverableError.emptyDocument
@@ -787,9 +857,12 @@ public actor DeliverableService {
                 "run_started run=\(runID, privacy: .public) feature=edit deliverable=\(deliverableID, privacy: .public) engine=\(route.engineID, privacy: .public) locality=\(route.locality.rawValue, privacy: .public) class=\(route.privacyClass.rawValue, privacy: .public) chars=\(source.count, privacy: .public)"
             )
             emit(.step(.writing))
-            try await recheckRoute(route, model: model, overrideUsed: overrideUsed)
+            // Review R4-12: the call is sent with the class it is allowed under now (a rise since routing samples
+            // at the clinical profile), as every generate call is.
+            let callClass = try await recheckRoute(route, model: model, overrideUsed: overrideUsed)
+            metrics.raisedClass = callClass
             let request = DeliverablePromptAssembler.editRequest(
-                instruction: instruction, document: source, privacyClass: route.privacyClass,
+                instruction: instruction, document: source, privacyClass: callClass,
                 maxOutputTokens: budget.maxOutputTokens)
             let written: String
             do {
@@ -800,42 +873,43 @@ public actor DeliverableService {
             // Models often echo the prompt's `<document>` wrapper (UX audit F32): it never reaches the saved version.
             let text = DeliverablePromptAssembler.unwrappedEdit(written)
             guard !text.isEmpty else { throw DeliverableError.emptyResult }
+            let storedClass = try await currentClass(of: route, seen: metrics.raisedClass)
+            // Review R5-9: the person's draft is theirs: it is saved (and so kept as a version) before the rewrite
+            // replaces it, never dropped.
+            if let baseText, baseText != document.text {
+                guard try await deliverables.updateDeliverableText(id: deliverableID, text: baseText) != nil else {
+                    throw DeliverableError.documentNotFound
+                }
+            }
+            if metrics.cutOff {
+                logger.notice("run_cut_off run=\(runID, privacy: .public) feature=edit")
+            }
             guard
                 let appended = try await versionStore.appendDeliverableVersion(
                     DeliverableVersionDraft(
                         text: text, origin: spoken ? .spokenEdit : .typedEdit, instruction: instruction,
                         engineID: route.engineID, provider: route.providerName, model: metrics.model,
-                        locality: route.locality, privacyClass: route.privacyClass, createdAt: now()),
+                        locality: route.locality, privacyClass: storedClass, createdAt: now(),
+                        isCutOff: metrics.cutOff),
                     deliverableID: deliverableID)
             else { throw DeliverableError.documentNotFound }
+            var finished = context
+            finished.route.privacyClass = storedClass
             await writeLedger(
-                context, metrics, .succeeded, input: source.count, output: text.count, deliverableID: deliverableID,
+                finished, metrics, .succeeded, input: source.count, output: text.count, deliverableID: deliverableID,
                 overrideUsed: overrideUsed)
             emit(.completed(appended.deliverable))
             logger.info(
                 "run_finished run=\(runID, privacy: .public) status=succeeded version=\(appended.versions.count, privacy: .public)"
             )
         } catch {
-            let errorName = Self.kindName(of: error)
-            let status: LanguageModelRun.Status
-            if error is CancellationError || Task.isCancelled {
-                status = .cancelled
-            } else if case DeliverableError.privacyOverrideRequired = error {
-                status = .refused
-            } else {
-                status = .failed
-            }
-            await writeLedger(
-                context, metrics, status, error: status == .cancelled ? nil : errorName, input: source.count,
-                deliverableID: deliverableID, overrideUsed: overrideUsed)
-            logger.notice(
-                "run_finished run=\(runID, privacy: .public) status=\(status.rawValue, privacy: .public) error_type=\(errorName, privacy: .public)"
-            )
+            await finishFailed(
+                error, context: context, metrics: metrics, input: source.count, overrideUsed: overrideUsed)
             throw error
         }
     }
 
-    private static func sum(_ lhs: Int?, _ rhs: Int?) -> Int? {
+    fileprivate static func sum(_ lhs: Int?, _ rhs: Int?) -> Int? {
         guard lhs != nil || rhs != nil else { return nil }
         return (lhs ?? 0) + (rhs ?? 0)
     }

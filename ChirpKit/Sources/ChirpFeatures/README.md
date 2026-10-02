@@ -277,6 +277,16 @@ pipeline's `Task`s and publishes its progress to the UI.
   model, speaker names only when the item has speakers (never "Unknown Speaker"). Ask parses citations against the
   same lines and, for a source without timestamps (a document, typed text), asks for short quotations instead
   (review R4-14).
+  **Cut off at the length limit** (plan 024 Task 8, reviews R3-1 / R4-2): a call whose usage `isLengthCapped` still
+  returns its text; the document is stored with `isCutOff` (any call of the run, map steps included), an edit's version
+  likewise, and `AskAnswer.isCutOff` marks an answer; an unknown stop reason marks nothing.
+  `DeliverableRunViewModel.cutOffNotice` and `DeliverableDocumentViewModel.cutOffNotice` give the screens the sentence
+  (`Deliverable.cutOffMessage`, `AskAnswer.cutOffMessage`). **One gate, one failure path** (review R4-9):
+  `authorize` (route, consume the override, refuse with a ledger row) and `finishFailed` (status, ledger, log) serve
+  generate, Ask and edits; `recheckRoute` runs before every call and its class is the class the call is sent with,
+  edits included (R4-12). The ledger counts every call that went out, also for a failed, cancelled or refused run, and
+  records input only when a call went out (R4-4); the document and its ledger row carry the strictest class the run saw,
+  re-read before the insert (R4-11).
 - `EffectivePrivacyClass.swift`: **the one rule for how private a transcript's content is** when it may leave the
   phone: the stricter of the transcript's class and every deliverable made from it (a personal transcript with a
   clinical SOAP note is clinical; review L4 M1). `DeliverableService`, `DecisionService` and `VoicePlayer`'s class
@@ -868,7 +878,10 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   before it is saved, UX audit F32), refuses a document that cannot go in and back out in one
   call (`documentTooLongToEdit`, nothing sent), and stores the result through `DeliverableVersionStoring` (the store
   must implement it, `versionsUnavailable` otherwise) as the next version. Ledger feature `edit`; the instruction is
-  never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen.
+  never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen. Review R5-9 (service
+  side): `edit(…, baseText:)` / `Request.edit(…, baseText:)` edit the screen's unsaved draft; after a successful edit
+  the draft is saved first (kept as a hand-edit version) and the rewrite becomes the next version, and
+  `DeliverableDocumentViewModel.applyEdit(_:)` shows the result instead of the stale draft (the screen half is Task 10).
   `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
   purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines
   only. Review I2: the app gives it the speech router, and it takes the **final route's engine once per instruction**

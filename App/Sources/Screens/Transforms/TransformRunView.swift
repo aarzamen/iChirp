@@ -250,6 +250,9 @@ struct TransformRunView: View {
             if deliverable.privacyClass == .clinical {
                 ClinicalDraftNote()
             }
+            if let notice = run.cutOffNotice {
+                CutOffNote(message: notice) { Task { await host.retry() } }
+            }
             DocumentEditor(document: document)
                 .frame(minHeight: 320)
             Text(savedCaption(document))

@@ -81,7 +81,8 @@ final class LLMRunsDeliverableIndexMigrationTests: XCTestCase {
         XCTAssertNil(try queue.read { db in try deliverableIndexColumns(db) })
         let before = try snapshot(queue)
 
-        _ = try DatabaseManager(writer: queue)
+        // Up to this migration only: a later additive column (v10's `isCutOff`) is that migration's own test.
+        try DatabaseManager.migrator.migrate(queue, upTo: "v9-llm-runs-deliverable-index")
 
         XCTAssertEqual(try snapshot(queue), before, "no existing row changes")
         XCTAssertEqual(try queue.read { db in try deliverableIndexColumns(db) }, ["deliverableId"])

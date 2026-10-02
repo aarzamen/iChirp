@@ -57,6 +57,8 @@ struct DeliverableVersionRecord: Codable, Equatable, Sendable, FetchableRecord, 
     var locality: String?
     var privacyClass: String
     var createdAt: Date
+    /// Migration `v10-deliverable-cut-off`.
+    var isCutOff: Bool
 
     init(_ version: DeliverableVersion) {
         id = version.id
@@ -72,6 +74,7 @@ struct DeliverableVersionRecord: Codable, Equatable, Sendable, FetchableRecord, 
         locality = version.locality?.rawValue
         privacyClass = version.privacyClass.rawValue
         createdAt = version.createdAt
+        isCutOff = version.isCutOff
     }
 
     func toVersion() -> DeliverableVersion {
@@ -82,7 +85,7 @@ struct DeliverableVersionRecord: Codable, Equatable, Sendable, FetchableRecord, 
             instruction: instruction, restoredFrom: restoredFrom, engineID: engineId, provider: provider, model: model,
             locality: locality.map { EngineLocality(rawValue: $0) ?? .cloud },
             // An unknown class reads as the most protective one.
-            privacyClass: PrivacyClass(rawValue: privacyClass) ?? .clinical, createdAt: createdAt)
+            privacyClass: PrivacyClass(rawValue: privacyClass) ?? .clinical, createdAt: createdAt, isCutOff: isCutOff)
     }
 }
 
@@ -124,22 +127,31 @@ extension GRDBDeliverableStore: DeliverableVersionStoring {
                     model: existing.isEmpty ? document.model : nil,
                     locality: existing.isEmpty ? EngineLocality(rawValue: document.locality) : nil,
                     privacyClass: documentClass,
-                    createdAt: existing.isEmpty ? document.createdAt : (document.editedAt ?? draft.createdAt))
+                    createdAt: existing.isEmpty ? document.createdAt : (document.editedAt ?? draft.createdAt),
+                    isCutOff: document.isCutOff)
                 var keptRecord = DeliverableVersionRecord(kept)
                 keptRecord.privacyClass = unknownClass ?? keptRecord.privacyClass
                 try keptRecord.insert(db)
                 next += 1
             }
             let raised = documentClass.stricter(draft.privacyClass)
+            // A restore brings back the restored version's mark: an incomplete text stays marked incomplete.
+            var isCutOff = draft.isCutOff
+            if draft.origin == .restore, let number = draft.restoredFrom,
+                let restored = existing.first(where: { $0.versionNumber == number })
+            {
+                isCutOff = restored.isCutOff
+            }
             let version = DeliverableVersion(
                 deliverableID: deliverableID, versionNumber: next, text: draft.text, origin: draft.origin,
                 instruction: draft.instruction, restoredFrom: draft.restoredFrom, engineID: draft.engineID,
                 provider: draft.provider, model: draft.model, locality: draft.locality, privacyClass: raised,
-                createdAt: draft.createdAt)
+                createdAt: draft.createdAt, isCutOff: isCutOff)
             var versionRecord = DeliverableVersionRecord(version)
             versionRecord.privacyClass = unknownClass ?? versionRecord.privacyClass
             try versionRecord.insert(db)
             document.text = draft.text
+            document.isCutOff = isCutOff
             document.privacyClass = unknownClass ?? raised.rawValue
             document.updatedAt = draft.createdAt
             try document.update(db)

@@ -33,16 +33,20 @@ ChirpStore depends on ChirpText.
   `structured_eval_runs` tables; new tables only), then `v8-text-items` (plan 022: the append-only
   `deliverable_versions` table of Edit by voice; text items themselves need no column), then
   `v9-llm-runs-deliverable-index` (review R1-17: `idx_llm_runs_deliverable_id`, so a document's delete nulls its
-  ledger rows without a full scan; an index only). Every migration has an
-  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests` and
-  for v9 `LLMRunsDeliverableIndexMigrationTests`, which use the internal `DatabaseManager(writer:)` on an older
-  queue).
+  ledger rows without a full scan; an index only), then `v10-deliverable-cut-off` (plan 024 Task 8, reviews R3-1 /
+  R4-2: `isCutOff` BOOLEAN NOT NULL DEFAULT 0 on `deliverables` and `deliverable_versions`, a text the model stopped
+  at its length limit; additive). Every migration has an
+  upgrade test from the one before (`migrate(upTo:)`, then the rest; for v8 `DeliverableVersionsMigrationTests`,
+  for v9 `LLMRunsDeliverableIndexMigrationTests` and for v10 `DeliverableCutOffMigrationTests`, which use the internal
+  `DatabaseManager(writer:)` on an older queue).
 - `DeliverableVersionStore.swift` (plan 022) — `DeliverableVersionSchema` (the `v8-text-items` table, cascade-deleted
   with its document; triggers abort any `UPDATE` and any `DELETE` while the document exists), `DeliverableVersionRecord`
   and `GRDBDeliverableStore`'s `DeliverableVersionStoring` (`appendDeliverableVersion`: keeps the current text as a
   version when it is not the newest, appends the new one, makes it the document's text and raises its class, all in
   one transaction; a stored class this build cannot read is kept as written on the document and its new versions).
-  Contract: `spec/contracts/deliverables-v1.md` (Versions).
+  The cut-off mark (`isCutOff`) follows the text: the kept version takes the document's mark, the new version and the
+  document take the draft's, and a `restore` takes the restored version's whatever the draft says.
+  Contract: `spec/contracts/deliverables-v1.md` (Versions; Cut off at the length limit).
 - `DeliverableListingStore.swift` (plan 023, UX audit F43) — `GRDBDeliverableStore`'s `DeliverableListing`, read
   only, no schema change: `fetchDeliverableSummaries()` (every document, newest first, `createdAt` then id; only
   `substr(text, 1, 320)` of the text is read, and columns are read by position, so 5,000 summaries take about 25 ms in

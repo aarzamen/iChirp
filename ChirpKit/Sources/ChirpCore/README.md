@@ -120,7 +120,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `BoundedResponseBody` reads a response body as it arrives and throws `TooLarge` past an engine's byte limit.
   Users: `ChirpEngineHTTPLLM`, `ChirpEngineJev`, `ChirpEngineVoiceHTTP`.
 - `Models/Deliverable.swift`: M4 templates, versions, deliverables and the `LanguageModelRun` ledger row; M6a adds the
-  `decision` feature value, plan 022 the `edit` value (no schema change).
+  `decision` feature value, plan 022 the `edit` value (no schema change). Plan 024 Task 8: `Deliverable.isCutOff` and
+  `DeliverableVersion(Draft).isCutOff` (migration `v10-deliverable-cut-off`): the model stopped at its length limit,
+  so the text is kept but incomplete; `Deliverable.cutOffMessage` is what screens say.
 - `Models/DeliverableVersion.swift` and `Pipeline/DeliverableVersionStoring.swift` (plan 022): a generated document's
   append-only versions (`DeliverableVersion`, `DeliverableVersionDraft`, `DeliverableVersionAppend`) and the store
   protocol `GRDBDeliverableStore` implements.
