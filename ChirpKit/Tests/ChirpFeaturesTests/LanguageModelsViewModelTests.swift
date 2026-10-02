@@ -18,12 +18,15 @@ final class FakeLanguageModelFactory: LanguageModelFactory {
     struct State {
         var made: [Call] = []
         var tests: [Call] = []
+        var lists: [Call] = []
         var testError: LanguageModelError?
         var models: [String] = []
     }
 
     var made: [Call] { state.withLock { $0.made } }
     var tests: [Call] { state.withLock { $0.tests } }
+    /// Every model-list request, with the key it carried.
+    var lists: [Call] { state.withLock { $0.lists } }
     func failTests(with error: LanguageModelError?) { state.withLock { $0.testError = error } }
     func setModels(_ models: [String]) { state.withLock { $0.models = models } }
 
@@ -43,7 +46,10 @@ final class FakeLanguageModelFactory: LanguageModelFactory {
     }
 
     func listModels(of provider: LanguageModelProviderConfiguration, apiKey: SecretValue?) async throws -> [String] {
-        state.withLock { $0.models }
+        state.withLock { state in
+            state.lists.append(Call(providerID: provider.id, key: apiKey?.reveal()))
+            return state.models
+        }
     }
 }
 
@@ -225,6 +231,85 @@ final class LanguageModelsViewModelTests: XCTestCase {
         let third = await viewModel.testConnection(broken)
         XCTAssertEqual(third, .failed("The address must start with http:// or https://."))
         XCTAssertEqual(factory.tests.count, 2, "an invalid address is never contacted")
+    }
+
+    // MARK: - Review R4-5: the stored key goes only to the saved address
+
+    private func savedOpenAIProvider(
+        _ viewModel: LanguageModelsViewModel
+    ) throws -> LanguageModelProviderConfiguration {
+        var draft = LanguageModelProviderDraft(kind: .openAICompatible)
+        draft.baseURLText = "https://api.openai.com/v1"
+        draft.modelName = "gpt-x"
+        draft.apiKeyText = key
+        try viewModel.save(draft)
+        return try XCTUnwrap(viewModel.providers.first)
+    }
+
+    /// Editing the address and tapping Test (or refreshing the models) before saving never sends the stored key: not
+    /// in clear text to a home-network machine, not to a mistyped internet host.
+    func testAnEditedUnsavedAddressNeverReceivesTheStoredKey() async throws {
+        let (viewModel, _, factory) = make()
+        let provider = try savedOpenAIProvider(viewModel)
+
+        var homeNetwork = viewModel.draft(editing: provider)
+        homeNetwork.baseURLText = "http://192.168.1.20:8000/v1"
+        _ = await viewModel.testConnection(homeNetwork)
+        _ = try await viewModel.listModels(homeNetwork)
+        XCTAssertEqual(factory.tests.map(\.key), [nil], "a plain-http home-network test goes out without the key")
+        XCTAssertEqual(factory.lists.map(\.key), [nil])
+
+        var mistyped = viewModel.draft(editing: provider)
+        mistyped.baseURLText = "https://api.openai.co/v1"
+        let check = await viewModel.testConnection(mistyped)
+        XCTAssertEqual(
+            check, .failed("Type the API key above: Parakeet sends the saved key only to the saved address."))
+        do {
+            _ = try await viewModel.listModels(mistyped)
+            XCTFail("expected the model list to be refused")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Type the API key above: Parakeet sends the saved key only to the saved address.")
+        }
+        XCTAssertEqual(factory.tests.count, 1, "an internet provider that needs the key is not contacted without it")
+        XCTAssertEqual(factory.lists.count, 1)
+
+        var typed = mistyped
+        typed.apiKeyText = "sk-typed-SYNTHETIC-0001"
+        _ = await viewModel.testConnection(typed)
+        XCTAssertEqual(factory.tests.last?.key, "sk-typed-SYNTHETIC-0001", "a typed key goes where the person typed")
+    }
+
+    /// A scheme change is another address too: a home-network server saved on https never gets the key over http.
+    func testASchemeChangeOnTheSameHostWithholdsTheStoredKey() async throws {
+        let (viewModel, _, factory) = make()
+        var draft = LanguageModelProviderDraft(kind: .openAICompatible)
+        draft.baseURLText = "https://mac-studio.local:8443/v1"
+        draft.modelName = "local-model"
+        draft.apiKeyText = key
+        try viewModel.save(draft)
+        let provider = try XCTUnwrap(viewModel.providers.first)
+
+        var downgraded = viewModel.draft(editing: provider)
+        downgraded.baseURLText = "http://mac-studio.local:8443/v1"
+        _ = await viewModel.testConnection(downgraded)
+        _ = await viewModel.testConnection(viewModel.draft(editing: provider))
+        XCTAssertEqual(factory.tests.map(\.key), [nil, key], "only the saved https address gets the key")
+    }
+
+    /// The same scheme, host and port is the saved address, whatever the path or an explicit default port.
+    func testTheSavedAddressStillUsesTheStoredKey() async throws {
+        let (viewModel, _, factory) = make()
+        let provider = try savedOpenAIProvider(viewModel)
+
+        var samePlace = viewModel.draft(editing: provider)
+        samePlace.baseURLText = "https://API.openai.com:443/v2"
+        samePlace.modelName = "gpt-y"
+        _ = await viewModel.testConnection(samePlace)
+        _ = try await viewModel.listModels(samePlace)
+        XCTAssertEqual(factory.tests.map(\.key), [key])
+        XCTAssertEqual(factory.lists.map(\.key), [key])
     }
 
     func testModelListIsSorted() async throws {

@@ -266,9 +266,12 @@ pipeline's `Task`s and publishes its progress to the UI.
     for a home-network host, `apiKeyChange` (a blank key keeps the stored one), and `problem` as a sentence.
   - `LanguageModelsViewModel` lists providers and Apple's availability, sets the default, saves and deletes through
     the provider store (key to the Keychain first), tests a connection and lists models (typed key, else the stored
-    one), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists the small models
-    (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`, downloads (only on a
-    Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one default at a time.
+    one, but only for the saved address: review R4-5 — an edited, unsaved scheme, host or port never gets the stored
+    key; a provider that needs one answers `StoredKeyWithheld`, "Type the API key above…", and one that does not is
+    checked without it), and builds a run's engine with `makeModel(for:)`, reading the key just then. M7: it lists
+    the small models (`localModels`, `localModelStatus`), offers one for runs only once its file is `.ready`,
+    downloads (only on a Settings tap) and deletes it (a deleted default falls back to Apple's model), and keeps one
+    default at a time.
     Review I3d: `refresh()` also reads each small model's `localModelAvailability` (no network, nothing loaded);
     `unavailableReason(for:)` gives the sentence the Transform and Ask sheets show before Start (Apple's model and
     small models: not downloaded, would not fit in memory), and `unavailableLocalModels` lists the ones the pickers
