@@ -74,6 +74,9 @@ public struct DictationTextRules: Sendable {
     public private(set) var isBusyNoticeVisible = false
     /// A Resume that failed, in words.
     public private(set) var resumeError: String?
+    /// Why the recording stopped on its own (the microphone could not restart, or no more audio could be saved),
+    /// shown with the outcome; nil after an ordinary stop.
+    public private(set) var captureNotice: String?
     /// Why the last dictation failed, for the screen's second button; nil unless the flow failed.
     public private(set) var failureKind: DictationFailureKind?
     /// "Polish after": run Clean on this dictation's copied text. Remembered in settings.
@@ -280,6 +283,7 @@ public struct DictationTextRules: Sendable {
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
+        captureNotice = nil
         failureKind = nil
         voiceCommands?.reset()
     }
@@ -386,7 +390,8 @@ public struct DictationTextRules: Sendable {
             break
         case .failed(let message):
             logger.error("dictation_capture_failed; finishing with what was recorded")
-            resumeError = message
+            // Review R2-6: the dictation stops here; the outcome says why, so a shortened text is never silent.
+            captureNotice = message
             send(.captureFailed(generation: generation))
         }
     }

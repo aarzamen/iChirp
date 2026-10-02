@@ -154,6 +154,52 @@ final class MeetingRecorderTests: XCTestCase {
         XCTAssertEqual(events, [.interrupted, .waitingForResume, .resumed])
     }
 
+    /// Review R5-3: a full disk stops the writing. Resume must not claim the meeting records again while nothing can
+    /// be saved; once the iPhone takes writes again (the person freed space), Resume records into the same file.
+    func testAfterAWriteFailureResumeRecordsAgainOnlyOnceWritesWork() async throws {
+        let h = Harness()
+        let updates = collect(try await h.recorder.start(recordingTo: outputURL))
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // 0.5 s saved
+        let full = FakeAudioError(message: "No space left on device")
+        await h.recorder.onProcessingQueue { writer in
+            writer.writeBuffer = { _, _ in throw full }
+            writer.probeWrite = { _ in throw full }
+        }
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // fails: reported once
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // dropped, not reported again
+        do {
+            try await h.recorder.resume()
+            XCTFail("Resume must refuse while nothing can be saved")
+        } catch {
+            XCTAssertEqual(error as? MeetingRecordingError, .cannotSaveAudio)
+        }
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // still dropped
+
+        // Space is freed; the person taps Resume again.
+        await h.recorder.onProcessingQueue { writer in
+            writer.writeBuffer = { file, buffer in try file.write(from: buffer) }
+            writer.probeWrite = { _ in }
+        }
+        try await h.recorder.resume()
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // 0.5 s saved
+        let recorded = try await h.recorder.stop()
+
+        XCTAssertEqual(Double(recorded.sampleCount), 16_000, accuracy: 160, "both saved halves, one file")
+        XCTAssertEqual(Double(try AVAudioFile(forReading: recorded.url).length), 16_000, accuracy: 160)
+        let events = await updates.value.compactMap { update -> CaptureEvent? in
+            if case .event(let event) = update { event } else { nil }
+        }
+        XCTAssertEqual(events.count, 1, "reported once: \(events)")
+        guard case .failed(let message) = events.first else { return XCTFail("\(events)") }
+        XCTAssertTrue(message.contains("storage"), message)
+    }
+
+    /// The probe proves the volume takes writes: it writes next to the recording and leaves nothing behind.
+    func testTheWriteProbeLeavesNothingBehind() throws {
+        try MeetingAudioWriter.probeFreeSpace(nextTo: outputURL)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [])
+    }
+
     /// The format decision (M3 Step 1) inside the package: a CAF that was never closed stays readable to its last
     /// written buffer. The writer object is abandoned without `close()`, the way a killed process leaves it; the file
     /// is read through a second handle while the first is still open.

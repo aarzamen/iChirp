@@ -159,6 +159,33 @@ final class DictationRecorderTests: XCTestCase {
         XCTAssertEqual(abs(mixed.floatChannelData![0][5]), 0.4, accuracy: 0.0001)
     }
 
+    /// Review R2-6: a full disk while dictating is reported once (the dictation then stops and transcribes what was
+    /// saved). Nothing more is written, yielded or logged per buffer, and what was saved stays readable.
+    func testAWriteFailureIsReportedOnceAndNothingMoreIsWritten() async throws {
+        let h = Harness()
+        let updates = collect(try await h.recorder.start(recordingTo: outputURL))
+        h.engine.deliver(TestBuffers.constant(frames: 24_000))  // 0.5 s saved
+        await h.recorder.onProcessingQueue { writer in
+            writer.writeBuffer = { _, _ in throw FakeAudioError(message: "No space left on device") }
+        }
+        for _ in 0..<3 { h.engine.deliver(TestBuffers.constant(frames: 24_000)) }
+        let recorded = try await h.recorder.stop()
+
+        XCTAssertEqual(recorded.sampleCount, 8_000)
+        XCTAssertEqual(try AVAudioFile(forReading: recorded.url).length, 8_000, "what was saved stays readable")
+        let all = await updates.value
+        let streamed = all.reduce(into: 0) { count, update in
+            if case .samples(let samples) = update { count += samples.count }
+        }
+        XCTAssertEqual(streamed, 8_000, "nothing is yielded that was not saved")
+        let events = all.compactMap { update -> CaptureEvent? in
+            if case .event(let event) = update { event } else { nil }
+        }
+        XCTAssertEqual(events.count, 1, "reported once: \(events)")
+        guard case .failed(let message) = events.first else { return XCTFail("\(events)") }
+        XCTAssertTrue(message.contains("storage"), message)
+    }
+
     /// Review R5-4: what a kill leaves of a dictation (the file as it is before `close()`) holds every sample but reads
     /// as 0 s; the header repair the dictation runs before adopting or transcribing it makes it read back exactly what
     /// the recorder wrote.

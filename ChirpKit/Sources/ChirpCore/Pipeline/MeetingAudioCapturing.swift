@@ -21,7 +21,9 @@ public protocol MeetingAudioCapturing: Sendable {
     func setPaused(_ paused: Bool) async
     /// Muted: silence is written in place of the microphone, so the recording's clock keeps running.
     func setMuted(_ muted: Bool) async
-    /// After `CaptureEvent.waitingForResume` (or `failed`): try to restart the microphone into the same file.
+    /// After `CaptureEvent.waitingForResume` (or `failed`): try to restart the microphone into the same file. After a
+    /// write failure (a full disk) it first proves the iPhone takes writes again and throws while it does not, so a
+    /// Resume never claims recording while nothing is saved (review R5-3).
     func resume() async throws
     /// Stops and closes the file. Never deletes it. Throws `AudioCaptureError.notRecording` when idle.
     func stop() async throws -> RecordedAudio

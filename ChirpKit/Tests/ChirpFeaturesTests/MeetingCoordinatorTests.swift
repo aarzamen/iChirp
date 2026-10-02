@@ -125,6 +125,30 @@ final class MeetingCoordinatorTests: XCTestCase {
         await h.coordinator.settle()
     }
 
+    /// Review R5-3: after a full disk, Resume shows Recording only once the recorder records again. While it refuses
+    /// (still no space) the meeting stays waiting, with the recorder's reason on screen.
+    func testResumeAfterAFullDiskStaysWaitingUntilTheRecorderRecordsAgain() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        _ = try await startRecording(h)
+        h.recorder.send(.event(.failed(message: "Parakeet could not save more audio.")))
+        await waitUntil { h.coordinator.state == .waitingForResume }
+        let refusal = FakeError(message: "Parakeet still can't save audio.")
+        h.recorder.state.withLock { $0.resumeError = refusal }
+
+        h.coordinator.resume()
+        await waitUntil { h.coordinator.captureProblem == "Parakeet still can't save audio." }
+        XCTAssertEqual(h.coordinator.state, .waitingForResume, "never Recording while nothing is saved")
+
+        h.recorder.state.withLock { $0.resumeError = nil }
+        h.coordinator.resume()
+        await waitUntil { h.coordinator.state == .recording }
+        XCTAssertNil(h.coordinator.captureProblem)
+        XCTAssertEqual(h.recorder.state.withLock { $0.resumeCalls }, 2)
+        h.coordinator.discard()
+        await h.coordinator.settle()
+    }
+
     func testAFailedFinalPassKeepsRowLockAndAudioAndRetrySucceeds() async throws {
         let h = try MeetingHarness()
         harness = h

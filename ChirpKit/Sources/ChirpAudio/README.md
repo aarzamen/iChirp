@@ -157,7 +157,9 @@ read).
   `stop()` unsubscribes, drains the queue and closes the file, then rejects
   anything under 0.3 s (`AudioCaptureError.tooShort`, file removed);
   `cancel()` deletes the file. Helpers: `Capture/CaptureBuffers.swift`.
-  A WAV is only finished on close: a dictation the app was killed while
+  Review R2-6: a write failure (a full disk) is reported once as
+  `CaptureEvent.failed` and nothing more is written or yielded; the dictation
+  then stops and transcribes what was saved. A WAV is only finished on close: a dictation the app was killed while
   writing reads as 0 s until ChirpCore's `SpeechWAVFile.repairHeader`
   rewrites its sizes, which the dictation coordinator does before adopting or
   transcribing it (review R5-4, `DictationRecorderTests` proves it on a real
@@ -175,7 +177,14 @@ read).
   they land between two buffers. It refuses to overwrite an existing file and
   never deletes one: `stop` keeps even a short recording and `cancel` only
   closes it. A write failure (a full disk) is reported once as
-  `CaptureEvent.failed`; what was written stays readable.
+  `CaptureEvent.failed`; what was written stays readable. Review R5-3:
+  `resume()` writes again only after a test write next to the recording
+  (`MeetingAudioWriter.probeFreeSpace`, 1 MB, deleted at once) succeeds, and
+  throws `MeetingRecordingError.cannotSaveAudio` until then, so the meeting
+  never shows Recording while nothing is saved. The file goes on where it
+  stopped: measured with a forced write failure, AVAudioFile writes the next
+  whole frame after the last one saved, so the lost buffers are simply
+  missing, like a pause.
 
 **Rules to keep.** Never restart an old engine: rebuild and re-tap (a
 restarted engine can run without delivering buffers — upstream's silent

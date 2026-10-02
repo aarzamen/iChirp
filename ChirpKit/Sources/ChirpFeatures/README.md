@@ -179,6 +179,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   class to `media/<id>/dictation.json` before the recorder starts, inserts the row with it (so a Clinical dictation is
   never Personal, not even for a moment), routes the live preview on it, and deletes the file once the row exists.
   An orphan is adopted with the class in that file, or Clinical when it is missing or unreadable.
+  Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) finishes with
+  what was saved and `captureNotice` says why; the Dictating screen shows it with the outcome.
   Review R5-4: a WAV the app was killed while writing holds its samples but its header says 0 s; adoption and every
   final pass first run `SpeechWAVFile.repairHeader` (off the main actor; a finished file is not touched), so Retry
   transcribes what was kept and the adopted row gets its length.
@@ -277,7 +279,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `recording.lock` **before** the recorder starts; Stop closes the audio, moves the lock to
   `awaitingTranscription`, inserts the `.processing` meeting row with the notes, and runs the finalizer. Pause and
   mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
-  after typing stops and at Stop. The only deletes: `discard()` (the screen confirms first), a start that failed
+  after typing stops and at Stop. A full disk shows `captureProblem` in `waitingForResume`; Resume returns to
+  Recording only once the recorder records again (review R5-3: it refuses while a test write still fails). The only
+  deletes: `discard()` (the screen confirms first), a start that failed
   before any audio, and a recording under 0.3 s (the dictation rule). Low storage refuses to start under 200 MB and
   warns under 1 GB. `liveSpeechEngine` (review N6) is the live route's own engine name and whether it is Parakeet,
   for the "no live text" message: a restored backup or a revoked Apple Speech permission can leave a non-Parakeet

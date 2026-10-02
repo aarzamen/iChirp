@@ -325,6 +325,25 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(h.capture.stops, 1)
     }
 
+    /// Review R2-6: a recording that stopped on its own (a full disk, a microphone that could not restart) says why
+    /// next to its outcome, so a shortened dictation is never copied without a word; the next dictation starts clean.
+    func testARecordingThatStoppedOnItsOwnSaysWhyWithTheOutcome() async throws {
+        let h = Harness(testCase: self)
+        await h.startRecording()
+        let reason = "Parakeet could not save more audio (the iPhone may be out of storage)."
+        h.capture.send(.event(.failed(message: reason)))
+        await waitUntil { h.coordinator.state.isFinished }
+        XCTAssertEqual(h.coordinator.state, .done)
+        XCTAssertEqual(h.coordinator.captureNotice, reason)
+        XCTAssertEqual(h.clipboard.copies, [FakeSpeech.helloText], "what was saved is still transcribed and copied")
+
+        h.coordinator.dismiss()
+        await h.startRecording()
+        XCTAssertNil(h.coordinator.captureNotice)
+        await h.stopAndWait()
+        XCTAssertNil(h.coordinator.captureNotice, "an ordinary stop says nothing extra")
+    }
+
     // MARK: - Settings and display
 
     func testKeepAudioOffDeletesTheRecordingAfterASuccessfulPass() async throws {
