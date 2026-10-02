@@ -78,6 +78,11 @@ type, is refused the same way before any byte is saved (review R2-9).
   the `?i=` value from the share link against the show's episodes, with the RSS feed as a fallback (port of upstream
   `PodcastEpisodeResolver`).
 - Download to a file with `URLSession`, then decode with `AVAssetReader` (documented for files).
+- **Resume and Retry (review R2-12).** A resumed download continues only when the server's 206 carries the stored
+  ETag (or Last-Modified); otherwise it starts over, so a changed file is never joined to the old one's prefix. A
+  web link downloads from the link itself (its redirect is followed afresh each time, so a signed, expiring redirect
+  does not break Retry), and a Retry whose recorded download address is refused (HTTP 401 or 403) resolves the stored
+  link once more before failing.
 - A feed link (RSS or Atom) takes the feed's newest episode by publication date, so a serial podcast whose feed
   lists episode 1 first still gives its latest episode; feed order decides only when no date can be read.
 - **Plain http (review R2-2).** iOS blocks plain http to internet hosts (App Transport Security; the app allows it

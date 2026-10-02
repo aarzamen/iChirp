@@ -35,7 +35,9 @@
   http. `IngestHTTPClient` and `MediaDownloader` apply it to every request and every redirect.
 - `Links/MediaDownloader.swift`: `MediaDownloading` on a `URLSession` data task. The body streams into
   `media/<id>/download.part` (with `download.part.json`: URL, ETag / Last-Modified, total), with byte progress and
-  cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. The finished
+  cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. A 206 must
+  carry the stored ETag (or Last-Modified): a server that honors `Range` but ignores `If-Range` after the file changed
+  would otherwise join the old prefix to the new file, so a different or missing validator starts over. The finished
   file becomes `<stem>.<ext>` (extension from the link, else the content type). A web page or text answer is refused
   (`MediaDownloadError.notMedia`); audio or video iOS cannot decode (Ogg, Opus, WebM, Windows Media, Matroska, by the
   link's extension, a redirect's or the content type: `LinkClassifier.undecodableFormat`) is refused before any byte
