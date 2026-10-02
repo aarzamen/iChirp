@@ -285,6 +285,68 @@ final class CreateRecipeTests: XCTestCase {
         XCTAssertFalse(CreateRecipe.starter(.dictate).uses(templateID: mine))
     }
 
+    /// The template ids the app checks recipes against: the Transforms library's `templates` (every template that is
+    /// not deleted, hidden ones included).
+    private func libraryIDs(_ store: FakeDeliverableStore) async -> Set<UUID> {
+        let library = DeliverableLibraryViewModel(store: store)
+        await library.load()
+        return Set(library.templates.map(\.id))
+    }
+
+    private func check(_ recipe: CreateRecipe, _ ids: Set<UUID>) -> String? {
+        CreateRecipeCheck.problem(
+            recipe, templateIDs: ids, modelIDs: ["on-device"], modelProblem: nil, voiceProblem: nil,
+            speechModelReady: true)
+    }
+
+    func testARecipeOfAHiddenTemplateStillRuns() async throws {
+        let store = FakeDeliverableStore()
+        try await store.installBuiltInTemplates(BuiltInTemplates.all)
+        let mine = try await store.createUserTemplate(
+            TemplateDraft(
+                name: "Clinic SOAP", category: .deliverable, instructions: "Synthetic headings.",
+                makesClinicalDocuments: true))
+        let recipe = CreateRecipe(
+            name: "Dictate → Clinic SOAP",
+            choices: CreateChoices(input: .speak, output: .document, templateID: mine.id, isClinical: true),
+            templateName: "Clinic SOAP")
+        try await store.setTemplateVisible(id: mine.id, isVisible: false)
+        try await store.setTemplateVisible(id: BuiltInTemplates.soapNote.id, isVisible: false)
+        let ids = await libraryIDs(store)
+        XCTAssertNil(check(recipe, ids), "hidden keeps the pickers tidy; a recipe is an explicit choice")
+        let soapRecipe = CreateRecipe(
+            name: "Dictate → SOAP note",
+            choices: CreateChoices(input: .speak, output: .document, templateID: Self.soap, isClinical: true))
+        XCTAssertNil(check(soapRecipe, ids))
+    }
+
+    func testARestoredTemplatesRecipeRunsAgain() async throws {
+        let store = FakeDeliverableStore()
+        try await store.installBuiltInTemplates(BuiltInTemplates.all)
+        let mine = try await store.createUserTemplate(
+            TemplateDraft(
+                name: "Clinic SOAP", category: .deliverable, instructions: "Synthetic headings.",
+                makesClinicalDocuments: true))
+        let recipe = CreateRecipe(
+            name: "Dictate → Clinic SOAP",
+            choices: CreateChoices(input: .speak, output: .document, templateID: mine.id, isClinical: true),
+            templateName: "Clinic SOAP")
+
+        try await store.deleteUserTemplate(id: mine.id)
+        let afterDelete = await libraryIDs(store)
+        let blocked = check(recipe, afterDelete)
+        XCTAssertEqual(
+            blocked,
+            "“Clinic SOAP”, the template this recipe makes, no longer exists. Restore it in Templates, make the "
+                + "recipe again in Create, or delete it.")
+        XCTAssertEqual(
+            CreateRecipeLaunch.plan(recipe, problem: blocked, chainIsActive: false), .blocked(try XCTUnwrap(blocked)))
+
+        _ = try await store.restoreDeletedTemplate(id: mine.id)
+        let afterRestore = await libraryIDs(store)
+        XCTAssertNil(check(recipe, afterRestore), "the id never changed, so the recipe runs again")
+    }
+
     // MARK: - Something missing: say what, start nothing
 
     func testARecipeWhoseTemplateModelOrVoiceIsGoneSaysWhatAndDoesNotStart() throws {
@@ -313,7 +375,8 @@ final class CreateRecipeTests: XCTestCase {
         let noTemplate = check(soap, templates: [])
         XCTAssertEqual(
             noTemplate,
-            "“SOAP note”, the template this recipe makes, no longer exists. Make the recipe again in Create, or delete it.")
+            "“SOAP note”, the template this recipe makes, no longer exists. Restore it in Templates, make the recipe "
+                + "again in Create, or delete it.")
         XCTAssertEqual(CreateRecipeLaunch.plan(soap, problem: noTemplate, chainIsActive: false), .blocked(try XCTUnwrap(noTemplate)))
 
         let noModel = check(soap, models: ["on-device"])

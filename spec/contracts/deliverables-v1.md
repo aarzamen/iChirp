@@ -171,6 +171,11 @@ implemented in `ChirpStore/TemplateLibraryStore.swift`) does every write in one 
   `deletedAt`; when another template took the name meanwhile it becomes "<name> (restored)", then "(restored 2)", …
   The id never changes, so recipes that name it run again.
 - `countDeliverables(promptID:)` counts the documents that name a template (for the delete question).
+- **Consumers.** Lists that resolve ids (recipes, Create's remembered choice, Jev's suggestion, Extract fields' SOAP
+  hand-off) use every template that is not deleted, hidden ones included; only pickers leave hidden ones out (a
+  selected hidden template stays choosable). A recipe of a deleted template is blocked with a sentence that offers
+  Restore; restoring makes it run again. A document's Details say what made it (title snapshot and version) and what
+  changed since (renamed, edited, updated by the app, deleted), and show that version's text read only.
 - **Prompt assembly for the person's text (D5).** A run of a `user` version puts the text exactly where built-in text
   goes (`{{transcript}}` / `{{userNotes}}` render as for built-ins; without `{{transcript}}` the `<transcript>` block
   follows). The step that writes the result (single or combine) adds fixed app rules to the system message after the

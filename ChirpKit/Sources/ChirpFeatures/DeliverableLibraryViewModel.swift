@@ -35,6 +35,23 @@ import Observation
     /// Rewrites (Polish, Distill, Decide, Brief).
     public var transformTemplates: [PromptTemplate] { templates.filter { $0.category == .transform } }
 
+    // Plan 026: hidden templates stay in `templates` (and the two lists above) because recipes, Create's validation,
+    // Jev's suggestion and the SOAP hand-off look templates up there; only pickers use the shown lists below. Do not
+    // "simplify" `documentTemplates` into the shown list.
+
+    /// Documents a picker shows (hidden ones left out).
+    public var visibleDocumentTemplates: [PromptTemplate] { documentTemplates.filter(\.isVisible) }
+    /// Rewrites a picker shows (hidden ones left out).
+    public var visibleRewriteTemplates: [PromptTemplate] { transformTemplates.filter(\.isVisible) }
+    /// Hidden templates that are not deleted ("2 hidden").
+    public var hiddenTemplateCount: Int { templates.filter { !$0.isVisible }.count }
+
+    /// A picker's list for one section: the shown templates, plus `keeping` in its place when it is a hidden template
+    /// of that section (a choice already made, e.g. Create's remembered template, stays choosable).
+    public func pickerTemplates(_ category: PromptTemplate.Category, keeping kept: UUID?) -> [PromptTemplate] {
+        templates.filter { $0.category == category && ($0.isVisible || $0.id == kept) }
+    }
+
     public func load() async {
         do {
             templates = try await store.fetchTemplates()
@@ -66,6 +83,8 @@ import Observation
     public private(set) var deliverable: Deliverable?
     /// The template version the document was written with ("version 2"), when the template still exists.
     public private(set) var templateVersionNumber: Int?
+    /// Plan 026: what made the document and what changed in that template since (nil for an Ask answer).
+    public private(set) var provenance: DocumentTemplateProvenance?
     /// The editor's text.
     public var draft = ""
     public private(set) var loadError: String?
@@ -118,13 +137,28 @@ import Observation
             // Keep an edit in progress; otherwise show the stored text.
             if !hasUnsavedChanges { draft = found.text }
             deliverable = found
-            if let versionID = found.promptVersionID {
-                templateVersionNumber = try await store.fetchVersion(id: versionID)?.versionNumber
-            }
+            var versionUsed: PromptVersion?
+            if let versionID = found.promptVersionID { versionUsed = try await store.fetchVersion(id: versionID) }
+            templateVersionNumber = versionUsed?.versionNumber
+            // `fetchTemplate(id:)` includes deleted templates, so a deleted one is named as deleted.
+            var template: PromptTemplate?
+            if let promptID = found.promptID { template = try await store.fetchTemplate(id: promptID) }
+            var active: PromptVersion?
+            if let template { active = try await store.fetchVersion(id: template.activeVersionID) }
+            provenance = DocumentTemplateProvenance.of(
+                document: found, template: template, versionUsed: versionUsed, activeVersion: active)
             loadError = nil
         } catch {
             loadError = error.localizedDescription
         }
+    }
+
+    /// Plan 026: the exact template version that made the document ("Show the instructions used"), read only. It
+    /// survives edits and the template's delete (versions are immutable and never deleted). nil for an Ask answer or
+    /// when it cannot be read.
+    public func loadInstructionsUsed() async -> PromptVersion? {
+        guard let versionID = deliverable?.promptVersionID else { return nil }
+        return try? await store.fetchVersion(id: versionID)
     }
 
     /// Saves the editor's text when it changed. Returns false when the save failed (`saveError` says why).

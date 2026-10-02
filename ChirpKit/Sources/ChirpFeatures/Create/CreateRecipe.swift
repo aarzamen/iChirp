@@ -235,7 +235,9 @@ public enum CreateRecipeCheck {
                 let what =
                     recipe.templateName.map { "“\($0)”, the template this recipe makes," }
                     ?? "The template this recipe makes"
-                return "\(what) no longer exists. Make the recipe again in Create, or delete it."
+                // Plan 026: a deleted template of the person's own can be restored, and its id never changes.
+                return "\(what) no longer exists. Restore it in Templates, make the recipe again in Create, or "
+                    + "delete it."
             }
         }
         if recipe.needsLanguageModel {

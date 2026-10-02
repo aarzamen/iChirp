@@ -920,7 +920,21 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   `useText(of:)` (an earlier version's text into the draft; history never changes), `save()` (create, or update the
   row and a version only for new text; then the editor edits what it saved; `saveError` is one sentence and the typed
   text stays).
-- Tests: `TemplateLibraryViewModelTests`, `TemplateEditorViewModelTests` (over `FakeDeliverableStore`, whose
+- `Templates/DocumentTemplateProvenance.swift`: a document's Details lines about its template. `made` is the title
+  snapshot and the version that made it ("Clinic SOAP · version 2"); `changes` / `now` say what happened since
+  ("Now called “SOAP (clinic)”.", "Edited since: now version 3." or, for a built-in, "Updated by the app since: …",
+  "Deleted. Restore it in Templates to use it again."); nil for an Ask answer. `DeliverableDocumentViewModel` fills
+  `provenance` on `load()` (through `fetchTemplate(id:)`, which includes deleted rows) and `loadInstructionsUsed()`
+  returns the document's own immutable version ("Show the instructions used").
+- Consumers: `DeliverableLibraryViewModel.templates`, `documentTemplates` and `transformTemplates` keep **every**
+  template that is not deleted, hidden ones included (recipes, Create's validation, Jev and the SOAP hand-off look
+  templates up there); pickers use `visibleDocumentTemplates`, `visibleRewriteTemplates` and
+  `pickerTemplates(_:keeping:)` (a selected hidden template stays choosable in its place); `hiddenTemplateCount`.
+  A recipe of a hidden template runs; a deleted one blocks with "… no longer exists. Restore it in Templates, make
+  the recipe again in Create, or delete it." (`CreateRecipeCheck`), and runs again once restored (ids never change).
+- Tests: `DeliverableLibraryViewModelTests` (pickers vs the library, provenance after a rename, an edit and a delete,
+  the instructions used), `CreateRecipeTests` (hidden and restored recipes, the sentence),
+  `TemplateLibraryViewModelTests`, `TemplateEditorViewModelTests` (over `FakeDeliverableStore`, whose
   `TemplateLibraryStoring` extension keeps the store's rules), `CreateRecipeTests.testARecipeUsesATemplateOnlyWhenItMakesThatDocument`.
 
 ## How to verify
