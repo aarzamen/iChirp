@@ -19,9 +19,11 @@ public struct SpeechEngineMemoryShortfall: Equatable, Sendable {
         SpeechEngineCapabilityRegistry.capabilitiesIfPresent(for: key)?.displayName ?? key.description
     }
 
-    /// Settings → Speech engines: "Needs more memory than this iPhone gives Parakeet (about 2.1 GB)".
+    /// Settings → Speech engines: "Needs about 3.5 GB of memory; about 2.1 GB is available now". What the model needs
+    /// comes first and is named as such, so the available amount is never read as the requirement (review R1-18).
     public var settingsMessage: String {
-        "Needs more memory than this iPhone gives Parakeet (about \(Self.gigabytes(Int64(clamping: availableBytes))))"
+        "Needs about \(Self.gigabytes(neededBytes)) of memory; about "
+            + "\(Self.gigabytes(Int64(clamping: availableBytes))) is available now"
     }
 
     /// A refused load, as a job's error shows it (with Retry): "Whisper Large v3 Turbo needs about 3.5 GB of memory

@@ -67,7 +67,7 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `memoryToLoadBytes` exceeds what the `AvailableMemoryReading` says iOS lets the app use now throws
   `SpeechEngineError.insufficientMemory(key, needed:, available:)`, and the engine loads nothing. A nil reading (the
   Mac, the Simulator) never refuses. `memoryShortfall(for:reader:)` and `SpeechEngineMemoryShortfall` give the
-  Settings line ("Needs more memory than this iPhone gives Parakeet (about 2.1 GB)") and the job's sentence
+  Settings line ("Needs about 3.5 GB of memory; about 2.1 GB is available now", the need first) and the job's sentence
   ("… needs about 3.5 GB of memory while it loads, and Parakeet can use about 2.1 GB right now. Close other apps or
   use Whisper Base."); `combinedLoadMemoryBytes(for:)` is one engine loading while the other is resident.
 - `Engines/SpeechEngineRouter.swift` (M7, ports upstream's live/final routes and engine-session leases):

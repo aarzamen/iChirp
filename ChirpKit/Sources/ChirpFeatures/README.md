@@ -134,7 +134,7 @@ pipeline's `Task`s and publishes its progress to the UI.
     live, also able to preview) plus the current choice.
   - Run-time memory (fix/speech-memory-fit): with the router's `availableMemory` (the reading the engines check before
     a load), a row whose `memoryToLoadBytes` exceeds what iOS lets the app use now carries `Row.memoryShortfall`
-    ("Needs more memory than this iPhone gives Parakeet (about 2.1 GB)", shown by the screen in place of its status
+    ("Needs about 3.5 GB of memory; about 2.1 GB is available now", shown by the screen in place of its status
     line) and is not offered for a route; it can still be downloaded and deleted. An engine a route already uses is
     never marked (its own model may be what holds that memory; the engine still checks before every load).
   - `select` (async) goes through `SpeechEngineRouter.select`, which refuses during a meeting, refuses an engine
