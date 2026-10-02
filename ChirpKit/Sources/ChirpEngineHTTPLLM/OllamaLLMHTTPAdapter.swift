@@ -22,7 +22,8 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
                     let (bytes, http) = try await transport.bytes(for: urlRequest)
                     guard (200...299).contains(http.statusCode) else {
                         let body = try await bytes.collectErrorBody()
-                        throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: body)
+                        throw LLMHTTPErrorMapper.mapError(
+                            statusCode: http.statusCode, data: body, secret: settings.apiKey)
                     }
 
                     // Ollama streams NDJSON: one JSON object per line; `done: true` ends it.
@@ -35,7 +36,7 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
                         if let envelope = try? JSONDecoder().decode(StreamErrorResponse.self, from: data),
                             let error = envelope.error
                         {
-                            throw LLMHTTPErrorMapper.mapStreamingError(message: error)
+                            throw LLMHTTPErrorMapper.mapStreamingError(message: error, secret: settings.apiKey)
                         }
                         guard let chunk = try? JSONDecoder().decode(OllamaChatResponse.self, from: data) else {
                             continue
@@ -77,10 +78,10 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
         let request = try buildRequest(probe, settings: settings, stream: false)
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         if let envelope = try? JSONDecoder().decode(StreamErrorResponse.self, from: data), let error = envelope.error {
-            throw LLMHTTPErrorMapper.mapStreamingError(message: error)
+            throw LLMHTTPErrorMapper.mapStreamingError(message: error, secret: settings.apiKey)
         }
     }
 
@@ -89,7 +90,7 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
         request.httpMethod = "GET"
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         guard let tags = try? JSONDecoder().decode(OllamaTagsResponse.self, from: data) else {
             throw LanguageModelError.invalidResponse

@@ -52,7 +52,9 @@ Then read `ParakeetEngine.swift`.
 - The M2 live preview, `TailWindowPreviewSession`, moved to ChirpCore in M7 (plan 016) so any engine can use it;
   Parakeet still builds its sessions with it.
 - `SharedTaskWait.swift`: `awaitSharedTask`, a cancellable wait on a shared task (the model load), so a cancelled
-  job stops waiting at once while the load goes on for others.
+  job stops waiting at once while the load goes on for others. ChirpEngineWhisperKit keeps a copy of this file and of
+  `AsyncPermit.swift`: `ConcurrencyHelperParityTests` (same tests in both test targets, plus a check here that the two
+  copies' code is identical; review R3-4) keeps them from drifting. Change both together.
 - `FluidAudioDiarizer.swift`: the `SpeakerDiarizing` actor. Holds upstream's `highAccuracyConfig`
   (`stepRatio 0.1`, `minSegmentDurationSeconds 0`, zero-vote re-embed), maps no-speech to an empty
   `DiarizationOutput`, renumbers speakers `S1…Sn` by first speech with `Speaker N` labels, and repairs a malformed

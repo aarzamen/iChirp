@@ -24,7 +24,8 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
                     let (bytes, http) = try await transport.bytes(for: urlRequest)
                     guard (200...299).contains(http.statusCode) else {
                         let body = try await bytes.collectErrorBody()
-                        throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: body)
+                        throw LLMHTTPErrorMapper.mapError(
+                            statusCode: http.statusCode, data: body, secret: settings.apiKey)
                     }
 
                     // Each `data:` line is parsed as it arrives: some servers (Gemini) send no blank separators.
@@ -47,7 +48,7 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
                         case .done:
                             sawDone = true
                         case .error(let message):
-                            throw LLMHTTPErrorMapper.mapStreamingError(message: message)
+                            throw LLMHTTPErrorMapper.mapStreamingError(message: message, secret: settings.apiKey)
                         case .skip:
                             break
                         }
@@ -86,7 +87,7 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
         let request = try buildRequest(probe, settings: settings, stream: false)
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
     }
 
@@ -98,7 +99,7 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
         }
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         guard let list = try? JSONDecoder().decode(ModelsListResponse.self, from: data) else {
             throw LanguageModelError.invalidResponse

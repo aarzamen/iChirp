@@ -236,6 +236,15 @@ final class WhisperKitEngineTests: XCTestCase {
         XCTAssertEqual(status, .notDownloaded, "the tokenizer is part of the model")
     }
 
+    /// Review R3-4: every engine that downloads a model excludes its folder from device backups (parity with
+    /// FluidAudio, llama.cpp and Needle; the models can be downloaded again).
+    func testADownloadedModelFolderIsExcludedFromBackup() async throws {
+        let (engine, _) = makeEngine()
+        try await downloaded(engine)
+        let values = try engine.modelsDirectory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        XCTAssertEqual(values.isExcludedFromBackup, true)
+    }
+
     func testAFailedDownloadIsReportedAndCanBeRetried() async throws {
         let (engine, backend) = makeEngine(failDownload: true)
         do {

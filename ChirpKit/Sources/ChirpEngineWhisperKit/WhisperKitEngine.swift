@@ -384,7 +384,9 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     }
 }
 
-/// Forwards progress in 0…1, never lower than a value already reported.
+/// Forwards progress in 0…1, never lower than a value already reported; the first value, 0 too, is forwarded. The same
+/// helper as ChirpEngineAppleSpeech's `MonotonicProgress` (an engine target depends only on ChirpCore);
+/// `MonotonicProgressParityTests` pins one behavior for both (review R3-4).
 final class MonotonicFraction: @unchecked Sendable {
     // @unchecked Sendable: `last` is only touched while `lock` is held.
     private let lock = NSLock()

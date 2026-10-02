@@ -54,7 +54,10 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
     `segmentDiscoveryCallback`, in file time) over the file's length, below 1 until the engine reports the end.
     WhisperKit's own `progress` restarts for every streamed window, so it is not used.
 - `AsyncPermit.swift` and `SharedTaskWait.swift`: copies of ChirpEngineFluidAudio's cancellation-aware permit and
-  shared-task wait (an engine target depends only on ChirpCore).
+  shared-task wait (an engine target depends only on ChirpCore). `ConcurrencyHelperParityTests` runs the same tests
+  in both test targets, and ChirpEngineFluidAudioTests' copy fails when the two files' code differs (review R3-4):
+  change both together. `MonotonicFraction` (in `WhisperKitEngine.swift`) is the same helper as Apple Speech's
+  `MonotonicProgress`, pinned by `MonotonicProgressParityTests` in both targets.
 
 ## What to know before editing
 

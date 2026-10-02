@@ -3,13 +3,16 @@
 // `LanguageModelError` instead of upstream `LLMError`; the sentinel policy is keyed by `HTTPProviderSettings` (kind
 // and host) instead of upstream's provider-id enum. Also: 403 maps to authentication and 413 to context-too-long,
 // Ollama's `{"error": "..."}` body is read for HTTP errors, and a top-level `message` counts as a stream error only
-// next to an `error` key. Key scrubbing patterns and context-overflow wording are unchanged.
+// next to an `error` key. Context-overflow wording is unchanged. Key scrubbing is ChirpCore's shared
+// `ProviderMessageScrubber` (review R3-4: upstream's patterns plus Gemini, Groq and xAI keys and the literal key), and
+// a message shown to the user is cut at 300 characters.
 
 import ChirpCore
 import Foundation
 
 enum LLMHTTPErrorMapper {
-    static func mapError(statusCode: Int, data: Data) -> LanguageModelError {
+    /// `secret` is the provider key of this request, scrubbed from the message even when it has no known key shape.
+    static func mapError(statusCode: Int, data: Data, secret: SecretValue?) -> LanguageModelError {
         // Providers use different formats:
         //   OpenAI/Anthropic: {"error": {"message": "..."}}
         //   Gemini:           [{"error": {"code": 404, "message": "...", "status": "NOT_FOUND"}}]
@@ -29,9 +32,10 @@ enum LLMHTTPErrorMapper {
             rawMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
         }
 
-        // Some providers echo the request shape in error responses; scrub key artifacts before the message reaches
-        // Swift errors or the UI.
-        let message = scrubAPIKeyArtifacts(from: rawMessage)
+        // Some providers echo the request shape in error responses; scrub key artifacts (and the key itself) before the
+        // message reaches Swift errors or the UI. The whole message is classified; the screen gets 300 characters.
+        let full = ProviderMessageScrubber.scrubbed(rawMessage, secret: secret)
+        let message = ProviderMessageScrubber.shortened(full)
 
         switch statusCode {
         case 401, 403:
@@ -39,12 +43,12 @@ enum LLMHTTPErrorMapper {
         case 429:
             return .rateLimited
         case 404:
-            if message.lowercased().contains("model") {
+            if full.lowercased().contains("model") {
                 return .modelNotFound(message)
             }
             return .providerError(message)
         case 400, 413:
-            if statusCode == 413 || isContextOverflowMessage(message) {
+            if statusCode == 413 || isContextOverflowMessage(full) {
                 return .contextTooLong
             }
             return .providerError(message)
@@ -53,11 +57,12 @@ enum LLMHTTPErrorMapper {
         }
     }
 
-    static func mapStreamingError(message rawMessage: String) -> LanguageModelError {
-        let message = scrubAPIKeyArtifacts(from: rawMessage)
-        let lowered = message.lowercased()
+    static func mapStreamingError(message rawMessage: String, secret: SecretValue?) -> LanguageModelError {
+        let full = ProviderMessageScrubber.scrubbed(rawMessage, secret: secret)
+        let message = ProviderMessageScrubber.shortened(full)
+        let lowered = full.lowercased()
 
-        if isContextOverflowMessage(message) {
+        if isContextOverflowMessage(full) {
             return .contextTooLong
         }
         if lowered.contains("rate limit") || lowered.contains("rate_limit") {
@@ -101,28 +106,6 @@ enum LLMHTTPErrorMapper {
             || lowered.contains("not supported")
             || lowered.contains("unknown parameter")
         return mentionsTokenParameter && mentionsUnsupported
-    }
-
-    /// Strips obvious API-key artifacts from a provider error message. Idempotent and conservative: false negatives
-    /// are acceptable; false positives that mask the actual error are not.
-    /// - `sk-...` and `sk-proj-...` / `sk-ant-...` style keys
-    /// - `Bearer <token>`
-    /// - `x-api-key: <token>` header echoes
-    /// - `key=<token>` and `api[_-]?key=<token>` query-param echoes
-    static func scrubAPIKeyArtifacts(from message: String) -> String {
-        let patterns: [(String, String)] = [
-            (#"\bsk-[A-Za-z0-9_\-]{8,}"#, "<api-key>"),
-            (#"\bBearer\s+[A-Za-z0-9._%\-+=/]{8,}"#, "Bearer <token>"),
-            (#"(?i)\bx-api-key:\s*[A-Za-z0-9._%\-+=/]{8,}"#, "x-api-key: <token>"),
-            (#"(?i)\bapi[_-]?key=[A-Za-z0-9._%\-+=/]{8,}"#, "api-key=<token>"),
-            (#"(?i)\bkey=[A-Za-z0-9._%\-+=/]{16,}"#, "key=<token>"),
-        ]
-
-        var out = message
-        for (pattern, replacement) in patterns {
-            out = out.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
-        }
-        return out
     }
 }
 

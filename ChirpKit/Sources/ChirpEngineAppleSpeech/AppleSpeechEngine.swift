@@ -223,11 +223,13 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
     }
 }
 
-/// Forwards progress in 0…1, never lower than a value already reported (the contract's rule).
+/// Forwards progress in 0…1, never lower than a value already reported (the contract's rule); the first value, 0 too,
+/// is forwarded. The same helper as ChirpEngineWhisperKit's `MonotonicFraction` (an engine target depends only on
+/// ChirpCore); `MonotonicProgressParityTests` pins one behavior for both (review R3-4).
 final class MonotonicProgress: @unchecked Sendable {
     // @unchecked Sendable: `last` is only touched while `lock` is held.
     private let lock = NSLock()
-    private var last = 0.0
+    private var last = -1.0
     private let forward: @Sendable (Double) -> Void
 
     init(_ forward: @escaping @Sendable (Double) -> Void) {
@@ -238,7 +240,7 @@ final class MonotonicProgress: @unchecked Sendable {
         guard value.isFinite else { return }
         let next: Double? = lock.withLock {
             let clamped = min(1, max(0, value))
-            guard clamped > last || (clamped == 1 && last < 1) else { return nil }
+            guard clamped > last else { return nil }
             last = clamped
             return clamped
         }

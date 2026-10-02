@@ -120,10 +120,11 @@ public actor JevDecisionModel: DecisionModel {
         return host
     }
 
-    /// Status → `LanguageModelError`. The provider's text is scrubbed of key artifacts (and of this key verbatim),
-    /// shown to the user only, never logged or stored.
+    /// Status → `LanguageModelError`. The provider's text is scrubbed of key artifacts (and of this key verbatim) by
+    /// ChirpCore's shared `ProviderMessageScrubber` (review R3-4), cut at 300 characters, shown to the user only, never
+    /// logged or stored.
     static func mapStatus(_ status: Int, data: Data, apiKey: SecretValue) -> LanguageModelError {
-        let message = scrubbed(providerMessage(in: data), apiKey: apiKey)
+        let message = ProviderMessageScrubber.displayable(providerMessage(in: data), secret: apiKey)
         switch status {
         case 401, 403:
             return .authenticationFailed(message.isEmpty ? nil : message)
@@ -141,7 +142,8 @@ public actor JevDecisionModel: DecisionModel {
     }
 
     /// The first readable message of an error body: `{"error": {"message"}}`, `{"error": "…"}`, `{"message": "…"}`,
-    /// `{"detail": "…"}`, else the text itself, capped at 300 characters.
+    /// `{"detail": "…"}`, else the first 2 KB of the text itself. Not yet scrubbed or shortened: `mapStatus` scrubs
+    /// first, so a key is never cut in half before it is recognized.
     static func providerMessage(in data: Data) -> String {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let candidates: [String?] = [
@@ -153,14 +155,6 @@ public actor JevDecisionModel: DecisionModel {
         let raw =
             candidates.compactMap { $0 }.first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             ?? String(decoding: data.prefix(2_048), as: UTF8.self)
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count > 300 ? String(trimmed.prefix(300)) + "…" : trimmed
-    }
-
-    static func scrubbed(_ message: String, apiKey: SecretValue) -> String {
-        var out = JevHTTPTransport.scrubAPIKeyArtifacts(from: message)
-        let key = apiKey.reveal()
-        if key.count >= 4 { out = out.replacingOccurrences(of: key, with: "<api-key>") }
-        return out
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -23,7 +23,8 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
                     let (bytes, http) = try await transport.bytes(for: urlRequest)
                     guard (200...299).contains(http.statusCode) else {
                         let body = try await bytes.collectErrorBody()
-                        throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: body)
+                        throw LLMHTTPErrorMapper.mapError(
+                            statusCode: http.statusCode, data: body, secret: settings.apiKey)
                     }
 
                     var yieldedAnyContent = false
@@ -77,7 +78,7 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
                             return
                         case "error":
                             if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
-                                throw LLMHTTPErrorMapper.mapStreamingError(message: message)
+                                throw LLMHTTPErrorMapper.mapStreamingError(message: message, secret: settings.apiKey)
                             }
                             throw LanguageModelError.streamingError("the provider reported an error")
                         default:
@@ -101,7 +102,7 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
         let request = try buildRequest(probe, settings: settings, stream: false)
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
     }
 
@@ -118,7 +119,7 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
         }
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         guard let list = try? JSONDecoder().decode(ModelsListResponse.self, from: data) else {
             throw LanguageModelError.invalidResponse

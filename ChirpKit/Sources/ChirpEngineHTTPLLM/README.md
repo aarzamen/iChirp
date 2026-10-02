@@ -23,9 +23,11 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
   128K, LAN OpenAI-compatible 4K, Ollama 8K).
 - `LLMHTTPTransport.swift`: one ephemeral, cache-free, cookie-free `URLSession`; a task delegate that refuses every
   redirect (the 3xx becomes `LanguageModelError.redirectRefused`); error mapping that keeps cancellation as
-  `CancellationError`.
-- `LLMHTTPErrorMapper.swift`: HTTP status and mid-stream error mapping onto `LanguageModelError`, API-key scrubbing
-  of provider messages, context-overflow detection, the stream-sentinel policy (Anthropic `message_stop` and
+  `CancellationError`; non-streaming bodies (model lists, the connection test) read as they arrive and refused past
+  16 MB (`responseByteLimit`, ChirpCore's shared `BoundedResponseBody`, review R3-4).
+- `LLMHTTPErrorMapper.swift`: HTTP status and mid-stream error mapping onto `LanguageModelError` (provider messages
+  scrubbed of key shapes and of the request's own key by ChirpCore's shared `ProviderMessageScrubber`, then cut at 300
+  characters for the screen; review R3-4), context-overflow detection, the stream-sentinel policy (Anthropic `message_stop` and
   OpenAI/OpenRouter `[DONE]` are required; EOF without them is a truncation error) and `LLMHTTPStopReason` (review
   R3-1): the stop word a finished stream reports, and the safety stops that fail it.
 - `AnthropicLLMHTTPAdapter.swift`, `OpenAICompatibleLLMHTTPAdapter.swift`, `OllamaLLMHTTPAdapter.swift`: request

@@ -27,7 +27,9 @@ language. The app registers it in `SpeechEngineRouter` (`App/Sources/SpeechEngin
     (review N7), instead of waiting on a prompt or downloading a model it cannot use.
   - **Result:** `makeResult` joins the final results and maps word runs to milliseconds, with non-decreasing starts,
     `endMs >= startMs` and confidence clamped to 0…1 (1 when missing). Empty text throws `emptyTranscript`.
-  - `MonotonicProgress` keeps progress in 0…1 and never lets it go backwards.
+  - `MonotonicProgress` keeps progress in 0…1 and never lets it go backwards; the first value, 0 too, is forwarded.
+    It is the same helper as WhisperKit's `MonotonicFraction`; `MonotonicProgressParityTests` pins one behavior for
+    both (review R3-4).
 - `AppleSpeechBackend.swift`: the test seam (`AppleSpeechBackend`, asset state, authorization, word and segment
   values).
 - `LiveAppleSpeechBackend.swift`: the backend on the real framework.

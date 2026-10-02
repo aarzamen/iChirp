@@ -334,6 +334,76 @@ final class HTTPLanguageModelTests: XCTestCase {
         XCTAssertEqual((json["messages"] as? [[String: String]])?.first?["content"], "Hi")
     }
 
+    // MARK: - Review R3-4: one scrubber and one response cap for every HTTP engine
+
+    func testAGeminiOrGroqKeyEchoNeverReachesTheScreen() async {
+        let gemini = SecretValue("AIzaSyTESTKEY0123456789abcdefghijkl")
+        StubURLProtocol.reset { _ in
+            .body(
+                #"[{"error":{"code":400,"message":"API key not valid: AIzaSyTESTKEY0123456789abcdefghijkl, gsk_TESTKEY0123456789"}}]"#,
+                status: 400, contentType: "application/json")
+        }
+        let engine = model(
+            .openAICompatible, "https://generativelanguage.googleapis.com/v1beta/openai", modelName: "gemini-flash",
+            key: gemini)
+        let error = await expectError(engine.generate(request))
+        let text = "\(String(describing: error)) \((error as? LocalizedError)?.errorDescription ?? "")"
+        XCTAssertFalse(text.contains("AIzaSyTESTKEY"), text)
+        XCTAssertFalse(text.contains("gsk_TESTKEY"), text)
+    }
+
+    func testTheLiteralKeyNeverReachesTheScreenWhateverItsShape() async {
+        let custom = SecretValue("lan-server-SECRET-0123456789")
+        StubURLProtocol.reset { _ in
+            .body(
+                #"{"error":{"message":"unknown key lan-server-SECRET-0123456789"}}"#, status: 401,
+                contentType: "application/json")
+        }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1", key: custom)
+        let error = await expectError(engine.generate(request))
+        guard case .authenticationFailed(let message) = error as? LanguageModelError else {
+            return XCTFail("expected authenticationFailed, got \(String(describing: error))")
+        }
+        XCTAssertFalse(message?.contains("SECRET") ?? true, message ?? "")
+    }
+
+    func testALongErrorBodyIsShortenedForTheScreen() async {
+        StubURLProtocol.reset { _ in
+            .body(
+                "<html>" + String(repeating: "gateway trouble ", count: 2_000) + "</html>", status: 502,
+                contentType: "text/html")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434")
+        let error = await expectError(engine.generate(request))
+        guard case .providerError(let message) = error as? LanguageModelError else {
+            return XCTFail("expected providerError, got \(String(describing: error))")
+        }
+        XCTAssertLessThanOrEqual(message.count, 301, "at most 300 characters and an ellipsis")
+    }
+
+    func testANonStreamingBodyPastTheLimitIsRefusedAsItArrives() async {
+        StubURLProtocol.reset { _ in .body(String(repeating: "x", count: 4_096), contentType: "application/json") }
+        let transport = LLMHTTPTransport(configuration: StubURLProtocol.configuration())
+        let url = URL(string: "http://mac-studio.local:11434/api/tags")!
+        do {
+            _ = try await transport.data(for: URLRequest(url: url), limit: 1_024)
+            XCTFail("a body past the limit must be refused")
+        } catch {
+            XCTAssertEqual(error as? LanguageModelError, .invalidResponse)
+        }
+        XCTAssertGreaterThanOrEqual(LLMHTTPTransport.responseByteLimit, 8 * 1_024 * 1_024, "room for a long model list")
+    }
+
+    func testTheSessionCachesNothingAndKeepsNoCookies() {
+        let configuration = LLMHTTPTransport.privateConfiguration()
+        XCTAssertNil(configuration.urlCache)
+        XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+    }
+
     // MARK: - Review R3-12: listing models checks the address and key like generate
 
     func testListingModelsOverPlainHTTPToACloudHostIsRefusedAndSendsNothing() async {
@@ -614,8 +684,9 @@ final class HTTPLanguageModelTests: XCTestCase {
     }
 
     func testKeyScrubbing() {
-        let scrubbed = LLMHTTPErrorMapper.scrubAPIKeyArtifacts(
-            from: "bad sk-proj-ABCDEFGH12345 and Bearer abcdefgh12345678 and key=AAAAAAAAAAAAAAAAAAAA")
+        // The shared scrubber (ChirpCore `ProviderMessageScrubber`, review R3-4); `EngineHTTPSupportTests` has the rest.
+        let scrubbed = ProviderMessageScrubber.scrubbed(
+            "bad sk-proj-ABCDEFGH12345 and Bearer abcdefgh12345678 and key=AAAAAAAAAAAAAAAAAAAA")
         XCTAssertFalse(scrubbed.contains("ABCDEFGH12345"))
         XCTAssertFalse(scrubbed.contains("abcdefgh12345678"))
         XCTAssertFalse(scrubbed.contains("AAAAAAAAAAAAAAAAAAAA"))

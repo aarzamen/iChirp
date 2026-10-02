@@ -293,6 +293,30 @@ final class JevDecisionModelTests: XCTestCase {
         XCTAssertTrue(text.contains("<api-key>") || text.contains("<token>"), text)
     }
 
+    /// Review R3-4: the shared scrubber also covers the key shapes this copy missed (Gemini, Groq, `xai-`).
+    func testOtherProvidersKeyShapesAreScrubbedToo() async {
+        JevStubURLProtocol.reset { _ in
+            .body(
+                #"{"detail": "proxy echoed AIzaSyTESTKEY0123456789abcdefghijkl, gsk_TESTKEY0123456789, xai-TESTKEY-0123456789"}"#,
+                status: 502, contentType: "application/json")
+        }
+        let error = await expectError(engine(key: key), request())
+        let text = [error?.localizedDescription ?? "", String(describing: error as Any)].joined()
+        for echo in ["AIzaSyTESTKEY", "gsk_TESTKEY", "xai-TESTKEY"] {
+            XCTAssertFalse(text.contains(echo), text)
+        }
+    }
+
+    func testTheSessionCachesNothingAndKeepsNoCookies() {
+        let configuration = JevHTTPTransport.privateConfiguration()
+        XCTAssertNil(configuration.urlCache)
+        XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+    }
+
     func testTestConnectionSendsOnlyTheFixedSyntheticSentence() async throws {
         JevStubURLProtocol.reset { _ in
             Self.answerBody(answers: [
