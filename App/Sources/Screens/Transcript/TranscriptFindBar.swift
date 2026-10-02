@@ -14,6 +14,7 @@ import SwiftUI
 /// Replace, Replace All), or why Replace cannot run. One row per group when it fits, more rows at accessibility sizes
 /// (`ViewThatFits`); every button keeps a 44 pt target. It owns no search: the screen feeds `TranscriptFindModel`.
 struct TranscriptFindBar: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var query: String
     @Binding var replacement: String
     @Binding var showsReplace: Bool
@@ -58,28 +59,36 @@ struct TranscriptFindBar: View {
     // MARK: - Find
 
     private var field: some View {
-        HStack(spacing: Tokens.Spacing.xs) {
-            Image(systemName: "magnifyingglass")
-                .chirpGlyph(14, .medium)
-                .foregroundStyle(Tokens.Color.mutedText)
-                .accessibilityHidden(true)
-            ChirpTextField("Find in transcript", text: $query)
-                .chirpFont(16)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.next)
-                .focused(isFocused)
-                .onSubmit(onNext)
-                .onKeyPress(.escape) {
-                    if !query.isEmpty {
-                        query = ""
-                    } else {
-                        onDone()
+        // The counter goes under the field at accessibility sizes, so the row never runs past the screen's edge.
+        // `AnyLayout` keeps the field's identity (and focus) whichever layout applies.
+        let layout =
+            dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: Tokens.Spacing.xs))
+        return layout {
+            HStack(spacing: Tokens.Spacing.xs) {
+                Image(systemName: "magnifyingglass")
+                    .chirpGlyph(14, .medium)
+                    .foregroundStyle(Tokens.Color.mutedText)
+                    .accessibilityHidden(true)
+                ChirpTextField("Find in transcript", text: $query)
+                    .chirpFont(16)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.next)
+                    .focused(isFocused)
+                    .onSubmit(onNext)
+                    .onKeyPress(.escape) {
+                        if !query.isEmpty {
+                            query = ""
+                        } else {
+                            onDone()
+                        }
+                        return .handled
                     }
-                    return .handled
-                }
-                .accessibilityIdentifier("find-field")
-                .frame(minWidth: 96, maxWidth: .infinity, minHeight: Tokens.Metric.minTapTarget)
+                    .accessibilityIdentifier("find-field")
+                    .frame(minWidth: 96, maxWidth: .infinity, minHeight: Tokens.Metric.minTapTarget)
+            }
             // The counter's width is reserved (upstream's pattern), so the bar's layout never changes while typing: a
             // layout change would rebuild the field and drop its focus mid-word.
             ZStack(alignment: .trailing) {
@@ -210,7 +219,12 @@ struct TranscriptFindBar: View {
     }
 
     private var replaceButtons: some View {
-        HStack(spacing: Tokens.Spacing.xs) {
+        // Side by side, or stacked at accessibility sizes (two wide buttons would run past the screen's edge).
+        let layout =
+            dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.Spacing.xs))
+            : AnyLayout(HStackLayout(spacing: Tokens.Spacing.xs))
+        return layout {
             Button("Replace", action: onReplace)
                 .buttonStyle(.chirp(.tinted, size: .compact))
                 .disabled(!canReplaceCurrent || isReplacing)

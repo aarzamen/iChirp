@@ -86,6 +86,11 @@ struct TranscriptScreen: View {
     @State private var isReplacing = false
     @State private var isConfirmingReplaceAll = false
     @State private var replaceResult: ReplaceResult?
+    /// The line a Replace changed, scrolled into view so the replacement is seen.
+    @State private var replacedLineID: Int?
+    /// The screen's height above the keyboard: the find panel takes at most half of it.
+    @State private var screenHeight: CGFloat = 800
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var isFindFocused: Bool
     @AccessibilityFocusState private var focusedLineID: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -110,7 +115,11 @@ struct TranscriptScreen: View {
         // Read here so the Transform sheet (built in a closure) sees Jev's suggestion when it opens (M6a).
         let suggestedTemplate = suggestedTemplateKey
         VStack(spacing: 0) {
-            tabs
+            // While Find is open at an accessibility text size, the tab row (several rows tall there) steps aside so
+            // the lines being searched keep room above the find bar and the keyboard; Find always shows the Transcript.
+            if !(isFinding && dynamicTypeSize.isAccessibilitySize) {
+                tabs
+            }
             content
         }
         // Plan 020: the now-playing bar and the voice confirmation (the Transform sheet shows its own).
@@ -147,12 +156,20 @@ struct TranscriptScreen: View {
             if model.transcription?.status == .completed, selectedTab == .transcript {
                 VStack(spacing: 0) {
                     if isFinding {
-                        if let replaceResult {
-                            ReplaceResultBanner(
-                                result: replaceResult, onUndo: { Task { await undoReplace(replaceResult) } },
-                                onAddRule: { Task { await addRule(replaceResult) } })
+                        // At most about half the screen above the keyboard; it scrolls when it needs more (large text).
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                if let replaceResult {
+                                    ReplaceResultBanner(
+                                        result: replaceResult, onUndo: { Task { await undoReplace(replaceResult) } },
+                                        onAddRule: { Task { await addRule(replaceResult) } })
+                                }
+                                findBar
+                            }
                         }
-                        findBar
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(maxHeight: max(screenHeight * 0.5, 160))
+                        .fixedSize(horizontal: false, vertical: true)
                     } else {
                         if let undoOffer {
                             CorrectionUndoBar(offer: undoOffer) { Task { await undo(undoOffer) } }
@@ -161,6 +178,11 @@ struct TranscriptScreen: View {
                     }
                 }
             }
+        }
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.height
+        } action: {
+            screenHeight = $0
         }
         .background {
             // A job started, moved on or ended for this row, or its stored status changed (a dictation's Retry
@@ -519,6 +541,15 @@ struct TranscriptScreen: View {
                     .padding(.bottom, 24)
                 }
             }
+            .onChange(of: replacedLineID) { _, target in
+                guard let target else { return }
+                if reduceMotion {
+                    proxy.scrollTo(target, anchor: .center)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(target, anchor: .center) }
+                }
+                replacedLineID = nil
+            }
             .onChange(of: find.current) { _, match in
                 guard isFinding, let match, lines.indices.contains(match.blockIndex) else { return }
                 let target = lines[match.blockIndex].id
@@ -770,7 +801,9 @@ struct TranscriptScreen: View {
 
     private func replaceCurrent() async {
         guard let current = find.current else { return }
+        let lineID = model.lines.indices.contains(current.blockIndex) ? model.lines[current.blockIndex].id : nil
         await runReplace { try await model.replace(current, query: findQuery, with: replacement) }
+        replacedLineID = lineID
     }
 
     private func replaceAll() async {
