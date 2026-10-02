@@ -64,6 +64,7 @@ extension ExportDocument {
         _ transcription: Transcription,
         cleanupMode: CleanupMode,
         effectivePrivacyClass: PrivacyClass? = nil,
+        context: TranscriptTextContext = .none,
         calendar: Calendar = .current,
         locale: Locale = .current
     ) -> ExportDocument {
@@ -88,8 +89,9 @@ extension ExportDocument {
         }
 
         // The text Copy writes in this mode (`Transcription.text(.shown(_:))`, plan 024 Task 8): a Clean file carries
-        // the clean text on its timed turns (review R1-3).
-        let text = transcription.text(.shown(cleanupMode))
+        // the clean text on its timed turns (review R1-3), and the person's corrections (plan 025; `context` is their
+        // clean-up rules, which a Clean file of a corrected transcript runs).
+        let text = transcription.text(.shown(cleanupMode), context: context)
         var blocks: [Block] = []
         if text.hasWordTimings {
             var lastSpeaker: String?

@@ -32,11 +32,12 @@ A single JSON object encoded with sorted keys, pretty-printed, UTF-8:
 | `engine` | string or absent/null | `EngineDescriptor.id`, e.g. `fluidaudio.parakeet-tdt` |
 | `engineVariant` | string or absent/null | e.g. `v3` |
 | `language` | string or absent/null | BCP-47 when known |
-| `text` | string | Plain text in the exporter's clean-up mode, the text Copy writes (`Transcription.plainText(.shown(mode))`): Raw: the engine text, except a dictation that stored polished text (Polish after), which is that text; Clean: `cleanTranscript` when present |
+| `text` | string | Plain text in the exporter's clean-up mode, the text Copy writes (`Transcription.plainText(.shown(mode))`): Raw: the engine text, except a dictation that stored polished text (Polish after), which is that text; Clean: `cleanTranscript` when present. With corrections (plan 025): the corrected text in that mode (Raw: the corrected words; Clean: the deterministic clean-up over them) |
 | `privacyClass` | string | `general`, `personal` or `clinical`: the class the privacy rules use for the item (its own class, raised by its documents'); `clinical` means the file holds patient information. Added 2026-10-01 (plan 024, review R1-13); absent in older files |
 | `speakers` | array | `{ "id": "S1", "label": "Speaker 1" }`; always present, empty when no speakers |
-| `segments` | array | `{ "id", "startMs", "endMs", "speakerId", "speakerLabel", "text", "wordRange": { "startIndex", "endIndexExclusive" } }`; always present, empty when none |
-| `words` | array | `{ "word", "startMs", "endMs", "confidence", "speakerId" }`, times in milliseconds from the start of the source; always present, empty when none (a document, a typed text) |
+| `segments` | array | `{ "id", "startMs", "endMs", "speakerId", "speakerLabel", "text", "wordRange": { "startIndex", "endIndexExclusive" } }`; always present, empty when none. With corrections (plan 025): the corrected segments (stored segments a correction straddles merge; their `wordRange` still indexes `words`), and a segment holding a correction has `"isTextEdited": true` (absent otherwise) |
+| `words` | array | `{ "word", "startMs", "endMs", "confidence", "speakerId" }`, times in milliseconds from the start of the source; always present, empty when none (a document, a typed text). Always the engine's words as heard, never corrected |
+| `corrections` | array, absent when none | Plan 025: the person's corrections, in order: `{ "id", "wordRange": { "startIndex", "endIndexExclusive" }, "heard", "text", "startMs", "endMs", "origin" }` (`wordRange` indexes `words`; `heard` is those words; `startMs`/`endMs` their envelope; `origin` is `edit`, `replace`, `replaceAll`, `rule` or `voiceCommand`). An uncorrected export is byte-identical to one made before corrections existed ([corrections contract](transcript-corrections-v1.md)) |
 
 Semantics: `words` are in time order; `segments[i].wordRange` indexes into `words` (half-open); every `speakerId`
 that appears in `words` or `segments` appears in `speakers`. Before 2026-10-01 the three arrays were omitted when
@@ -51,7 +52,8 @@ the item had none (review R1-4); a consumer that must read those files treats a 
 
 ## Versioning and compatibility
 
-New optional keys may be added to v1 (consumers ignore unknown keys); `privacyClass` was added this way. Removing or
+New optional keys may be added to v1 (consumers ignore unknown keys); `privacyClass`, `corrections` and
+`segments[i].isTextEdited` were added this way. Removing or
 renaming a key, changing a unit (milliseconds), or changing `wordRange` semantics requires `ichirp.transcript/v2`, a
 new contract document, and an importer that still reads v1.
 
@@ -64,6 +66,8 @@ new contract document, and an importer that still reads v1.
   `testJSONOfADocumentHasThreeEmptyArrays` (decoded with non-optional arrays).
 - `TranscriptExporterTests.testJSONCarriesThePrivacyClass` and `testTheEffectiveClassMarksTheTextExports`.
 - `TranscriptionCodingTests.testJSONRoundTripPreservesEveryField` (the nested record shapes in `ChirpCore`).
+- `CorrectedExportTests.testCorrectedJSONHasCorrectedTextAndSegmentsButHeardWords` and
+  `testJSONOmitsCorrectionsKeyWhenThereAreNone` (plan 025).
 
 ## When this changes
 
