@@ -85,7 +85,8 @@ private struct PhaseLabel: View {
     }
 }
 
-/// Recorded time while recording; frozen (not counting) otherwise.
+/// Recorded time while recording; frozen otherwise, at the recorded seconds the app sent (review R6a-13: measuring
+/// from `timerStart` when the view draws would keep growing while paused).
 private struct ElapsedText: View {
     let state: DictationActivityAttributes.ContentState
 
@@ -93,7 +94,7 @@ private struct ElapsedText: View {
         if state.phase == .recording {
             Text(timerInterval: state.timerStart...Date.distantFuture, countsDown: false)
         } else {
-            let seconds = max(0, Int(Date().timeIntervalSince(state.timerStart)))
+            let seconds = max(0, state.recordedSeconds)
             Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
         }
     }
