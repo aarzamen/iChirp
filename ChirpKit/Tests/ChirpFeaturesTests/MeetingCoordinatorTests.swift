@@ -219,6 +219,92 @@ final class MeetingCoordinatorTests: XCTestCase {
         XCTAssertNil(row)
     }
 
+    /// Review R5-6: a meeting stopped with under 0.3 s of audio (paused at once, or a call at the start) keeps the
+    /// notes typed meanwhile as a text item in the Library; only the unusable audio goes.
+    func testATooShortMeetingKeepsItsNotesAsATextItem() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        let id = try await startRecording(h)
+        h.coordinator.pause()
+        h.coordinator.notes = "Agenda: synthetic budget, hiring, item three"
+        h.coordinator.stop()
+        await waitUntil { if case .failed = h.coordinator.state { true } else { false } }
+
+        guard case .failed(let message, let failedID) = h.coordinator.state else { return XCTFail() }
+        XCTAssertNil(failedID)
+        XCTAssertTrue(message.contains("notes"), message)
+        let rows = try await h.store.fetchAll()
+        XCTAssertEqual(rows.count, 1)
+        let item = try XCTUnwrap(rows.first)
+        XCTAssertEqual(item.sourceType, .text)
+        XCTAssertEqual(item.rawTranscript, "Agenda: synthetic budget, hiring, item three")
+        XCTAssertFalse(fileExists(h.folder(id)), "only the unusable audio and its lock go")
+    }
+
+    /// When the notes cannot be saved, nothing is deleted: the folder and its lock (with the notes) stay, and the next
+    /// launch offers the meeting for recovery.
+    func testATooShortMeetingWhoseNotesCannotBeSavedKeepsItsFolder() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        let id = try await startRecording(h)
+        h.coordinator.notes = "Synthetic notes that must survive"
+        await h.store.failNextInsert(with: FakeError(message: "database is locked"))
+        h.coordinator.stop()
+        await waitUntil { if case .failed = h.coordinator.state { true } else { false } }
+
+        XCTAssertTrue(fileExists(h.folder(id)))
+        XCTAssertEqual(h.lockStore.read(sessionId: id)?.notes, "Synthetic notes that must survive")
+    }
+
+    /// Review R5-12: Stop writes the notes into the lock first, so a kill while the recorder stops (or the live preview
+    /// drains) keeps an edit typed just before Stop.
+    func testStopWritesTheNotesIntoTheLockBeforeTheRecorderStops() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        let id = try await startRecording(h)
+        h.recorder.send(.samples(toneSamples(seconds: 1)))
+        await waitUntil { h.coordinator.recordedSeconds >= 1 }
+        h.recorder.state.withLock { $0.holdNextStop = true }
+        h.coordinator.notes = "Decision: synthetic follow-up on Friday"  // within the save delay
+        h.coordinator.stop()
+        let recorder = h.recorder
+        await spinUntil { recorder.isHoldingStop }
+        XCTAssertEqual(h.lockStore.read(sessionId: id)?.notes, "Decision: synthetic follow-up on Friday")
+        recorder.releaseHeldStop()
+        await waitUntil { if case .saved = h.coordinator.state { true } else { false } }
+    }
+
+    /// Review R5-16: the meeting's final-pass progress behaves like dictation's: clamped, never backwards, and ignored
+    /// once the pass has ended.
+    func testFinalPassProgressIsClampedNeverGoesBackwardsAndStopsWithThePass() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        _ = try await startRecording(h)
+        h.recorder.send(.samples(toneSamples(seconds: 1)))
+        await waitUntil { h.coordinator.recordedSeconds >= 1 }
+        h.coordinator.applyFinalPassProgress(0.5)
+        XCTAssertNil(h.coordinator.finalPassProgress, "no pass runs")
+
+        let hold = await h.speech.holdNextTranscription()
+        h.coordinator.stop()
+        await hold.entered.wait()
+        h.coordinator.applyFinalPassProgress(0.6)
+        XCTAssertEqual(h.coordinator.finalPassProgress, 0.6)
+        h.coordinator.applyFinalPassProgress(0.3)
+        XCTAssertEqual(h.coordinator.finalPassProgress, 0.6, "never backwards")
+        h.coordinator.applyFinalPassProgress(1.7)
+        XCTAssertEqual(h.coordinator.finalPassProgress, 1)
+        hold.release.fire()
+        await waitUntil { if case .saved = h.coordinator.state { true } else { false } }
+        h.coordinator.applyFinalPassProgress(0.9)
+        XCTAssertNil(h.coordinator.finalPassProgress, "a late update after the pass is ignored")
+    }
+
+    func testAnErrorWithAnEmptyDescriptionStillHasAMessage() {
+        struct Silent: LocalizedError { var errorDescription: String? { "" } }
+        XCTAssertFalse(MeetingCoordinator.message(for: Silent()).isEmpty)
+    }
+
     func testLivePreviewUsesVoiceActivityWhenItsModelIsOnDiskAndShowsText() async throws {
         let withVAD = try MeetingHarness(
             voiceActivity: FakeVoiceActivity(

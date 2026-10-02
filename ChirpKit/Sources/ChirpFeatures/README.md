@@ -284,10 +284,13 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `recording.lock` **before** the recorder starts; Stop closes the audio, moves the lock to
   `awaitingTranscription`, inserts the `.processing` meeting row with the notes, and runs the finalizer. Pause and
   mute go to the recorder; interruptions arrive as capture events. Notes are written into the lock about a second
-  after typing stops and at Stop. A full disk shows `captureProblem` in `waitingForResume`; Resume returns to
-  Recording only once the recorder records again (review R5-3: it refuses while a test write still fails). The only
-  deletes: `discard()` (the screen confirms first), a start that failed
-  before any audio, and a recording under 0.3 s (the dictation rule). Low storage refuses to start under 200 MB and
+  after typing stops and, at Stop, first, before the recorder stops (review R5-12). A full disk shows
+  `captureProblem` in `waitingForResume`; Resume returns to Recording only once the recorder records again (review
+  R5-3: it refuses while a test write still fails). The final pass's progress is clamped, never goes backwards and is
+  ignored after the pass (review R5-16, as dictation). The only deletes: `discard()` (the screen confirms first), a
+  start that failed before any audio, and a recording under 0.3 s (the dictation rule), whose typed notes are first
+  saved as a text item (review R5-6; if that fails nothing is deleted and the lock keeps them for the next launch's
+  recovery). Low storage refuses to start under 200 MB and
   warns under 1 GB. `liveSpeechEngine` (review N6) is the live route's own engine name and whether it is Parakeet,
   for the "no live text" message: a restored backup or a revoked Apple Speech permission can leave a non-Parakeet
   engine on Live text, and the Meeting screen names that engine instead of assuming Parakeet.
@@ -306,7 +309,10 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
 - `MeetingFinalizer.swift`: normalize `meeting.caf` → one `.meetingFinalize` job (transcribe, then diarize; a
   diarization failure is not fatal) → `SpeakerMerger` → custom words only → title, snippet, segments →
   `savePreservingUserMetadata` → delete the lock only for a completed meeting row (settlement). Failures keep the
-  row (`.failed`, Retry), the lock and the audio. Privacy routing is checked before any audio is prepared and again
+  row (`.failed`, Retry), the lock and the audio. Review R5-5: only a recording whose duration reads 0 ms (killed in
+  its first moment) fails as "No audio was saved"; any other normalization failure says "The recording is saved." with
+  the normalizer's own sentence and Retry (`FinalizeError.preparationFailed`). Privacy routing is checked before any
+  audio is prepared and again
   inside the slot. Diarization shares the background slot with the final pass, so dictation's interactive slot is
   never blocked; its cost is part of the finalize time. A meeting's own lease blocks a route change for its whole
   final pass, but `MeetingRecoveryService` runs `finalize` with no lease at all, so `finalize` also retries
@@ -323,7 +329,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   speaker rename with `renameSpeaker`, blank names refused). UX audit F59: the notes save as you type, one write
   `autosaveDelay` (0.8 s) after the last keystroke; `flush()` writes at once (Done, the sheet going away); writes run
   one after another with the text as it is when each runs, so the newest text always lands last;
-  `discardUnsavedNotes()` is the explicit "Close without saving" after a failed write.
+  `discardUnsavedNotes()` is the explicit "Close without saving" after a failed write. Review R5-8: nothing is ever
+  written before a successful read; after a failed read `hasLoaded` stays false (no autosave, `save` refuses),
+  `loadFailed` is set, and the sheet keeps the editor off and offers Retry (`load()` again).
 - `MeetingSettingsViewModel.swift`: Settings → Meetings (retention choice saved onto the freshest settings; the
   voice-activity model's status, explicit download and delete).
 

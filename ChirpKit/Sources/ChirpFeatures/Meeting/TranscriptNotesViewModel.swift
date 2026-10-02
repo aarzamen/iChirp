@@ -19,7 +19,10 @@ import Observation
     }
     public private(set) var isSaving = false
     public private(set) var lastError: String?
+    /// The stored notes were read: only then may the editor be used and anything be written (review R5-8).
     public private(set) var hasLoaded = false
+    /// The last read failed: the sheet keeps the editor off and offers Retry (`load()` again).
+    public private(set) var loadFailed = false
 
     /// The speakers in order of first speech, with their current names.
     public var speakers: [SpeakerInfo] { transcription?.speakers ?? [] }
@@ -49,10 +52,14 @@ import Observation
             transcription = try await store.fetch(id: id)
             notes = transcription?.userNotes ?? ""
             lastError = nil
+            loadFailed = false
+            hasLoaded = true
         } catch {
-            lastError = "The notes could not be read: \(error.localizedDescription)"
+            // Review R5-8: nothing was read, so nothing may be written: no autosave, `save` refuses, the editor stays
+            // off until a Retry reads the notes. Otherwise the next keystroke would replace the meeting's notes.
+            loadFailed = true
+            lastError = "The notes could not be read: \(error.localizedDescription) Tap Retry."
         }
-        hasLoaded = true
     }
 
     /// Writes any unsaved notes now and cancels a pending autosave. Returns whether the notes are stored.
@@ -68,6 +75,11 @@ import Observation
     /// Saves the notes (blank clears them) after any write still running. Returns whether they are stored.
     @discardableResult
     public func save() async -> Bool {
+        guard hasLoaded else {
+            // Review R5-8: never write before a successful read.
+            lastError = "Your notes weren’t read, so nothing was saved over them. Tap Retry to read them."
+            return false
+        }
         let previous = lastWrite
         let write = Task { () -> Bool in
             await previous?.value

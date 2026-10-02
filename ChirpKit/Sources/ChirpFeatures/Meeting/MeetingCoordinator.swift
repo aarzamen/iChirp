@@ -52,7 +52,7 @@ public enum MeetingFlowState: Equatable, Sendable {
 /// `awaitingTranscription`, inserts the row and runs `MeetingFinalizer`, which deletes the lock only after the
 /// completed row is saved. A failed final pass keeps the row, the lock and the audio (Retry). The only deletes here
 /// are `discard()` (the person confirmed), a start that failed before any audio, and a recording under 0.3 s (the
-/// same rule as dictation).
+/// same rule as dictation), whose typed notes are first saved as a text item (review R5-6).
 @MainActor @Observable public final class MeetingCoordinator {
     public private(set) var state: MeetingFlowState = .idle
     /// Seconds of audio recorded (not advancing while paused).
@@ -443,6 +443,9 @@ public enum MeetingFlowState: Equatable, Sendable {
             // The start failed or is still failing; it already reported.
             return
         }
+        // Review R5-12: the notes cannot change after Stop. They go into the lock first, so a kill while the recorder
+        // stops or the live preview drains keeps the last edit.
+        saveNotesToLock()
         let recorded: RecordedAudio
         do {
             recorded = try await recorder.stop()
@@ -455,11 +458,7 @@ public enum MeetingFlowState: Equatable, Sendable {
         await finishLive()
 
         if recorded.sampleCount < SpeechAudio.minimumSamples {
-            // Under 0.3 s: nothing to transcribe (the dictation rule). The folder holds no meeting yet.
-            try? FileManager.default.removeItem(at: paths.mediaDirectory(for: id))
-            logger.notice("meeting_too_short id=\(id, privacy: .public)")
-            sessionID = nil
-            fail(AudioCaptureError.tooShort.errorDescription ?? "That was too short.", id: nil)
+            await finishTooShort(id: id)
             return
         }
 
@@ -500,11 +499,44 @@ public enum MeetingFlowState: Equatable, Sendable {
         await runFinalPass(id: id, retry: false)
     }
 
+    /// Under 0.3 s: nothing to transcribe (the dictation rule). Review R5-6: notes typed meanwhile (paused at once, a
+    /// call at the start) are kept first, as a text item; only then do the unusable audio and its lock go. When the
+    /// notes cannot be saved, nothing is deleted: the lock keeps them and the next launch offers the meeting.
+    private func finishTooShort(id: UUID) async {
+        guard let notesText = Self.storedNotes(notes) else {
+            try? FileManager.default.removeItem(at: paths.mediaDirectory(for: id))
+            logger.notice("meeting_too_short id=\(id, privacy: .public)")
+            sessionID = nil
+            fail(AudioCaptureError.tooShort.errorDescription ?? "That was too short.", id: nil)
+            return
+        }
+        do {
+            let store = self.store
+            let item = try await Task { try await TextItemService(store: store).save(notesText) }.value
+            try? FileManager.default.removeItem(at: paths.mediaDirectory(for: id))
+            logger.notice("meeting_too_short_notes_kept id=\(id, privacy: .public) item=\(item.id, privacy: .public)")
+            sessionID = nil
+            fail(
+                "That was too short to transcribe (under 0.3 s of audio). Your notes are saved in the Library as a "
+                    + "text item.", id: nil)
+        } catch {
+            logger.error("meeting_too_short_notes_save_failed error_type=\(error.logTypeName, privacy: .public)")
+            try? lockStore.update(sessionId: id) {
+                $0.state = .awaitingTranscription
+                $0.notes = notesText
+            }
+            sessionID = nil
+            fail(
+                "That was too short to transcribe, and Parakeet couldn’t save your notes on their own. They are kept "
+                    + "with the recording, which Parakeet offers to recover the next time it opens.", id: nil)
+        }
+    }
+
     private func runFinalPass(id: UUID, retry: Bool) async {
         onFinalPass?(id, true)
         defer { onFinalPass?(id, false) }
         let progress: @Sendable (JobProgress) -> Void = { [weak self] value in
-            Task { @MainActor in self?.finalPassProgress = value.fraction }
+            Task { @MainActor in self?.applyFinalPassProgress(value.fraction) }
         }
         let saved =
             retry
@@ -614,8 +646,20 @@ public enum MeetingFlowState: Equatable, Sendable {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
     }
 
-    private static func message(for error: any Error) -> String {
-        (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
+    /// Review R5-16: like dictation's, an empty description never becomes an empty message.
+    static func message(for error: any Error) -> String {
+        if let description = (error as? any LocalizedError)?.errorDescription, !description.isEmpty {
+            return description
+        }
+        let fallback = error.localizedDescription
+        return fallback.isEmpty ? "Something went wrong with the recording." : fallback
+    }
+
+    /// The final pass's progress (review R5-16, as dictation shows it): clamped to 0…1, never backwards (progress hops
+    /// to the main actor in their own tasks, which may land out of order), and ignored once the pass has ended.
+    func applyFinalPassProgress(_ fraction: Double) {
+        guard let current = finalPassProgress else { return }
+        finalPassProgress = max(current, min(max(fraction, 0), 1))
     }
 
     /// Free space for important data on the volume that holds Application Support (nil when unknown).

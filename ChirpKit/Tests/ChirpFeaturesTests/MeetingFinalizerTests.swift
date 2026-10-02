@@ -57,6 +57,36 @@ final class MeetingFinalizerTests: XCTestCase {
         XCTAssertTrue(fileExists(h.audio(id)))
     }
 
+    /// Review R5-5: a normalization that fails on a recording that has audio (a full disk while preparing a long
+    /// meeting, a decode error after a crash) says the recording is saved and what failed, never "No audio was saved".
+    func testANormalizationFailureOnARecordingWithAudioSaysWhatFailed() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        await h.normalizer.failNormalize(with: FakeError(message: "Could not write decoded audio: no space"))
+        let id = try await insertStoppedMeeting(h)
+        let saved = await h.finalizer.finalize(id: id)
+
+        XCTAssertEqual(saved?.status, .failed)
+        let message = try XCTUnwrap(saved?.errorMessage)
+        XCTAssertFalse(message.contains("No audio"), message)
+        XCTAssertTrue(message.hasPrefix("The recording is saved"), message)
+        XCTAssertTrue(message.contains("Could not write decoded audio: no space"), message)
+        XCTAssertTrue(message.contains("Retry"), message)
+        XCTAssertTrue(fileExists(h.audio(id)))
+        XCTAssertTrue(h.lockStore.hasLockFile(sessionId: id))
+    }
+
+    /// A recording killed in its first moment holds a header and no samples: that, and only that, is "No audio".
+    func testARecordingWithNoAudioStillSaysNoAudio() async throws {
+        let h = try MeetingHarness()
+        harness = h
+        await h.normalizer.failNormalize(with: FakeError(message: "The operation could not be completed"))
+        await h.normalizer.reportDuration(0)
+        let id = try await insertStoppedMeeting(h)
+        let saved = await h.finalizer.finalize(id: id)
+        XCTAssertEqual(saved?.errorMessage, MeetingFinalizer.FinalizeError.noAudio.errorDescription)
+    }
+
     func testDiarizationFailureIsNotFatal() async throws {
         let h = try MeetingHarness()
         harness = h

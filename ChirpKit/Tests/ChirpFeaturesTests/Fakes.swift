@@ -361,8 +361,12 @@ actor FakeNormalizer: AudioNormalizing {
 
     func durationMs(of sourceURL: URL) async throws -> Int {
         if let durationError { throw durationError }
-        return Self.durationMs
+        return reportedDurationMs ?? Self.durationMs
     }
+
+    /// What `durationMs(of:)` reports from now on (0: a recording with a header and no samples).
+    func reportDuration(_ milliseconds: Int?) { reportedDurationMs = milliseconds }
+    private var reportedDurationMs: Int?
 }
 
 // MARK: - Audio tracks

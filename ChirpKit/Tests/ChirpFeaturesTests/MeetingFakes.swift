@@ -67,6 +67,10 @@ final class FakeMeetingRecorder: MeetingAudioCapturing, @unchecked Sendable {
         /// recorder in order even when one of them is slow.
         var holdNextPause = false
         var heldPause: CheckedContinuation<Void, Never>?
+        /// When true, the next `stop()` waits until `releaseHeldStop()` (review R5-12: what is on disk while the
+        /// recorder is still stopping).
+        var holdNextStop = false
+        var heldStop: CheckedContinuation<Void, Never>?
     }
 
     let state = Mutex(State())
@@ -130,7 +134,26 @@ final class FakeMeetingRecorder: MeetingAudioCapturing, @unchecked Sendable {
         if let error { throw error }
     }
 
+    var isHoldingStop: Bool { state.withLock { $0.heldStop != nil } }
+
+    /// Lets a held `stop()` finish.
+    func releaseHeldStop() {
+        let held = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            defer { state.heldStop = nil }
+            return state.heldStop
+        }
+        held?.resume()
+    }
+
     func stop() async throws -> RecordedAudio {
+        if state.withLock({ $0.holdNextStop }) {
+            await withCheckedContinuation { continuation in
+                state.withLock {
+                    $0.holdNextStop = false
+                    $0.heldStop = continuation
+                }
+            }
+        }
         let (url, count, continuation) = try state.withLock { state in
             guard state.isRecording, let url = state.url else { throw AudioCaptureError.notRecording }
             state.isRecording = false
