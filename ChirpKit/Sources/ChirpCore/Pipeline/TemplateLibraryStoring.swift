@@ -5,7 +5,8 @@ import Foundation
 /// draft (`TemplateDraft.problem`) and name uniqueness inside it. Built-ins can be hidden and moved, never edited,
 /// renamed or deleted here. Contract: spec/contracts/deliverables-v1.md "Template library".
 public protocol TemplateLibraryStoring: Sendable {
-    /// Soft-deleted templates of the person's own, newest delete first.
+    /// Soft-deleted templates, newest delete first. Only the person's own can be deleted here; a built-in appears only
+    /// if the older `softDeleteTemplate` deleted it (no screen calls that), and then it can be restored too.
     func fetchDeletedTemplates() async throws -> [PromptTemplate]
     /// A new template of the person's own with version 1 (origin `user`), shown, last in its section.
     func createUserTemplate(_ draft: TemplateDraft) async throws -> PromptTemplate

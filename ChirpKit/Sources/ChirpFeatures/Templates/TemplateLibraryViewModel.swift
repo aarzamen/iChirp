@@ -26,7 +26,7 @@ public struct TemplateDeleteImpact: Sendable, Equatable {
     public private(set) var documents: [PromptTemplate] = []
     /// Rewrites (`.transform`), in order, hidden ones included.
     public private(set) var rewrites: [PromptTemplate] = []
-    /// Deleted templates of the person's own, newest delete first.
+    /// Deleted templates, newest delete first (only the person's own can be deleted from this screen).
     public private(set) var deleted: [PromptTemplate] = []
     public private(set) var loadError: String?
     public private(set) var actionError: String?
