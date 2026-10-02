@@ -179,8 +179,11 @@ contract that proves no content or identifiers leave the device.
   stored or logged, and VoiceOver announcements carry counts and times only. A learned rule ("Also fix … in future
   transcripts") is saved in Settings → Custom words & snippets for every transcript, outside any item's class, and
   never leaves the iPhone; on a clinical item the offer adds "Saved in Settings → Text rules for all transcripts. Don’t
-  add patient names." A learned rule never holds a number in what it finds or what it writes (refused when offered,
-  saved or edited, and never applied), so a dose is never changed automatically in a later clinical dictation. A
+  add patient names." A learned rule never holds a number or a dose or measurement unit (mg, mcg, mL,
+  units, percent, bid, daily and the rest of one closed list) in what it finds or what it writes (refused when offered,
+  saved or edited, and never applied), so a dose is never changed automatically in a later clinical dictation: "0.5
+  mg" → "5 mg" and "mg" → "mcg" are both refused. Rules between drug names ("metoprolol" → "metformin") stay allowed;
+  whether to restrict them is the owner's decision. A
   dictation whose copied text a rule changed says how many words were fixed (a count only). The network surfaces
   table does not change.
 - Downloaded models are excluded from backups because they can be downloaded again.

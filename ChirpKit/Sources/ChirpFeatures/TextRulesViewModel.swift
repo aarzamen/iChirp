@@ -65,8 +65,12 @@ import Observation
             lastError = "Type the word Parakeet should write."
             return false
         }
-        if edited.source == .learned {
-            // Fix round 1: a learned rule always writes something (M4) and never holds a number (C1).
+        // Fix round 2, N2: only a change of text is checked; turning a rule on or off is never refused, even for a
+        // rule saved before the checks existed.
+        let stored = words.first { $0.id == edited.id }
+        let textChanged = stored.map { $0.word != edited.word || $0.replacement != edited.replacement } ?? true
+        if edited.source == .learned, textChanged {
+            // Fix round 1: a learned rule always writes something (M4) and never holds a number or dose unit (C1, U1).
             guard let replacement = edited.replacement else {
                 lastError = Self.learnedRuleNeedsReplacement
                 return false

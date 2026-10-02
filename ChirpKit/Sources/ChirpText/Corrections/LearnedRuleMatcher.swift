@@ -14,7 +14,8 @@ import Foundation
 /// to the smallest span by `CorrectionPlanner` (`origin: .rule`, the rule's `ruleID`, one batch per rule). Unlike Clean,
 /// rules do not chain: every rule sees the words as heard. A match that touches a word the person (or an earlier rule)
 /// already corrected is left alone, and a match whose span would overlap an earlier one is skipped, so the plan never
-/// removes a correction. A rule with a number in either text is never applied (`containsNumber`).
+/// removes a correction. A rule with a number or a dose unit in either text is never applied
+/// (`containsNumberOrDoseUnit`).
 public enum LearnedRuleMatcher {
     public static func plan(_ heard: TranscriptText, rules: [CustomWord], now: Date) -> TranscriptCorrectionPlan {
         guard heard.hasWordTimings, !heard.tokens.isEmpty else { return TranscriptCorrectionPlan() }
@@ -22,8 +23,8 @@ public enum LearnedRuleMatcher {
             guard rule.isEnabled,
                 let replacement = rule.replacement?.trimmingCharacters(in: .whitespacesAndNewlines),
                 !replacement.isEmpty,
-                // C1, defense in depth for rules saved before the number ruling: never applied.
-                !containsNumber(rule.word), !containsNumber(replacement),
+                // C1 and U1, defense in depth for rules saved before those rulings: never applied.
+                !containsNumberOrDoseUnit(rule.word), !containsNumberOrDoseUnit(replacement),
                 let regex = regex(for: rule.word)
             else { return nil }
             return (rule, regex, replacement)
@@ -82,8 +83,45 @@ public enum LearnedRuleMatcher {
         text.contains(where: \.isNumber)
     }
 
-    public static func containsDoseUnit(_ text: String) -> Bool { false }  // STUB
-    public static func containsNumberOrDoseUnit(_ text: String) -> Bool { containsNumber(text) }  // STUB
+    /// Fix round 2, U1: the dose and measurement words no learned rule may hold, on either side ("mg" → "mcg" changes a
+    /// dose's meaning without a digit). One closed list, matched as whole words in any case (`containsDoseUnit`): mass,
+    /// volume and units, percent, and the dose-frequency abbreviations whose swap changes meaning. Drug names are not
+    /// on it ("metoprolol" → "metformin" stays allowed: the owner's to revisit).
+    public static let doseUnitWords: [String] = [
+        // Mass
+        "mg", "mcg", "µg", "μg", "ug", "g", "gm", "gram", "grams", "kg", "milligram", "milligrams", "microgram",
+        "micrograms", "ng", "nanogram", "nanograms",
+        // Volume
+        "ml", "cc", "l", "liter", "liters", "litre", "litres", "milliliter", "milliliters", "millilitre",
+        "millilitres",
+        // Units and amounts of substance
+        "unit", "units", "iu", "international unit", "international units", "meq", "mmol", "mol",
+        // Percent
+        "percent", "%",
+        // Dose frequency
+        "qd", "bid", "tid", "qid", "q.d.", "b.i.d.", "t.i.d.", "q.i.d.", "qhs", "prn", "daily", "weekly", "hourly",
+    ]
+
+    /// `doseUnitWords` as one case-insensitive pattern: each word not touching another letter or digit on either side
+    /// (so "mg" is found in "5 mg" and "mg/kg" but not in "magnesium"; "%" anywhere).
+    private static let doseUnitPattern: NSRegularExpression? = {
+        let alternatives = doseUnitWords.sorted { $0.count > $1.count }.map { word -> String in
+            let escaped = NSRegularExpression.escapedPattern(for: word)
+            return word == "%" ? escaped : "(?<![\\p{L}\\p{N}])" + escaped + "(?![\\p{L}\\p{N}])"
+        }
+        return try? NSRegularExpression(pattern: alternatives.joined(separator: "|"), options: .caseInsensitive)
+    }()
+
+    /// True when `text` holds a word of `doseUnitWords` (U1).
+    public static func containsDoseUnit(_ text: String) -> Bool {
+        guard let pattern = doseUnitPattern else { return true }  // never fail open
+        return pattern.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
+    }
+
+    /// The one check behind every learned-rule refusal (C1 and U1): a number or a dose unit.
+    public static func containsNumberOrDoseUnit(_ text: String) -> Bool {
+        containsNumber(text) || containsDoseUnit(text)
+    }
 
     /// `CustomWordReplacer`'s pattern for one word.
     private static func regex(for word: String) -> NSRegularExpression? {

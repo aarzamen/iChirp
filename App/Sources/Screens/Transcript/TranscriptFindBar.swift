@@ -264,15 +264,15 @@ struct ReplaceResult: Identifiable, Equatable {
     /// The banner for `outcome`: "Replaced 3." (or "Nothing changed."), what was left alone and why, the rule offer
     /// with the clinical note on a clinical item, or why there is none.
     static func make(_ outcome: ReplaceOutcome, privacyClass: PrivacyClass) -> ReplaceResult {
-        guard outcome.count > 0 else {
-            return ReplaceResult(message: TranscriptFindCopy.nothingChanged, undo: .init())
-        }
-        var message = TranscriptFindCopy.replaced(count: outcome.count)
+        // Fix round 2, N1: "Nothing changed." says why when matches were left alone.
+        var message =
+            outcome.count > 0 ? TranscriptFindCopy.replaced(count: outcome.count) : TranscriptFindCopy.nothingChanged
         let stale = outcome.skipped - outcome.skippedInCorrections
         if outcome.skippedInCorrections > 0 {
             message += " " + TranscriptFindCopy.skippedInCorrections(outcome.skippedInCorrections)
         }
         if stale > 0 { message += " " + TranscriptFindCopy.skipped(stale) }
+        guard outcome.count > 0 else { return ReplaceResult(message: message, undo: .init()) }
         let note = outcome.ruleSuggestion.flatMap { TranscriptFindCopy.rulePrompt($0, privacyClass: privacyClass).note }
         return ReplaceResult(
             message: message, undo: outcome.undo, suggestion: outcome.ruleSuggestion, note: note,
@@ -281,9 +281,11 @@ struct ReplaceResult: Identifiable, Equatable {
 
     /// What VoiceOver says when the result arrives (fix round 1, I3): counts and what can be done, no content.
     func announcement(matchesLeft: Int) -> String {
-        guard canUndo else { return TranscriptFindCopy.nothingChanged }
+        guard canUndo else { return message }
         var text = TranscriptFindCopy.replacedAnnouncement(left: matchesLeft) + " Undo available."
         if suggestion != nil { text += " Rule offer available." }
+        // Fix round 2, N4: a withheld offer is said too, without its content.
+        if withheld != nil { text += " No rule offer." }
         return text
     }
 }

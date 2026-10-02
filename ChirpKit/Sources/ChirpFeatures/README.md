@@ -268,9 +268,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   `DictationTextRules.enabled(in:)` reads the enabled manual words and snippets for a dictation. Plan 025 D8:
   `manualWords` (Clean and meetings use only these) and `learnedRules` ("Fixes from your corrections"), and
   `addLearnedRule(word:replacement:)` → `.added`, `.alreadyExists("“met for men” already has a rule in Settings → Text
-  rules.")`, `.refused` (fix round 1, C1: a number in either text, "Rules can’t contain numbers, so a dose is never
-  changed automatically.") or `.failed`, which never sets `lastError` (the Transcript screen shows it). Editing a
-  learned rule refuses a number too, and an empty replacement (M4: delete the rule instead).
+  rules.")`, `.refused` (fix rounds 1 and 2, C1 and U1: a number or a dose unit in either text, "Rules can’t contain
+  numbers or dose units, so a dose is never changed automatically.") or `.failed`, which never sets `lastError` (the
+  Transcript screen shows it). Editing a learned rule refuses a number or dose unit too, and an empty replacement (M4:
+  delete the rule instead); turning a rule on or off, or deleting it, is never refused (fix round 2, N2).
 - `SettingsStore.swift`: `SettingsStoring` and `UserDefaultsSettingsStore`, a JSON blob under
   `ichirp.transcriptionSettings` that falls back to the defaults when missing or unreadable.
 - `LanguageModelProviderStore.swift`: `LanguageModelProviderStoring` and `UserDefaultsLanguageModelProviderStore`

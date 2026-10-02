@@ -62,13 +62,15 @@ public struct LearnedRuleSuggestion: Sendable, Equatable {
         return LearnedRuleSuggestion(word: query, replacement: trimmedReplacement)
     }
 
-    /// Fix round 1, C1: no learned rule may hold a number, so a dose is never changed automatically.
-    public static let numbersReason = "Rules can’t contain numbers, so a dose is never changed automatically."
+    /// Fix rounds 1 and 2 (C1, U1): no learned rule may hold a number or a dose unit, so a dose is never changed
+    /// automatically. One reason line for both checks.
+    public static let numbersReason =
+        "Rules can’t contain numbers or dose units, so a dose is never changed automatically."
 
     /// Why a replacement is never offered as a rule even though it changed something: a number in the query or the
     /// replacement (C1). Nil when that is not the reason.
     public static func withheldReason(query: String, replacement: String) -> String? {
-        LearnedRuleMatcher.containsNumber(query) || LearnedRuleMatcher.containsNumber(replacement)
+        LearnedRuleMatcher.containsNumberOrDoseUnit(query) || LearnedRuleMatcher.containsNumberOrDoseUnit(replacement)
             ? numbersReason : nil
     }
 

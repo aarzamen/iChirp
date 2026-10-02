@@ -117,7 +117,7 @@ final class TranscriptSearchIndexTests: XCTestCase {
 }
 
 /// Plan 025 D4 budget, Mac debug build: building the index of 20,000 words ≤ 150 ms and a median query ≤ 16 ms (the
-/// phone's budget, 50 ms and 8 ms p95 in a release build, is measured by the device smoke's `FIND BENCH` line).
+/// phone's budget, a 50 ms cold index and an 8 ms median query in a release build, is measured by the device smoke's `FIND BENCH` line).
 final class TranscriptSearchIndexPerformanceTests: XCTestCase {
     func testTwentyThousandWords() {
         let blocks = TranscriptSearchBenchmark.syntheticBlocks(words: 20_000)

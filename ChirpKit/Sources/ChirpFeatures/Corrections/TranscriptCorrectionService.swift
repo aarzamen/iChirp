@@ -148,12 +148,22 @@ public struct TranscriptCorrectionService: Sendable {
             let plan = LearnedRuleMatcher.plan(row.text(.heard, context: context), rules: rules, now: now)
             guard !plan.isEmpty else { return nil }
             let fingerprint = row.wordsFingerprint
+            let applyFailed = Mutex(false)
             let saved = try await write(id) { row in
                 // Planned against these words and no corrections: anything else meanwhile, skip.
                 guard row.status == .completed, row.wordsFingerprint == fingerprint, row.textCorrections == nil else {
                     return false
                 }
-                guard (try? row.applyCorrections(plan, now: now)) != nil else { return false }
+                do {
+                    _ = try row.applyCorrections(plan, now: now)
+                } catch {
+                    // Fix round 2, N6: its own reason in the log (the error's case only, never content).
+                    Self.logger.notice(
+                        "learned_rules_skipped id=\(id, privacy: .public) reason=apply_failed error=\(String(describing: error), privacy: .public)"
+                    )
+                    applyFailed.withLock { $0 = true }
+                    return false
+                }
                 Self.derive(&row, context: context)
                 return true
             }
@@ -161,7 +171,7 @@ public struct TranscriptCorrectionService: Sendable {
                 Self.logger.notice(
                     "corrections_saved id=\(id, privacy: .public) added=\(plan.add.count, privacy: .public) removed=0 origin=rule"
                 )
-            } else {
+            } else if !applyFailed.withLock({ $0 }) {
                 Self.logger.notice("learned_rules_skipped id=\(id, privacy: .public) reason=changed_meanwhile")
             }
             return saved

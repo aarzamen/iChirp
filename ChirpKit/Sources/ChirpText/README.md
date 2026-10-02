@@ -76,7 +76,7 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   UTF-16 start and end, so `matches(for:)` is one scan per keystroke and every `TranscriptFindMatch` (`blockIndex`,
   UTF-16 `NSRange`) covers whole Characters of the shown text: it must start on a Character's first folded unit and
   end on its last (fix round 1, M1: "as" is no match in "Straße", as with upstream's NSString search). Blank queries match nothing; the untrimmed query is
-  searched; matches never overlap or cross a block. Budget (D4): 20,000 words, index ≤ 50 ms and query ≤ 8 ms p95 on
+  searched; matches never overlap or cross a block. Budget (D4): 20,000 words, index ≤ 50 ms and median query ≤ 8 ms on
   the iPhone (the device smoke's `FIND BENCH` line); `TranscriptSearchIndexPerformanceTests` checks a looser Mac debug
   bound. `Find/TranscriptSearchBenchmark.swift` (B7) is the one measurement both use: deterministic synthetic lines
   of 80 words, the first (cold) index build and the median of 20 typed queries (fix round 1, M9).
@@ -86,8 +86,10 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   `CorrectionPlanner` (one batch per rule, `ruleID` set). Rules do not chain; a match touching a corrected word, or
   overlapping an earlier match, is skipped, so a plan never removes a correction. `isWholeWord(_:in:word:)` is the
   check behind the rule offer after a Replace. Fix round 1 (C1): a rule with a number in either text
-  (`containsNumber`, any Unicode number) is never applied, so a dose is never changed automatically, even by a rule
-  saved before that ruling. `touchesCorrection` is shared with Replace (I2).
+  (`containsNumber`, any Unicode number) or a dose unit (fix round 2, U1: `doseUnitWords`, one closed list of mass,
+  volume and unit words, percent and dose-frequency abbreviations, whole words in any case, `containsDoseUnit`) is
+  never applied, so a dose is never changed automatically, even by a rule saved before those rulings. Drug names are
+  not on the list. `touchesCorrection` is shared with Replace (I2).
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name

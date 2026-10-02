@@ -70,7 +70,7 @@ write them, ChirpCore, ChirpStore and the device smoke.
   semantics from upstream's `TranscriptFindModel`) folds every Character case- and diacritic-insensitively once per text
   change and maps each folded unit back to its Character, so a match always covers whole Characters (an accented
   letter written as two code points, an emoji with a skin tone); blank queries match nothing, the untrimmed query is
-  searched, matches never overlap or cross a line. Budget: 20,000 words, index ≤ 50 ms and query ≤ 8 ms p95 on the
+  searched, matches never overlap or cross a line. Budget: 20,000 words, index ≤ 50 ms and median query ≤ 8 ms on the
   iPhone (the device smoke's `FIND BENCH`). **Replace** turns each match's line into the line with the match replaced
   and saves the smallest spans through `CorrectionPlanner` and the one writer (`origin: replace`; Replace all is one
   write with one `batchID`, `origin: replaceAll`, undone together); a match whose text no longer matches the query is
@@ -84,7 +84,9 @@ write them, ChirpCore, ChirpStore and the device smoke.
   word already corrected) as `rule` corrections with the rule's `ruleID`, visible and revertible like any other, in Raw
   and Clean. Clean and the meeting applier get manual words only (`enabledManualCustomWords()`), so manual custom words
   behave exactly as before. A rule that fails never fails the job. Fix round 1: no rule may hold a number (refused
-  when offered or saved, never applied: a dose is never changed automatically); rules are matched outside the store's
+  when offered or saved, never applied: a dose is never changed automatically); fix round 2: nor a dose or measurement
+  unit word (mg, mcg, mL, units, percent, bid, daily and the rest of `LearnedRuleMatcher.doseUnitWords`, whole words,
+  any case), since "mg" → "mcg" changes a dose without a digit; rules are matched outside the store's
   transaction and skipped when the words or corrections changed meanwhile; a transcript with a correction history gets
   no rules, so a reverted fix is never re-applied. Replace skips matches touching another batch's correction, keeps an
   untrimmed query's edge spacing, and a match starts and ends on Character boundaries (half of a folded "ß" is no

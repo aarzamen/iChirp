@@ -1171,9 +1171,10 @@ Guardrails and edge cases
 - [ ] Largest accessibility text size: the bar wraps, the counter sits under the field, every button can be reached
       (the panel scrolls) and tapped.
 - [ ] A clinical transcript's rule offer warns against patient names.
-- [ ] Replace "met for men" with "metformin 500": no rule offer; the banner says "Rules can’t contain numbers, so a
-      dose is never changed automatically.". In Settings, editing a fix to add a number, or to empty what it writes,
-      is refused.
+- [ ] Replace "met for men" with "metformin 500", and "mg" with "mcg": no rule offer; the banner says "Rules can’t
+      contain numbers or dose units, so a dose is never changed automatically.". In Settings, editing a fix to add a
+      number or a dose unit, or to empty what it writes, is refused; turning a fix off always works. A drug-name fix
+      ("metoprolol" → "metformin") is offered.
 - [ ] Correct a passage, then Replace All a word inside it: that place is left alone ("in a corrected passage"), and
       reverting the Replace All keeps your correction.
 - [ ] With a fix saved, dictate the misheard word: Done says "1 word fixed by your rules"; Show in transcript shows it
