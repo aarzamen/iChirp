@@ -600,7 +600,8 @@ public struct DictationTextRules: Sendable {
         let store = self.store
         let outcome: Result<FinalText, any Error>
         do {
-            let privacyClass = try await store.fetch(id: row.id)?.privacyClass ?? row.privacyClass
+            let stored = try await store.fetch(id: row.id)
+            let privacyClass = stored?.privacyClass ?? row.privacyClass
             guard routing.allows(speech.descriptor, for: privacyClass) else {
                 throw FileTranscriptionPipeline.PipelineError.privacyRoutingRefused(
                     engineName: speech.descriptor.displayName)
@@ -614,6 +615,12 @@ public struct DictationTextRules: Sendable {
             // Review R5-4: a recording a kill left behind (adopted now or by an older build) reads as 0 s until its
             // header describes the samples on disk. A header that already describes them is not touched.
             let repaired = await repairInterruptedRecording(url)
+            // Fix round 3: a header this repair had to rewrite was never closed, so the recording was cut short (a row
+            // an older build adopted without the repair). The flag is never cleared.
+            let isPartialAudio = row.isPartialAudio || stored?.isPartialAudio == true || repaired?.didRepair == true
+            if isPartialAudio, stored?.isPartialAudio == false {
+                await markPartialAudio(row)
+            }
             let result = try await scheduler.run(.dictation) {
                 try await speech.prepare()
                 return try await speech.transcribe(
@@ -642,6 +649,7 @@ public struct DictationTextRules: Sendable {
             completed.language = result.language ?? completed.language
             completed.engine = speech.descriptor.id
             completed.engineVariant = result.engineVariant
+            completed.isPartialAudio = isPartialAudio
             // The recording's length is authoritative (the 0.5 s pad can put a last word's end past it).
             completed.durationMs = completed.durationMs ?? repaired?.durationMs ?? result.words.map(\.endMs).max()
             let title = TitleDeriver.derive(from: text) ?? ""
@@ -670,6 +678,25 @@ public struct DictationTextRules: Sendable {
         // here now that the pass has released the engine, in case it is still on no route.
         await SpeechRouting.releaseUnroutedModels(on: self.speech)
         return outcome
+    }
+
+    /// Fix round 3: saves `isPartialAudio` on the row the final pass is working on as soon as the pass knows it, so a
+    /// pass that fails after its repair still leaves the row marked (the repaired file no longer shows the kill). It is
+    /// the pass's own save of the row it moved to `.processing` (user fields are kept, a deleted row stays deleted); a
+    /// failure is logged, and the pass's final save carries the flag again.
+    private func markPartialAudio(_ row: Transcription) async {
+        var marked = row
+        marked.isPartialAudio = true
+        marked.updatedAt = Date()
+        let partial = marked
+        let store = self.store
+        let id = row.id
+        do {
+            _ = try await Self.detached { try await store.savePreservingUserMetadata(partial) }
+        } catch {
+            logger.error(
+                "dictation_partial_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
+        }
     }
 
     /// "Keep dictation audio" off: deletes the recording after its transcript was saved, then clears the row's media
@@ -708,11 +735,13 @@ public struct DictationTextRules: Sendable {
     /// Library shows it with Retry instead of the audio sitting unseen. Never deletes anything. Call once at launch,
     /// before any dictation starts. Returns how many rows it added.
     ///
-    /// The row claims no more than the file shows (fix round 2). A header the repair had to rewrite was never closed:
-    /// Parakeet closed while recording, so the row says so and is partial audio (like a meeting recovered after a
-    /// kill). A header that already described its audio was closed, but that does not prove the dictation is whole: a
-    /// full disk stops a recording early and the recorder still closes it (review R2-6), and an earlier launch may have
-    /// repaired a killed one before its own insert failed. Its sentence never says the recording is complete.
+    /// The row claims no more than the file shows (fix rounds 2 and 3). A header the repair had to rewrite was never
+    /// closed: Parakeet closed while recording, and the row says so. A header that already described its audio was
+    /// closed, but that does not prove the dictation is whole: a full disk stops a recording early and the recorder
+    /// still closes it (review R2-6), and an earlier launch may have repaired a killed one before its own insert
+    /// failed. Its sentence never says the recording is complete. Either way the row is partial audio (like a meeting
+    /// recovered after a kill), because nothing proves an orphan ran to its end; the cost, a recording that did finish
+    /// shown as "Partial audio", is the safe direction.
     @discardableResult
     public func recoverOrphanedRecordings() async -> Int {
         guard state.isFinished, recording == nil else { return 0 }
@@ -736,7 +765,8 @@ public struct DictationTextRules: Sendable {
                 mediaRelativePath: paths.relativePath(for: wav), fileSizeBytes: Self.fileSize(wav),
                 durationMs: repaired?.durationMs, status: .interrupted, privacyClass: privacyClass)
             row.errorMessage = cutShortByAKill ? Self.adoptedAfterKillMessage : Self.adoptedSavedRecordingMessage
-            row.isPartialAudio = cutShortByAKill
+            // Fix round 3: nothing proves an orphan ran to its end, so every one is partial audio.
+            row.isPartialAudio = true
             let orphan = row
             do {
                 try await Self.detached { try await store.insert(orphan) }

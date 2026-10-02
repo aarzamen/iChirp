@@ -71,9 +71,11 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
 - A `dictation.wav` its writer never closed (the app was killed while recording) holds its samples, but its RIFF and
   `data` sizes say 0 s. Adoption and every final pass rewrite them from the file's length first (review R5-4,
   `SpeechWAVFile.repairHeader`); the samples are not changed (only a partial last frame is cut), and a header that
-  already describes its audio is not touched. Such a recording is adopted as partial audio; a closed one that never
-  got its row is adopted with a sentence that does not claim it is complete (a full disk stops a recording early and
-  the recorder still closes it).
+  already describes its audio is not touched. A `dictation.wav` adopted without a row is always adopted as partial
+  audio (`isPartialAudio`), because nothing proves an orphan ran to its end: a closed one may have been stopped early
+  by a full disk (the recorder still closes it) or repaired by an earlier launch whose insert failed, and its sentence
+  does not claim it is complete. A final pass whose repair had to rewrite the header marks its row partial audio too
+  (a row an older build adopted), at once, so a pass that then fails keeps it; the mark is never cleared.
 - M5 (additive, [document-items-v1](document-items-v1.md)): `source.<ext>` is also a document's copy (`.pdf`,
   `.docx`, …) or a downloaded episode. `download.part` / `download.part.json` exist only while a link download is
   unfinished; Retry resumes from them, and completing the download removes both.

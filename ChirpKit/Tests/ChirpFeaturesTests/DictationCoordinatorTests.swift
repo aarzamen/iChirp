@@ -658,13 +658,41 @@ final class DictationCoordinatorTests: XCTestCase {
         let saved = await retry.value
         XCTAssertEqual(saved?.status, .completed)
         XCTAssertEqual(saved?.durationMs, 1_000, "the recording's own length")
+        XCTAssertEqual(saved?.isPartialAudio, true, "fix round 3: the header the pass rewrote was never closed")
     }
 
-    /// Fix rounds 1 and 2 (minor 11): an orphan is adopted with words that claim no more than its file shows. A WAV the
-    /// recorder closed may still have stopped early (a full disk, review R2-6), so its sentence never says it is
-    /// complete. One whose header a kill left at 0 s was cut short by Parakeet closing: it says so, and like a meeting
-    /// recovered after a kill it is partial audio, so the Library still says so after a successful Retry.
-    func testLaunchAdoptionClaimsNoMoreThanTheFileShows() async throws {
+    /// Fix round 3: a final pass whose repair had to rewrite the header (an older build adopted the recording without
+    /// the repair) marks the row partial audio at once, so a pass that then fails keeps the mark: the repaired file no
+    /// longer shows it. A later pass never clears it.
+    func testAFinalPassThatRewritesTheHeaderMarksTheRowPartialEvenWhenItFails() async throws {
+        let h = Harness(testCase: self)
+        let id = UUID()
+        let folder = h.paths.mediaDirectory(for: id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+        try Self.writeKilledRecording(frames: 16_000, to: wav)
+        try await h.store.insert(
+            Transcription(
+                id: id, sourceType: .dictation, fileName: "Dictation.wav",
+                mediaRelativePath: h.paths.relativePath(for: wav), status: .interrupted))
+
+        await h.speech.failTranscription(with: FakeError(message: "engine stopped"))
+        let failed = await h.coordinator.retry(transcriptionID: id)
+        XCTAssertEqual(failed?.status, .failed)
+        XCTAssertEqual(failed?.isPartialAudio, true, "kept although the pass failed after the repair")
+        XCTAssertFalse(try SpeechWAVFile.repairHeader(at: wav).didRepair, "the file no longer shows the kill")
+
+        await h.speech.failTranscription(with: nil)
+        let saved = await h.coordinator.retry(transcriptionID: id)
+        XCTAssertEqual(saved?.status, .completed)
+        XCTAssertEqual(saved?.isPartialAudio, true, "never cleared")
+    }
+
+    /// Fix rounds 1 to 3 (minor 11): every orphan is adopted as partial audio, because nothing proves an orphan ran to
+    /// its end: a WAV the recorder closed may still have stopped early (a full disk, review R2-6). Its sentence says
+    /// only what is known. One whose header a kill left at 0 s was cut short by Parakeet closing, and says so. Both
+    /// stay partial after a successful Retry.
+    func testLaunchAdoptionMarksEveryOrphanPartialAndSaysOnlyWhatIsKnown() async throws {
         let h = Harness(testCase: self)
         let closed = UUID()
         let closedFolder = h.paths.mediaDirectory(for: closed)
@@ -679,27 +707,34 @@ final class DictationCoordinatorTests: XCTestCase {
 
         let added = await h.coordinator.recoverOrphanedRecordings()
         XCTAssertEqual(added, 2)
+        XCTAssertEqual(
+            DictationCoordinator.adoptedSavedRecordingMessage,
+            "The recording is saved, but Parakeet couldn’t add it to your Library then. Retry to transcribe what was saved."
+        )
+        XCTAssertEqual(
+            DictationCoordinator.adoptedAfterKillMessage,
+            "Parakeet closed while this dictation was recording. Retry to transcribe what was kept.")
         let closedRow = try await h.row(closed)
-        let closedMessage = try XCTUnwrap(closedRow.errorMessage)
-        XCTAssertEqual(closedMessage, DictationCoordinator.adoptedSavedRecordingMessage)
-        XCTAssertFalse(closedMessage.contains("finished"), "never claims the recording is complete: \(closedMessage)")
-        XCTAssertFalse(closedMessage.contains("closed while"), closedMessage)
-        XCTAssertFalse(closedRow.isPartialAudio, "nothing on disk says it was cut short")
+        XCTAssertEqual(closedRow.errorMessage, DictationCoordinator.adoptedSavedRecordingMessage)
+        XCTAssertTrue(closedRow.isPartialAudio, "nothing proves an orphan ran to its end")
         let killedRow = try await h.row(killed)
         XCTAssertEqual(killedRow.errorMessage, DictationCoordinator.adoptedAfterKillMessage)
         XCTAssertTrue(killedRow.isPartialAudio, "its audio ends where Parakeet closed")
         XCTAssertEqual(closedRow.status, .interrupted)
         XCTAssertEqual(killedRow.status, .interrupted)
 
-        let retried = await h.coordinator.retry(transcriptionID: killed)
-        XCTAssertEqual(retried?.status, .completed)
-        XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
+        for id in [closed, killed] {
+            let retried = await h.coordinator.retry(transcriptionID: id)
+            XCTAssertEqual(retried?.status, .completed)
+            XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
+        }
     }
 
-    /// Fix round 2, the first double failure: a full disk stopped the dictation early (review R2-6), the recorder closed
-    /// what it had saved, the row could not be added on that same disk (R5-13), and Parakeet then closed. The next
-    /// launch adopts the recording, and its sentence never says the recording is complete.
-    func testAnEarlyStopWhoseRowCouldNotBeAddedIsNeverAdoptedAsComplete() async throws {
+    /// Fix rounds 2 and 3, the first double failure: a full disk stopped the dictation early (review R2-6), the
+    /// recorder closed what it had saved, the row could not be added on that same disk (R5-13), and Parakeet then
+    /// closed. The next launch adopts the recording with the saved sentence, as partial audio, and it stays partial
+    /// after a successful Retry.
+    func testAnEarlyStopWhoseRowCouldNotBeAddedEndsPartialAfterARelaunch() async throws {
         let h = Harness(testCase: self)
         await h.store.failNextInsert(with: FakeError(message: "disk full"))
         await h.startRecording()
@@ -721,17 +756,20 @@ final class DictationCoordinatorTests: XCTestCase {
         let added = await relaunched.recoverOrphanedRecordings()
         XCTAssertEqual(added, 1)
         let row = try await h.row(id)
-        let message = try XCTUnwrap(row.errorMessage)
-        XCTAssertFalse(message.contains("finished"), "never claims the recording is complete: \(message)")
-        XCTAssertEqual(message, DictationCoordinator.adoptedSavedRecordingMessage)
+        XCTAssertEqual(row.errorMessage, DictationCoordinator.adoptedSavedRecordingMessage)
+        XCTAssertTrue(row.isPartialAudio)
         XCTAssertEqual(row.status, .interrupted)
         XCTAssertEqual(row.durationMs, 500, "what was saved")
+
+        let retried = await relaunched.retry(transcriptionID: id)
+        XCTAssertEqual(retried?.status, .completed)
+        XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
     }
 
-    /// Fix round 2, the second double failure: a launch repaired a killed recording's header, and then its row could
-    /// not be added, or Parakeet was killed before the insert. The next launch finds a closed header; its sentence
-    /// never says the recording is complete.
-    func testAKilledRecordingWhoseAdoptionFailedIsNeverAdoptedAsComplete() async throws {
+    /// Fix rounds 2 and 3, the second double failure: a launch repaired a killed recording's header, and then its row
+    /// could not be added, or Parakeet was killed before the insert. The next launch finds a closed header: the saved
+    /// sentence, as partial audio, and it stays partial after a successful Retry.
+    func testAKilledRecordingWhoseAdoptionFailedEndsPartial() async throws {
         let h = Harness(testCase: self)
         func killedRecording() throws -> (id: UUID, wav: URL) {
             let id = UUID()
@@ -754,11 +792,14 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(added, 2)
         for id in [insertFailed.id, killedBeforeInsert.id] {
             let row = try await h.row(id)
-            let message = try XCTUnwrap(row.errorMessage)
-            XCTAssertFalse(message.contains("finished"), "never claims the recording is complete: \(message)")
-            XCTAssertEqual(message, DictationCoordinator.adoptedSavedRecordingMessage)
+            XCTAssertEqual(row.errorMessage, DictationCoordinator.adoptedSavedRecordingMessage)
+            XCTAssertTrue(row.isPartialAudio)
             XCTAssertEqual(row.status, .interrupted)
             XCTAssertEqual(row.durationMs, 1_000)
+
+            let retried = await h.coordinator.retry(transcriptionID: id)
+            XCTAssertEqual(retried?.status, .completed)
+            XCTAssertEqual(retried?.isPartialAudio, true, "still partial once transcribed")
         }
     }
 
@@ -784,7 +825,13 @@ final class DictationCoordinatorTests: XCTestCase {
 
         h.coordinator.dismiss()
         await h.startRecording()
+        // What the recorder leaves at an ordinary Stop: a closed WAV (real file bytes), which the final pass's repair
+        // leaves alone.
+        let wav = try XCTUnwrap(h.wavURL)
+        try FileManager.default.removeItem(at: wav)
+        try Self.writeRecording(frames: 16_000, to: wav, killed: false)
         await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.state, .done)
         let whole = try await h.row()
         XCTAssertNotEqual(whole.id, partial.id)
         XCTAssertFalse(whole.isPartialAudio, "an ordinary stop is not partial audio")

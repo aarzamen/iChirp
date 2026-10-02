@@ -51,7 +51,8 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
     /// What the person typed about this item (the Notes tab). A user field: pipeline saves never overwrite it.
     public var userNotes: String?
     /// Its audio ends early: a meeting recovered after the app was killed while it recorded (M3), or a dictation that
-    /// stopped on its own (a full disk, a microphone that could not restart) or was adopted after a kill (review R2-6).
+    /// stopped on its own (a full disk, a microphone that could not restart), was adopted at launch without a row, or
+    /// whose final pass had to repair its header (review R2-6).
     public var isPartialAudio: Bool
     /// When the meeting-audio retention setting deleted this item's audio (`mediaRelativePath` is nil since).
     public var audioRemovedAt: Date?
