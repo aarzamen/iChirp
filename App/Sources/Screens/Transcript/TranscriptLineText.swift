@@ -1,22 +1,51 @@
 import ChirpCore
 import ChirpText
 import ChirpUI
+import Foundation
 import SwiftUI
 
 /// A transcript line as the screen draws it (plan 025 D5): the text, with a dotted underline in `secondary` under
-/// every corrected passage and no other styling. Pure, so `TranscriptCorrectionsAppTests` checks it without a view.
+/// every corrected passage; Part B adds the Find fills (`findMatchFill` behind every match, `findCurrentFill` behind the
+/// current one; a correction's underline inside a match is drawn in `ink`, which is glyph-safe on both fills). Nothing
+/// else is styled. Pure, so `TranscriptCorrectionsAppTests` and `TranscriptFindAppTests` check it without a view.
 enum TranscriptLineText {
-    static func attributed(_ line: TranscriptTextLine, tokens: [TranscriptToken]) -> AttributedString {
+    /// The Find matches on one line: UTF-16 ranges of `line.text`, and the current match when it is on this line.
+    struct FindMarks: Equatable {
+        var matches: [NSRange]
+        var current: NSRange?
+    }
+
+    static func attributed(_ line: TranscriptTextLine, tokens: [TranscriptToken], find: FindMarks? = nil)
+        -> AttributedString
+    {
         var text = AttributedString(line.text)
         let utf16 = line.text.utf16
-        for range in correctedRanges(line, tokens: tokens) {
-            guard range.lowerBound >= 0, range.upperBound <= utf16.count,
-                let lower = utf16.index(utf16.startIndex, offsetBy: range.lowerBound, limitedBy: utf16.endIndex),
-                let upper = utf16.index(utf16.startIndex, offsetBy: range.upperBound, limitedBy: utf16.endIndex),
+        func textRange(_ lowerBound: Int, _ upperBound: Int) -> Range<AttributedString.Index>? {
+            guard lowerBound >= 0, upperBound <= utf16.count, lowerBound < upperBound,
+                let lower = utf16.index(utf16.startIndex, offsetBy: lowerBound, limitedBy: utf16.endIndex),
+                let upper = utf16.index(utf16.startIndex, offsetBy: upperBound, limitedBy: utf16.endIndex),
                 let start = AttributedString.Index(lower, within: text),
                 let end = AttributedString.Index(upper, within: text)
-            else { continue }
-            text[start..<end].underlineStyle = Text.LineStyle(pattern: .dot, color: Tokens.Color.secondary)
+            else { return nil }
+            return start..<end
+        }
+        let corrected = correctedRanges(line, tokens: tokens)
+        for utf16Range in corrected {
+            guard let range = textRange(utf16Range.lowerBound, utf16Range.upperBound) else { continue }
+            text[range].underlineStyle = Text.LineStyle(pattern: .dot, color: Tokens.Color.secondary)
+        }
+        guard let find else { return text }
+        for match in find.matches {
+            guard let range = textRange(match.location, match.location + match.length) else { continue }
+            text[range].backgroundColor =
+                match == find.current ? Tokens.Color.findCurrentFill : Tokens.Color.findMatchFill
+            // A correction's underline inside a match: ink, glyph-safe on both fills.
+            for utf16Range in corrected {
+                let lower = max(utf16Range.lowerBound, match.location)
+                let upper = min(utf16Range.upperBound, match.location + match.length)
+                guard lower < upper, let overlap = textRange(lower, upper) else { continue }
+                text[overlap].underlineStyle = Text.LineStyle(pattern: .dot, color: Tokens.Color.ink)
+            }
         }
         return text
     }

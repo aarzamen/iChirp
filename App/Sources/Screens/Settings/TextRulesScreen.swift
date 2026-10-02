@@ -6,7 +6,8 @@ import SwiftUI
 /// Settings → Text → Custom words & snippets (M2). Custom words fix how Parakeet writes a word; snippets expand a
 /// phrase you say into longer text. Both apply whenever Clean runs (dictation's "Polish after", or the Clean
 /// clean-up mode). Swipe a row to delete it (it asks first: a long snippet is hard to type again; review R6b-5); the
-/// switch turns one off without deleting it.
+/// switch turns one off without deleting it. Plan 025 Part B: "Fixes from your corrections" lists the learned rules a
+/// Replace saved ("Also fix … in future transcripts"); new transcripts get them as corrections, in Raw and Clean.
 struct TextRulesScreen: View {
     let model: TextRulesViewModel
     @State private var editor: Editor?
@@ -16,11 +17,13 @@ struct TextRulesScreen: View {
     /// A custom word or snippet waiting for "Delete …?".
     enum Deletion: Identifiable {
         case word(CustomWord)
+        case rule(CustomWord)
         case snippet(TextSnippet)
 
         var id: String {
             switch self {
             case .word(let word): "word-\(word.id)"
+            case .rule(let rule): "rule-\(rule.id)"
             case .snippet(let snippet): "snippet-\(snippet.id)"
             }
         }
@@ -29,6 +32,7 @@ struct TextRulesScreen: View {
         var question: String {
             switch self {
             case .word(let word): "Delete “\(word.word)”?"
+            case .rule(let rule): "Delete the fix for “\(rule.word)”?"
             case .snippet(let snippet): "Delete the snippet “\(snippet.trigger)”?"
             }
         }
@@ -36,6 +40,7 @@ struct TextRulesScreen: View {
         var buttonTitle: String {
             switch self {
             case .word: "Delete Word"
+            case .rule: "Delete Fix"
             case .snippet: "Delete Snippet"
             }
         }
@@ -58,15 +63,15 @@ struct TextRulesScreen: View {
     var body: some View {
         List {
             Section {
-                if model.words.isEmpty {
+                if model.manualWords.isEmpty {
                     emptyRow("No custom words yet. Add a name, a brand or a term Parakeet gets wrong.")
                 }
-                ForEach(model.words) { word in
+                ForEach(model.manualWords) { word in
                     wordRow(word)
                 }
                 // A full swipe asks first (R6b-5), as Recipes and the Library do.
                 .onDelete { offsets in
-                    if let index = offsets.first { deleting = .word(model.words[index]) }
+                    if let index = offsets.first { deleting = .word(model.manualWords[index]) }
                 }
                 Button("Add word", systemImage: "plus") { editor = .newWord }
                     .foregroundStyle(AppColor.accentText)
@@ -95,6 +100,25 @@ struct TextRulesScreen: View {
                 Text(
                     "Custom words and snippets apply when Clean runs: “Polish after” on a dictation, or Clean in "
                         + "Settings → Text for every transcription.")
+            }
+            .listRowBackground(Tokens.Color.surface)
+
+            // Plan 025 D8: learned rules, saved from a Replace. They never run in Clean; new transcripts get them as
+            // corrections the person can see and undo.
+            Section {
+                if model.learnedRules.isEmpty {
+                    emptyRow(TextRulesCopy.learnedEmpty)
+                }
+                ForEach(model.learnedRules) { rule in
+                    wordRow(rule)
+                }
+                .onDelete { offsets in
+                    if let index = offsets.first { deleting = .rule(model.learnedRules[index]) }
+                }
+            } header: {
+                Text(TextRulesCopy.learnedHeader)
+            } footer: {
+                Text(TextRulesCopy.learnedFooter)
             }
             .listRowBackground(Tokens.Color.surface)
         }
@@ -133,7 +157,7 @@ struct TextRulesScreen: View {
         deleting = nil
         Task {
             switch deletion {
-            case .word(let word): await model.deleteWords([word.id])
+            case .word(let word), .rule(let word): await model.deleteWords([word.id])
             case .snippet(let snippet): await model.deleteSnippets([snippet.id])
             }
         }
@@ -345,4 +369,14 @@ struct TextRuleEditorSheet: View {
         }
         if saved { dismiss() }
     }
+}
+
+/// The words of the "Fixes from your corrections" section (plan 025 D5).
+enum TextRulesCopy {
+    static let learnedHeader = "Fixes from your corrections"
+    static let learnedFooter =
+        "Parakeet makes these fixes in new transcripts as corrections you can see and undo, in Raw and Clean. The words "
+        + "it heard are kept."
+    static let learnedEmpty =
+        "None yet. After you replace a word in a transcript with Find, Parakeet can fix it in new transcripts too."
 }

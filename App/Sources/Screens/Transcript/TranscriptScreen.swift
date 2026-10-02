@@ -24,6 +24,12 @@ import UniformTypeIdentifiers
 /// with a stable `id` (Jev's tags and scroll targets key by it). A corrected passage has a dotted underline and its
 /// line says "Corrected"; a line's long-press offers Correct…, Show Original and Listen from Here (also as VoiceOver
 /// actions); More → Corrections (N)… lists them all. A revert is immediate, with Undo for six seconds.
+///
+/// Plan 025 Part B: Find in transcript (the toolbar's magnifying glass, More → Find…, ⌘F; ⌥⌘F with Replace shown)
+/// opens a bottom bar in place of Copy / Share / Listen / Transform. Every match gets an amber fill, the current one a
+/// deeper one; Next / Previous (⌘G / ⇧⌘G, Return) scroll its line to the middle and VoiceOver says "3 of 12, at 12:04".
+/// Replace and Replace All save corrections through the one correction writer; "Replaced 12." offers Undo, and
+/// "Also fix … in future transcripts?" when the replacement can be a learned rule.
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -71,6 +77,18 @@ struct TranscriptScreen: View {
     @State private var originalLine: TranscriptTextLine?
     @State private var isShowingCorrections = false
     @State private var undoOffer: CorrectionUndoOffer?
+    /// Plan 025 Part B: Find in transcript and Replace.
+    @State private var find = TranscriptFindModel()
+    @State private var isFinding = false
+    @State private var findQuery = ""
+    @State private var replacement = ""
+    @State private var showsReplace = false
+    @State private var isReplacing = false
+    @State private var isConfirmingReplaceAll = false
+    @State private var replaceResult: ReplaceResult?
+    @FocusState private var isFindFocused: Bool
+    @AccessibilityFocusState private var focusedLineID: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum TranscriptTab { case transcript, ask }
 
@@ -109,6 +127,9 @@ struct TranscriptScreen: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .principal) { titleHeader }
+            if model.transcription?.status == .completed {
+                ToolbarItem(placement: .topBarTrailing) { findButton }
+            }
             ToolbarItem(placement: .topBarTrailing) { moreMenu }
             if JevMenuPolicy.isVisible(
                 jevEnabled: environment.jevSettingsModel.isMenuVisible, status: model.transcription?.status),
@@ -125,10 +146,19 @@ struct TranscriptScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if model.transcription?.status == .completed, selectedTab == .transcript {
                 VStack(spacing: 0) {
-                    if let undoOffer {
-                        CorrectionUndoBar(offer: undoOffer) { Task { await undo(undoOffer) } }
+                    if isFinding {
+                        if let replaceResult {
+                            ReplaceResultBanner(
+                                result: replaceResult, onUndo: { Task { await undoReplace(replaceResult) } },
+                                onAddRule: { Task { await addRule(replaceResult) } })
+                        }
+                        findBar
+                    } else {
+                        if let undoOffer {
+                            CorrectionUndoBar(offer: undoOffer) { Task { await undo(undoOffer) } }
+                        }
+                        bottomBar
                     }
-                    bottomBar
                 }
             }
         }
@@ -144,6 +174,25 @@ struct TranscriptScreen: View {
         }
         .background {
             PlayheadWatcher(player: player, paragraphs: model.paragraphs, current: $currentParagraph)
+        }
+        .background { findShortcuts }
+        // The searched text follows every load, correction and replace (the current match keeps its place).
+        .onChange(of: model.lines) {
+            if isFinding { find.setBlocks(model.findBlocks) }
+        }
+        .onChange(of: findQuery) { _, query in
+            find.setQuery(query)
+            announceCount()
+        }
+        .alert(
+            TranscriptFindCopy.replaceAllTitle(count: find.matchCount), isPresented: $isConfirmingReplaceAll
+        ) {
+            Button("Replace All") { Task { await replaceAll() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                TranscriptFindCopy.replaceAllMessage(
+                    query: findQuery, replacement: replacement, count: find.matchCount))
         }
         .task {
             await model.load()
@@ -263,6 +312,7 @@ struct TranscriptScreen: View {
             item: model.transcription, onRename: startRename, onFavorite: { Task { await toggleFavorite() } },
             onCopy: copyText, onExtractFields: { isExtractingFields = true },
             onDelete: { isConfirmingDelete = true },
+            find: { openFind(showingReplace: false) },
             corrections: TranscriptCorrectionsCopy.menuTitle(
                 applied: model.corrections.count, detached: model.detachedCorrections.count
             ).map { title in (title, { isShowingCorrections = true }) })
@@ -428,9 +478,9 @@ struct TranscriptScreen: View {
     private func transcriptText(hasTimings: Bool, speakerOrder: [String: Int], current: Int?) -> some View {
         let lines = model.lines
         let tokens = model.heard?.tokens ?? []
-        // Each line is a scroll target by its id (`.id(line.id)`); plan 025 Part B's Find scrolls to a match with the
-        // reader's proxy.
-        return ScrollViewReader { _ in
+        let findMarks = isFinding ? currentFindMarks() : [:]
+        // Each line is a scroll target by its id (`.id(line.id)`); Find scrolls the current match's line to the middle.
+        return ScrollViewReader { proxy in
             ScrollView {
                 // Plan 023 (UX audit F43): the documents made from this transcript, above its text; plan 025: those made
                 // before the latest correction say so.
@@ -452,9 +502,11 @@ struct TranscriptScreen: View {
                                 speakerIndex: line.speakerId.flatMap { speakerOrder[$0] },
                                 showsTiming: hasTimings,
                                 isCurrent: position == current,
-                                jevTag: paragraphTags[line.id]
+                                jevTag: paragraphTags[line.id],
+                                find: findMarks[position]
                             )
                             .id(line.id)
+                            .accessibilityFocused($focusedLineID, equals: line.id)
                             .contextMenu { lineMenu(line, position: position) }
                             // F55: the long-press items, reachable from the VoiceOver actions rotor too.
                             .accessibilityAction(named: "Correct") { startCorrecting(line) }
@@ -465,6 +517,15 @@ struct TranscriptScreen: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 10)
                     .padding(.bottom, 24)
+                }
+            }
+            .onChange(of: find.current) { _, match in
+                guard isFinding, let match, lines.indices.contains(match.blockIndex) else { return }
+                let target = lines[match.blockIndex].id
+                if reduceMotion {
+                    proxy.scrollTo(target, anchor: .center)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(target, anchor: .center) }
                 }
             }
         }
@@ -496,7 +557,7 @@ struct TranscriptScreen: View {
 
     private func lineView(
         _ line: TranscriptTextLine, tokens: [TranscriptToken], speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
-        jevTag: String? = nil
+        jevTag: String? = nil, find: TranscriptLineText.FindMarks? = nil
     ) -> some View {
         let isCorrected = TranscriptLineText.correctionCount(in: line, tokens: tokens) > 0
         return VStack(alignment: .leading, spacing: 6) {
@@ -521,7 +582,7 @@ struct TranscriptScreen: View {
                 }
                 .padding(.vertical, -8)
             }
-            Text(TranscriptLineText.attributed(line, tokens: tokens))
+            Text(TranscriptLineText.attributed(line, tokens: tokens, find: find))
                 .chirpFont(16)
                 .lineSpacing(6)
                 .foregroundStyle(Tokens.Color.ink)
@@ -602,6 +663,180 @@ struct TranscriptScreen: View {
                 }
             }
         }
+    }
+
+    // MARK: - Find and Replace (plan 025 Part B)
+
+    /// The toolbar's "Find in Transcript", before More.
+    private var findButton: some View {
+        Button {
+            openFind(showingReplace: false)
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Tokens.Color.ink)
+                .frame(width: Tokens.Metric.minTapTarget, height: Tokens.Metric.minTapTarget)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Find in Transcript")
+        .accessibilityIdentifier("find-in-transcript")
+    }
+
+    private var findBar: some View {
+        let current = find.current
+        let playMs = current.flatMap { model.timeMs(of: $0) }
+        return TranscriptFindBar(
+            query: $findQuery, replacement: $replacement, showsReplace: $showsReplace, isFocused: $isFindFocused,
+            counter: find.counterText, canNavigate: find.hasMatches,
+            playTitle: (player.isAvailable && model.hasWordTimings) ? playMs.map(TranscriptFindCopy.playFrom) : nil,
+            replaceUnavailable: model.replaceUnavailableReason,
+            canReplaceCurrent: current != nil, canReplaceAll: find.hasMatches, isReplacing: isReplacing,
+            onNext: { step(forward: true) }, onPrevious: { step(forward: false) }, onDone: closeFind,
+            onPlay: {
+                if let playMs { seek(toMs: playMs) }
+            },
+            onReplace: { Task { await replaceCurrent() } },
+            onReplaceAll: { isConfirmingReplaceAll = true })
+    }
+
+    /// Hidden buttons for a hardware keyboard: ⌘F opens Find, ⌥⌘F opens it with Replace shown, ⌘G / ⇧⌘G step while
+    /// there are matches (upstream's pattern).
+    @ViewBuilder private var findShortcuts: some View {
+        if model.transcription?.status == .completed {
+            ZStack {
+                Button("") { openFind(showingReplace: false) }
+                    .keyboardShortcut("f", modifiers: .command)
+                Button("") { openFind(showingReplace: true) }
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+                if isFinding, find.hasMatches {
+                    Button("") { step(forward: true) }
+                        .keyboardShortcut("g", modifiers: .command)
+                    Button("") { step(forward: false) }
+                        .keyboardShortcut("g", modifiers: [.command, .shift])
+                }
+            }
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
+    }
+
+    /// The matches by line position (the find blocks are the lines, in order).
+    private func currentFindMarks() -> [Int: TranscriptLineText.FindMarks] {
+        var marks: [Int: TranscriptLineText.FindMarks] = [:]
+        let current = find.current
+        for match in find.matches {
+            marks[match.blockIndex, default: .init(matches: [], current: nil)].matches.append(match.range)
+            if match == current { marks[match.blockIndex]?.current = match.range }
+        }
+        return marks
+    }
+
+    private func openFind(showingReplace: Bool) {
+        selectedTab = .transcript
+        if showingReplace { showsReplace = true }
+        if !isFinding {
+            find.setBlocks(model.findBlocks)
+            isFinding = true
+        }
+        isFindFocused = true
+    }
+
+    private func closeFind() {
+        isFinding = false
+        isFindFocused = false
+        findQuery = ""
+        find.clear()
+        replaceResult = nil
+    }
+
+    private func step(forward: Bool) {
+        if forward { find.next() } else { find.prev() }
+        guard let current = find.current else { return }
+        if let announcement = find.positionAnnouncement(timeMs: model.timeMs(of: current)) {
+            AccessibilityNotification.Announcement(announcement).post()
+        }
+        if UIAccessibility.isVoiceOverRunning, model.lines.indices.contains(current.blockIndex) {
+            focusedLineID = model.lines[current.blockIndex].id
+        }
+    }
+
+    /// "12 matches" / "No matches", at low priority, only when the count changed.
+    private func announceCount() {
+        guard let text = find.takeCountAnnouncement() else { return }
+        var announcement = AttributedString(text)
+        announcement.accessibilitySpeechAnnouncementPriority = .low
+        AccessibilityNotification.Announcement(announcement).post()
+    }
+
+    private func replaceCurrent() async {
+        guard let current = find.current else { return }
+        await runReplace { try await model.replace(current, query: findQuery, with: replacement) }
+    }
+
+    private func replaceAll() async {
+        let matches = find.matches
+        guard !matches.isEmpty else { return }
+        await runReplace { try await model.replaceAll(matches, query: findQuery, with: replacement) }
+    }
+
+    private func runReplace(_ operation: () async throws -> ReplaceOutcome) async {
+        isReplacing = true
+        defer { isReplacing = false }
+        do {
+            let outcome = try await operation()
+            find.setBlocks(model.findBlocks)
+            guard outcome.count > 0 else {
+                replaceResult = nil
+                actionError = TranscriptFindCopy.nothingReplaced
+                return
+            }
+            var message = TranscriptFindCopy.replaced(count: outcome.count)
+            if outcome.skipped > 0 { message += " " + TranscriptFindCopy.skipped(outcome.skipped) }
+            var note: String?
+            if let suggestion = outcome.ruleSuggestion {
+                note =
+                    TranscriptFindCopy.rulePrompt(suggestion, privacyClass: await model.effectivePrivacyClassNow())
+                    .note
+            }
+            replaceResult = ReplaceResult(
+                message: message, undo: outcome.undo, suggestion: outcome.ruleSuggestion, note: note)
+            AccessibilityNotification.Announcement(TranscriptFindCopy.replacedAnnouncement(left: find.matchCount))
+                .post()
+        } catch {
+            actionError = Formatting.message(for: error)
+        }
+    }
+
+    private func undoReplace(_ result: ReplaceResult) async {
+        do {
+            try await model.undo(result.undo)
+            find.setBlocks(model.findBlocks)
+            replaceResult = nil
+            AccessibilityNotification.Announcement("Undone.").post()
+        } catch {
+            actionError = Formatting.message(for: error)
+        }
+    }
+
+    private func addRule(_ result: ReplaceResult) async {
+        guard let suggestion = result.suggestion else { return }
+        let outcome = await environment.textRules.addLearnedRule(
+            word: suggestion.word, replacement: suggestion.replacement)
+        guard var current = replaceResult, current.id == result.id else { return }
+        switch outcome {
+        case .added:
+            current.suggestion = nil
+            current.note = nil
+            current.ruleStatus = TranscriptFindCopy.ruleAdded
+        case .alreadyExists(let message):
+            current.suggestion = nil
+            current.note = nil
+            current.ruleStatus = message
+        case .failed(let message):
+            current.ruleStatus = message
+        }
+        replaceResult = current
+        if let status = current.ruleStatus { AccessibilityNotification.Announcement(status).post() }
     }
 
     // MARK: - Actions

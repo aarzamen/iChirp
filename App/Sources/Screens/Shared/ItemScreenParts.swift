@@ -109,6 +109,8 @@ struct ItemMoreMenu: View {
     let onCopy: () -> Void
     let onExtractFields: () -> Void
     let onDelete: () -> Void
+    /// Plan 025 Part B: "Find…" (⌘F) on a finished transcript; nil hides it (the Document screen has no Find).
+    var find: (() -> Void)?
     /// Plan 025: "Corrections (N)…" and what it opens, on a transcript that has corrections; nil hides it.
     var corrections: (title: String, open: () -> Void)?
 
@@ -127,6 +129,11 @@ struct ItemMoreMenu: View {
             if item?.status == .completed {
                 Button(action: onCopy) {
                     Label("Copy Text", systemImage: "doc.on.doc")
+                }
+                if let find {
+                    Button(action: find) {
+                        Label("Find…", systemImage: "magnifyingglass")
+                    }
                 }
                 Button(action: onExtractFields) {
                     Label(ExtractFieldsViewModel.menuTitle, systemImage: "list.bullet.rectangle")

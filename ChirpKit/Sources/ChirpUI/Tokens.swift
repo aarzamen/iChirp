@@ -142,6 +142,15 @@ public enum Tokens {
         public static let tintBorderSelected = ColorValue(
             light: 0xF1C9B6, dark: 0x7C4B36, lightHighContrast: 0xD98F6E, darkHighContrast: 0xA8705A)
 
+        // MARK: Find (plan 025 Part B)
+
+        /// The fill behind every match of Find in transcript: a light amber (a deep one in dark mode), so matches read
+        /// apart from the coral `tint` of the playhead paragraph. `ink` is text-safe on it; a correction's dotted
+        /// underline inside a match is drawn in `ink` (`ContrastTests`).
+        public static let findMatchFill = ColorValue(light: 0xFBEBC0, dark: 0x3D3114)
+        /// The fill behind the current match: a deeper amber than `findMatchFill`. `ink` is text-safe on it.
+        public static let findCurrentFill = ColorValue(light: 0xF5C451, dark: 0x6E5313)
+
         // MARK: Status
 
         /// "On" switches, ready dots, check glyphs — a glyph color, not text (use `successInk`). Light is `#32A553`
@@ -233,7 +242,8 @@ public enum Tokens {
             ("privacyBadgeInk", privacyBadgeInk),
             ("partialAudioFill", partialAudioFill), ("partialAudioInk", partialAudioInk), ("night", night),
             ("coverNight", coverNight), ("seedStrokeDim", seedStrokeDim), ("seedStrokeBright", seedStrokeBright),
-            ("dictationAccent", dictationAccent),
+            ("dictationAccent", dictationAccent), ("findMatchFill", findMatchFill),
+            ("findCurrentFill", findCurrentFill),
         ]
     }
 
@@ -280,6 +290,13 @@ public enum Tokens {
         public static let tint = color(Palette.tint)
         public static let tintBorder = color(Palette.tintBorder)
         public static let tintBorderSelected = color(Palette.tintBorderSelected)
+
+        // MARK: Find (plan 025 Part B)
+
+        /// Behind every Find match (`ink` text on it). See `Palette.findMatchFill`.
+        public static let findMatchFill = color(Palette.findMatchFill)
+        /// Behind the current Find match (`ink` text on it).
+        public static let findCurrentFill = color(Palette.findCurrentFill)
 
         // MARK: Status
 

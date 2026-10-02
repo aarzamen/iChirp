@@ -136,6 +136,8 @@ final class ContrastTests: XCTestCase {
     private static let dictationAccent = Paint("dictationAccent", P.dictationAccent)
     private static let placeholder = Paint("placeholder", P.placeholder)
     private static let selectedSegment = Paint("selectedSegment", P.selectedSegment)
+    private static let findMatchFill = Paint("findMatchFill", P.findMatchFill)
+    private static let findCurrentFill = Paint("findCurrentFill", P.findCurrentFill)
     /// iOS's grouped-list row (`secondarySystemGroupedBackground`) behind the Form rows in Settings subscreens, which
     /// hide only the scroll background. Not a token: the system draws it.
     private static let systemRow = Paint(
@@ -168,6 +170,9 @@ final class ContrastTests: XCTestCase {
         table += pairs(accentInk, on: [ground, surface, systemRow], .text, "accent text, links, the app tint")
         table += pairs(
             accentInkPressed, on: [tint], .text, "accent text on tint chips (AppColor.accentTextOnTint, badges)")
+        table += pairs(
+            ink, on: [findMatchFill, findCurrentFill], .text,
+            "plan 025 B5: transcript text on a Find match and on the current match")
         table += pairs(successInk, on: [ground, surface, systemRow], .text, "green status text")
         table += pairs(
             errorInk, on: [ground, surface, quietFill, systemRow], .text,
@@ -221,6 +226,9 @@ final class ContrastTests: XCTestCase {
         table += pairs(
             secondary, on: [ground, surface, tint], .glyph,
             "plan 025: the dotted correction underline, also on the playhead paragraph's tint")
+        table += pairs(
+            ink, on: [findMatchFill, findCurrentFill], .glyph,
+            "plan 025 B5: the dotted correction underline inside a Find match (drawn in ink there)")
         table += pairs(success, on: [ground, surface], .glyph, "switch tint, ready dots, check glyphs")
         table += pairs(favorite, on: [ground, surface], .glyph, "the favorite star")
         table += pairs(mutedText, on: [ground, surface], .glyph, "chevrons, the unfavorited star, placeholders")
