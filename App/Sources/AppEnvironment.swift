@@ -393,6 +393,9 @@ import Observation
                 "mark_interrupted_failed error_type=\(String(describing: type(of: error)), privacy: .public)")
         }
         await pipeline.sweepOrphanedTemporaryAudio()
+        // Review R4-8: a file or document whose import a kill cut short becomes an interrupted row with Retry once its
+        // copy was in (never deleted); a copy cut off mid-way is removed (the person's own file was only read).
+        await pipeline.recoverInterruptedImports()
         // A dictation recorded by a process that was killed before stopping becomes an interrupted row (never deleted).
         await dictation.recoverOrphanedRecordings()
         // M3: retention (only the person's setting; never a locked or unfinished meeting), then meetings to recover.

@@ -26,6 +26,9 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(row.durationMs, FakeNormalizer.durationMs)
         XCTAssertTrue(fileExists(h.sourceURL(for: id)), "the source is copied into media/<id>/")
         XCTAssertTrue(fileExists(source), "import copies, it never moves the user's file")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: h.staging.path), [],
+            "the import's journal goes once the row exists")
         let transcribeCalls = await h.speech.transcribeCalls
         XCTAssertEqual(transcribeCalls, 0, "import does not transcribe")
         XCTAssertEqual(h.recorder.progress(for: id).first?.stage, .importing)
@@ -676,10 +679,10 @@ final class FileTranscriptionPipelineTests: XCTestCase {
     }
 
     func testFileWorkRunsOnTheFileQueue() async throws {
-        let label = try await FileTranscriptionPipeline.runOnFileQueue {
+        let label = try await PipelineJobSupport.runOnFileQueue {
             String(cString: __dispatch_queue_get_label(nil))
         }
-        XCTAssertEqual(label, FileTranscriptionPipeline.fileQueueLabel)
+        XCTAssertEqual(label, PipelineJobSupport.fileQueueLabel)
     }
 
     // MARK: - Retry
@@ -793,5 +796,234 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         let h = try PipelineHarness(testCase: self)
         let removed = await h.pipeline.sweepOrphanedTemporaryAudio()
         XCTAssertEqual(removed, 0)
+    }
+
+    // MARK: - Interrupted imports (review R4-8)
+
+    /// The moment a kill can strike between the copy and the row: the copy is complete in `media/<id>/` and the
+    /// journal says what it is; nothing half-copied ever reaches `media/`. Once the row exists the journal is gone.
+    func testAnImportJournalsTheFileBeforeItsRowAndClearsItOnceTheRowExists() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let source = try h.makeMediaFile(named: "Synthetic visit.mov", audioTracks: 2)
+        let hold = await h.store.holdNext([.insert])
+
+        let job = Task {
+            try await h.pipeline.importFile(from: source, audioTrackOrdinal: 1, privacyClass: .clinical)
+        }
+        await hold.entered.wait()
+
+        let staged = try FileManager.default.contentsOfDirectory(atPath: h.staging.path)
+        XCTAssertEqual(staged.count, 1, "one import in progress: \(staged)")
+        let folderName = try XCTUnwrap(staged.first)
+        let id = try XCTUnwrap(UUID(uuidString: String(folderName.dropFirst(PipelineJobSupport.stagingPrefix.count))))
+        let folder = PipelineJobSupport.stagingFolder(for: id, in: h.staging)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: folder.path), [PipelineJobSupport.journalFileName],
+            "the copy left the staging folder whole, in one move")
+        let journal = try JSONDecoder().decode(
+            ImportJournal.self,
+            from: Data(contentsOf: folder.appendingPathComponent(PipelineJobSupport.journalFileName)))
+        XCTAssertEqual(
+            journal,
+            ImportJournal(
+                fileName: "Synthetic visit.mov", sourceType: .file, privacyClass: .clinical, audioTrackOrdinal: 1,
+                documentFormat: nil))
+        let copy = h.sourceURL(for: id, ext: "mov")
+        XCTAssertEqual(try Data(contentsOf: copy), try Data(contentsOf: source), "the copy is complete")
+        let rowWhileHeld = await h.store.row(id)
+        XCTAssertNil(rowWhileHeld)
+
+        hold.release.fire()
+        let imported = try await job.value
+        XCTAssertEqual(imported, id)
+        let row = await h.store.row(id)
+        XCTAssertEqual(row?.status, .processing)
+        XCTAssertFalse(fileExists(folder), "the journal goes once the row exists")
+    }
+
+    /// A kill after the copy reached `media/<id>/` but before the row was written: the next launch adopts the file
+    /// as an Interrupted item, as the import described it, and Retry transcribes it with the chosen track.
+    func testAKilledImportWhoseCopyWasInComesBackAsAnInterruptedItemWithRetry() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = UUID()
+        try writeJournal(
+            ImportJournal(
+                fileName: "Synthetic visit.mov", sourceType: .file, privacyClass: .clinical, audioTrackOrdinal: 1,
+                documentFormat: nil),
+            id: id, h: h)
+        let copy = h.sourceURL(for: id, ext: "mov")
+        try FileManager.default.createDirectory(
+            at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try SyntheticMedia.write(to: copy, audioTracks: 2)
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 1)
+        let stored = await h.store.row(id)
+        let row = try XCTUnwrap(stored, "the file is never lost")
+        XCTAssertEqual(row.status, .interrupted)
+        XCTAssertEqual(row.sourceType, .file)
+        XCTAssertEqual(row.fileName, "Synthetic visit.mov")
+        XCTAssertEqual(row.privacyClass, .clinical, "the class the import was given")
+        XCTAssertEqual(row.audioTrackOrdinal, 1, "the person's track choice")
+        XCTAssertEqual(row.mediaRelativePath, "media/\(id.uuidString)/source.mov")
+        XCTAssertEqual(row.fileSizeBytes, 64)
+        XCTAssertNotNil(row.errorMessage)
+        XCTAssertTrue(fileExists(copy), "the file is kept")
+        XCTAssertFalse(fileExists(PipelineJobSupport.stagingFolder(for: id, in: h.staging)))
+
+        let retried = await h.pipeline.retry(id: id)
+        XCTAssertEqual(retried?.status, .completed)
+        XCTAssertEqual(retried?.rawTranscript, FakeSpeech.helloText)
+        let ordinals = await h.normalizer.requestedOrdinals
+        XCTAssertEqual(ordinals, [1])
+    }
+
+    /// A kill in the middle of the copy: the incomplete copy never reached `media/`. It is deleted (the person's own
+    /// file was only ever read) and nothing is adopted.
+    func testACopyCutOffByAKillIsDeletedAndNothingIsAdopted() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = UUID()
+        try writeJournal(
+            ImportJournal(
+                fileName: "Synthetic visit.m4a", sourceType: .file, privacyClass: .personal, audioTrackOrdinal: nil,
+                documentFormat: nil),
+            id: id, h: h)
+        let folder = PipelineJobSupport.stagingFolder(for: id, in: h.staging)
+        try Data(repeating: 7, count: 10).write(to: folder.appendingPathComponent("source.m4a"))
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 0)
+        XCTAssertFalse(fileExists(folder), "the incomplete copy and its journal are gone")
+        let rows = try await h.store.fetchAll()
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertFalse(fileExists(h.paths.mediaDirectory(for: id)))
+    }
+
+    /// A kill after the row was written but before its journal was removed: the row stands, only the journal goes.
+    func testAJournalLeftAfterTheRowWasWrittenIsOnlyRemoved() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample(named: "Synthetic memo.m4a")
+        try writeJournal(
+            ImportJournal(
+                fileName: "Synthetic memo.m4a", sourceType: .file, privacyClass: .personal, audioTrackOrdinal: nil,
+                documentFormat: nil),
+            id: id, h: h)
+        let before = await h.store.row(id)
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 0)
+        let after = await h.store.row(id)
+        XCTAssertEqual(after, before, "the row is not touched")
+        XCTAssertFalse(fileExists(PipelineJobSupport.stagingFolder(for: id, in: h.staging)))
+        XCTAssertTrue(fileExists(h.sourceURL(for: id)))
+    }
+
+    /// A media folder with no journal and no row (a deleted item whose folder could not be removed) is never brought
+    /// back, and never deleted here either.
+    func testAMediaFolderWithoutAJournalIsNeverAdopted() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = UUID()
+        let copy = h.sourceURL(for: id)
+        try FileManager.default.createDirectory(
+            at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 32).write(to: copy)
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 0)
+        let rows = try await h.store.fetchAll()
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertTrue(fileExists(copy))
+    }
+
+    /// Ruling: when the journal cannot be read, the copy is still adopted, named neutrally and marked Clinical (the
+    /// class the import was given is unknown, and Clinical is the safe side, as for any unknown class).
+    func testAnUnreadableJournalStillAdoptsTheCopyAsClinical() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = UUID()
+        let folder = PipelineJobSupport.stagingFolder(for: id, in: h.staging)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{not json".utf8).write(to: folder.appendingPathComponent(PipelineJobSupport.journalFileName))
+        let copy = h.sourceURL(for: id)
+        try FileManager.default.createDirectory(
+            at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 7, count: 16).write(to: copy)
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 1)
+        let row = await h.store.row(id)
+        XCTAssertEqual(row?.status, .interrupted)
+        XCTAssertEqual(row?.sourceType, .file)
+        XCTAssertEqual(row?.privacyClass, .clinical)
+        XCTAssertEqual(row?.fileName, "Recovered file.m4a")
+        XCTAssertNil(row?.audioTrackOrdinal)
+    }
+
+    /// A document cut off the same way comes back as a document, and Retry reads it.
+    func testAKilledDocumentImportComesBackAsAnInterruptedDocument() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let documents = DocumentImportPipeline(
+            paths: h.paths, store: h.store, extractor: FakeExtractor(.succeed(DocumentImportPipelineTests.extracted)),
+            stagingDirectory: h.staging, onProgress: { _, _ in })
+        let id = UUID()
+        try writeJournal(
+            ImportJournal(
+                fileName: "Synthetic handout.PDF", sourceType: .document, privacyClass: .personal,
+                audioTrackOrdinal: nil, documentFormat: .pdf),
+            id: id, h: h)
+        let copy = h.sourceURL(for: id, ext: "pdf")
+        try FileManager.default.createDirectory(
+            at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 65, count: 128).write(to: copy)
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 1)
+        let row = await h.store.row(id)
+        XCTAssertEqual(row?.status, .interrupted)
+        XCTAssertEqual(row?.sourceType, .document)
+        XCTAssertEqual(row?.documentFormat, .pdf)
+        XCTAssertEqual(row?.privacyClass, .personal)
+        XCTAssertEqual(row?.fileName, "Synthetic handout.PDF")
+        let retried = await documents.retry(id: id)
+        XCTAssertEqual(retried?.status, .completed)
+        XCTAssertEqual(retried?.rawTranscript, DocumentImportPipelineTests.extracted.text)
+    }
+
+    /// An import still running in this process is never taken for one a kill cut short.
+    func testAnImportStillRunningIsLeftAlone() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let hold = await h.store.holdNext([.insert])
+        let job = Task { try await h.pipeline.importFile(from: h.makeSourceFile(named: "Synthetic live.m4a")) }
+        await hold.entered.wait()
+
+        let adopted = await h.pipeline.recoverInterruptedImports()
+
+        XCTAssertEqual(adopted, 0)
+        hold.release.fire()
+        let id = try await job.value
+        let rows = try await h.store.fetchAll()
+        XCTAssertEqual(rows.map(\.id), [id], "one row, the import's own")
+        XCTAssertEqual(rows.first?.status, .processing)
+    }
+
+    /// A failed import leaves no staging folder behind (and, as before, no row and no media folder).
+    func testAFailedImportLeavesNoStagingFolder() async throws {
+        let h = try PipelineHarness(testCase: self)
+        do {
+            _ = try await h.pipeline.importFile(from: h.inbox.appendingPathComponent("gone.m4a"))
+            XCTFail("expected import to throw")
+        } catch {}
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: h.staging.path), [])
+    }
+
+    private func writeJournal(_ journal: ImportJournal, id: UUID, h: PipelineHarness) throws {
+        let folder = PipelineJobSupport.stagingFolder(for: id, in: h.staging)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try JSONEncoder().encode(journal).write(to: folder.appendingPathComponent(PipelineJobSupport.journalFileName))
     }
 }

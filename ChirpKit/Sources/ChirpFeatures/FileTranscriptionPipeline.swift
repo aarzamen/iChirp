@@ -87,14 +87,8 @@ public actor FileTranscriptionPipeline {
     /// (`SpeechModelMissingError`).
     public static let modelMissingMessage = "Download the Parakeet speech model in Settings → Speech model"
     static let normalizedFileName = "normalized-16k.wav"
-    /// The statuses `retry` accepts.
-    static let retryableStatuses: Set<Transcription.Status> = [.failed, .cancelled, .interrupted]
     /// How many jobs may hold a normalized WAV at once: one being transcribed plus one being prepared behind it.
     static let maxConcurrentAudioPreparations = 2
-    static let fileQueueLabel = "com.aarzamen.ichirp.pipeline.files"
-    /// Blocking file work (copying an imported file, which can be a large video) runs here, never on this actor or
-    /// Swift's cooperative pool.
-    private static let fileQueue = DispatchQueue(label: fileQueueLabel, qos: .userInitiated, attributes: .concurrent)
 
     /// Pipeline failures that are not engine errors.
     public enum PipelineError: Error, Equatable, LocalizedError {
@@ -125,6 +119,8 @@ public actor FileTranscriptionPipeline {
     private let privacyRouting: PrivacyRoutingPolicy
     private let customWords: @Sendable () async -> [CustomWord]
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
+    /// Where an import's copy and journal wait until the copy is complete and its row exists (review R4-8).
+    private let stagingDirectory: URL
     private let logger = Log.logger("pipeline")
     /// Ids with a `process` in flight; a second `process` for the same id is refused so two runs never share
     /// (and delete) one normalized WAV.
@@ -143,6 +139,9 @@ public actor FileTranscriptionPipeline {
     ///     to their actor (see `TranscriptionJobCenter.progressHandler`).
     ///   - trackProbe: lists a file's audio tracks so a multi-track file can ask for a choice before import (M1.5).
     ///     Nil (the default) imports every file with automatic selection.
+    ///   - stagingDirectory: where an import copies the file before moving it into `media/<id>/` (the app's temporary
+    ///     directory; tests pass their own). `DocumentImportPipeline` must use the same one, because
+    ///     `recoverInterruptedImports()` recovers both kinds of import from it.
     public init(
         paths: AppPaths,
         store: any TranscriptionStoring,
@@ -154,6 +153,7 @@ public actor FileTranscriptionPipeline {
         settings: any SettingsStoring,
         privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
         customWords: @escaping @Sendable () async -> [CustomWord] = { [] },
+        stagingDirectory: URL = FileManager.default.temporaryDirectory,
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
         self.paths = paths
@@ -166,6 +166,7 @@ public actor FileTranscriptionPipeline {
         self.settings = settings
         self.privacyRouting = privacyRouting
         self.customWords = customWords
+        self.stagingDirectory = stagingDirectory
         self.onProgress = onProgress
     }
 
@@ -190,11 +191,15 @@ public actor FileTranscriptionPipeline {
 
     /// Copies (security-scoped) into media/<id>/source.<ext>, inserts a processing row, returns its id. Does not transcribe.
     ///
-    /// The user's file is copied, never moved. On failure nothing is left behind: the new media folder is removed
-    /// and no row exists. A duration that cannot be read is not an error (`durationMs` stays nil until `process`).
-    /// `audioTrackOrdinal` records the person's track choice for a multi-track file (nil: automatic); every run of
-    /// the row, Retry included, decodes that track. `privacyClass` is the row's class from its first write (plan 022
-    /// review I1: Create's chosen class).
+    /// The user's file is copied, never moved, through `PipelineJobSupport`'s import steps: journal, copy into the
+    /// staging directory, one move into `media/<id>/`, then the row. On failure nothing is left behind: no journal, no
+    /// media folder, no row. Once the copy is in, the row is written outside the caller's cancellation (review R4-10),
+    /// so a Cancel in the Live Activity never drops the file: `process` then ends the row `cancelled`, source kept. A
+    /// kill before the row exists is settled at the next launch by `recoverInterruptedImports()` (review R4-8). A
+    /// duration that cannot be read is not an error (`durationMs` stays nil until `process`). `audioTrackOrdinal`
+    /// records the person's track choice for a multi-track file (nil: automatic); every run of the row, Retry
+    /// included, decodes that track. `privacyClass` is the row's class from its first write (plan 022 review I1:
+    /// Create's chosen class).
     public func importFile(
         from url: URL,
         sourceType: Transcription.SourceType = .file,
@@ -202,23 +207,24 @@ public actor FileTranscriptionPipeline {
         privacyClass: PrivacyClass = .personal
     ) async throws -> UUID {
         let id = UUID()
-        let directory = paths.mediaDirectory(for: id)
-        let fileManager = FileManager.default
         let fileExtension = url.pathExtension
-        let destination = directory.appendingPathComponent(
-            fileExtension.isEmpty ? "source" : "source.\(fileExtension)", isDirectory: false)
+        let journal = ImportJournal(
+            fileName: url.lastPathComponent, sourceType: sourceType, privacyClass: privacyClass,
+            audioTrackOrdinal: audioTrackOrdinal, documentFormat: nil)
+        PipelineJobSupport.beginImport(id)
+        defer { PipelineJobSupport.endImport(id) }
 
         do {
             // Off this actor: copying a large video blocks its thread for as long as the copy takes.
-            try await Self.runOnFileQueue {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                try Self.copySecurityScoped(from: url, to: destination)
-            }
+            let destination = try await PipelineJobSupport.copyIntoMedia(
+                url, id: id, name: fileExtension.isEmpty ? "source" : "source.\(fileExtension)", journal: journal,
+                paths: paths, staging: stagingDirectory)
             guard let relativePath = paths.relativePath(for: destination) else {
                 throw CocoaError(.fileWriteInvalidFileName)
             }
 
-            let size = (try? fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue
+            let size = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?
+                .intValue
             var durationMs: Int?
             do {
                 durationMs = try await normalizer.durationMs(of: destination)
@@ -237,28 +243,20 @@ public actor FileTranscriptionPipeline {
                 status: .processing,
                 privacyClass: privacyClass
             )
-            try await store.insert(row)
+            let store = self.store
+            try await PipelineJobSupport.detached { try await store.insert(row) }
+            await PipelineJobSupport.finishImport(id, staging: stagingDirectory)
             // Reported only once the row exists, so a failed import never leaves a progress entry behind.
             onProgress(id, JobProgress(stage: .importing, fraction: 0.02))
             logger.info("imported id=\(id, privacy: .public) ext=\(fileExtension, privacy: .public)")
             return id
         } catch {
-            try? fileManager.removeItem(at: directory)
+            await PipelineJobSupport.abandonImport(id, paths: paths, staging: stagingDirectory)
             logger.error(
                 "import_failed error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
             )
             throw error
         }
-    }
-
-    /// Copies while holding security-scoped access (files from the document picker or share sheet need it; plain
-    /// sandbox URLs return false from `start…` and copy as-is).
-    private static func copySecurityScoped(from source: URL, to destination: URL) throws {
-        let accessing = source.startAccessingSecurityScopedResource()
-        defer {
-            if accessing { source.stopAccessingSecurityScopedResource() }
-        }
-        try FileManager.default.copyItem(at: source, to: destination)
     }
 
     // MARK: - Process
@@ -301,7 +299,7 @@ public actor FileTranscriptionPipeline {
             let transcription = try await run(row, speech: speech, normalizedURL: normalizedURL)
             result = try await saveCompleted(transcription)
         } catch {
-            if Self.isCancellation(error) {
+            if PipelineJobSupport.isCancellation(error) {
                 logger.notice("process_cancelled id=\(id, privacy: .public)")
                 result = await markEnded(id, fallback: row, status: .cancelled, message: nil)
             } else {
@@ -328,22 +326,7 @@ public actor FileTranscriptionPipeline {
             logger.notice("retry_ignored_already_running id=\(id, privacy: .public)")
             return nil
         }
-        do {
-            let reset = try await Self.detached { [store] in
-                try await store.transitionStatus(
-                    id: id, from: Self.retryableStatuses, to: .processing, errorMessage: nil)
-            }
-            guard reset != nil else {
-                logger.notice("retry_refused id=\(id, privacy: .public) reason=missing_or_not_retryable")
-                return nil
-            }
-        } catch {
-            let reason = error.localizedDescription
-            logger.error(
-                "retry_reset_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(reason, privacy: .private)"
-            )
-            return nil
-        }
+        guard await PipelineJobSupport.reopenForRetry(id, store: store, logger: logger) else { return nil }
         return await process(id: id)
     }
 
@@ -375,6 +358,19 @@ public actor FileTranscriptionPipeline {
             logger.notice("sweep_removed_orphaned_audio count=\(removed, privacy: .public)")
         }
         return removed
+    }
+
+    // MARK: - Interrupted imports (review R4-8)
+
+    /// Launch step for imports a kill cut short, audio and documents alike (both pipelines stage in the same
+    /// directory). A copy that had reached `media/<id>/` without its row becomes an Interrupted item with Retry, as its
+    /// import's journal describes it; a copy cut off before it got there is deleted (the person's own file was only
+    /// ever read). Call at launch after `markStaleProcessingAsInterrupted()` and `sweepOrphanedTemporaryAudio()`, before
+    /// any import starts. Returns how many items it adopted.
+    @discardableResult public func recoverInterruptedImports() async -> Int {
+        await PipelineJobSupport.recoverInterruptedImports(
+            paths: paths, staging: stagingDirectory, store: store, logger: logger
+        ).adopted
     }
 
     // MARK: - Stages
@@ -444,7 +440,7 @@ public actor FileTranscriptionPipeline {
                 diarization = try await diarizer.diarize(fileAt: normalized.url)
             } catch {
                 // Upstream: diarization failure is non-fatal; only cancellation aborts the job.
-                if Self.isCancellation(error) { throw CancellationError() }
+                if PipelineJobSupport.isCancellation(error) { throw CancellationError() }
                 let reason = error.localizedDescription
                 Log.logger("pipeline").error(
                     "diarization_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(reason, privacy: .private)"
@@ -638,7 +634,7 @@ public actor FileTranscriptionPipeline {
     private func saveCompleted(_ transcription: Transcription) async throws -> Transcription? {
         let id = transcription.id
         let store = self.store
-        let saved = try await Self.detached { try await store.savePreservingUserMetadata(transcription) }
+        let saved = try await PipelineJobSupport.detached { try await store.savePreservingUserMetadata(transcription) }
         guard let saved else {
             logger.notice("process_row_deleted_during_job id=\(id, privacy: .public)")
             removeMediaDirectoryIfEmpty(for: id)
@@ -649,35 +645,19 @@ public actor FileTranscriptionPipeline {
         return saved
     }
 
-    /// Moves the row from `.processing` to a terminal `.failed` / `.cancelled` status, changing only the status and
-    /// message (a rename or favorite made during the job stays). Runs outside the job's cancellation, because the store
-    /// refuses writes from a cancelled task. Returns the row as stored, or nil when it no longer exists.
+    /// Moves the row from `.processing` to a terminal `.failed` / `.cancelled` status through the shared terminal write
+    /// (`PipelineJobSupport.endProcessing`: only the status and message change, outside the job's cancellation).
+    /// Returns the row as stored, or nil when it no longer exists, after dropping the folder the job left empty.
     private func markEnded(
         _ id: UUID,
         fallback: Transcription,
         status: Transcription.Status,
         message: String?
     ) async -> Transcription? {
-        let store = self.store
-        do {
-            if let ended = try await Self.detached({
-                try await store.transitionStatus(id: id, from: [.processing], to: status, errorMessage: message)
-            }) {
-                return ended
-            }
-            // Gone, or no longer processing: report the row as it is.
-            let current = await storedRow(id)
-            if current == nil { removeMediaDirectoryIfEmpty(for: id) }
-            return current
-        } catch {
-            logger.error(
-                "status_write_failed id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
-            )
-            var unsaved = fallback
-            unsaved.status = status
-            unsaved.errorMessage = message
-            return unsaved
-        }
+        let ended = await PipelineJobSupport.endProcessing(
+            id, as: status, message: message, fallback: fallback, store: store, logger: logger)
+        if ended == nil { removeMediaDirectoryIfEmpty(for: id) }
+        return ended
     }
 
     /// After the user deleted a row mid-job: drops its media folder if the job left it empty (never a non-empty one).
@@ -692,33 +672,7 @@ public actor FileTranscriptionPipeline {
     }
 
     private func storedRow(_ id: UUID) async -> Transcription? {
-        let store = self.store
-        do {
-            return try await Self.detached { try await store.fetch(id: id) }
-        } catch {
-            let reason = error.localizedDescription
-            logger.error(
-                "fetch_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public) error=\(reason, privacy: .private)"
-            )
-            return nil
-        }
-    }
-
-    /// Runs blocking `work` on `fileQueue` and returns its result.
-    static func runOnFileQueue<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            fileQueue.async {
-                continuation.resume(with: Result { try work() })
-            }
-        }
-    }
-
-    /// Runs `operation` in a new unstructured task, which keeps the caller's priority but not its cancellation
-    /// (GRDB's async accessors throw `CancellationError` inside a cancelled task, and terminal writes must land).
-    private static func detached<T: Sendable>(
-        _ operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        try await Task { try await operation() }.value
+        await PipelineJobSupport.storedRow(id, store: store, logger: logger)
     }
 
     // MARK: - Helpers
@@ -727,18 +681,12 @@ public actor FileTranscriptionPipeline {
         onProgress(id, JobProgress(stage: stage, fraction: fraction))
     }
 
-    private static func isCancellation(_ error: any Error) -> Bool {
-        error is CancellationError || (error as? SpeechEngineError) == .cancelled || Task.isCancelled
-    }
-
+    /// A missing model names what to do (`modelMissingMessage`); anything else is the shared failure sentence.
     private static func userMessage(for error: any Error) -> String {
         if case .modelNotDownloaded = error as? SpeechEngineError {
             return modelMissingMessage
         }
-        if let description = (error as? any LocalizedError)?.errorDescription, !description.isEmpty {
-            return description
-        }
-        return error.localizedDescription
+        return PipelineJobSupport.sentence(for: error)
     }
 }
 

@@ -227,7 +227,7 @@ import Observation
                 self?.logger.error(
                     "import_failed error_type=\(error.logTypeName, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
                 )
-                self?.lastImportError = Self.readable(error)
+                self?.lastImportError = PipelineJobSupport.sentence(for: error)
                 self?.tasks[token] = nil
                 self?.onImportSettled?(url)
                 self?.endContinuation(token, status: nil)
@@ -274,7 +274,7 @@ import Observation
                     id = try await importer.importItem(from: url)
                 } catch {
                     self?.logger.error("import_failed error_type=\(error.logTypeName, privacy: .public)")
-                    self?.lastImportError = Self.readable(error)
+                    self?.lastImportError = PipelineJobSupport.sentence(for: error)
                     self?.tasks[token] = nil
                     self?.onImportSettled?(url)
                     self?.endContinuation(token, status: nil)
@@ -376,19 +376,13 @@ import Observation
         }
         logger.notice("jobs_cancelled_on_expiration count=\(tokens.count, privacy: .public)")
     }
-
-    private static func readable(_ error: any Error) -> String {
-        if let description = (error as? any LocalizedError)?.errorDescription, !description.isEmpty {
-            return description
-        }
-        return error.localizedDescription
-    }
 }
 
 /// An importer the job center can run besides the audio pipeline (M5: `DocumentImportPipeline`). The same shape as
 /// `FileTranscriptionPipeline`: `importItem` copies the file in and creates the row (nothing is left behind when it
-/// throws), `process` runs a `.processing` row to its end, `retry` moves a failed, cancelled or interrupted row back and
-/// runs it again.
+/// throws; once the copy is in, the row is written even if the job was cancelled meanwhile, so the file is never
+/// dropped), `process` runs a `.processing` row to its end, `retry` moves a failed, cancelled or interrupted row back
+/// and runs it again.
 public protocol ItemImporting: Sendable {
     func importItem(from url: URL) async throws -> UUID
     func process(id: UUID) async -> Transcription?

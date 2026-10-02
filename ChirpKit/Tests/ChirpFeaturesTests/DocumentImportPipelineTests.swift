@@ -56,6 +56,7 @@ final class DocumentImportPipelineTests: XCTestCase {
     private var base: URL!
     private var paths: AppPaths!
     private var outside: URL!
+    private var staging: URL!
     private let store = FakeStore()
     private let log = LinkProgressLog()
 
@@ -74,8 +75,10 @@ final class DocumentImportPipelineTests: XCTestCase {
             .appendingPathComponent("DocumentImportPipelineTests-\(UUID().uuidString)", isDirectory: true)
         paths = AppPaths(root: base.appendingPathComponent("iChirp", isDirectory: true))
         outside = base.appendingPathComponent("Files", isDirectory: true)
+        staging = base.appendingPathComponent("tmp", isDirectory: true)
         try FileManager.default.createDirectory(at: paths.root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
@@ -83,7 +86,8 @@ final class DocumentImportPipelineTests: XCTestCase {
     }
 
     private func makePipeline(_ extractor: FakeExtractor) -> DocumentImportPipeline {
-        DocumentImportPipeline(paths: paths, store: store, extractor: extractor, onProgress: log.handler)
+        DocumentImportPipeline(
+            paths: paths, store: store, extractor: extractor, stagingDirectory: staging, onProgress: log.handler)
     }
 
     private func makeFile(_ name: String, bytes: Int = 512) throws -> URL {
@@ -108,6 +112,22 @@ final class DocumentImportPipelineTests: XCTestCase {
         XCTAssertEqual(row.privacyClass, .personal)
         XCTAssertTrue(fileExists(file), "the person's file is copied, never moved")
         XCTAssertTrue(fileExists(paths.mediaDirectory(for: id).appendingPathComponent("source.pdf")))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: staging.path), [], "the import's journal is gone")
+    }
+
+    /// Review R4-8: an import that fails mid-copy leaves no journal, no folder and no row.
+    func testAFailedCopyLeavesNothingBehind() async throws {
+        let pipeline = makePipeline(FakeExtractor(.succeed(Self.extracted)))
+        do {
+            _ = try await pipeline.importItem(from: outside.appendingPathComponent("gone.pdf"))
+            XCTFail("expected an error")
+        } catch {}
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: staging.path), [])
+        let media = paths.root.appendingPathComponent("media")
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: media.path)) ?? [], [])
+        let rows = try await store.fetchAll()
+        XCTAssertTrue(rows.isEmpty)
     }
 
     /// Plan 022 review I1: Create imports a document with the class the person chose, from the row's first write.

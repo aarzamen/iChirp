@@ -20,9 +20,17 @@ pipeline's `Task`s and publishes its progress to the UI.
   when transcription starts. Plan 019 adds `JobProgress.isIndeterminate` (`.indeterminate(stage)`,
   `determinateFraction`): a download whose size is unknown shows "Downloading…" and a spinner, never "0%".
   - `importFile(from:sourceType:audioTrackOrdinal:privacyClass:)` copies the file (security-scoped, never moved)
-    into `media/<id>/source.<ext>` on the pipeline's file queue, then inserts a `.processing` row carrying the
-    person's audio-track choice (nil: automatic) and its class from the first write (default `personal`; Create
-    passes the chosen class). `process` decodes that track on every run, Retry included.
+    into `media/<id>/source.<ext>` on the file queue, then inserts a `.processing` row carrying the person's
+    audio-track choice (nil: automatic) and its class from the first write (default `personal`; Create passes the
+    chosen class). `process` decodes that track on every run, Retry included. The copy goes through the shared import
+    steps (`PipelineJobSupport`, below): a journal and the copy in the staging directory, one move into `media/`, the
+    row written outside the caller's cancellation (review R4-10: a Cancel in the Live Activity during an import ends
+    in a `cancelled` row with its source kept, never a dropped file or a raw CancellationError), then the journal goes.
+  - `recoverInterruptedImports()` (review R4-8, call at launch): an import a kill cut short. A copy that had reached
+    `media/<id>/` without its row becomes an `.interrupted` row with Retry, named, classed and track-chosen as its
+    journal says (audio and documents alike); a copy cut off mid-way is deleted (the person's own file was only
+    read); a journal whose row exists is just removed. A media folder without a journal (a deleted item's leftover)
+    is never brought back.
   - `audioTracks(in:)` lists a file's audio tracks (security-scoped, through the injected `trackProbe`; empty
     without one) so a multi-track file can ask before import; `canInspectAudioTracks` says whether a probe exists.
   - `process(id:)` runs: privacy routing check → model check → audio-preparation permit (at most two jobs) →
@@ -55,10 +63,20 @@ pipeline's `Task`s and publishes its progress to the UI.
   transcription; Create's file) with its own background request, cancellable by `cancel(id)`.
 - `DocumentImportPipeline.swift` (M5): documents, an `ItemImporting` the job center runs. `importItem(from:)` copies
   the file into `media/<id>/source.<ext>` and inserts a `.processing` `.document` row with its `documentFormat`
-  (`importItem(from:privacyClass:)` gives the row Create's chosen class from its first write)
-  (nothing left behind on failure; unsupported types throw); `process(id:)` extracts on device through
+  (`importItem(from:privacyClass:)` gives the row Create's chosen class from its first write), through the same
+  import steps as audio (nothing left behind on failure; unsupported types throw; a Cancel never drops the file);
+  `process(id:)` extracts on device through
   `DocumentTextExtracting` with `.readingDocument` page progress, derives title and snippet, and saves with
   `savePreservingUserMetadata`; `retry(id:)` re-extracts from the kept source. No engine, no scheduler slot, no network.
+- `PipelineJobSupport.swift` (review R4-17): what both pipelines share instead of copies that had drifted:
+  `retryableStatuses`, `detached` (writes outside the job's cancellation), `isCancellation` (an engine's `.cancelled`
+  counts), `sentence(for:)` (the failure sentence; a cancel never shows Foundation's raw text), `storedRow`,
+  `endProcessing` (the terminal write: only status and message change; a store failure still reports how the job
+  ended), `reopenForRetry`, the file queue (`runOnFileQueue`), and the import steps with their launch recovery
+  (review R4-8): `ImportJournal` (name, kind, class, track, format) written to `<staging>/import-<id>/journal.json`,
+  the copy made beside it and moved into `media/<id>/` in one rename, the row inserted, then the journal removed;
+  imports running in this process are never recovered. The staging directory is the app's temporary directory
+  (both pipelines must use the same one; tests pass their own).
 - `LinkImportViewModel.swift` (M5): the Paste a link sheet. `text` is classified locally on every change (`kind`);
   `transcribe()` is the one networked action: podcast and media links get their row and continue as a tracked job
   (`startMediaJob`, wired by the app to `startTracked`), YouTube links finish in the sheet; errors stay in the sheet
@@ -543,6 +561,7 @@ let pipeline = FileTranscriptionPipeline(
     scheduler: scheduler, settings: settings, onProgress: jobs.progressHandler)
 _ = try await store.markStaleProcessingAsInterrupted()     // at launch, then:
 await pipeline.sweepOrphanedTemporaryAudio()
+await pipeline.recoverInterruptedImports()                 // review R4-8, before any import starts
 jobs.onImportSettled = { url in inbox?.removeIfInside(url) } // inbox = IncomingFileInbox.appDefault()
 jobs.start(filesAt: pickedOrSharedURLs, pipeline: pipeline) // per user action
 LibraryViewModel(store: store, paths: paths, documents: deliverableStore)  // paths: delete removes media/<id>/;
@@ -597,8 +616,14 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   slot; here both models run in one background slot, so two files never hold Parakeet and the diarizer in memory at
   once on the phone. Dictation (the interactive slot) is unaffected.
 - **Terminal writes run outside the job's cancellation.** GRDB's async accessors throw `CancellationError` inside a
-  cancelled task, so the `.cancelled`/`.failed` status and the final save go through an unstructured `Task`. The
-  fake store in the tests throws the same way; keep that when changing persistence here.
+  cancelled task, so the `.cancelled`/`.failed` status and the final save go through an unstructured `Task`
+  (`PipelineJobSupport.detached`). So does an import's row insert once its copy is in (review R4-10), so a Cancel in
+  the Live Activity never drops a file. The fake store in the tests throws the same way; keep that when changing
+  persistence here.
+- **An import never leaves half a file in `media/`, and a kill never loses one that got there** (review R4-8). The
+  copy is made in the staging directory beside its journal and moved into `media/<id>/` in one rename; the journal
+  goes only after the row exists. `recoverInterruptedImports()` at launch adopts a complete copy without a row as an
+  Interrupted item and deletes an incomplete copy. Never write into `media/<id>/` before the copy is complete.
 - **Every write that can race a job is field-level.** Rename and favorite (Library, Transcript) use the store's
   `updateTitleOverride` / `updateFavorite`; failure and cancel marking use `transitionStatus(from: [.processing])`;
   retry uses `transitionStatus(from: [.failed, .cancelled, .interrupted], to: .processing)`. Each is one store
@@ -616,8 +641,9 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   first come, first served; cancelling it while it waits marks it `.cancelled` without normalizing. The permit is
   pipeline state, not a scheduler slot: normalizing inside the `.fileTranscription` slot would hold the one
   background slot through a long decode and delay M2/M3 meeting work queued for it.
-- **Blocking work stays off the pipeline actor and Swift's cooperative pool.** The import copy runs on the
-  pipeline's file queue (`runOnFileQueue`); `AVAudioNormalizer` decodes on its own queue (see
+- **Blocking work stays off the pipeline actor and Swift's cooperative pool.** The import copy, its journal and the
+  launch recovery's file work run on the shared file queue (`PipelineJobSupport.runOnFileQueue`); `AVAudioNormalizer`
+  decodes on its own queue (see
   `ChirpAudio/README.md`). Never call a blocking file or decode API directly in an `async` function here.
 - **`normalized-16k.wav` is removed on every exit** (when the permit is returned, and again by a `defer` in
   `process`); the source is never touched. The media layout is a contract:

@@ -17,6 +17,11 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   the row pointing at it, and removes the folder only when the person cancels (discard) the dictation.
 - `FileTranscriptionPipeline.sweepOrphanedTemporaryAudio()` at launch (deletes `normalized-16k.wav` left by a killed
   process; never a source file).
+- `FileTranscriptionPipeline.importFile` and `DocumentImportPipeline.importItem` (review R4-8, additive): `source.<ext>`
+  reaches `media/<UUID>/` only complete, moved in one rename from `<tmp>/import-<UUID>/` (below), before its row is
+  inserted. `FileTranscriptionPipeline.recoverInterruptedImports()` at launch turns a complete copy left without a row
+  into an `interrupted` row (never deletes it) and deletes only incomplete copies in `<tmp>`; a `media/<UUID>/` folder
+  without a journal is never adopted.
 - `ChirpFeatures.VoiceMessageExporter` (plan 022) writes `media/<id>/voice-<n>.m4a` (joined by ChirpAudio's
   `VoiceMessageWriter`; its temporary chunks live in `tmp/voice-message-<uuid>/`, removed when it ends and swept at
   launch).
@@ -69,6 +74,10 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   earlier one. No row points at it; it is deleted with the item's folder (a text item, which has no source file, gets
   the folder when its first voice message is saved). The share sheet gets a copy named after the title in
   `<tmp>/export-<id>/`, which `ExportTempFiles` removes with the item and sweeps at launch.
+- `<tmp>/import-<UUID>/` (outside the root, review R4-8, additive) holds an import in progress: `journal.json` (the
+  file's name, kind, privacy class, audio-track choice and document format) and, until it is complete, the copy
+  itself. The journal is removed once the row exists; one left at launch is an import a kill cut short (see
+  Producers). No row ever points into it.
 - `Documents/Inbox/` (outside the root) is where iOS copies a file another app opens in Parakeet (M1.5 "Open in").
   That copy is temporary, never referenced by a row, and deleted once its import settles
   (`IncomingFileInbox.removeIfInside`, which touches nothing outside that folder).
@@ -89,7 +98,11 @@ recoverable step.
 
 - `AppPathsTests.testDatabaseURLLivesInRoot`, `testMediaRelativePathRoundTrips`, `testRelativePathOutsideRootIsNil`.
 - `FileTranscriptionPipelineTests.testProcessProducesCompletedTranscriptWithSpeakersAndSegments` (normalized WAV
-  deleted, source kept), `testSweepDeletesOnlyOrphanedNormalizedAudio` (orphaned WAVs only).
+  deleted, source kept), `testSweepDeletesOnlyOrphanedNormalizedAudio` (orphaned WAVs only), and the review R4-8 tests
+  (`testAnImportJournalsTheFileBeforeItsRowAndClearsItOnceTheRowExists`,
+  `testAKilledImportWhoseCopyWasInComesBackAsAnInterruptedItemWithRetry`,
+  `testACopyCutOffByAKillIsDeletedAndNothingIsAdopted`, `testAMediaFolderWithoutAJournalIsNeverAdopted`,
+  `testAKilledDocumentImportComesBackAsAnInterruptedDocument`).
 - `LibraryViewModelTests.testDeleteRemovesRowAndItsMediaFolder` (exactly the item's folder).
 - `VoiceMessageExporterTests` (`voice-1.m4a`, then `voice-2.m4a`, nothing overwritten; no file after a failure or
   cancel; temporary chunks removed and swept) and `VoiceMessageWriterTests` (one AAC file with the pauses).

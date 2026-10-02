@@ -89,6 +89,60 @@ final class BackgroundContinuationTests: XCTestCase {
         XCTAssertEqual(units, units.sorted(), "\(units)")
     }
 
+    // MARK: - Review R4-10: Cancel in the Live Activity while a file is being imported
+
+    /// The person taps Cancel (or the system expires the task) before the import is done: the file is still copied in
+    /// and its row ends `cancelled` with the source kept, so Retry works. No raw CancellationError alert, and the
+    /// person's file is never dropped.
+    func testCancelDuringAnImportKeepsTheFileAsACancelledItem() async throws {
+        let scheduler = FakeContinuedProcessingScheduler()
+        let center = TranscriptionJobCenter(continuedProcessing: scheduler)
+        let h = try PipelineHarness(testCase: self, onProgress: center.progressHandler)
+        var settled: [URL] = []
+        center.onImportSettled = { settled.append($0) }
+        let source = try h.makeSourceFile(named: "Ward round.m4a")
+
+        center.start(filesAt: [source], pipeline: h.pipeline)
+        let task = try XCTUnwrap(scheduler.startLast())
+        task.expire()  // before the job has run at all: its whole import runs inside a cancelled task
+        await center.waitUntilIdle()
+
+        XCTAssertNil(center.lastImportError, "a cancel is not an error to show")
+        let rows = try await h.store.fetchAll()
+        XCTAssertEqual(rows.count, 1, "the file is never dropped")
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row.status, .cancelled)
+        XCTAssertTrue(fileExists(h.sourceURL(for: row.id)), "the source is kept for Retry")
+        XCTAssertEqual(settled, [source], "the Inbox copy may go: the file is in the Library")
+        XCTAssertEqual(task.completions, [false])
+        XCTAssertTrue(center.progress.isEmpty)
+
+        let retried = await h.pipeline.retry(id: row.id)
+        XCTAssertEqual(retried?.status, .completed)
+    }
+
+    func testCancelDuringADocumentImportKeepsTheFileAsACancelledItem() async throws {
+        let scheduler = FakeContinuedProcessingScheduler()
+        let center = TranscriptionJobCenter(continuedProcessing: scheduler)
+        let h = try PipelineHarness(testCase: self, onProgress: center.progressHandler)
+        let documents = DocumentImportPipeline(
+            paths: h.paths, store: h.store, extractor: FakeExtractor(.succeed(DocumentImportPipelineTests.extracted)),
+            stagingDirectory: h.staging, onProgress: center.progressHandler)
+
+        center.start(filesAt: [try h.makeSourceFile(named: "Referral.pdf")], importer: documents)
+        let task = try XCTUnwrap(scheduler.startLast())
+        task.expire()
+        await center.waitUntilIdle()
+
+        XCTAssertNil(center.lastImportError)
+        let rows = try await h.store.fetchAll()
+        XCTAssertEqual(rows.map(\.status), [.cancelled], "the document is never dropped")
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertTrue(fileExists(h.sourceURL(for: row.id, ext: "pdf")), "the source is kept for Retry")
+        let retried = await documents.retry(id: row.id)
+        XCTAssertEqual(retried?.status, .completed)
+    }
+
     func testAFailedJobCompletesTheTaskUnsuccessfully() async throws {
         let scheduler = FakeContinuedProcessingScheduler()
         let center = TranscriptionJobCenter(continuedProcessing: scheduler)
@@ -286,7 +340,8 @@ final class BackgroundContinuationTests: XCTestCase {
         let h = try PipelineHarness(testCase: self, onProgress: center.progressHandler)
         let extractor = FakeExtractor(.fail(.passwordProtected))
         let documents = DocumentImportPipeline(
-            paths: h.paths, store: h.store, extractor: extractor, onProgress: center.progressHandler)
+            paths: h.paths, store: h.store, extractor: extractor, stagingDirectory: h.staging,
+            onProgress: center.progressHandler)
         let name = "Doe_Jane_followup"  // synthetic; a file name can hold a patient's name
 
         // An audio file whose job fails, then its Retry once the person marked it clinical and renamed it.
