@@ -9,10 +9,11 @@ import Foundation
 
 /// One block of a generated document's Markdown.
 public enum MarkdownBlock: Sendable, Equatable {
-    /// An ATX heading of two to six hashes (`##` … `######`), or a line that is a single bold run and nothing else —
-    /// the shape every built-in template uses for its section names (`**Subjective**`, `**Key Points**`). `level`
-    /// is 2–6 for a real `#` heading; a bold-only pseudo-heading is level 2. A single `#` is never a heading (known
-    /// item K1, plan 024 ruling — see `MarkdownBlockParser.headingLine`).
+    /// An ATX heading of two to six hashes (`##` … `######`), a single `#` on the document's first non-empty line
+    /// (a model's title), or a line that is a single bold run and nothing else — the shape every built-in template
+    /// uses for its section names (`**Subjective**`, `**Key Points**`). `level` is 1–6 for a real `#` heading; a
+    /// bold-only pseudo-heading is level 2. Below the first line a single `#` is never a heading (known item K1,
+    /// plan 024 rulings — see `MarkdownBlockParser.headingLine`).
     case heading(level: Int, text: String)
     /// One or more source lines with no list or heading marker, joined by "\n" (blank lines end a paragraph).
     case paragraph(String)
@@ -67,8 +68,12 @@ public enum MarkdownBlockParser {
         }
 
         let normalized = markdown.replacingOccurrences(of: "\r\n", with: "\n")
+        var seenContent = false
         for rawLine in normalized.components(separatedBy: "\n") {
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            // The document's first non-empty line, where a single "#" is the title (`headingLine`).
+            let isFirstLine = !seenContent && !trimmed.isEmpty
+            if !trimmed.isEmpty { seenContent = true }
 
             // A fence line toggles code mode, whether it opens (optionally with a language tag) or closes.
             if trimmed.hasPrefix("```") {
@@ -92,7 +97,7 @@ public enum MarkdownBlockParser {
                 flushList()
                 continue
             }
-            if let heading = headingLine(trimmed) {
+            if let heading = headingLine(trimmed, isFirstLine: isFirstLine) {
                 flushParagraph()
                 flushList()
                 blocks.append(.heading(level: heading.level, text: heading.text))
@@ -118,23 +123,26 @@ public enum MarkdownBlockParser {
     // MARK: - Line classifiers
 
     /// A real ATX heading needs a space after the hashes (CommonMark's own rule) — this is what keeps "#1 rule for
-    /// success" and "#hashtag" from being misread as headings — and **two to six** hashes.
+    /// success" and "#hashtag" from being misread as headings — and two to six hashes, or a single one on the
+    /// document's first non-empty line.
     ///
-    /// Ruling (known item K1, plan 024 Task 4): a single "#" is never a heading, although CommonMark allows it. In
-    /// clinical shorthand "#" is a character with meaning — "number of" ("# of doses given: 3"), "fracture"
-    /// ("# L radius"), a problem-list entry ("# HTN") — and reading it as a heading dropped it from the screen, Copy
-    /// and the PDF/Word exports, so the line stays text with its "#". Every built-in template names its sections
+    /// Ruling (known item K1, plan 024 Task 4; controller ruling in fix round 1): a single "#" is a heading only on
+    /// the document's first non-empty line, where a model writes its title ("# SOAP Note"; the PDF/Word export
+    /// then also skips it when it repeats the document's title). Anywhere else it is text and keeps its "#",
+    /// although CommonMark allows the heading: in clinical shorthand "#" is a character with meaning — "number of"
+    /// ("# of doses given: 3"), "fracture" ("# L radius"), a problem-list entry ("# HTN") — and reading it as a
+    /// heading dropped it from the screen, Copy and the PDF/Word exports. Every built-in template names its sections
     /// with a bold line (`BuiltInTemplates`: `**Subjective**`, `**Key Points**`), and models write `##`/`###`, so
-    /// those still render as headings. Cost if wrong: a model's single-`#` title line ("# SOAP Note") shows its "#"
-    /// as written — cosmetic, no character lost.
+    /// those render as headings anywhere. Cost if wrong: a document whose very first line is "#" shorthand
+    /// ("# of doses given: 3" as line one) shows that line as its title, without the "#".
     ///
     /// A bold-only line is a heading only when the bold run spans the *entire* trimmed line ("**a** and **b**" is
     /// two inline runs inside a paragraph, not one) and holds a letter or digit (a "_____" signature blank or a
     /// "*****" divider is text, not a heading whose text is "_").
-    private static func headingLine(_ line: String) -> (level: Int, text: String)? {
+    private static func headingLine(_ line: String, isFirstLine: Bool) -> (level: Int, text: String)? {
         if line.hasPrefix("#") {
             let hashes = line.prefix { $0 == "#" }.count
-            guard (2...6).contains(hashes) else { return nil }
+            guard ((isFirstLine ? 1 : 2)...6).contains(hashes) else { return nil }
             let rest = line.dropFirst(hashes)
             guard rest.hasPrefix(" ") else { return nil }
             let text = rest.trimmingCharacters(in: .whitespaces)

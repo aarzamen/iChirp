@@ -68,14 +68,16 @@ pipeline directly.
 - `Markdown/` (UX audit F23, plan 023 — "formatted view, plain copy"): a generated document's Markdown, rendered on
   screen and flattened for Copy from the same parse.
   - `MarkdownBlock.swift`: `MarkdownBlockParser.parse(_:)`, a pure, deterministic line-based block parser shared
-    by the screen, Copy and the PDF/Word exports — `.heading` (a real `##`…`######` line, or a line that is a
-    single bold run holding a letter or digit and nothing else, the shape every built-in template uses for its
-    section names, e.g. `**Subjective**`), `.paragraph`, `.list` (bulleted with `-`, `*` or `•`, numbered, or a
+    by the screen, Copy and the PDF/Word exports — `.heading` (a real `##`…`######` line, a single `#` on the
+    document's first non-empty line, or a line that is a single bold run holding a letter or digit and nothing
+    else, the shape every built-in template uses for its section names, e.g. `**Subjective**`), `.paragraph`,
+    `.list` (bulleted with `-`, `*` or `•`, numbered, or a
     mix, with a `MarkdownListItem.level` for nesting and, for a numbered item, its `marker` exactly as written:
     "2)", "07."), `.code` (a fenced ```` ``` ```` block). A numbered marker needs a digit run followed by ". "/") "
     (so "120/80 mmHg" and "3.5 mg" are never read as list items); each two leading spaces of indentation is one
-    more nesting level. Rulings (plan 024 Task 4), each keeping a character the person wrote: a single `#` is
-    never a heading ("# of doses given: 3", "# L radius" keep their "#"; known item K1), `+` is never a bullet
+    more nesting level. Rulings (plan 024 Task 4), each keeping a character the person wrote: a single `#` is a
+    heading only on the document's first non-empty line, where a model writes its title (controller ruling, fix
+    round 1); below it "# of doses given: 3" and "# L radius" keep their "#" (known item K1); `+` is never a bullet
     ("+ fever" is never drawn "•" or copied "- fever"), and a numbered item keeps its own delimiter ("2)" never
     becomes "2."; known item K2).
   - `MarkdownInline.swift`: resolves bold/italic/inline-code/links within one block's text via

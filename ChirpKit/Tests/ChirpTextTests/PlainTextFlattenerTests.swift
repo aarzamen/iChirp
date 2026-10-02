@@ -225,13 +225,17 @@ final class PlainTextFlattenerTests: XCTestCase {
             "- Threshold ≥ 38.0\n- 5 & 3 < 9")
     }
 
-    /// Known item K1: a single "#" plus a space plus prose is the person's "#" ("number of", "fracture"), never a
-    /// heading marker to drop.
+    /// Known item K1 (controller ruling, fix round 1): below the document's first line, a single "#" plus a space
+    /// plus prose is the person's "#" ("number of", "fracture") and copies with it; on the first line it is the
+    /// document's title.
     func testSingleHashLineKeepsItsHash() {
-        XCTAssertEqual(PlainTextFlattener.flatten("# of doses given: 3"), "# of doses given: 3")
+        XCTAssertEqual(PlainTextFlattener.flatten("**Plan**\n# of doses given: 3"), "Plan\n\n# of doses given: 3")
         XCTAssertEqual(
             PlainTextFlattener.flatten("**Assessment**\n# L radius\n# HTN, controlled"),
             "Assessment\n\n# L radius\n# HTN, controlled")
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("# SOAP Note\n**Subjective**\n# of doses given: 3"),
+            "SOAP Note\n\nSubjective\n\n# of doses given: 3")
     }
 
     /// Known item K2: "2) second item" copied as "2. second item"; the source delimiter is kept.

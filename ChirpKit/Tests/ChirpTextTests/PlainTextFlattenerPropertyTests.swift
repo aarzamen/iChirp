@@ -223,8 +223,10 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
 
     /// Clinical lines whose every character is the point: each must come back from Copy exactly as written.
     func testClinicalLinesCopyExactlyAsWritten() {
+        // In a document's body: on the very first line a single "#" is the title (controller ruling, fix round 1).
         for line in Self.clinicalInlineLines {
-            XCTAssertEqual(PlainTextFlattener.flatten(line), line, line)
+            XCTAssertEqual(
+                PlainTextFlattener.flatten("Synthetic note.\n\n\(line)"), "Synthetic note.\n\n\(line)", line)
         }
     }
 
@@ -324,9 +326,19 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
             tokens: ["See"] + label + ["(\(address))", "for", "details"])
     }
 
-    private static func randomClinicalLine(using generator: inout SeededGenerator) -> Generated {
-        let line = clinicalInlineLines.randomElement(using: &generator)!
+    /// A clinical line; never a "#" line as the document's first line, where a single "#" is the title.
+    private static func randomClinicalLine(first: Bool, using generator: inout SeededGenerator) -> Generated {
+        let line = clinicalInlineLines.filter { !first || !$0.hasPrefix("# ") }.randomElement(using: &generator)!
         return Generated(lines: [line], tokens: [line])
+    }
+
+    /// A model's single-"#" title on the document's first line (controller ruling, fix round 1): its words copy as
+    /// the title's own line, without the "#".
+    private static func randomTitleLine(using generator: inout SeededGenerator) -> Generated {
+        let words = randomSentence(wordCount: Int.random(in: 1...3, using: &generator), using: &generator)
+            .filter { $0.allSatisfy { $0.isLetter || $0.isNumber } }
+        let title = (words.isEmpty ? ["Summary"] : words).joined(separator: " ")
+        return Generated(lines: ["# \(title)"], tokens: [title], exactLines: [title])
     }
 
     /// Fix round 1: two to four emphasized words separated only by punctuation ("**Fever**, **chills** / *cough*"):
@@ -360,6 +372,10 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
 
     private static func randomDocument(blockCount: Int, using generator: inout SeededGenerator) -> Generated {
         var document = Generated()
+        if Int.random(in: 0..<3, using: &generator) == 0 {
+            document.append(randomTitleLine(using: &generator))
+            document.lines.append("")
+        }
         for _ in 0..<blockCount {
             switch Int.random(in: 0..<7, using: &generator) {
             case 0:
@@ -371,7 +387,7 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
             case 3:
                 document.append(randomCodeBlock(using: &generator))
             case 4:
-                document.append(randomClinicalLine(using: &generator))
+                document.append(randomClinicalLine(first: document.lines.isEmpty, using: &generator))
             case 5:
                 document.append(randomPunctuatedEmphasis(using: &generator))
             default:

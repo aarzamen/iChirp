@@ -75,7 +75,8 @@ Markdown syntax and clinical shorthand, the person's reading wins (plan 024 ruli
 | Source | Read as | Why |
 |---|---|---|
 | `## Plan`, `**Subjective**` (a whole-line bold run) | Heading | Models write `##`/`###`; every built-in template names its sections with a bold line |
-| `# of doses given: 3`, `# L radius` (one `#`) | Text, "#" kept (known item K1) | "#" means "number of", "fracture" or a problem-list entry; cost: a model's `# Title` line shows its "#" |
+| `# SOAP Note` (one `#`, on the document's first non-empty line) | Heading, level 1 (controller ruling, fix round 1) | Where a model writes its title; the PDF/Word export skips it when it repeats the document's title |
+| `# of doses given: 3`, `# L radius` (one `#`, any later line) | Text, "#" kept (known item K1) | "#" means "number of", "fracture" or a problem-list entry; cost: a document whose very first line is such shorthand reads it as its title |
 | `2) second item`, `07. item` | List item, marker kept exactly (K2) | Copy used to write "2." and "7." |
 | `+ fever` | Text, "+" kept | As a bullet it was drawn "•" and copied "- fever", the opposite finding |
 | `25~50 mg q8~12h`, `~~text~~` | Text, every `~` kept (R2-8) | Strikethrough paired tilde ranges ("2550 mg q812h"); struck text pasted as plain text would read as live |

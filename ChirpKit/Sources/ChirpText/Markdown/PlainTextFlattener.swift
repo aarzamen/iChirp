@@ -5,9 +5,10 @@ import Foundation
 
 /// Turns a generated document's Markdown into clean plain text for the clipboard.
 ///
-/// - A heading (`##`…`######`, or a line that is a single bold run — every built-in template's section-name style,
-///   `**Subjective**`) becomes its text on its own line, followed by a blank line. A single `#` is not a heading:
-///   "# of doses given: 3" copies with its "#" (known item K1, ruling in `MarkdownBlockParser`).
+/// - A heading (`##`…`######`, a single `#` on the document's first line, or a line that is a single bold run —
+///   every built-in template's section-name style, `**Subjective**`) becomes its text on its own line, followed by
+///   a blank line. Below the first line a single `#` is not a heading: "# of doses given: 3" copies with its "#"
+///   (known item K1, rulings in `MarkdownBlockParser`).
 /// - A bullet (`-`, `*` or `•`) becomes `"- "` (`PlainTextFlattener.bulletMarker`) at every nesting level, each
 ///   level indented two more spaces. `"- "` was chosen over `"• "`: a hyphen types and pastes identically
 ///   everywhere, where a bullet glyph can arrive as `?` or get stripped by a strict EMR field. A `+` line is not a

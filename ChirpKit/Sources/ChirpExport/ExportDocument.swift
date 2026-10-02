@@ -118,7 +118,8 @@ extension ExportDocument {
     /// `ChirpText.MarkdownBlockParser` for the blocks and `MarkdownInline.plain` for each line's text, so a PDF or
     /// Word file holds exactly the characters Copy writes — the same headings (`##`…`######` and the templates'
     /// bold section names such as `**Subjective**`), list items with their nesting level and their own number
-    /// and delimiter ("2)"), and every word, number and symbol; only Markdown syntax is dropped. A single "#" line
+    /// and delimiter ("2)"), and every word, number and symbol; only Markdown syntax is dropped. A single "#" on the
+    /// first line is the document's title (level 1, skipped when it repeats `title`); below it, a single "#" line
     /// ("# of doses given: 3") is text that keeps its "#"; fenced code prints exactly as written.
     public static func text(
         title: String,

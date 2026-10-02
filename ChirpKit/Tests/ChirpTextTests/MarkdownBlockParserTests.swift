@@ -17,18 +17,34 @@ final class MarkdownBlockParserTests: XCTestCase {
             ])
     }
 
-    /// Known item K1, ruling (plan 024 Task 4): a single "#" is never a heading. In clinical shorthand "#" means
-    /// "number of" ("# of doses given: 3"), "fracture" ("# L radius") or a problem-list entry ("# HTN"); reading it
-    /// as a heading dropped the "#" on screen, on Copy and in the PDF/Word exports. Two or more hashes still make a
-    /// heading, and every built-in template names its sections with a bold line, which is unaffected.
-    func testSingleHashLineIsTextThatKeepsItsHash() {
+    /// Known item K1, controller ruling (plan 024 Task 4, fix round 1): a single "#" is a heading only on the
+    /// document's first non-empty line, where a model writes its title. Anywhere else the line is text and keeps its
+    /// "#": in clinical shorthand "#" means "number of" ("# of doses given: 3"), "fracture" ("# L radius") or a
+    /// problem-list entry ("# HTN"), and reading it as a heading dropped the "#" on screen, on Copy and in the
+    /// PDF/Word exports. Two or more hashes are headings anywhere, and every built-in template names its sections
+    /// with a bold line, which is unaffected.
+    func testSingleHashIsAHeadingOnlyOnTheFirstLine() {
         XCTAssertEqual(
-            MarkdownBlockParser.parse("# of doses given: 3"), [.paragraph("# of doses given: 3")])
-        XCTAssertEqual(MarkdownBlockParser.parse("# L radius"), [.paragraph("# L radius")])
+            MarkdownBlockParser.parse("# SOAP Note\n**Subjective**\n# of doses given: 3"),
+            [
+                .heading(level: 1, text: "SOAP Note"), .heading(level: 2, text: "Subjective"),
+                .paragraph("# of doses given: 3"),
+            ])
         XCTAssertEqual(
-            MarkdownBlockParser.parse("# SOAP Note\n**Subjective**"),
-            [.paragraph("# SOAP Note"), .heading(level: 2, text: "Subjective")],
-            "a model's single-# title line shows its # as written (the ruling's cosmetic cost)")
+            MarkdownBlockParser.parse("\n\n# SOAP Note"), [.heading(level: 1, text: "SOAP Note")],
+            "blank lines before the title do not count")
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("Plan\n# of doses given: 3"), [.paragraph("Plan\n# of doses given: 3")])
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("**Assessment**\n# L radius\n# HTN"),
+            [.heading(level: 2, text: "Assessment"), .paragraph("# L radius\n# HTN")])
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("```\nlet x = 1\n```\n# Title"), [.code("let x = 1"), .paragraph("# Title")],
+            "a fence is the first non-empty line")
+        // The ruling's cost, pinned so it stays deliberate: a document whose very first line is "#" shorthand reads
+        // that line as its title.
+        XCTAssertEqual(
+            MarkdownBlockParser.parse("# of doses given: 3"), [.heading(level: 1, text: "of doses given: 3")])
     }
 
     /// A line of only underscores or asterisks (a signature blank, a divider) is not a bold-only heading: "_____"

@@ -132,10 +132,34 @@ final class DocumentExportTests: XCTestCase {
             ])
     }
 
-    /// R1-6 (b) and known item K1: "#1 priority" and "# of doses given: 3" are text that keeps its "#".
+    /// R1-6 (b) and known item K1: "#1 priority" and a body line "# of doses given: 3" are text that keeps its "#".
     func testHashLinesStayTextWithTheirHash() {
         let document = ExportDocument.text(title: "Plan", body: "#1 priority\n\n# of doses given: 3")
         XCTAssertEqual(document.blocks, [.paragraph("#1 priority"), .paragraph("# of doses given: 3")])
+    }
+
+    /// Known item K1, controller ruling (fix round 1): a single "#" on the document's first non-empty line is its
+    /// title — a level-1 heading in PDF and Word, not repeated when it equals the document's title — while a body
+    /// line "# of doses given: 3" keeps its "#".
+    func testAFirstLineSingleHashTitleIsAHeadingInPDFAndWord() throws {
+        let body = "# SOAP Note\n**Subjective**\n# of doses given: 3"
+        XCTAssertEqual(
+            ExportDocument.text(title: "SOAP note", body: body).blocks,
+            [.heading("Subjective", level: 2), .paragraph("# of doses given: 3")],
+            "a title line equal to the document's title is not shown twice")
+        let document = ExportDocument.text(title: "Visit", body: body)
+        XCTAssertEqual(
+            document.blocks,
+            [.heading("SOAP Note", level: 1), .heading("Subjective", level: 2), .paragraph("# of doses given: 3")])
+        let xml = DOCXDocumentWriter.documentXML(document)
+        XCTAssertTrue(xml.contains("<w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t xml:space=\"preserve\">SOAP Note"))
+        XCTAssertTrue(xml.contains("># of doses given: 3<"))
+        let attributed = PDFDocumentRenderer.attributedText(for: document)
+        let title = (attributed.string as NSString).range(of: "SOAP Note")
+        XCTAssertNotNil(attributed.attribute(PDFDocumentRenderer.keepWithNext, at: title.location, effectiveRange: nil))
+        let font = try XCTUnwrap(
+            attributed.attribute(NSAttributedString.Key(kCTFontAttributeName as String), at: title.location, effectiveRange: nil))
+        XCTAssertEqual(CTFontGetSize(font as! CTFont), 15, "a level-1 heading")
     }
 
     /// R1-6 (c): the old parser deleted every "__" and "**", so a signature blank printed empty and "2**10" printed
@@ -300,6 +324,12 @@ final class DocumentExportTests: XCTestCase {
         | **Medication** | **Dose** | **Frequency** |
         **Yes** / **No**, _Yes_ / _No_
         BP: ___/___ mmHg on __/__/____
+        """,
+        """
+        # SOAP Note
+        **Plan**
+        # of doses given: 3
+        2) Recheck BP in 2 weeks; see https://example.com/~ward_3/a_-_b
         """,
     ]
 

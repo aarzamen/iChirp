@@ -39,7 +39,8 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
   generated document's Markdown with the parser the screen and Copy use (review R1-6, plan 024 Task 4):
   `ChirpText.MarkdownBlockParser` for the blocks and `MarkdownInline.plain` for each line, so a PDF or Word file
   holds exactly the characters Copy writes — the templates' bold section names (`**Subjective**`) and `##`…`######`
-  lines are headings (with keep-with-next), a single-`#` line ("# of doses given: 3") is text with its "#", list
+  lines are headings (with keep-with-next), as is a single-`#` title on the first line (level 1: 15 pt, Word's
+  Heading1), while a single-`#` line below it ("# of doses given: 3") is text with its "#", list
   items keep their nesting and their own marker ("2)"), signature blanks and "2**10" are kept, fenced code prints as
   written, and a first heading equal to the title is not repeated. The old line parser (any `#` line a heading, every
   `**`/`__` deleted, nesting flattened) is gone.
