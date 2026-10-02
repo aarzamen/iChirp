@@ -131,7 +131,10 @@ submitted. Option 2 stays a possible later addition for use away from home.
 `DocumentImportPipeline` copies it into `media/<id>/source.pdf`, inserts a `.document` row, and extracts on device:
 PDFKit per page, and for a page with (almost) no text layer, the page rendered to an image and read with Vision
 `RecognizeDocumentsRequest` (falling back to `RecognizeTextRequest`). `documentPages` records each page's method.
-Password-protected, damaged and text-free PDFs fail with a message and Retry.
+Password-protected, damaged and text-free PDFs fail with a message and Retry. Every page Vision reads keeps all the
+documents it detects, and a page the documents request reads as empty falls back to line recognition (review R2-16).
+Extraction (file reads, parsing, PDF text and rendering) runs on a dedicated dispatch queue, never Swift's
+cooperative pool, and a cancelled import stops between pages or parsing steps (review R2-7).
 
 | Format | Method |
 |---|---|
@@ -139,5 +142,5 @@ Password-protected, damaged and text-free PDFs fail with a message and Retry.
 | Scanned PDF pages | Render the page to an image, then Vision `RecognizeDocumentsRequest` (iOS 26; paragraphs, tables, lists) |
 | TXT, Markdown | Read as UTF-8 text (BOM-marked UTF-16 and Windows-1252 also read; binary refused); a Markdown heading is the title. **Built** |
 | RTF | `NSAttributedString` (supported on iOS). **Built** |
-| HTML | **Built with a small converter instead of `NSAttributedString`**: its HTML import must run on the main thread and loads WebKit. Blocks, list items and cells keep their structure; scripts, styles and markup are dropped; `<title>` is the title |
-| DOCX | Unzip and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only. **Built on Foundation** (`ZipArchiveReader`: central directory, `NSData` raw-DEFLATE inflate, CRC-32) instead of ZIPFoundation, so no new dependency |
+| HTML | **Built with a small converter instead of `NSAttributedString`**: its HTML import must run on the main thread and loads WebKit. Blocks, list items and cells keep their structure; scripts, styles and markup are dropped; `<title>` is the title; HTML 4's named entities and HTML5's clinical ones (`&ge;`, `&le;`, `&minus;`, `&mu;` …) decode |
+| DOCX | Unzip and read `word/document.xml` paragraphs (`w:p`/`w:t`); Apple's DOCX reader is macOS-only. **Built on Foundation** (`ZipArchiveReader`: central directory, raw-DEFLATE inflate in 64 KB steps that stops once an entry passes its declared size, CRC-32) instead of ZIPFoundation, so no new dependency. Symbol-font characters (`w:sym`: ≥ ≤ ± ° µ …, Word's check boxes; anything unmappable shows as U+FFFD, never dropped) and non-breaking hyphens are kept; a text box Word writes twice (`mc:AlternateContent`) is read once (review R2-3, R2-5) |

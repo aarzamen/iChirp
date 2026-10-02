@@ -404,9 +404,15 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
             startOffset = 0
             total = http.expectedContentLength > 0 ? http.expectedContentLength : nil
         case 206:
-            guard let resume, let range = MediaDownloader.contentRange(http.value(forHTTPHeaderField: "Content-Range")),
-                range.start == resume.offset, MediaDownloader.continuesSameFile(http, resume: resume)
-            else {
+            guard let range = MediaDownloader.contentRange(http.value(forHTTPHeaderField: "Content-Range")) else {
+                throw MediaDownloadError.resumeMismatch
+            }
+            if let resume {
+                guard range.start == resume.offset, MediaDownloader.continuesSameFile(http, resume: resume) else {
+                    throw MediaDownloadError.resumeMismatch
+                }
+            } else if range.start != 0 {
+                // Nothing was asked to continue: only a range from the first byte is the file itself.
                 throw MediaDownloadError.resumeMismatch
             }
             startOffset = range.start
