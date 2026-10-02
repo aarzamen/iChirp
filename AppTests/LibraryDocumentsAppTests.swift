@@ -20,7 +20,9 @@ final class LibraryDocumentsAppTests: XCTestCase {
     }
 
     func testDeleteQuestionNamesTheDocumentsMadeFromTheItem() {
-        let transcript = Transcription(fileName: "visit.m4a", status: .completed)
+        // A row with its audio (R6a-16: a row without audio is not told it loses audio).
+        let transcript = Transcription(
+            fileName: "visit.m4a", mediaRelativePath: "media/x/visit.m4a", status: .completed)
         let one = LibraryDeleteCopy.message(for: transcript, documentTitles: ["SOAP note"])
         XCTAssertTrue(one.contains("its audio and the document made from it (SOAP note)"), one)
         XCTAssertTrue(one.hasSuffix("This can’t be undone."), one)
