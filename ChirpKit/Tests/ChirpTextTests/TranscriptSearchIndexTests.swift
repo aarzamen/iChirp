@@ -110,29 +110,8 @@ final class TranscriptSearchIndexTests: XCTestCase {
 /// Plan 025 D4 budget, Mac debug build: building the index of 20,000 words ≤ 150 ms and a median query ≤ 16 ms (the
 /// phone's budget, 50 ms and 8 ms p95 in a release build, is measured by the device smoke's `FIND BENCH` line).
 final class TranscriptSearchIndexPerformanceTests: XCTestCase {
-    /// Deterministic synthetic words in reading lines of 80, as the Transcript screen's paragraphs are.
-    static func syntheticBlocks(words count: Int) -> [String] {
-        let vocabulary = [
-            "the", "patient", "reports", "metformin", "twice", "daily", "and", "denies", "chest", "pain.", "Café",
-            "naïve", "follow-up", "in", "three", "weeks,", "blood", "pressure", "was", "normal",
-        ]
-        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
-        var blocks: [String] = []
-        var line: [String] = []
-        for _ in 0..<count {
-            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            line.append(vocabulary[Int(state >> 33) % vocabulary.count])
-            if line.count == 80 {
-                blocks.append(line.joined(separator: " "))
-                line.removeAll()
-            }
-        }
-        if !line.isEmpty { blocks.append(line.joined(separator: " ")) }
-        return blocks
-    }
-
     func testTwentyThousandWords() {
-        let blocks = Self.syntheticBlocks(words: 20_000)
+        let blocks = TranscriptSearchBenchmark.syntheticBlocks(words: 20_000)
         var buildTimes: [Double] = []
         var index = TranscriptSearchIndex(blocks: [])
         for _ in 0..<3 {
@@ -159,5 +138,16 @@ final class TranscriptSearchIndexPerformanceTests: XCTestCase {
         measure {
             _ = index.matches(for: "metformin")
         }
+    }
+
+    /// The device smoke's FIND BENCH numbers come from this (plan 025 B7).
+    func testBenchmarkReportsTimesAndMatches() {
+        let result = TranscriptSearchBenchmark.run(words: 2_000)
+        XCTAssertGreaterThan(result.totalMatches, 0)
+        XCTAssertGreaterThan(result.indexMs, 0)
+        XCTAssertGreaterThanOrEqual(result.queryP95Ms, 0)
+        XCTAssertEqual(TranscriptSearchBenchmark.queries.count, 20)
+        let first = TranscriptSearchBenchmark.syntheticBlocks(words: 20_000)
+        XCTAssertEqual(first, TranscriptSearchBenchmark.syntheticBlocks(words: 20_000), "deterministic")
     }
 }

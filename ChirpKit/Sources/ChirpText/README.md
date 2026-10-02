@@ -77,7 +77,8 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   UTF-16 `NSRange`) covers whole Characters of the shown text. Blank queries match nothing; the untrimmed query is
   searched; matches never overlap or cross a block. Budget (D4): 20,000 words, index ≤ 50 ms and query ≤ 8 ms p95 on
   the iPhone (the device smoke's `FIND BENCH` line); `TranscriptSearchIndexPerformanceTests` checks a looser Mac debug
-  bound.
+  bound. `Find/TranscriptSearchBenchmark.swift` (B7) is the one measurement both use: deterministic synthetic lines
+  of 80 words, the fastest of three index builds, the p95 of 20 typed queries.
 - `Corrections/LearnedRuleMatcher.swift` (plan 025 B3, D8): learned rules ("Also fix future transcripts",
   `CustomWord.Source.learned`) as `rule` corrections of a transcript's `.heard` lines: each enabled rule with a
   replacement matches as a custom word does (`\b<word>\b`, case-insensitive), each match goes through
