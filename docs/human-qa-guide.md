@@ -62,7 +62,7 @@ sample or a scratch Voice Memo) and test on that row only. Never test deletion o
 > Voice Memo of 1–5 minutes with two people talking, and a short throwaway file.
 
 Model management
-- [ ] Settings → Speech model shows "Not downloaded" on a fresh install; Download shows real progress and ends with
+- [ ] Settings → Speech engines shows "Not downloaded" on a fresh install; Download shows real progress and ends with
       "On device · <size> · Neural Engine".
 - [ ] Speaker labels: the diarizer model row downloads the same way.
 - [ ] Before the model is downloaded, importing a file ends in a clear error pointing to Settings (no silent download).
@@ -106,14 +106,14 @@ Share sheet ("Open in Parakeet")
 
 Locked phone (background)
 - [ ] Share `long-20min.m4a` to Parakeet, wait for "Transcribing", lock the phone: the Lock Screen shows a Live
-      Activity titled "long-20min" whose percentage moves on its own, with a Cancel control.
+      Activity titled "Transcribing a recording" (never the file's name) whose percentage moves on its own, with a Cancel control.
 - [ ] Leave it locked until it ends (about the file's length or less): unlocking shows the row Completed, with the
       full transcript. Note the elapsed time for the Step 3 research note.
 - [ ] Share it again, lock, tap Cancel on the Live Activity: after unlocking the row says Cancelled (or Interrupted)
       with Retry, never missing; Retry completes it.
 - [ ] Import two files at once (Capture → Import audio, select both): one Live Activity titled "2 files" whose
       subtitle counts "1 of 2 done".
-- [ ] Settings → Speech model → Delete, then Download, then lock the phone: the download finishes with a Live
+- [ ] Settings → Speech engines → Delete, then Download, then lock the phone: the download finishes with a Live
       Activity ("Parakeet speech model") and Settings shows "On device" afterwards.
 
 Audio tracks
@@ -190,8 +190,9 @@ Interruptions and routes (the recording must never be lost)
 - [ ] Take AirPods out mid-dictation: recording continues on the phone's microphone.
 - [ ] Play a transcript in the Library, then start a dictation (Action Button): playback pauses and does not
       resume by itself; the dictation records normally.
-- [ ] Force-quit Parakeet while dictating, reopen: the Library shows an Interrupted dictation with Retry (its audio
-      was kept); Retry transcribes what was recorded, or fails readably if the file was cut off.
+- [ ] Force-quit Parakeet while dictating, reopen: the Library shows the dictation with the **Partial audio** chip
+      (its audio was kept, and it may end early); Retry, where offered, transcribes what was recorded, or fails
+      readably if the file was cut off. Opening it shows "Partial audio" on the Transcript screen too.
 
 Background (Step 8 research note)
 - [ ] Start dictating, lock the phone, speak for 20 seconds, unlock, Stop & copy: the audio from while it was
@@ -222,7 +223,8 @@ Recording and the Meeting screen
       ("Speaker 1", "Speaker 2") and a working player. Its Notes tab shows the notes you typed.
 - [ ] Notes tab → Speakers → Rename "Speaker 1" to a name: every paragraph of that speaker shows the name.
 - [ ] Chevron (Hide recording) while recording: Capture shows "Meeting in progress · Recording · mm:ss · Return";
-      Return brings the Meeting screen back and it is still recording.
+      Return brings the Meeting screen back and it is still recording. Pause, then hide: Capture says
+      "Paused · mm:ss · nothing is recorded", never "Recording".
 - [ ] More options → Discard meeting… → Discard: the screen closes, nothing is in the Library.
 
 Screen locked and a 60-minute meeting (done criterion)
@@ -1034,6 +1036,47 @@ Regression
 
 Screenshots to attach
 - [ ] Capture and a transcript in Dark mode; the Dictating screen.
+
+## Shell, Capture, Library and Transcript checklist (plan 024 Task 9)
+
+> Preconditions: a build of `main` that includes plan 024 Task 9 (Settings → About shows its commit). Synthetic speech
+> and text only. A Mac signed in to the same Apple ID with Handoff on (for the Universal Clipboard checks).
+> Screenshots: `.superpowers/sdd/2026-10-01-024-review-fixes/screens-task9/` (simulator tour
+> `UITests/ShellScreensTourUITests.swift`).
+
+Nothing leaves the phone by Copy
+- [ ] Dictate a synthetic sentence, Stop & copy, then on the Mac press ⌘V in a text field: the sentence does **not**
+      paste there (it pastes on the phone). The Dictating screen's line "never leave this iPhone" is true.
+- [ ] Open a transcript → Share → Text: the share sheet has no **Copy** action (the app's own Copy is local-only).
+
+The Action Button over an open sheet
+- [ ] Capture → Type or paste (leave the sheet open), press the Action Button: the Dictating screen covers the
+      sheet; Stop & copy, Done: the Type or paste sheet is still there with what you typed.
+- [ ] Open a transcript's Notes sheet and press the Action Button: the Dictating screen shows on top; after Done the
+      Notes sheet is still open.
+
+Honest states
+- [ ] Start a meeting, Pause, hide it (chevron): Capture says "Paused · mm:ss · nothing is recorded". Call the phone
+      during a meeting and decline: Capture says "Interrupted" or "Microphone stopped · tap Return, then Resume",
+      never "Recording".
+- [ ] Force-quit while dictating, reopen, open the interrupted dictation, tap Retry: the screen shows the text when
+      the retry finishes, without leaving the screen.
+- [ ] A failed row (Library and Recent) shows its whole message, its "Dictation · time" line, and Retry under them;
+      tapping anywhere else on the card opens it.
+
+Navigation and words
+- [ ] Transforms → See all in Library, then Capture → Recent → See all: the Library shows **All**, search empty.
+- [ ] A typed text's More → Rename… says "Rename text"; a document's More menu has Delete…, and deleting goes back.
+- [ ] Leave Parakeet open overnight; in the morning, yesterday's rows are under "Yesterday".
+- [ ] Larger Text at the largest size: Capture, the Library, a transcript and a document re-flow (the action bar
+      becomes two columns); nothing is capped at the old AX2 size.
+
+Known limit (K1, plan 024 Task 4 ruling)
+- [ ] In a generated document, a line "# of doses given: 3" keeps its "#" everywhere except as the document's first
+      line, where a single "#" reads as the title (formatted view, Copy, PDF and Word alike).
+
+Screenshots to attach
+- [ ] Capture with three Recent rows above the tab bar; a failed Library row; the Dictating screen over a sheet.
 
 ## Writing a checklist (for agents)
 

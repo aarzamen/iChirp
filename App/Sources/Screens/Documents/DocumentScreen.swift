@@ -3,20 +3,22 @@ import ChirpExport
 import ChirpFeatures
 import ChirpUI
 import SwiftUI
-import UIKit
-import UniformTypeIdentifiers
 
 /// One document (M5): its cover and facts, then the text (page by page for a PDF, with OCR pages marked). No player
 /// and no SRT/VTT, because a document has no audio or timings. Copy, Share (Text, Markdown, JSON) and Transform work
 /// on the text exactly as they do on a transcript, so M4 templates can use it. Plan 022: a typed or pasted text item
 /// opens here too, and the summary card carries the privacy class control (as the Transcript's tab row does).
+///
+/// Plan 024 Task 9 (R6a-6): the title, More menu (now with Delete…), status card, reload and action bar are the
+/// Transcript screen's (`ItemScreenParts`), so the audit's fixes (one baseline, large-content labels, the Copy
+/// announcement, a 44 pt More button) hold here too; its view model is made once (`OnceBox`, R6a-5).
 struct DocumentScreen: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
     let id: UUID
 
-    @State private var model: TranscriptViewModel
+    @State private var box = OnceBox<TranscriptViewModel>()
     @State private var hasLoaded = false
-    @State private var placeholder: Placeholder?
     @State private var shareItem: ShareItem?
     @State private var actionError: String?
     @State private var isRenaming = false
@@ -30,13 +32,14 @@ struct DocumentScreen: View {
     /// The item's class as the routers use it, with why (UX audit F51): a Personal text with a SOAP note reads
     /// "Clinical (it has a SOAP note)".
     @State private var privacy: EffectivePrivacyExplanation?
+    /// More → Delete… is asking (the Library's question).
+    @State private var isConfirmingDelete = false
 
     /// Formats that make sense without timings.
     static let exportFormats: [ExportFormat] = [.txt, .markdown, .json]
 
-    init(id: UUID, environment: AppEnvironment) {
-        self.id = id
-        _model = State(initialValue: environment.makeTranscriptViewModel(id: id))
+    private var model: TranscriptViewModel {
+        box.get { environment.makeTranscriptViewModel(id: id) }
     }
 
     var body: some View {
@@ -57,18 +60,15 @@ struct DocumentScreen: View {
                     bottomBar
                 }
             }
+            .background {
+                // The job's stage or the row's status changed: re-read the row (not on every OCR tick, R6a-6).
+                ItemReloadWatcher(id: id) { Task { await model.load() } }
+            }
             .task {
                 await model.load()
                 hasLoaded = true
                 await loadPrivacy()
             }
-            .onChange(of: environment.jobCenter.progress[id]?.fraction) { _, _ in
-                Task { await model.load() }
-            }
-            .onChange(of: environment.library.items.first { $0.id == id }?.status) { _, _ in
-                Task { await model.load() }
-            }
-            .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
             // M4: a document runs the same templates as a transcript (its text is the "transcript" input).
             .sheet(
                 isPresented: $isTransforming,
@@ -98,12 +98,16 @@ struct DocumentScreen: View {
                     .presentationDetents([.medium, .large])
                     .ignoresSafeArea()
             }
-            .alert("Rename document", isPresented: $isRenaming) {
+            .itemDeleteConfirmation(
+                isPresented: $isConfirmingDelete, item: model.transcription, environment: environment,
+                onDeleted: { dismiss() }, onError: { actionError = $0 }
+            )
+            .alert(model.transcription.map(ItemNoun.renameTitle) ?? "Rename", isPresented: $isRenaming) {
                 TextField("Title", text: $renameText)
                 Button("Save") { Task { await rename() } }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Leave it empty to use the document’s own title.")
+                Text(model.transcription.map(ItemNoun.renameMessage) ?? "")
             }
             .alert(
                 "Something went wrong",
@@ -117,108 +121,54 @@ struct DocumentScreen: View {
 
     // MARK: - Header
 
-    private var titleHeader: some View {
-        VStack(spacing: 1) {
-            if let item = model.transcription {
-                HStack(spacing: 5) {
-                    Button {
-                        Task { await toggleFavorite() }
-                    } label: {
-                        Image(systemName: item.isFavorite ? "star.fill" : "star")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(item.isFavorite ? Tokens.Color.favorite : Tokens.Color.mutedText)
-                            .frame(minWidth: 44, minHeight: 44)  // the hit area (UX audit F47)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    // F67: one name ("Favorite") across the app; VoiceOver says "selected" while it is on.
-                    .accessibilityLabel("Favorite")
-                    .accessibilityAddTraits(item.isFavorite ? .isSelected : [])
-                    Button {
-                        startRename()
-                    } label: {
-                        Text(item.displayTitle)
-                            .chirpFont(16, .semibold)
-                            .foregroundStyle(Tokens.Color.ink)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Renames the document")
-                }
-                // The format and size show once, here; the card below names the kind (UX audit F69).
-                Text(Formatting.day(item.createdAt) + " · " + DocumentRow.meta(for: item))
-                    .chirpFont(11.5)
-                    .monospacedDigit()
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .lineLimit(1)
-            }
+    @ViewBuilder private var titleHeader: some View {
+        if let item = model.transcription {
+            // The format and size show once, here; the card below names the kind (UX audit F69).
+            ItemTitleHeader(
+                item: item, meta: Formatting.day(item.createdAt) + " · " + DocumentRow.meta(for: item),
+                onFavorite: { Task { await toggleFavorite() } }, onRename: startRename)
         }
-        .frame(maxWidth: 240)
     }
 
     private var moreMenu: some View {
-        Menu {
-            Button {
-                startRename()
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-            if let item = model.transcription {
-                Button {
-                    Task { await toggleFavorite() }
-                } label: {
-                    // F67: one name for favorites app-wide.
-                    Label(
-                        LibraryFavoriteCopy.title(isFavorite: item.isFavorite),
-                        systemImage: item.isFavorite ? "star.slash" : "star")
-                }
-            }
-            if model.transcription?.status == .completed {
-                Button {
-                    copyText()
-                } label: {
-                    Label("Copy Text", systemImage: "doc.on.doc")
-                }
-                Button {
-                    isExtractingFields = true
-                } label: {
-                    Label(ExtractFieldsViewModel.menuTitle, systemImage: "list.bullet.rectangle")
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .foregroundStyle(Tokens.Color.ink)
-        }
-        .accessibilityLabel("More options")
-        .disabled(model.transcription == nil)
+        ItemMoreMenu(
+            item: model.transcription, onRename: startRename, onFavorite: { Task { await toggleFavorite() } },
+            onCopy: copyText, onExtractFields: { isExtractingFields = true },
+            onDelete: { isConfirmingDelete = true })
     }
 
     // MARK: - Content
 
     @ViewBuilder private var content: some View {
+        let noun = model.transcription.map(ItemNoun.of) ?? "document"
         if let item = model.transcription {
             switch item.status {
             case .completed:
                 completed(item)
             case .processing:
-                statusPanel(
-                    title: environment.jobCenter.progress[id].map(Formatting.progress) ?? "Waiting to start",
-                    message: "The text appears here when Parakeet has read the document. You can leave this screen.",
-                    fraction: environment.jobCenter.progress[id]?.fraction, isError: false, canRetry: false)
+                ItemStatusPanel(
+                    id: id,
+                    content: .processing(
+                        message: "The text appears here when Parakeet has read the document. You can leave this screen."
+                    ))
             case .failed, .interrupted, .cancelled:
-                statusPanel(
-                    title: item.status == .cancelled ? "Cancelled" : "Couldn’t read this document",
-                    message: Formatting.statusLine(for: item, progress: nil) ?? "",
-                    fraction: nil, isError: item.status != .cancelled, canRetry: true)
+                ItemStatusPanel(
+                    id: id,
+                    content: .problem(
+                        title: item.status == .cancelled ? "Cancelled" : "Couldn’t read this \(noun)",
+                        message: Formatting.statusLine(for: item, progress: nil) ?? "",
+                        isError: item.status != .cancelled, canRetry: true))
             }
         } else if let error = model.loadError {
-            statusPanel(
-                title: "Couldn’t open this document", message: error, fraction: nil, isError: true, canRetry: false)
+            ItemStatusPanel(
+                id: id,
+                content: .problem(title: "Couldn’t open this \(noun)", message: error, isError: true, canRetry: false))
         } else if hasLoaded {
-            statusPanel(
-                title: "This document is gone", message: "It may have been deleted.", fraction: nil, isError: false,
-                canRetry: false)
+            ItemStatusPanel(
+                id: id,
+                content: .problem(
+                    title: "This \(noun) is gone", message: "It may have been deleted.", isError: false,
+                    canRetry: false))
         } else {
             Color.clear
         }
@@ -226,7 +176,7 @@ struct DocumentScreen: View {
 
     private func completed(_ item: Transcription) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: Tokens.Spacing.m) {
                 summaryCard(item)
                 // Plan 023 (UX audit F43): the documents made from this item.
                 MadeFromThisSection(sourceID: id)
@@ -240,17 +190,17 @@ struct DocumentScreen: View {
                     }
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 14)
-            .padding(.bottom, 24)
+            .padding(.horizontal, Tokens.Spacing.xl)
+            .padding(.top, Tokens.Spacing.m)
+            .padding(.bottom, Tokens.Spacing.xl)
         }
     }
 
     /// The cover, what the item is and where it was read, then the privacy class on its own row, so nothing wraps into
     /// a narrow column (UX audit F69).
     private func summaryCard(_ item: Transcription) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 14) {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
+            HStack(alignment: .top, spacing: Tokens.Spacing.m) {
                 DocumentCover(format: item.documentFormat, size: 56, badge: DocumentRow.coverBadge(for: item))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(Self.kindTitle(for: item))
@@ -277,7 +227,7 @@ struct DocumentScreen: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     private func loadPrivacy() async {
@@ -297,8 +247,8 @@ struct DocumentScreen: View {
     }
 
     private func pageView(_ page: DocumentPage, total: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+            HStack(spacing: Tokens.Spacing.xs) {
                 SectionLabel("Page \(page.number) of \(total)")
                 if page.method == .ocr {
                     Text("OCR")
@@ -322,7 +272,7 @@ struct DocumentScreen: View {
                 }
             }
         }
-        .padding(.top, 4)
+        .padding(.top, Tokens.Spacing.xxs)
     }
 
     private func paragraphText(_ text: String) -> some View {
@@ -334,114 +284,42 @@ struct DocumentScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func statusPanel(title: String, message: String, fraction: Double?, isError: Bool, canRetry: Bool)
-        -> some View
-    {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title)
-                    .chirpFont(17, .semibold)
-                    .monospacedDigit()
-                    .foregroundStyle(isError ? AppColor.error : Tokens.Color.ink)
-                if let fraction {
-                    ProgressView(value: min(max(fraction, 0), 1))
-                        .tint(Tokens.Color.accent)
-                }
-                Text(message)
-                    .chirpFont(14)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if canRetry {
-                    Button {
-                        environment.retry(id)
-                    } label: {
-                        CapsuleButtonLabel(title: "Retry", kind: .filled)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .chirpCard(radius: Tokens.Radius.m, padding: 16)
-            .padding(24)
-        }
-    }
-
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        HStack(spacing: 0) {
-            barButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
-                copyText()
-            }
-            // One Share order on every screen: PDF, Word, Text, Voice message…, then the other formats (UX audit F54).
-            Menu {
-                // Plan 022 Step 6: page formats.
-                ForEach(DocumentExportFormat.allCases, id: \.self) { format in
-                    Button(format.displayName) { shareDocument(format) }
-                }
-                Button(ExportFormat.txt.displayName) { share(.txt) }
-                Divider()
-                Button {
-                    voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
-                } label: {
-                    Label("Voice message…", systemImage: "waveform.badge.plus")
-                }
-                Menu("More formats") {
-                    ForEach(Self.exportFormats.filter { $0 != .txt }, id: \.self) { format in
-                        Button(Self.formatTitle(format)) { share(format) }
-                    }
-                }
-            } label: {
-                barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
-            }
-            .accessibilityLabel("Share")
+        ItemActionBar(
+            copied: copied, onCopy: copyText,
             // Plan 020: reads the document's text aloud.
-            ListenBarButton(source: .document(id: id), privacyClass: model.transcription?.privacyClass ?? .clinical) {
-                model.transcription?.displayText ?? ""
+            listen: ListenBarButton(
+                source: .document(id: id), privacyClass: model.transcription?.privacyClass ?? .clinical
+            ) { model.transcription?.displayText ?? "" },
+            onTransform: { isTransforming = true }
+        ) {
+            // One Share order on every screen: PDF, Word, Text, Voice message…, then the other formats (UX audit F54).
+            // Plan 022 Step 6: page formats.
+            ForEach(DocumentExportFormat.allCases, id: \.self) { format in
+                Button(format.displayName) { shareDocument(format) }
             }
-            barButton(title: "Transform", systemImage: "sparkles", emphasized: true) {
-                isTransforming = true
+            Button(ExportFormat.txt.displayName) { share(.txt) }
+            Divider()
+            Button {
+                voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+            } label: {
+                Label("Voice message…", systemImage: "waveform.badge.plus")
+            }
+            Menu("More formats") {
+                ForEach(Self.exportFormats.filter { $0 != .txt }, id: \.self) { format in
+                    Button(Self.formatTitle(format)) { share(format) }
+                }
             }
         }
-        .frame(minHeight: 58)
-        .background(
-            Tokens.Color.ground.opacity(0.94)
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
-
-    private func barButton(title: String, systemImage: String, emphasized: Bool = false, action: @escaping () -> Void)
-        -> some View
-    {
-        Button(action: action) {
-            barLabel(title: title, systemImage: systemImage, emphasized: emphasized)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func barLabel(title: String, systemImage: String, emphasized: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.system(size: 19, weight: .medium))
-                .frame(height: 22)  // one icon box for every bar item, so the labels line up (UX audit F40)
-            Text(title)
-                .chirpFont(11, emphasized ? .bold : .semibold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)  // never "Transfor/m" at large sizes (the audit's F50, here)
-        }
-        .foregroundStyle(emphasized ? AppColor.accentText : Tokens.Color.ink)
-        .frame(maxWidth: .infinity, minHeight: 58)
-        .contentShape(Rectangle())
     }
 
     // MARK: - Actions
 
     private func copyText() {
-        // .localOnly keeps document text off Universal Clipboard (same rule as transcripts).
-        UIPasteboard.general.setItems(
-            [[UTType.plainText.identifier: model.plainText]], options: [.localOnly: true])
+        // Local-only (same rule as transcripts), announced to VoiceOver (F55).
+        ItemCopy.copy(model.plainText)
         copied = true
         Task {
             try? await Task.sleep(for: .seconds(1.5))

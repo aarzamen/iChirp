@@ -97,7 +97,17 @@ final class AppScreenLogicTests: XCTestCase {
             TranscriptParagraph(startMs: 2, endMs: 3, text: "c", speakerId: "S1"),
             TranscriptParagraph(startMs: 3, endMs: 4, text: "d", speakerId: "S2"),
         ]
-        XCTAssertEqual(TranscriptScreen.speakerOrder(paragraphs), ["S2": 0, "S1": 1])
+        XCTAssertEqual(SpeakerPalette.order(paragraphs.map(\.speakerId)), ["S2": 0, "S1": 1])
+    }
+
+    /// R6a-18: the Notes sheet colors its roster by first speech, the transcript's order, with speakers that never
+    /// spoke after them in roster order.
+    func testNotesSheetColorsMatchTheTranscript() {
+        // The diarizer's roster lists S1 first, but S2 speaks first (S1's first segment held no words).
+        let speech = SpeakerPalette.order(["S2", nil, "S1", "S2"])
+        XCTAssertEqual(
+            SpeakerPalette.indices(roster: ["S1", "S2", "S3"], speechOrder: speech), ["S2": 0, "S1": 1, "S3": 2])
+        XCTAssertEqual(SpeakerPalette.indices(roster: ["S1", "S2"], speechOrder: [:]), ["S1": 0, "S2": 1])
     }
 
     /// Review L2 M9: the transcript's media and a reading never play at once: starting the media pauses the reading.
@@ -151,7 +161,9 @@ final class AppScreenLogicTests: XCTestCase {
         let keys = Set(BuiltInTemplates.all.map(\.canonicalKey))
         XCTAssertEqual(Set(TemplateStyle.builtIns.keys), keys)
         let names = Set(BuiltInTemplates.all.map(\.name))
-        for canvasItem in ["Polish", "Distill", "Decide", "Brief", "Meeting notes", "SOAP note", "Agenda", "Action items"] {
+        for canvasItem in [
+            "Polish", "Distill", "Decide", "Brief", "Meeting notes", "SOAP note", "Agenda", "Action items",
+        ] {
             XCTAssertTrue(names.contains(canvasItem), canvasItem)
         }
     }
@@ -164,7 +176,9 @@ final class AppScreenLogicTests: XCTestCase {
         var offenders: [String] = []
         for case let file as URL in files where file.pathExtension == "swift" {
             let source = try String(contentsOf: file, encoding: .utf8)
-            if source.contains("milestone: \"M4\"") || source.contains("Milestone M4") || source.contains("milestone M4") {
+            if source.contains("milestone: \"M4\"") || source.contains("Milestone M4")
+                || source.contains("milestone M4")
+            {
                 offenders.append(file.lastPathComponent)
             }
         }

@@ -14,8 +14,7 @@ struct CaptureScreen: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let openTab: (AppTab) -> Void
 
-    @State private var path: [UUID] = []
-    @State private var placeholder: Placeholder?
+    @State private var path: [LibraryRoute] = []
     @State private var isImporting = false
     @State private var pickerError: String?
     /// M5: the Paste a link sheet.
@@ -40,10 +39,21 @@ struct CaptureScreen: View {
     /// Audio and video (the transcription pipeline's inputs).
     static let importTypes: [UTType] = [.audio, .movie, .mpeg4Movie, .quickTimeMovie]
 
+    /// The space between Capture's sections (R7-8: 10 pt, was 14).
+    static let sectionSpacing: CGFloat = 10
+
+    /// The DEBUG preview launch's view of the path: the items it opens, by id.
+    private var idPath: Binding<[UUID]> {
+        Binding(
+            get: { path.compactMap(\.itemID) },
+            set: { ids in path = ids.map { LibraryRoute.item(id: $0, in: environment.library.items) } })
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                // R7-8: tighter sections, so Recent's three rows sit above the tab bar at the default text size.
+                VStack(alignment: .leading, spacing: Self.sectionSpacing) {
                     header
                     if environment.isLaunched, !environment.isSpeechModelReady {
                         // M7 (review I2): the final route's engine, which may not be Parakeet.
@@ -57,28 +67,34 @@ struct CaptureScreen: View {
                     createCard
                     recipesSection
                     recordMeetingRow
-                    recentHeader
-                        .padding(.top, 4)
-                    recentList
+                    recentSection
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+                .padding(.horizontal, Tokens.Spacing.xl)
+                .padding(.top, Tokens.Spacing.xs)
+                .padding(.bottom, Tokens.Spacing.xl)
             }
             .background(Tokens.Color.ground)
-            .statusBarScrim()
+            // R7-25: a soft fade under the status bar instead of a hard 96% scrim.
+            .softStatusBarEdge()
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: UUID.self) { id in
-                LibraryItemScreen(id: id, environment: environment)
+            .navigationDestination(for: LibraryRoute.self) { route in
+                route.destination(environment: environment)
             }
         }
         .sheet(isPresented: $isPastingLink) {
-            PasteLinkSheet(environment: environment) { id in path.append(id) }
+            // The sheet opens only a link's own row (a podcast, media or YouTube transcript), never a text item or
+            // document, so the kind is known without waiting for the Library to list it.
+            PasteLinkSheet { id in path.append(.item(id, isTextOnly: false)) }
         }
         .sheet(isPresented: $isTyping) {
-            TextItemSheet { id in path.append(id) }
+            // A typed or pasted text item: it opens the document screen even before the Library lists it (R6a-5).
+            TextItemSheet { id in path.append(.item(id, isTextOnly: true)) }
         }
-        .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: $path)
+        .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: idPath)
+        .onChange(of: environment.captureNavigationResets) { _, _ in
+            // Share → Parakeet shows Capture's top, where the new Recent row appears (R6a-14).
+            path = []
+        }
         .fileImporter(
             isPresented: $isImporting, allowedContentTypes: CreateFileTypes.all,
             allowsMultipleSelection: fileRecipe == nil, onCompletion: handleImport
@@ -106,7 +122,6 @@ struct CaptureScreen: View {
         } message: {
             Text("Finish or stop what Create is making, then tap the recipe again. Nothing new was started.")
         }
-        .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
         .sheet(isPresented: $isShowingReach) {
             WhereThingsRunSheet(reach: reach) { openTab(.settings) }
         }
@@ -173,18 +188,35 @@ struct CaptureScreen: View {
 
     // MARK: - Header
 
+    /// The wordmark and the "where things run" chip side by side; at accessibility sizes, where they no longer fit,
+    /// the chip goes under the wordmark rather than breaking either into pieces ("Parak / eet", "On de…").
     private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 9) {
+                wordmark
+                Spacer(minLength: 8)
+                ContentReachChip(reach: reach) { isShowingReach = true }
+                    .fixedSize()
+            }
+            VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+                wordmark
+                ContentReachChip(reach: reach) { isShowingReach = true }
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
+    private var wordmark: some View {
         HStack(spacing: 9) {
+            // The mark fills its frame now (R7-9): the wordmark's height, growing with it.
             ParakeetMarkView()
-                .frame(width: 27, height: 27)
+                .chirpScaledFrame(width: 24, height: 24, relativeTo: .title2)
             Text("Parakeet")
                 .chirpTitleFont(22)
                 .foregroundStyle(Tokens.Color.ink)
+                .fixedSize()
                 .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            ContentReachChip(reach: reach) { isShowingReach = true }
         }
-        .frame(minHeight: 44)
     }
 
     // MARK: - Create (plan 022)
@@ -194,23 +226,28 @@ struct CaptureScreen: View {
         let create = environment.create
         // A chain exists until Done: running, waiting for an answer, or finished and not yet looked at.
         let running = create.flow != nil
+        // At accessibility sizes the circle sits above the words, so they keep the card's width.
+        let layout =
+            typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.Spacing.s))
+            : AnyLayout(HStackLayout(spacing: Tokens.Spacing.m))
         return Button {
             create.open()
         } label: {
-            HStack(spacing: 16) {
+            layout {
                 ZStack {
                     Circle()
                         .fill(Tokens.Color.accent)
                         .shadow(color: Tokens.Color.accent.opacity(0.32), radius: 8, y: 6)
                     Image(systemName: running ? "sparkles" : "plus")
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .chirpGlyph(26, .semibold, relativeTo: .title2, maxScale: 1.4)
+                        .foregroundStyle(Tokens.Color.onAccent)
                 }
-                .frame(width: 72, height: 72)
+                .chirpScaledFrame(width: 60, height: 60, relativeTo: .title2, maxScale: 1.4)
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(running ? Self.createTitle(create) : "Create")
-                        .chirpTitleFont(23)
+                        .chirpTitleFont(22)
                         .foregroundStyle(Tokens.Color.ink)
                     Text(
                         running
@@ -222,21 +259,19 @@ struct CaptureScreen: View {
                     .foregroundStyle(Tokens.Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     if running {
-                        Text(create.flow?.isActive == true ? "Return" : "See the result")
-                            .chirpFont(13.5, .bold)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 30)
-                            .background(Capsule().fill(Tokens.Color.accentFill))
+                        // The card is the button; this is its label's pill, in the compact button's colors.
+                        PillLabel(title: create.flow?.isActive == true ? "Return" : "See the result")
                             .padding(.top, 3)
                     }
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .leading)
-            .background(CardBackground(radius: Tokens.Radius.xl, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
+            .padding(.horizontal, Tokens.Spacing.l)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+            .background(
+                ChirpCardBackground(radius: Tokens.Radius.xl, fill: AppColor.tintFill, stroke: AppColor.tintStroke)
+            )
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.xl, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -281,29 +316,15 @@ struct CaptureScreen: View {
         let recipes = environment.create.recipes
         let columns = Array(
             repeating: GridItem(.flexible(), spacing: 12), count: RecipeTile.columns(for: typeSize))
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                SectionLabel("Recipes", size: 12.5)
-                Spacer()
-                Button {
-                    isShowingRecipes = true
-                } label: {
-                    Text(
-                        recipes.recipes.count > CreateRecipesViewModel.captureCount
-                            ? "All \(recipes.recipes.count)" : "Edit"
-                    )
-                    .chirpFont(13.5, .semibold)
-                    .foregroundStyle(AppColor.accentText)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    recipes.recipes.count > CreateRecipesViewModel.captureCount
-                        ? "All \(recipes.recipes.count) recipes" : "Edit recipes"
-                )
-                .accessibilityHint("Run, rename, reorder or delete recipes")
-            }
+        let hasMore = recipes.recipes.count > CreateRecipesViewModel.captureCount
+        return VStack(alignment: .leading, spacing: SectionHeader.contentSpacing) {
+            SectionHeader(
+                "Recipes",
+                link: .init(
+                    title: hasMore ? "All \(recipes.recipes.count)" : "Edit",
+                    accessibilityLabel: hasMore ? "All \(recipes.recipes.count) recipes" : "Edit recipes",
+                    hint: "Run, rename, reorder or delete recipes"
+                ) { isShowingRecipes = true })
             if recipes.onCapture.isEmpty {
                 noRecipes
             } else {
@@ -327,16 +348,14 @@ struct CaptureScreen: View {
                 .chirpFont(13.5)
                 .foregroundStyle(Tokens.Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button {
+            Button("Add back the starters") {
                 environment.create.recipes.restoreStarters()
-            } label: {
-                CapsuleButtonLabel(title: "Add back the starters")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.chirp(.tinted, size: .compact))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     /// One tap: a starter opens its old shortcut; any other recipe is checked first (what it needs must still be there;
@@ -430,73 +449,85 @@ struct CaptureScreen: View {
 
     // MARK: - Record Meeting
 
-    /// M3: starts a meeting (the Meeting screen covers the tabs), or returns to one that is recording behind
-    /// "Hide recording".
+    /// M3: starts a meeting (the Meeting screen covers the tabs), or returns to one that runs behind "Hide recording".
+    /// The words follow the real state (R6a-2): "Recording" only while it records.
     private var recordMeetingRow: some View {
         let meeting = environment.meeting
-        let isRunning = !meeting.state.isFinished
+        let state = meeting.state
         return Button {
-            if isRunning {
+            if !state.isFinished {
                 meeting.isScreenHidden = false
             } else {
                 meeting.dismiss()
                 meeting.start()
             }
         } label: {
-            HStack(spacing: 13) {
-                RosetteMark(halo: meeting.state == .recording)
-                    .frame(width: 40, height: 47)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isRunning ? "Meeting in progress" : "Record Meeting")
-                        .chirpFont(16, .semibold)
-                        .foregroundStyle(Tokens.Color.ink)
-                    Text(
-                        isRunning
-                            ? "Recording · \(Formatting.clock(ms: Int(meeting.recordedSeconds * 1000)))"
-                            : "Microphone, transcribed on device"
-                    )
-                    .chirpFont(12.5)
-                    .monospacedDigit()
-                    .foregroundStyle(Tokens.Color.secondary)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    // The pill goes under the words, so "Record Meeting" keeps the row's width.
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+                        HStack(alignment: .top, spacing: Tokens.Spacing.s) {
+                            meetingRosette(state)
+                            meetingWords(meeting)
+                        }
+                        PillLabel(title: MeetingRowCopy.button(for: state))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    HStack(spacing: Tokens.Spacing.s) {
+                        meetingRosette(state)
+                        meetingWords(meeting)
+                        Spacer(minLength: Tokens.Spacing.xs)
+                        PillLabel(title: MeetingRowCopy.button(for: state))
+                    }
                 }
-                Spacer(minLength: 8)
-                Text(isRunning ? "Return" : "Start")
-                    .chirpFont(14, .bold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 34)
-                    .background(Capsule().fill(Tokens.Color.accentFill))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 72)
-            .background(CardBackground(radius: Tokens.Radius.tile))
+            .padding(.horizontal, Tokens.Spacing.m)
+            .padding(.vertical, Tokens.Spacing.xs)
+            .frame(maxWidth: .infinity, minHeight: 60)
+            .background(ChirpCardBackground(radius: Tokens.Radius.tile))
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityHint(
-            isRunning ? "Returns to the meeting that is recording." : "Starts recording a meeting on this iPhone.")
+        .accessibilityHint(MeetingRowCopy.hint(for: state))
+    }
+
+    private func meetingRosette(_ state: MeetingFlowState) -> some View {
+        RosetteMark(halo: state == .recording)
+            .chirpScaledFrame(width: 34, height: 40, relativeTo: .headline, maxScale: 1.4)
+            .accessibilityHidden(true)
+    }
+
+    private func meetingWords(_ meeting: MeetingCoordinator) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(MeetingRowCopy.title(for: meeting.state))
+                .chirpFont(16, .semibold)
+                .foregroundStyle(Tokens.Color.ink)
+            Text(
+                MeetingRowCopy.subtitle(
+                    for: meeting.state, seconds: meeting.recordedSeconds,
+                    finalPassProgress: meeting.finalPassProgress)
+            )
+            .chirpFont(12.5)
+            .monospacedDigit()
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: - Recent
 
-    private var recentHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            SectionLabel("Recent", size: 12.5)
-            Spacer()
-            Button {
-                openTab(.library)
-            } label: {
-                Text("See all")
-                    .chirpFont(13.5, .semibold)
-                    .foregroundStyle(AppColor.accentText)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)  // the hit area (UX audit F11)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Opens the Library")
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: SectionHeader.contentSpacing) {
+            SectionHeader(
+                "Recent",
+                link: .init(title: "See all", accessibilityLabel: "See all", hint: "Opens the Library") {
+                    // R6a-14: the whole Library, not whatever filter or search it was left on.
+                    LibraryNavigation.showEverything(environment.library)
+                    openTab(.library)
+                })
+            recentList
         }
     }
 
@@ -506,9 +537,10 @@ struct CaptureScreen: View {
             if environment.isLaunched {
                 EmptyStateView(
                     title: "Nothing here yet",
-                    message: "Tap Create to speak, type, paste a link or pick a file. What you make shows here."
+                    message: "Tap Create to speak, type, paste a link or pick a file. What you make shows here.",
+                    systemImage: "tray"
                 )
-                .background(CardBackground(radius: Tokens.Radius.s))
+                .background(ChirpCardBackground(radius: Tokens.Radius.s))
             }
         } else {
             VStack(spacing: 9) {
@@ -517,7 +549,7 @@ struct CaptureScreen: View {
                         item: item,
                         progress: environment.jobCenter.progress[item.id],
                         compact: true,
-                        onOpen: { path.append(item.id) },
+                        onOpen: { path.append(.item(item)) },
                         onRetry: { environment.retry(item.id) }
                     )
                 }
@@ -543,7 +575,7 @@ struct ModelMissingBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.down.circle")
-                .font(.system(size: 20, weight: .semibold))
+                .chirpGlyph(20, .semibold, relativeTo: .body)
                 .foregroundStyle(AppColor.accentText)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
@@ -557,15 +589,15 @@ struct ModelMissingBanner: View {
                     .foregroundStyle(Tokens.Color.secondary)
             }
             Spacer(minLength: 8)
-            // CapsuleButtonLabel already grows its own hit area to 44pt (F7); no outer frame needed.
-            Button(action: openSettings) {
-                CapsuleButtonLabel(title: "Settings", kind: .filled)
-            }
-            .buttonStyle(.plain)
+            // The compact pill grows its own hit area to 44 pt (F7).
+            Button("Settings", action: openSettings)
+                .buttonStyle(.chirp(.filled, size: .compact))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(CardBackground(radius: Tokens.Radius.s, fill: Tokens.Color.surface, stroke: AppColor.tintStroke))
+        .background(
+            ChirpCardBackground(radius: Tokens.Radius.s, fill: Tokens.Color.surface, stroke: AppColor.tintStroke)
+        )
         .accessibilityElement(children: .combine)
     }
 

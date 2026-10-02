@@ -15,16 +15,24 @@ import UniformTypeIdentifiers
 /// control moves to its own row when they do not fit); the privacy badge names the class the routers really use,
 /// and which document raised it, when it is stricter than the stored mark (F51); Share lists PDF, Word, Text,
 /// Voice message and then "More formats"; More → Delete… asks like the Library.
+///
+/// Plan 024 Task 9: the title, More menu, status card, reload and action bar are the Document screen's too
+/// (`ItemScreenParts`); the view models are made once per screen (`OnceBox`, R6a-5); the playhead is followed by a
+/// small watcher, so playback re-renders the screen once per paragraph, not ten times a second (R6a-10).
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let id: UUID
 
-    @State private var model: TranscriptViewModel
-    @State private var player: AudioPlayerModel
+    /// The screen's view models, made on the first render and kept (R6a-5).
+    private struct Models {
+        let transcript: TranscriptViewModel
+        let player: AudioPlayerModel
+        let ask: AskSessionViewModel
+    }
+
+    @State private var box = OnceBox<Models>()
     @State private var hasLoaded = false
-    @State private var placeholder: Placeholder?
     @State private var isShowingNotes = false  // M3
     @State private var shareItem: ShareItem?
     @State private var actionError: String?
@@ -33,7 +41,6 @@ struct TranscriptScreen: View {
     @State private var copied = false
     /// M4: the Ask tab and the Transform sheet.
     @State private var selectedTab: TranscriptTab = .transcript
-    @State private var ask: AskSessionViewModel
     @State private var isTransforming = false
     /// M6a: the Jev decision on screen, its tags (this session only) and a template it suggested for Transform.
     @State private var decisionRun: DecisionRunViewModel?
@@ -51,17 +58,24 @@ struct TranscriptScreen: View {
     @State private var documentsRevision = 0
     /// F53: More → Delete… is asking.
     @State private var isConfirmingDelete = false
+    /// The paragraph the media playhead is in (set by `PlayheadWatcher` only when it changes).
+    @State private var currentParagraph: Int?
 
     enum TranscriptTab { case transcript, ask }
 
-    init(id: UUID, environment: AppEnvironment) {
-        self.id = id
-        _model = State(initialValue: environment.makeTranscriptViewModel(id: id))
-        let voice = environment.voicePlayer
-        _player = State(
-            initialValue: AudioPlayerModel(session: environment.audioSession, willPlay: { voice.pause() }))
-        _ask = State(initialValue: AskSessionViewModel(service: environment.deliverables, transcriptionID: id))
+    private var models: Models {
+        box.get {
+            let voice = environment.voicePlayer
+            return Models(
+                transcript: environment.makeTranscriptViewModel(id: id),
+                player: AudioPlayerModel(session: environment.audioSession, willPlay: { voice.pause() }),
+                ask: AskSessionViewModel(service: environment.deliverables, transcriptionID: id))
+        }
     }
+
+    private var model: TranscriptViewModel { models.transcript }
+    private var player: AudioPlayerModel { models.player }
+    private var ask: AskSessionViewModel { models.ask }
 
     var body: some View {
         // Read here so the Transform sheet (built in a closure) sees Jev's suggestion when it opens (M6a).
@@ -102,21 +116,26 @@ struct TranscriptScreen: View {
                 bottomBar
             }
         }
+        .background {
+            // A job started, moved on or ended for this row, or its stored status changed (a dictation's Retry
+            // reports no job progress, R6a-3): re-read it, so the text appears when it is ready.
+            ItemReloadWatcher(id: id) {
+                Task {
+                    await model.load()
+                    player.load(model.mediaURL)
+                }
+            }
+        }
+        .background {
+            PlayheadWatcher(player: player, paragraphs: model.paragraphs, current: $currentParagraph)
+        }
         .task {
             await model.load()
             hasLoaded = true
             player.load(model.mediaURL)
         }
         .task(id: privacyKey) { await refreshPrivacy() }
-        .onChange(of: environment.jobCenter.progress[id]?.stage) { _, _ in
-            // A job started, moved on or ended for this row: re-read it (the text appears when it completes).
-            Task {
-                await model.load()
-                player.load(model.mediaURL)
-            }
-        }
         .onDisappear { player.stop() }
-        .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
         .sheet(isPresented: $isShowingNotes, onDismiss: { Task { await model.load() } }) {
             TranscriptNotesSheet(id: id, store: environment.store)  // M3: notes and speaker names
         }
@@ -171,25 +190,16 @@ struct TranscriptScreen: View {
                 .presentationDetents([.medium, .large])
                 .ignoresSafeArea()
         }
-        .confirmationDialog(
-            model.transcription.map { LibraryDeleteCopy.title(for: $0) } ?? "Delete transcript and its audio?",
-            isPresented: $isConfirmingDelete, titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) { Task { await delete() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                model.transcription.map {
-                    LibraryDeleteCopy.message(
-                        for: $0, documentTitles: environment.library.documents(madeFrom: id).map(\.typeTitle))
-                } ?? "")
-        }
-        .alert("Rename transcript", isPresented: $isRenaming) {
+        .itemDeleteConfirmation(
+            isPresented: $isConfirmingDelete, item: model.transcription, environment: environment,
+            onDeleted: { dismiss() }, onError: { actionError = $0 }
+        )
+        .alert(model.transcription.map(ItemNoun.renameTitle) ?? "Rename", isPresented: $isRenaming) {
             TextField("Title", text: $renameText)
             Button("Save") { Task { await rename() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Leave it empty to use the automatic title.")
+            Text(model.transcription.map(ItemNoun.renameMessage) ?? "")
         }
         .alert(
             "Something went wrong",
@@ -203,108 +213,47 @@ struct TranscriptScreen: View {
 
     // MARK: - Header
 
-    private var titleHeader: some View {
-        VStack(spacing: 1) {
-            HStack(spacing: 5) {
-                if let item = model.transcription {
-                    Button {
-                        Task { await toggleFavorite() }
-                    } label: {
-                        Image(systemName: item.isFavorite ? "star.fill" : "star")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(item.isFavorite ? Tokens.Color.favorite : Tokens.Color.mutedText)
-                            .frame(minWidth: 44, minHeight: 44)  // F47: the glyph stays small, the target is 44 pt
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    // F67: one name ("Favorite"); VoiceOver says "selected" while it is on.
-                    .accessibilityLabel("Favorite")
-                    .accessibilityAddTraits(item.isFavorite ? .isSelected : [])
-
-                    Button {
-                        startRename()
-                    } label: {
-                        Text(item.displayTitle)
-                            .chirpFont(16, .semibold)
-                            .foregroundStyle(Tokens.Color.ink)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Renames the transcript")
-                }
-            }
-            if let item = model.transcription {
-                Text(Formatting.transcriptMeta(for: item))
-                    .chirpFont(11.5)
-                    .monospacedDigit()
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .lineLimit(1)
-            }
+    @ViewBuilder private var titleHeader: some View {
+        if let item = model.transcription {
+            ItemTitleHeader(
+                item: item, meta: Formatting.transcriptMeta(for: item),
+                onFavorite: { Task { await toggleFavorite() } }, onRename: startRename)
         }
-        .frame(maxWidth: 240)
     }
 
     private var moreMenu: some View {
-        Menu {
-            Button {
-                startRename()
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-            if let item = model.transcription {
-                Button {
-                    Task { await toggleFavorite() }
-                } label: {
-                    Label(
-                        LibraryFavoriteCopy.title(isFavorite: item.isFavorite),
-                        systemImage: item.isFavorite ? "star.slash" : "star")
-                }
-            }
-            if model.transcription?.status == .completed {
-                Button {
-                    copyText()
-                } label: {
-                    Label("Copy Text", systemImage: "doc.on.doc")
-                }
-                Button {
-                    isExtractingFields = true
-                } label: {
-                    Label(ExtractFieldsViewModel.menuTitle, systemImage: "list.bullet.rectangle")
-                }
-            }
-            if model.transcription != nil {
-                Divider()
-                Button(role: .destructive) {
-                    isConfirmingDelete = true  // F53: the Library's question, then the Library's delete
-                } label: {
-                    Label("Delete…", systemImage: "trash")
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .foregroundStyle(Tokens.Color.ink)
-                .frame(width: 44, height: 44)  // F56
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel("More options")
-        .disabled(model.transcription == nil)
+        ItemMoreMenu(
+            item: model.transcription, onRename: startRename, onFavorite: { Task { await toggleFavorite() } },
+            onCopy: copyText, onExtractFields: { isExtractingFields = true },
+            onDelete: { isConfirmingDelete = true })
     }
 
     // MARK: - Tabs (Transcript and Ask), the Notes button (M3) and the privacy class (M4)
 
-    /// One row when it fits; otherwise the privacy control gets its own row above the tabs, and the tabs scroll
-    /// sideways rather than break a word (F48). Labels never wrap.
+    /// One row when it fits: Transcript, Ask, Notes, then the privacy control. Otherwise (large text) the privacy
+    /// control and Notes take a row of their own (stacking if they must) above the two tabs, so nothing is clipped at
+    /// the screen's edge; the tabs scroll sideways rather than break a word (F48). Labels never wrap.
     private var tabs: some View {
         VStack(alignment: .leading, spacing: 0) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
                     tabItems
+                    notesButton
                     Spacer(minLength: 0)
                     privacyControl
                 }
                 VStack(alignment: .leading, spacing: 0) {
-                    privacyControl
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: Tokens.Spacing.s) {
+                            privacyControl
+                            Spacer(minLength: 0)
+                            notesButton
+                        }
+                        VStack(alignment: .leading, spacing: 0) {
+                            privacyControl
+                            notesButton
+                        }
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 16) { tabItems }
                     }
@@ -321,17 +270,24 @@ struct TranscriptScreen: View {
     @ViewBuilder private var tabItems: some View {
         tabButton("Transcript", selected: selectedTab == .transcript) { selectedTab = .transcript }
         tabButton("Ask", selected: selectedTab == .ask) { selectedTab = .ask }
-        // F52: Notes opens a sheet, so it looks like a button, not a third tab.
+    }
+
+    /// F52: Notes opens a sheet, so it looks like a button, not a third tab; R7-17: a quiet capsule, so the selected
+    /// tab's coral underline stays the loudest thing in the row.
+    private var notesButton: some View {
         Button {
             isShowingNotes = true
         } label: {
-            Label("Notes", systemImage: "square.and.pencil")
-                .labelStyle(.titleAndIcon)
-                .chirpFont(14.5, .semibold)
-                .foregroundStyle(AppColor.accentText)
+            // Title only, so the tabs and the privacy control still share one row at the default size.
+            Text("Notes")
+                .chirpFont(13.5, .semibold)
+                .foregroundStyle(Tokens.Color.secondary)
                 .lineLimit(1)
                 .fixedSize()
-                .frame(minWidth: 44, minHeight: 44)
+                .padding(.horizontal, Tokens.Spacing.s)
+                .frame(minHeight: Tokens.Metric.compactButtonHeight)
+                .background(Capsule().fill(Tokens.Color.quietFill))
+                .frame(minWidth: Tokens.Metric.minTapTarget, minHeight: Tokens.Metric.minTapTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -380,27 +336,29 @@ struct TranscriptScreen: View {
             case .completed:
                 completedContent(item)
             case .processing:
-                statusPanel(
-                    title: environment.jobCenter.progress[id].map(Formatting.progress) ?? "Waiting to start",
-                    message: "The text appears here when Parakeet finishes. You can leave this screen meanwhile.",
-                    fraction: environment.jobCenter.progress[id]?.determinateFraction,
-                    isError: false,
-                    canRetry: false)
+                ItemStatusPanel(
+                    id: id,
+                    content: .processing(
+                        message: "The text appears here when Parakeet finishes. You can leave this screen meanwhile."))
             case .failed, .interrupted, .cancelled:
-                statusPanel(
-                    title: item.status == .cancelled ? "Cancelled" : "Couldn’t transcribe",
-                    message: Formatting.statusLine(for: item, progress: nil) ?? "",
-                    fraction: nil,
-                    isError: item.status != .cancelled,
-                    canRetry: true)
+                ItemStatusPanel(
+                    id: id,
+                    content: .problem(
+                        title: item.status == .cancelled ? "Cancelled" : "Couldn’t transcribe",
+                        message: Formatting.statusLine(for: item, progress: nil) ?? "",
+                        isError: item.status != .cancelled, canRetry: true))
             }
         } else if let error = model.loadError {
-            statusPanel(
-                title: "Couldn’t open this transcript", message: error, fraction: nil, isError: true, canRetry: false)
+            ItemStatusPanel(
+                id: id,
+                content: .problem(
+                    title: "Couldn’t open this transcript", message: error, isError: true, canRetry: false))
         } else if hasLoaded {
-            statusPanel(
-                title: "This transcript is gone", message: "It may have been deleted.", fraction: nil, isError: false,
-                canRetry: false)
+            ItemStatusPanel(
+                id: id,
+                content: .problem(
+                    title: "This transcript is gone", message: "It may have been deleted.", isError: false,
+                    canRetry: false))
         } else {
             Spacer()
         }
@@ -409,10 +367,8 @@ struct TranscriptScreen: View {
     private func completedContent(_ item: Transcription) -> some View {
         let paragraphs = model.paragraphs
         let hasTimings = !(item.wordTimestamps ?? []).isEmpty
-        let speakerOrder = Self.speakerOrder(paragraphs)
-        let current =
-            (player.isAvailable && hasTimings)
-            ? TranscriptTiming.currentParagraphIndex(in: paragraphs, atMs: Int(player.currentTime * 1000)) : nil
+        let speakerOrder = SpeakerPalette.order(paragraphs.map(\.speakerId))
+        let current = (player.isAvailable && hasTimings) ? currentParagraph : nil
         return VStack(spacing: 0) {
             if player.isAvailable {
                 PlayerBar(player: player)
@@ -433,6 +389,11 @@ struct TranscriptScreen: View {
         ScrollView {
             // Plan 023 (UX audit F43): the documents made from this transcript, above its text.
             MadeFromThisSection(sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24))
+            if model.transcription?.isPartialAudio == true {
+                PartialAudioNotice()
+                    .padding(.horizontal, Tokens.Spacing.xl)
+                    .padding(.top, Tokens.Spacing.s)
+            }
             if paragraphs.isEmpty {
                 EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
             } else {
@@ -516,110 +477,33 @@ struct TranscriptScreen: View {
         .animation(.easeOut(duration: 0.2), value: isCurrent)
     }
 
-    private func statusPanel(title: String, message: String, fraction: Double?, isError: Bool, canRetry: Bool)
-        -> some View
-    {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title)
-                    .chirpFont(17, .semibold)
-                    .monospacedDigit()
-                    .foregroundStyle(isError ? AppColor.error : Tokens.Color.ink)
-                if let fraction {
-                    ProgressView(value: min(max(fraction, 0), 1))
-                        .tint(Tokens.Color.accent)
-                }
-                Text(message)
-                    .chirpFont(14)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if canRetry {
-                    Button {
-                        environment.retry(id)
-                    } label: {
-                        CapsuleButtonLabel(title: "Retry", kind: .filled)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .chirpCard(radius: Tokens.Radius.m, padding: 16)
-            .padding(24)
-        }
-    }
-
     // MARK: - Bottom bar
 
     private var bottomBar: some View {
-        // Labels share one baseline even where the glyphs differ in height (F40); the Listen button is shared.
-        HStack(alignment: .lastTextBaseline, spacing: 0) {
-            barButton(title: copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
-                copyText()
-            }
-            Menu {
-                // F54: PDF, Word, Text — the same order as the document screens' Share menu; the rest under one menu.
-                ForEach(DocumentExportFormat.allCases, id: \.self) { format in
-                    Button(format.displayName) { shareDocument(format) }
-                }
-                Button(ExportFormat.txt.displayName) { share(.txt) }
-                Button {
-                    voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
-                } label: {
-                    Label("Voice message…", systemImage: "waveform.badge.plus")
-                }
-                Menu("More formats") {
-                    ForEach(Self.moreShareFormats, id: \.self) { format in
-                        Button(Self.shareTitle(format)) { share(format) }
-                    }
-                }
-            } label: {
-                barLabel(title: "Share", systemImage: "square.and.arrow.up", emphasized: false)
-            }
-            .accessibilityLabel("Share")
+        ItemActionBar(
+            copied: copied, onCopy: copyText,
             // Plan 020: reads from the paragraph at the playhead (or the start); the media player pauses first.
-            ListenBarButton(
+            listen: ListenBarButton(
                 source: .transcript(id: id), privacyClass: model.transcription?.privacyClass ?? .clinical,
-                text: { listenText(from: listenStartIndex) }, willListen: { player.pause() })
-            barButton(title: "Transform", systemImage: "sparkles", emphasized: true) {
-                isTransforming = true
+                text: { listenText(from: listenStartIndex) }, willListen: { player.pause() }),
+            onTransform: { isTransforming = true }
+        ) {
+            // F54: PDF, Word, Text — the same order as the document screens' Share menu; the rest under one menu.
+            ForEach(DocumentExportFormat.allCases, id: \.self) { format in
+                Button(format.displayName) { shareDocument(format) }
+            }
+            Button(ExportFormat.txt.displayName) { share(.txt) }
+            Button {
+                voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+            } label: {
+                Label("Voice message…", systemImage: "waveform.badge.plus")
+            }
+            Menu("More formats") {
+                ForEach(Self.moreShareFormats, id: \.self) { format in
+                    Button(Self.shareTitle(format)) { share(format) }
+                }
             }
         }
-        .frame(minHeight: 58)
-        .background(
-            Tokens.Color.ground.opacity(0.94)
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom)
-        )
-    }
-
-    private func barButton(title: String, systemImage: String, emphasized: Bool = false, action: @escaping () -> Void)
-        -> some View
-    {
-        Button(action: action) {
-            barLabel(title: title, systemImage: systemImage, emphasized: emphasized)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func barLabel(title: String, systemImage: String, emphasized: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.system(size: 19, weight: .medium))
-                .frame(height: 22)
-            // F50: one line in a quarter of the bar; at accessibility sizes it shrinks a little rather than break
-            // "Transfor/m" (a long press shows the large label).
-            Text(title)
-                .chirpFont(11, emphasized ? .bold : .semibold)
-                .lineLimit(1)
-                .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 0.7 : 1)
-        }
-        .accessibilityShowsLargeContentViewer {
-            Label(title, systemImage: systemImage)
-        }
-        .foregroundStyle(emphasized ? AppColor.accentText : Tokens.Color.ink)
-        .frame(maxWidth: .infinity, minHeight: 58)
-        .contentShape(Rectangle())
     }
 
     // MARK: - Actions
@@ -652,14 +536,9 @@ struct TranscriptScreen: View {
     }
 
     private func copyText() {
-        // .localOnly keeps transcript text off Universal Clipboard, which would otherwise sync it to the owner's
-        // other Apple devices (Minor 5, final-review).
-        UIPasteboard.general.setItems(
-            [[UTType.plainText.identifier: model.plainText]],
-            options: [.localOnly: true]
-        )
+        // Local-only, so transcript text never syncs over Universal Clipboard; announced to VoiceOver (F55).
+        ItemCopy.copy(model.plainText)
         copied = true
-        AccessibilityNotification.Announcement("Copied").post()  // F55
         Task {
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
@@ -701,16 +580,6 @@ struct TranscriptScreen: View {
         }
     }
 
-    /// F53: the Library's delete (running job cancelled, row, audio and its documents removed), then back.
-    private func delete() async {
-        do {
-            try await environment.delete(id)
-            dismiss()
-        } catch {
-            actionError = Formatting.message(for: error)
-        }
-    }
-
     /// Re-read when the stored class changes or a Transform or Jev sheet closes (F51).
     private var privacyKey: String {
         "\(model.transcription?.privacyClass.rawValue ?? "-")#\(documentsRevision)"
@@ -747,14 +616,25 @@ struct TranscriptScreen: View {
             actionError = Formatting.message(for: error)
         }
     }
+}
 
-    /// Speaker id → palette index, in order of first speech.
-    static func speakerOrder(_ paragraphs: [TranscriptParagraph]) -> [String: Int] {
-        var order: [String: Int] = [:]
-        for speakerId in paragraphs.compactMap(\.speakerId) where order[speakerId] == nil {
-            order[speakerId] = order.count
-        }
-        return order
+/// Follows the media playhead and writes the paragraph it is in to `current` only when that changes (R6a-10): the
+/// player ticks ten times a second, and only this invisible view reads its time, so the Transcript screen re-renders
+/// once per paragraph instead of on every tick.
+struct PlayheadWatcher: View {
+    let player: AudioPlayerModel
+    let paragraphs: [TranscriptParagraph]
+    @Binding var current: Int?
+
+    var body: some View {
+        let index =
+            player.isAvailable
+            ? TranscriptTiming.currentParagraphIndex(in: paragraphs, atMs: Int(player.currentTime * 1000)) : nil
+        Color.clear
+            .accessibilityHidden(true)
+            .onChange(of: index, initial: true) { _, new in
+                if current != new { current = new }
+            }
     }
 }
 

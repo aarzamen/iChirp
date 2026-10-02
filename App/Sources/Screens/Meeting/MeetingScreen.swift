@@ -69,7 +69,7 @@ struct MeetingScreen: View {
                 }
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 17, weight: .semibold))
+                    .chirpGlyph(17, .semibold, maxScale: 1.6)
                     .foregroundStyle(Tokens.Color.ink)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
@@ -94,7 +94,7 @@ struct MeetingScreen: View {
                     Button("Discard meeting…", systemImage: "trash", role: .destructive) { confirmDiscard = true }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 17, weight: .semibold))
+                        .chirpGlyph(17, .semibold, maxScale: 1.6)
                         .foregroundStyle(Tokens.Color.ink)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
@@ -107,9 +107,8 @@ struct MeetingScreen: View {
     }
 
     private var subtitle: String {
-        if meeting.hasLivePreview {
-            return meeting.usesVoiceActivity ? "Live text cuts at pauses" : "Live text every few seconds"
-        }
+        // R6a-16: plain words, not how the engine cuts its chunks.
+        if meeting.hasLivePreview { return "Live text on" }
         return meeting.state.isCapturing ? "Live text needs the speech model" : "On this iPhone"
     }
 
@@ -137,7 +136,9 @@ struct MeetingScreen: View {
             }
         }
         .padding(16)
-        .background(CardBackground(radius: Tokens.Radius.l))
+        // Full width at every size (at AX5 the stacked card otherwise hugged its text).
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ChirpCardBackground(radius: Tokens.Radius.l))
         .accessibilityElement(children: .contain)
     }
 
@@ -235,11 +236,11 @@ struct MeetingScreen: View {
 
     private var tabs: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("View", selection: $tab) {
-                Text("Notes").tag(Tab.notes)
-                Text("Live transcript").tag(Tab.transcript)
-            }
-            .pickerStyle(.segmented)
+            // The palette's segmented control: warm in dark mode and growing with Dynamic Type (R7-4, R7-5).
+            ChirpSegmentedControl(
+                "View", selection: $tab,
+                segments: [.init("Notes", value: Tab.notes), .init("Live transcript", value: Tab.transcript)],
+                width: .fill)
             switch tab {
             case .notes: notesEditor
             case .transcript: liveTranscript
@@ -256,7 +257,7 @@ struct MeetingScreen: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 180)
                 .padding(10)
-                .background(CardBackground(radius: Tokens.Radius.s))
+                .background(ChirpCardBackground(radius: Tokens.Radius.s))
                 .overlay(alignment: .topLeading) {
                     if meeting.notes.isEmpty {
                         Text("Agenda, decisions, action items…")
@@ -336,7 +337,7 @@ struct MeetingScreen: View {
             .foregroundStyle(Tokens.Color.secondary)
         }
         .padding(16)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     private func saved(_ id: UUID) -> some View {
@@ -347,13 +348,13 @@ struct MeetingScreen: View {
             Button {
                 openTranscript(id)
             } label: {
-                CapsuleButtonLabel(title: "Open transcript", kind: .filled)
+                Text("Open transcript")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.chirp(.filled, size: .compact))
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     private func failure(_ message: String, id: UUID?) -> some View {
@@ -370,28 +371,28 @@ struct MeetingScreen: View {
                     Button {
                         meeting.retry()
                     } label: {
-                        CapsuleButtonLabel(title: "Retry", kind: .filled)
+                        Text("Retry")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.chirp(.filled, size: .compact))
                     Button {
                         meeting.dismiss()
                     } label: {
-                        CapsuleButtonLabel(title: "Close", kind: .tinted)
+                        Text("Close")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.chirp(.tinted, size: .compact))
                 }
             } else {
                 Button {
                     meeting.dismiss()
                 } label: {
-                    CapsuleButtonLabel(title: "Close", kind: .filled)
+                    Text("Close")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirp(.filled, size: .compact))
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     private func notice(_ text: String, systemImage: String) -> some View {
@@ -406,7 +407,9 @@ struct MeetingScreen: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s, fill: Tokens.Color.surface, stroke: AppColor.tintStroke))
+        .background(
+            ChirpCardBackground(radius: Tokens.Radius.s, fill: Tokens.Color.surface, stroke: AppColor.tintStroke)
+        )
         .accessibilityElement(children: .combine)
     }
 
@@ -462,14 +465,9 @@ struct MeetingScreen: View {
             meeting.stop()
         } label: {
             Label("Stop & save", systemImage: "stop.fill")
-                .chirpFont(16, .bold)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 56)
-                .background(Capsule().fill(Tokens.Color.stopRed))
         }
-        .buttonStyle(.plain)
+        // The shared destructive capsule (R6a-15).
+        .buttonStyle(.chirp(.stop))
         .disabled(!meeting.state.isCapturing)
         .accessibilityHint("Stops recording and transcribes the meeting on this iPhone.")
     }
@@ -483,7 +481,7 @@ struct MeetingScreen: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .semibold))
+                    .chirpGlyph(17, .semibold, maxScale: 1.6)
                 Text(title)
                     .chirpFont(12, .semibold)
                     .lineLimit(1)
@@ -493,7 +491,7 @@ struct MeetingScreen: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(minWidth: 78, maxWidth: smallButtonMaxWidth, minHeight: 56)
-            .background(CardBackground(radius: 18))
+            .background(ChirpCardBackground(radius: Tokens.Radius.tile))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

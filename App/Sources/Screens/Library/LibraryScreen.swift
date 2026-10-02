@@ -32,10 +32,7 @@ struct LibraryScreen: View {
             .background(Tokens.Color.ground)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: LibraryRoute.self) { route in
-                switch route {
-                case .item(let id): LibraryItemScreen(id: id, environment: environment)
-                case .document(let id): DeliverableDetailScreen(id: id, environment: environment)
-                }
+                route.destination(environment: environment)
             }
         }
         .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
@@ -86,58 +83,48 @@ struct LibraryScreen: View {
         .padding(.top, 8)
     }
 
-    /// The canvas's 36 pt segmented look; the Grid button's target is the full 44 pt height (F64).
+    /// Grid or list (R7-23): the shared segmented control, so the selected segment is raised above its track in dark
+    /// mode too. Only the list is built; choosing Grid says so and stays on the list.
     private var layoutToggle: some View {
-        HStack(spacing: 2) {
-            Button {
-                placeholder = .gridLayout
-            } label: {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .frame(width: 44, height: 30)
-                    .frame(height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Grid layout, not built yet")
-            Image(systemName: "list.bullet")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Tokens.Color.ink)
-                .frame(width: 44, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Tokens.Color.surface)
-                        .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
-                )
-                .accessibilityLabel("List layout, selected")
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 3)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppColor.quietFill).frame(height: 36))
+        ChirpSegmentedControl(
+            "Layout",
+            selection: Binding(
+                get: { LibraryLayout.list },
+                set: { if $0 == .grid { placeholder = .gridLayout } }),
+            segments: [
+                .init(
+                    "Grid layout, not built yet", value: LibraryLayout.grid, systemImage: "square.grid.2x2",
+                    iconOnly: true),
+                .init("List layout", value: LibraryLayout.list, systemImage: "list.bullet", iconOnly: true),
+            ]
+        )
+        .fixedSize()
     }
 
     private var searchField: some View {
         @Bindable var library = environment.library
         return HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15, weight: .semibold))
+                .chirpGlyph(15, .semibold, relativeTo: .body)
                 .foregroundStyle(Tokens.Color.secondary)
                 .accessibilityHidden(true)
-            TextField("Search titles, text and speakers", text: $library.searchText)  // F68: no "labels" exist
-                .chirpFont(14.5)
-                .foregroundStyle(Tokens.Color.ink)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .focused($searchFocused)
+            // F68: no "labels" exist. R7-3: the shared, text-safe placeholder color.
+            TextField(
+                "Search", text: $library.searchText, prompt: .chirpPlaceholder("Search titles, text and speakers")
+            )
+            .chirpFont(14.5)
+            .foregroundStyle(Tokens.Color.ink)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.search)
+            .focused($searchFocused)
             if !library.searchText.isEmpty {
                 Button {
                     library.searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(Tokens.Color.mutedText)
-                        .frame(width: 44, height: 44)
+                        .frame(width: Tokens.Metric.minTapTarget, height: Tokens.Metric.minTapTarget)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -146,7 +133,7 @@ struct LibraryScreen: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 44)
-        .background(CardBackground(radius: Tokens.Radius.cover))
+        .background(ChirpCardBackground(radius: Tokens.Radius.cover))
         .contentShape(Rectangle())
         .onTapGesture { searchFocused = true }
     }
@@ -202,32 +189,45 @@ struct LibraryScreen: View {
         let library = environment.library
         let sections = library.sections
         if sections.isEmpty {
+            let isSearch = !library.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ScrollView {
-                if !environment.isLaunched {
-                    EmptyView()
-                } else if library.items.isEmpty && library.documents.isEmpty {
-                    EmptyStateView(
-                        title: "Your library is empty",
-                        message: "Tap Create on Capture to speak, type, paste a link or pick a file. Everything you "
-                            + "make lands here.")  // F65
-                } else if library.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    if library.filter == .documents {
+                Group {
+                    if !environment.isLaunched {
+                        EmptyView()
+                    } else if library.items.isEmpty && library.documents.isEmpty {
+                        // F65; R7-20: the empty Library offers Create instead of saying where to find it.
                         EmptyStateView(
-                            title: "No documents yet",
-                            message: "SOAP notes, summaries and everything else you make from a recording or text "
-                                + "appear here. Open an item and tap Transform, or use Create.")
+                            title: "Your library is empty",
+                            message: "Speak, type, paste a link or pick a file. Everything you make lands here.",
+                            systemImage: "square.grid.2x2",
+                            action: EmptyStateView.Action(title: "Create") { environment.create.open() })
+                    } else if library.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if library.filter == .documents {
+                            EmptyStateView(
+                                title: "No documents yet",
+                                message: "SOAP notes, summaries and everything else you make from a recording or text "
+                                    + "appear here. Open an item and tap Transform, or use Create.",
+                                systemImage: "doc.richtext",
+                                action: EmptyStateView.Action(title: "Create") { environment.create.open() })
+                        } else {
+                            // F68: an empty filter is not a failed search.
+                            EmptyStateView(
+                                title: "Nothing here yet", message: "Nothing in \(library.filter.title) yet.",
+                                systemImage: "tray",
+                                action: EmptyStateView.Action(title: "Show everything") { library.filter = .all })
+                        }
                     } else {
-                        // F68: an empty filter is not a failed search.
-                        EmptyStateView(title: "Nothing here yet", message: "Nothing in \(library.filter.title) yet.")
+                        EmptyStateView(
+                            title: library.isSearching ? "Searching…" : "No matches",
+                            message: "Nothing matches “\(library.searchText)” in \(library.filter.title).",
+                            systemImage: "magnifyingglass")
                     }
-                } else {
-                    EmptyStateView(
-                        title: library.isSearching ? "Searching…" : "No matches",
-                        message: "Nothing matches “\(library.searchText)” in \(library.filter.title).")
                 }
+                // R7-20: centred in the space below the header; a search result stays at the top, above the keyboard.
+                .containerRelativeFrame(.vertical, alignment: isSearch ? .top : .center)
             }
             .scrollDismissesKeyboard(.interactively)
-            .padding(.top, 20)
+            .padding(.top, Tokens.Spacing.l)
         } else {
             ScrollViewReader { proxy in
                 list(sections, hasMore: library.hasMore)
@@ -272,18 +272,10 @@ struct LibraryScreen: View {
     /// The next page loads as this footer scrolls into view; the button does the same for anyone who gets here
     /// another way (VoiceOver, Switch Control).
     private var moreFooter: some View {
-        Button {
+        Button("Show older items") {
             environment.library.showMore()
-        } label: {
-            Text("Show older items")
-                .chirpFont(14, .semibold)
-                // Text-safe ink on the tint fill (F8).
-                .foregroundStyle(AppColor.accentTextOnTint)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(Capsule().fill(AppColor.tintFill))
-                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.chirpSecondary)
         .accessibilityHint("Adds the next older items to this list")
         .onAppear { environment.library.showMore() }
         .listRowInsets(EdgeInsets(top: 4, leading: 24, bottom: 16, trailing: 24))
@@ -296,7 +288,7 @@ struct LibraryScreen: View {
             item: item,
             progress: environment.jobCenter.progress[item.id],
             compact: false,
-            onOpen: { path.append(.item(item.id)) },
+            onOpen: { path.append(.item(item)) },
             onRetry: { environment.retry(item.id) }
         )
         .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 9, trailing: 24))
@@ -366,7 +358,7 @@ struct LibraryScreen: View {
         .contextMenu {
             if document.sourceTitle != nil {
                 Button {
-                    path.append(.item(document.summary.transcriptionID))
+                    path.append(.item(id: document.summary.transcriptionID, in: environment.library.items))
                 } label: {
                     Label("Show Source", systemImage: "arrow.up.forward.square")
                 }
@@ -379,7 +371,7 @@ struct LibraryScreen: View {
     private func delete(_ item: TranscriptionSummary) async {
         do {
             try await environment.delete(item.id)
-            path.removeAll { $0 == .item(item.id) }
+            path.removeAll { $0.itemID == item.id }
         } catch {
             actionError = Formatting.message(for: error)
         }
@@ -401,20 +393,23 @@ enum LibraryFavoriteCopy {
     }
 }
 
-/// Where a Library row leads: a recording, text item or imported file, or a generated document (plan 023).
-enum LibraryRoute: Hashable {
-    case item(UUID)
-    case document(UUID)
+/// The Library's two layouts; only the list is built (the grid is an honest "Not built yet").
+enum LibraryLayout: Hashable {
+    case grid, list
 }
 
 /// The delete question for a Library item, shared by the Library and the Transcript screen's More → Delete…
 ///
 /// Deleting a row also deletes the documents made from it (the `deliverables` foreign key cascades), so the message
 /// says so, and names them when the caller knows them (plan 023: "the 2 documents made from it (SOAP note, Summary)").
+///
+/// Review R6a-16: only a row that still has its audio says "and its audio" (a YouTube captions import, a dictation
+/// saved without its audio, a meeting after audio retention have none).
 enum LibraryDeleteCopy {
     static func title(for item: some TranscriptionRowFields) -> String {
-        item.isTextItem
-            ? "Delete this text?" : item.isDocument ? "Delete this document?" : "Delete transcript and its audio?"
+        if item.isTextItem { return "Delete this text?" }
+        if item.isDocument { return "Delete this document?" }
+        return item.mediaRelativePath == nil ? "Delete this transcript?" : "Delete transcript and its audio?"
     }
 
     /// - Parameter documentTitles: the template names of the documents made from `item`, newest first.
@@ -426,7 +421,9 @@ enum LibraryDeleteCopy {
             ? "\(name) and \(made ?? "anything made from it")"
             : item.isDocument
                 ? "\(name), its copy of the file and \(made ?? "anything made from it")"
-                : "\(name), its audio and \(made ?? "any documents made from it")"
+                : item.mediaRelativePath == nil
+                    ? "\(name) and \(made ?? "any documents made from it")"
+                    : "\(name), its audio and \(made ?? "any documents made from it")"
         return "\(what) will be removed from this iPhone. This can’t be undone."
     }
 

@@ -4,6 +4,17 @@
       "filename" : "parakeet-art.png",
       "idiom" : "universal",
       "scale" : "3x"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "parakeet-art-dark.png",
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

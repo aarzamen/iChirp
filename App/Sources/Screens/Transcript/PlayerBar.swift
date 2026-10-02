@@ -187,8 +187,8 @@ struct PlayerBar: View {
                 player.togglePlayback()
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 18, weight: .bold))  // inside the fixed 44 pt circle
+                    .foregroundStyle(Tokens.Color.onAccent)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(Tokens.Color.accent))
             }
@@ -234,7 +234,9 @@ struct PlayerBar: View {
                     .foregroundStyle(Tokens.Color.ink)
                     .padding(.horizontal, 10)
                     .frame(minWidth: 44, minHeight: 28)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(AppColor.quietFill))
+                    .background(
+                        RoundedRectangle(cornerRadius: Tokens.Radius.xs, style: .continuous).fill(AppColor.quietFill)
+                    )
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -243,7 +245,7 @@ struct PlayerBar: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 64)
-        .background(CardBackground(radius: Tokens.Radius.m))
+        .background(ChirpCardBackground(radius: Tokens.Radius.m))
     }
 
     private var shownFraction: Double {
@@ -268,7 +270,9 @@ private struct Scrubber: View {
             let width = max(proxy.size.width, 1)
             let x = width * fraction
             ZStack(alignment: .leading) {
-                Capsule().fill(AppColor.quietFill).frame(height: 6)
+                // R7-19: the track shows the timeline's extent at 3:1 or more (`mutedText` on `surface`), not the
+                // canvas's 1.15:1 `quietFill`; a little thinner than the played part, which stays the stronger mark.
+                Capsule().fill(Tokens.Color.mutedText).frame(height: 4)
                 Capsule().fill(Tokens.Color.accent).frame(width: max(6, x), height: 6)
                 Circle()
                     .fill(Tokens.Color.surface)

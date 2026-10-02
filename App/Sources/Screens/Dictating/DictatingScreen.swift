@@ -253,12 +253,8 @@ struct DictatingScreen: View {
                     dictation.resume()
                 } label: {
                     Label("Resume", systemImage: "mic.fill")
-                        .chirpFont(15, .bold)
-                        .padding(.horizontal, 18)
-                        .frame(minHeight: 44)
-                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirp(.filled, size: .compact))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -361,6 +357,9 @@ struct DictatingScreen: View {
         default:
             VStack(spacing: 0) {
                 controls
+                    // The three circles are fixed columns: their labels stop at AX2 so "Cancel" never breaks
+                    // mid-word (the app itself has no cap since R6a-12; only parts that cannot grow cap themselves).
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                 Text(footerText)
                     .chirpFont(12.5)
                     .lineSpacing(3)
@@ -405,13 +404,9 @@ struct DictatingScreen: View {
 
     private func outcomeButtons(primary: (String, () -> Void), secondary: (String, () -> Void)?) -> some View {
         VStack(spacing: 12) {
-            Button(action: primary.1) {
-                Text(primary.0)
-                    .chirpFont(17, .bold)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Capsule().fill(Tokens.Color.accentFill))
-            }
-            .buttonStyle(.plain)
+            // The one primary capsule (R6a-15); the night secondary below is this screen's own (no ChirpUI kind).
+            Button(primary.0, action: primary.1)
+                .buttonStyle(.chirpPrimary)
             if let secondary {
                 Button(action: secondary.1) {
                     Text(secondary.0)
@@ -438,7 +433,7 @@ struct DictatingScreen: View {
             .accessibilityHint(cancelHint)
 
             circleControl(label: "Stop & copy", size: 88, fill: Tokens.Color.accent, stroke: .clear, glow: true) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Tokens.Radius.xs, style: .continuous)
                     .fill(.white)
                     .frame(width: 30, height: 30)
             } action: {

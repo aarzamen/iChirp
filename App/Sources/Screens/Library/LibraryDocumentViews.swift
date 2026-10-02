@@ -13,7 +13,7 @@ struct GeneratedDocumentCover: View {
 
     var body: some View {
         ZStack {
-            CardBackground(radius: radius, fill: AppColor.tintFill, stroke: AppColor.tintStroke)
+            ChirpCardBackground(radius: radius, fill: AppColor.tintFill, stroke: AppColor.tintStroke)
             Image(systemName: "doc.richtext")
                 .font(.system(size: size * 0.4, weight: .medium))
                 .foregroundStyle(Tokens.Color.accentInk)
@@ -70,14 +70,14 @@ struct LibraryDocumentRowContent: View {
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
+                .chirpGlyph(13, .semibold, maxScale: 1.6)
                 .foregroundStyle(Tokens.Color.mutedText)
                 .padding(.top, 4)
                 .accessibilityHidden(true)
         }
         .padding(12)
         .frame(minHeight: style == .full ? 76 : 62, alignment: .top)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
         .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabel(for: document, style: style))
@@ -94,6 +94,9 @@ struct LibraryDocumentRowContent: View {
     @ViewBuilder private var badgeItems: some View {
         DocumentTypeBadge(title: document.typeTitle)
         PrivacyClassBadge(privacyClass: document.effectivePrivacyClass)
+        if document.summary.isCutOff {
+            CutOffBadge()
+        }
     }
 
     /// The source's title, or a plain statement when this build cannot read the source row.
@@ -114,8 +117,27 @@ struct LibraryDocumentRowContent: View {
     static func accessibilityLabel(for document: LibraryDocument, style: Style) -> String {
         let what =
             style == .full ? "\(document.typeTitle) from \(sourceTitle(document))" : document.typeTitle
-        return "\(what), Privacy: \(document.effectivePrivacyClass.title), "
+        let incomplete = document.summary.isCutOff ? "Incomplete, the model stopped at its length limit, " : ""
+        return "\(what), Privacy: \(document.effectivePrivacyClass.title), \(incomplete)"
             + meta(for: document, style: .madeFromThis)
+    }
+}
+
+/// "Incomplete" on a generated document whose model stopped at its length limit (plan 024 Task 8 stores the mark;
+/// the document screen says so in full and offers to try again).
+struct CutOffBadge: View {
+    var body: some View {
+        Label("Incomplete", systemImage: "exclamationmark.triangle")
+            .labelStyle(.titleAndIcon)
+            .chirpFont(11.5, .semibold)
+            .lineLimit(1)
+            .fixedSize()
+            // The destructive capsule's measured pair: `errorInk` on `quietFill`.
+            .foregroundStyle(AppColor.error)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 24)
+            .background(Capsule().fill(AppColor.quietFill))
+            .accessibilityLabel("Incomplete: the model stopped at its length limit")
     }
 }
 

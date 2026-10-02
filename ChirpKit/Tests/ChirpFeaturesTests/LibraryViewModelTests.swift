@@ -135,6 +135,28 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(sections[2].entries.map(\.id), [.item(older.id)])
     }
 
+    /// Plan 024 Task 9 (R6a-17): the app re-reads the day titles when it comes back to the foreground, so yesterday's rows
+    /// do not stay under "Today" after midnight when nothing was written.
+    func testRefreshDayTitlesFollowsTheClockPastMidnight() async {
+        final class Clock {
+            var date: Date
+            init(_ date: Date) { self.date = date }
+        }
+        let clock = Clock(now)
+        let today = row("Morning note", .dictation, hoursAgo: 2)
+        let library = LibraryViewModel(
+            store: FakeStore(rows: [today]), paths: AppPaths(root: FileManager.default.temporaryDirectory),
+            searchDebounce: .zero, calendar: calendar, now: { clock.date })
+        await library.start()
+        addTeardownBlock { @MainActor in library.stop() }
+        XCTAssertEqual(library.sections.map(\.title), ["Today"])
+
+        clock.date = now.addingTimeInterval(12 * 3_600)  // 03:00 the next day; nothing was written
+        XCTAssertEqual(library.sections.map(\.title), ["Today"], "titles change only when asked")
+        library.refreshDayTitles()
+        XCTAssertEqual(library.sections.map(\.title), ["Yesterday"])
+    }
+
     // MARK: - Mutations
 
     func testDeleteRemovesRowAndItsMediaFolder() async throws {

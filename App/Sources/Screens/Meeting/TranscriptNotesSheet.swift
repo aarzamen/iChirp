@@ -11,12 +11,20 @@ import SwiftUI
 /// saving, the only way typed notes are dropped.
 struct TranscriptNotesSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var model: TranscriptNotesViewModel
+    /// Made on the first render and kept (R6a-5): the sheet's parent re-renders ten times a second while media plays.
+    @State private var box = OnceBox<TranscriptNotesViewModel>()
     @State private var renaming: SpeakerInfo?
     @State private var newName = ""
+    let id: UUID
+    let store: any TranscriptionStoring
 
     init(id: UUID, store: any TranscriptionStoring) {
-        _model = State(initialValue: TranscriptNotesViewModel(id: id, store: store))
+        self.id = id
+        self.store = store
+    }
+
+    private var model: TranscriptNotesViewModel {
+        box.get { TranscriptNotesViewModel(id: id, store: store) }
     }
 
     var body: some View {
@@ -84,22 +92,22 @@ struct TranscriptNotesSheet: View {
     }
 
     private var notesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        @Bindable var model = model
+        return VStack(alignment: .leading, spacing: 8) {
             SectionLabel("Your notes", size: 12.5)
             TextEditor(text: $model.notes)
                 .chirpFont(15)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 200)
                 .padding(10)
-                .background(CardBackground(radius: Tokens.Radius.s))
+                .background(ChirpCardBackground(radius: Tokens.Radius.s))
                 .overlay(alignment: .topLeading) {
                     if model.notes.isEmpty && model.hasLoaded {
-                        Text("Agenda, decisions, action items…")
+                        // The shared placeholder (R7-3): text-safe, the same color as every field's.
+                        ChirpPlaceholder("Agenda, decisions, action items…")
                             .chirpFont(15)
-                            .foregroundStyle(Tokens.Color.secondary)  // F89: 4.5:1, not mutedText
                             .padding(.horizontal, 15)
                             .padding(.vertical, 18)
-                            .allowsHitTesting(false)
                     }
                 }
                 .accessibilityLabel("Notes")
@@ -124,6 +132,10 @@ struct TranscriptNotesSheet: View {
                 .chirpFont(13.5)
                 .foregroundStyle(Tokens.Color.secondary)
             } else {
+                // R6a-18: the transcript's colors (by first speech), not the roster's order.
+                let colors = SpeakerPalette.indices(
+                    roster: model.speakers.map(\.id),
+                    speechOrder: SpeakerPalette.order((model.transcription?.wordTimestamps ?? []).map(\.speakerId)))
                 VStack(spacing: 0) {
                     ForEach(Array(model.speakers.enumerated()), id: \.element.id) { index, speaker in
                         Button {
@@ -131,7 +143,7 @@ struct TranscriptNotesSheet: View {
                             renaming = speaker
                         } label: {
                             HStack(spacing: 10) {
-                                SpeakerDot(label: speaker.label, speakerIndex: index)
+                                SpeakerDot(label: speaker.label, speakerIndex: colors[speaker.id] ?? index)
                                     .fixedSize(horizontal: false, vertical: true)
                                 Spacer(minLength: 8)
                                 Text("Rename")
@@ -152,7 +164,7 @@ struct TranscriptNotesSheet: View {
                         }
                     }
                 }
-                .background(CardBackground(radius: Tokens.Radius.s))
+                .background(ChirpCardBackground(radius: Tokens.Radius.s))
             }
         }
     }

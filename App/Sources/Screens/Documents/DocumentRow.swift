@@ -33,7 +33,7 @@ struct DocumentCover: View {
                     }
                 }
                 Text(badge ?? Self.badge(for: format))
-                    .font(.system(size: max(7, size * 0.15), weight: .heavy, design: .rounded))
+                    .font(Tokens.Font.rounded(max(7, size * 0.15), .heavy))
                     .foregroundStyle(Tokens.Color.accentInk)
                     .padding(.horizontal, size * 0.05)
                     .background(Capsule().fill(AppColor.tintFill))
@@ -73,100 +73,9 @@ private struct PageShape: Shape {
     }
 }
 
-/// One document in the Library or in Capture's Recent list (M5): the document cover, title, snippet and a meta line
-/// ("PDF · 12 pages · 3 read with OCR"). Failed, cancelled or interrupted rows add Retry, like transcripts.
-struct DocumentRow: View {
-    enum Style {
-        case compact, full
-    }
-
-    let item: TranscriptionSummary
-    let progress: JobProgress?
-    let style: Style
-    let onOpen: () -> Void
-    let onRetry: () -> Void
-
-    var body: some View {
-        HStack(alignment: style == .full ? .top : .center, spacing: 12) {
-            Button(action: onOpen) {
-                HStack(alignment: style == .full ? .top : .center, spacing: 12) {
-                    DocumentCover(
-                        format: item.documentFormat, size: style == .full ? 52 : 40,
-                        isProcessing: item.status == .processing, badge: Self.coverBadge(for: item))
-                    text
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityHint("Opens the document")
-
-            if Formatting.canRetry(item.status) {
-                Button(action: onRetry) {
-                    CapsuleButtonLabel(title: "Retry", kind: .tinted)
-                }
-                .buttonStyle(.borderless)
-                .frame(minHeight: 44)
-                .accessibilityLabel("Retry \(item.displayTitle)")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, style == .full ? 12 : 10)
-        .frame(minHeight: style == .full ? 76 : 62)
-        .background(CardBackground(radius: Tokens.Radius.s))
-    }
-
-    private var text: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Text(item.displayTitle)
-                    .chirpFont(style == .full ? 15 : 14.5, .semibold)
-                    .foregroundStyle(item.status == .processing ? Tokens.Color.secondary : Tokens.Color.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if item.isFavorite {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.favorite)
-                        .accessibilityLabel("Favorite")
-                }
-            }
-            if style == .full, item.status == .completed, let snippet {
-                Text(snippet)
-                    .chirpFont(12.8)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .lineLimit(2)
-                    .lineSpacing(1.5)
-                    .padding(.top, 3)
-            }
-            Group {
-                if let status = Formatting.statusLine(for: item, progress: progress) {
-                    Text(status)
-                        .chirpFont(12, .semibold)
-                        .foregroundStyle(item.status == .processing ? AppColor.accentText : statusColor)
-                        .lineLimit(2)
-                } else {
-                    Text(Self.meta(for: item))
-                        .chirpFont(style == .full ? 11.5 : 12)
-                        .foregroundStyle(Tokens.Color.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .monospacedDigit()
-            .padding(.top, style == .full ? 5 : 2)
-        }
-    }
-
-    private var statusColor: Color {
-        item.status == .cancelled ? Tokens.Color.secondary : AppColor.error
-    }
-
-    private var snippet: String? {
-        let derived = item.derivedSnippet?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return derived.isEmpty ? nil : derived
-    }
-
+/// The words of a document or text item's row and screen (M5): the cover badge and the meta line ("PDF · 12 pages · 3
+/// read with OCR"). The row itself is `LibraryItemRow`, shared with recordings (plan 024 Task 9, R6a-7).
+enum DocumentRow {
     /// "TEXT" on a typed or pasted text item's cover; nil keeps the format badge.
     static func coverBadge(for item: some TranscriptionRowFields) -> String? {
         item.isTextItem ? "TEXT" : nil
@@ -207,36 +116,80 @@ struct DocumentRow: View {
     }
 }
 
-/// Opens the right screen for a Library id: documents (M5) get `DocumentScreen`, everything else the transcript.
+/// Opens the right screen for a Library id: documents (M5) and typed text (plan 022) get `DocumentScreen`, everything
+/// else the transcript.
+///
+/// Review R6a-5: the kind comes with the route, decided from the row that was tapped, so this view reads nothing the
+/// Library observes; it is not rebuilt (and its screen's view models are not re-made) on every Library write, and a
+/// just-saved text item cannot open as a transcript before the Library has delivered its row.
 struct LibraryItemScreen: View {
     let id: UUID
-    let environment: AppEnvironment
+    /// The kind when the caller knows it; nil: read the row once from the store.
+    private let knownIsTextOnly: Bool?
+    private let store: (any TranscriptionStoring)?
+    @State private var storedIsTextOnly: Bool?
+
+    init(id: UUID, isTextOnly: Bool) {
+        self.id = id
+        self.knownIsTextOnly = isTextOnly
+        self.store = nil
+    }
+
+    /// For a caller that has only the id (Create's result): the kind as the Library knows it now, else from the row in
+    /// the store, read once (a row saved a moment ago may not have reached the Library's list yet).
+    init(id: UUID, environment: AppEnvironment) {
+        self.id = id
+        self.knownIsTextOnly = environment.library.items.first { $0.id == id }?.isTextOnly
+        self.store = environment.store
+    }
 
     var body: some View {
-        // Plan 022: a typed or pasted text item reads like a document (text only, no player).
-        if environment.library.items.first(where: { $0.id == id })?.isTextOnly == true {
-            DocumentScreen(id: id, environment: environment)
+        if let isTextOnly = knownIsTextOnly ?? storedIsTextOnly {
+            if isTextOnly {
+                DocumentScreen(id: id)
+            } else {
+                TranscriptScreen(id: id)
+            }
         } else {
-            TranscriptScreen(id: id, environment: environment)
+            Tokens.Color.ground
+                .ignoresSafeArea()
+                .task {
+                    // A row that cannot be read opens the transcript screen, which says it is gone.
+                    let row = try? await store?.fetch(id: id)
+                    storedIsTextOnly = row?.isTextOnly ?? false
+                }
         }
     }
 }
 
-/// A Library or Recent row: `DocumentRow` for documents, `TranscriptionRow` for everything else.
-struct LibraryItemRow: View {
-    let item: TranscriptionSummary
-    let progress: JobProgress?
-    let compact: Bool
-    let onOpen: () -> Void
-    let onRetry: () -> Void
+/// Where a Library row leads: a recording, text item or imported file (with its kind, R6a-5), or a generated document
+/// (plan 023).
+enum LibraryRoute: Hashable {
+    case item(UUID, isTextOnly: Bool)
+    case document(UUID)
 
-    var body: some View {
-        if item.isTextOnly {
-            DocumentRow(
-                item: item, progress: progress, style: compact ? .compact : .full, onOpen: onOpen, onRetry: onRetry)
-        } else {
-            TranscriptionRow(
-                item: item, progress: progress, style: compact ? .compact : .full, onOpen: onOpen, onRetry: onRetry)
+    /// The route for a row in hand.
+    static func item(_ item: some TranscriptionRowFields) -> LibraryRoute {
+        .item(item.id, isTextOnly: item.isTextOnly)
+    }
+
+    /// The route for an id from elsewhere (a sheet that saved or started it): its kind from `items` when listed,
+    /// else `fallbackIsTextOnly`.
+    static func item(id: UUID, in items: [TranscriptionSummary], fallbackIsTextOnly: Bool = false) -> LibraryRoute {
+        .item(id, isTextOnly: items.first { $0.id == id }?.isTextOnly ?? fallbackIsTextOnly)
+    }
+
+    /// The Library item this route opens, if it opens one.
+    var itemID: UUID? {
+        if case .item(let id, _) = self { return id }
+        return nil
+    }
+
+    @ViewBuilder func destination(environment: AppEnvironment) -> some View {
+        switch self {
+        case .item(let id, let isTextOnly): LibraryItemScreen(id: id, isTextOnly: isTextOnly)
+        // Built only when pushed, and not rebuilt with every parent render (R6a-5).
+        case .document(let id): DeferredDeliverableDetail(id: id, environment: environment)
         }
     }
 }

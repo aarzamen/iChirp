@@ -138,7 +138,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   unknown). `visibleEntries` merges both newest first as `LibraryEntry` (`.item` / `.document`, separate id spaces),
   narrowed by the filter chips (a new `documents` chip holds exactly the documents; All shows both; the source chips
   show no documents) and the settled search. `sections` ("Today" / "Yesterday" / "MMM d", with the year for another
-  year) hold only the first `pageSize` (100) rows plus one page per `showMore()`, until `hasMore` is false.
+  year) hold only the first `pageSize` (100) rows plus one page per `showMore()`, until `hasMore` is false; the
+  titles are read against the clock when the list is rebuilt and when the app calls `refreshDayTitles()` (on coming
+  back to the foreground, plan 024 R6a-17).
   `documents(madeFrom:)` is an item's "Made from this", newest first. Search runs after `searchDebounce` (150 ms):
   transcript title, text, file name and speakers in the store (`searchTranscriptions(matching:)`, the shared
   `TranscriptionSearch` rule); document template name and source title in memory; document text in the store. When
