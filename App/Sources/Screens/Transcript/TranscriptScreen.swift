@@ -230,8 +230,6 @@ struct TranscriptScreen: View {
 
     // MARK: - Tabs (Transcript and Ask), the Notes button (M3) and the privacy class (M4)
 
-    /// One row when it fits; otherwise the privacy control gets its own row above the tabs, and the tabs scroll
-    /// sideways rather than break a word (F48). Labels never wrap.
     /// One row when it fits: Transcript, Ask, Notes, then the privacy control. Otherwise (large text) the privacy
     /// control and Notes take a row of their own (stacking if they must) above the two tabs, so nothing is clipped at
     /// the screen's edge; the tabs scroll sideways rather than break a word (F48). Labels never wrap.
