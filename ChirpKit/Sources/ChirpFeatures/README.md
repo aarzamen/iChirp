@@ -365,7 +365,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   `derivedTitle` and `derivedSnippet` from the corrected text (`Transcription.titleSource(context:)`: with no
   corrections left, the pipelines' own source, so Revert all restores their title exactly). `revert`, `revertAll`,
   `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
-  the undo plan. Text that differs only in spacing writes nothing. Logs: ids, counts and origin names, never text.
+  the undo plan. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
+  are gone) writes nothing, so `changedAt` does not move; `revertAll` takes the ids inside the store's transaction. Logs: ids, counts and origin names, never text.
   `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off).
 - `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
   `provider`) builds the accessor's clean-up rules from Settings: manual enabled custom words, enabled snippets,
@@ -584,8 +585,11 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   corrections of the saved row (`ChirpText.VoiceCommandCorrections`, written through `TranscriptCorrectionService`,
   one batch per dictation) **before** `perform` opens Send to SOAP / Send to Transform, so their model input
   (`.shown`) reads what was copied and a scratched order never reaches it; the words as heard stay in the row. When
-  the edit cannot be stored (no row, an empty result, a refused write) Send to SOAP / Transform are dropped and logged
-  (ids and the error type only).
+  the edit cannot be stored (no word timings, a refused write) Send to SOAP / Transform are dropped and logged
+  (ids and the error type only), and `voiceCommandsNotSaved` (`.notSaved`) tells the Done screen to say so in place
+  of "Voice commands applied": the transcript still has every word. A dictation whose every sentence was scratched
+  copies nothing, stores nothing (a correction cannot be empty), keeps the words as heard, sends nothing on and says
+  so (`.everythingScratched`).
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
   order (Needle answered differently, and worse, when the schema keys were sorted).

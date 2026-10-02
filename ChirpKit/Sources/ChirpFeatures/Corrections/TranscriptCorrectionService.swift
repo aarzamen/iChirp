@@ -93,11 +93,36 @@ public struct TranscriptCorrectionService: Sendable {
     public func apply(_ id: UUID, plan: TranscriptCorrectionPlan, baseline: String?) async throws
         -> CorrectionOutcome
     {
+        try await apply(id, baseline: baseline) { _ in plan }
+    }
+
+    /// Reverts the given corrections (Show Original's Revert, a passage, a Replace-all batch). Ids no longer stored
+    /// are skipped; when none is left, nothing is written (`changedAt` does not move).
+    public func revert(_ id: UUID, corrections: Set<UUID>) async throws -> CorrectionOutcome {
+        try await apply(id, baseline: nil) { _ in TranscriptCorrectionPlan(remove: corrections) }
+    }
+
+    /// Reverts every correction stored when it writes (inside the store's transaction, so one that landed meanwhile
+    /// goes too): the transcript reads as heard again (`items` empty, `changedAt` kept). Nothing to revert writes
+    /// nothing.
+    public func revertAll(_ id: UUID) async throws -> CorrectionOutcome {
+        try await apply(id, baseline: nil) { row in
+            TranscriptCorrectionPlan(remove: Set(row.textCorrections?.items.map(\.id) ?? []))
+        }
+    }
+
+    /// The one write: `makePlan` sees the row as stored inside the transaction. A plan that would leave the stored
+    /// items as they are writes nothing.
+    private func apply(
+        _ id: UUID, baseline: String?, makePlan: @escaping @Sendable (Transcription) -> TranscriptCorrectionPlan
+    ) async throws -> CorrectionOutcome {
         let context = await self.context()
         let now = self.now()
-        let result = Mutex<TranscriptCorrectionPlan?>(nil)
+        let result = Mutex<(plan: TranscriptCorrectionPlan, inverse: TranscriptCorrectionPlan)?>(nil)
         let saved = try await write(id) { row in
             try Self.check(row, baseline: baseline)
+            let plan = makePlan(row)
+            let before = row.textCorrections?.items ?? []
             guard !plan.isEmpty else { return false }
             let inverse: TranscriptCorrectionPlan
             do {
@@ -105,32 +130,21 @@ public struct TranscriptCorrectionService: Sendable {
             } catch let error as TranscriptCorrectionsError {
                 throw Self.map(error)
             }
+            // Nothing changed (gone ids, retyped heard words over no correction): write nothing.
+            guard row.textCorrections?.items != before else { return false }
             Self.derive(&row, context: context)
-            result.withLock { $0 = inverse }
+            result.withLock { $0 = (plan, inverse) }
             return true
         }
-        guard let saved else { return CorrectionOutcome(row: try await unchanged(id), undo: .init(), created: []) }
-        let inverse = result.withLock { $0 } ?? TranscriptCorrectionPlan()
-        let created = Array(inverse.remove)
+        guard let saved, let (plan, inverse) = result.withLock({ $0 }) else {
+            return CorrectionOutcome(row: try await unchanged(id), undo: .init(), created: [])
+        }
+        let created = Set(inverse.remove)
         Self.logger.notice(
-            "corrections_saved id=\(id, privacy: .public) added=\(plan.add.count, privacy: .public) removed=\(plan.remove.count, privacy: .public) origin=\(plan.add.first?.origin.rawValue ?? "revert", privacy: .public)"
+            "corrections_saved id=\(id, privacy: .public) added=\(plan.add.count, privacy: .public) removed=\(inverse.add.count, privacy: .public) origin=\(plan.add.first?.origin.rawValue ?? "revert", privacy: .public)"
         )
         let order = saved.textCorrections?.items.map(\.id) ?? []
-        return CorrectionOutcome(
-            row: saved, undo: inverse, created: order.filter { created.contains($0) })
-    }
-
-    /// Reverts the given corrections (Show Original's Revert, a passage, a Replace-all batch).
-    public func revert(_ id: UUID, corrections: Set<UUID>) async throws -> CorrectionOutcome {
-        try await apply(id, plan: TranscriptCorrectionPlan(remove: corrections), baseline: nil)
-    }
-
-    /// Reverts every correction: the transcript reads as heard again (`items` empty, `changedAt` kept).
-    public func revertAll(_ id: UUID) async throws -> CorrectionOutcome {
-        guard let row = try await store.fetch(id: id) else { throw TranscriptCorrectionError.notFound }
-        if row.textCorrections?.isFromNewerBuild == true { throw TranscriptCorrectionError.newerVersion }
-        return try await apply(
-            id, plan: TranscriptCorrectionPlan(remove: Set(row.textCorrections?.items.map(\.id) ?? [])), baseline: nil)
+        return CorrectionOutcome(row: saved, undo: inverse, created: order.filter { created.contains($0) })
     }
 
     /// Deletes corrections kept from an earlier transcript of this audio (D7), on the person's request.

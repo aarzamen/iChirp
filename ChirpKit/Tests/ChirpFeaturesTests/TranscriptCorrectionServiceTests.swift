@@ -214,6 +214,52 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
         XCTAssertEqual(stored?.textCorrections?.items.map(\.text), ["metformin", "great"])
     }
 
+    /// Fix round 1 (review MINOR 1): Revert All removes the corrections stored when it writes, including one that
+    /// landed after it was asked.
+    func testRevertAllRemovesACorrectionThatLandedMeanwhile() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let corrections = service(store)
+        let loaded = original.text(.heard)
+        _ = try await corrections.correct(
+            original.id, line: 0, in: loaded, baseline: baseline(original),
+            text: "The patient takes metformin daily. She feels well today.")
+        let hold = await store.holdNext([.updateTextCorrections])
+        let revert = Task { try await corrections.revertAll(original.id) }
+        await hold.entered.wait()
+        _ = try await corrections.correct(
+            original.id, line: 0, in: loaded, baseline: baseline(original),
+            text: "The patient takes met for men daily. She feels great today.")
+        hold.release.fire()
+        let reverted = try await revert.value
+        XCTAssertEqual(reverted.row.textCorrections?.items, [])
+        XCTAssertEqual(reverted.undo.add.map(\.text).sorted(), ["great", "metformin"])
+    }
+
+    /// Fix round 1 (review MINOR 2): reverting corrections that are no longer there writes nothing, so `changedAt`
+    /// (Extract fields' stale rule) does not move.
+    func testRevertingCorrectionsThatAreGoneWritesNothing() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let corrections = service(store)
+        let corrected = try await corrections.correct(
+            original.id, line: 0, in: original.text(.heard), baseline: baseline(original),
+            text: "The patient takes metformin daily. She feels well today.")
+        let writes = await store.textCorrectionWrites
+        let outcome = try await corrections.revert(original.id, corrections: [UUID()])
+        let after = await store.textCorrectionWrites
+        XCTAssertEqual(after, writes)
+        XCTAssertEqual(outcome.row.textCorrections, corrected.row.textCorrections)
+        XCTAssertTrue(outcome.undo.isEmpty)
+        // Revert All with nothing left to revert writes nothing either.
+        _ = try await corrections.revertAll(original.id)
+        let afterFirst = await store.textCorrectionWrites
+        let again = try await corrections.revertAll(original.id)
+        let afterSecond = await store.textCorrectionWrites
+        XCTAssertEqual(afterSecond, afterFirst)
+        XCTAssertTrue(again.undo.isEmpty)
+    }
+
     func testDetachedCorrectionsAreKeptUntilDeletedOnRequest() async throws {
         let original = row()
         let store = FakeStore(rows: [original])

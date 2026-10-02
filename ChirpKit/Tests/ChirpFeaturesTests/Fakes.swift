@@ -258,6 +258,10 @@ actor FakeStore: TranscriptionStoring {
     ) async throws -> Transcription? {
         await parkIfHeld(.updateTextCorrections)
         try Task.checkCancellation()
+        if let error = nextTextCorrectionError {
+            nextTextCorrectionError = nil
+            throw error
+        }
         guard let stored = rows[id], stored.textCorrections?.isFromNewerBuild != true else { return nil }
         var changed = stored
         guard try change(&changed), changed.textCorrections?.isFromNewerBuild != true else { return nil }
@@ -272,6 +276,9 @@ actor FakeStore: TranscriptionStoring {
 
     /// How many `updateTextCorrections` calls wrote.
     private(set) var textCorrectionWrites = 0
+    private var nextTextCorrectionError: FakeError?
+    /// The next `updateTextCorrections` throws `error` (once), before it reads the row.
+    func failNextTextCorrectionWrite(with error: FakeError?) { nextTextCorrectionError = error }
 
     // MARK: Test helpers
 

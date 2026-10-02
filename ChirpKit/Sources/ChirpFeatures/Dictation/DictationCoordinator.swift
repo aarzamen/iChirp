@@ -36,6 +36,37 @@ public struct DictationTextRules: Sendable {
     }
 }
 
+/// Plan 025 fix round 1 (review R5-2): the final pass's voice commands could not be saved to the transcript, so it
+/// still has every word as heard; Send to SOAP / Transform, when said, were not opened. The Done screen shows
+/// `message` in place of "Voice commands applied".
+public enum VoiceCommandsNotSaved: Sendable, Equatable {
+    /// The commands left no text (every sentence scratched): nothing was copied, stored or sent.
+    case everythingScratched(droppedSendOn: [VoiceCommandAction])
+    /// The edit could not be stored (no word timings, a refused write).
+    case notSaved(droppedSendOn: [VoiceCommandAction])
+
+    public var droppedSendOn: [VoiceCommandAction] {
+        switch self {
+        case .everythingScratched(let actions), .notSaved(let actions): actions
+        }
+    }
+
+    /// What the Done screen says.
+    public var message: String {
+        let base =
+            switch self {
+            case .everythingScratched:
+                "Everything was scratched, so nothing was copied or sent. The transcript keeps every word you said."
+            case .notSaved:
+                "Your voice commands couldn’t be saved to the transcript; it still has every word."
+            }
+        let dropped = droppedSendOn.map { action in
+            action == .sendToSOAP ? "Send to SOAP was not opened." : "Send to Transform was not opened."
+        }
+        return ([base] + dropped).joined(separator: " ")
+    }
+}
+
 /// Runs one dictation at a time: microphone → display-only live text → final Parakeet pass → clean-up → saved
 /// `dictation` row → clipboard.
 ///
@@ -68,6 +99,8 @@ public struct DictationTextRules: Sendable {
     public private(set) var finalPassProgress: Double?
     /// What the last successful dictation copied.
     public private(set) var copiedText: String?
+    /// Plan 025 fix round 1: set when the last dictation's voice commands could not be saved to its transcript.
+    public private(set) var voiceCommandsNotSaved: VoiceCommandsNotSaved?
     /// The row of the current (or last) dictation, once it exists.
     public private(set) var transcriptionID: UUID?
     /// A start arrived while the final pass ran (the screen says "Still finishing the last dictation").
@@ -277,6 +310,7 @@ public struct DictationTextRules: Sendable {
         recordedSeconds = 0
         finalPassProgress = nil
         copiedText = nil
+        voiceCommandsNotSaved = nil
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
@@ -562,13 +596,20 @@ public struct DictationTextRules: Sendable {
                 clipboard.copy(copied)
                 copiedText = copied
                 var actions = commands?.actions ?? []
+                voiceCommandsNotSaved = nil
                 if copied != saved.text {
                     // Review R5-2 (plan 025): the commands' edits become corrections of the saved transcript before
                     // anything opens it, so Send to SOAP / Transform read what was copied. When they cannot be stored,
-                    // nothing is sent on: a scratched order must never reach a model.
-                    let stored = await storeVoiceCommands(of: saved.row, commanded: saved.text, result: copied)
-                    if !stored {
-                        actions.removeAll { $0 == .sendToSOAP || $0 == .sendToTransform }
+                    // nothing is sent on (a scratched order must never reach a model) and the Done screen says so.
+                    let sendOn = actions.filter { $0 == .sendToSOAP || $0 == .sendToTransform }
+                    if copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // Every sentence was scratched: a correction cannot be empty, so the transcript keeps the
+                        // words as heard, and nothing is stored or sent.
+                        actions.removeAll { sendOn.contains($0) }
+                        if saved.row != nil { voiceCommandsNotSaved = .everythingScratched(droppedSendOn: sendOn) }
+                    } else if await !storeVoiceCommands(of: saved.row, commanded: saved.text, result: copied) {
+                        actions.removeAll { sendOn.contains($0) }
+                        if saved.row != nil { voiceCommandsNotSaved = .notSaved(droppedSendOn: sendOn) }
                     }
                 }
                 voiceCommands?.perform(actions, copiedText: copied, transcriptionID: row.id)
