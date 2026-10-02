@@ -376,7 +376,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   `derivedTitle` and `derivedSnippet` from the corrected text (`Transcription.titleSource(context:)`: with no
   corrections left, the pipelines' own source, so Revert all restores their title exactly). `revert`, `revertAll`,
   `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
-  the undo plan. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
+  the undo plan; an undo over words corrected again since fails with `correctedAgain` ("Those words were corrected
+  again, so this can’t be undone."). A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
   are gone) writes nothing, so `changedAt` does not move; `revertAll` takes the ids inside the store's transaction. Logs: ids, counts and origin names, never text.
   `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off).
 - `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
