@@ -614,7 +614,8 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   site (M4 language models, M6 structure models).
 - **The pipeline never downloads.** If `speech.assetStatus()` is not `.ready`, or `prepare`/`transcribe` throws
   `SpeechEngineError.modelNotDownloaded`, the row fails with `SpeechModelMissingError`'s sentence: for Parakeet
-  `FileTranscriptionPipeline.modelMissingMessage` ("Download the Parakeet speech model in Settings → Speech model"),
+  `FileTranscriptionPipeline.modelMissingMessage` ("Download the Parakeet speech model in Settings → Speech engines",
+  review R4-13: the "Speech model" row is gone),
   for another engine a route chose its name and "Download it in Settings → Speech engines, or switch Transcripts to
   Parakeet". A diarizer that is not ready is skipped and
   logged; a diarization error is logged and the job still completes without speakers (upstream: non-fatal).

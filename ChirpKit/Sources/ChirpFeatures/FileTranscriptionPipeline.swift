@@ -84,8 +84,9 @@ public struct JobProgress: Sendable, Equatable {
 /// models) must follow the same pattern.
 public actor FileTranscriptionPipeline {
     /// The error shown on a row when Parakeet's model is missing. M7: another engine a route chose is named instead
-    /// (`SpeechModelMissingError`).
-    public static let modelMissingMessage = "Download the Parakeet speech model in Settings → Speech model"
+    /// (`SpeechModelMissingError`). Review R4-13: Parakeet's Download lives in Settings → Speech engines (UX audit F76
+    /// removed the "Speech model" row).
+    public static let modelMissingMessage = "Download the Parakeet speech model in Settings → Speech engines"
     static let normalizedFileName = "normalized-16k.wav"
     /// How many jobs may hold a normalized WAV at once: one being transcribed plus one being prepared behind it.
     static let maxConcurrentAudioPreparations = 2

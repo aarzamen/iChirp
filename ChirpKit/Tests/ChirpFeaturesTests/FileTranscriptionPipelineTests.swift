@@ -6,7 +6,8 @@ import XCTest
 @testable import ChirpFeatures
 
 final class FileTranscriptionPipelineTests: XCTestCase {
-    private let missingModelMessage = "Download the Parakeet speech model in Settings → Speech model"
+    /// Review R4-13: Settings has no "Speech model" row any more; Parakeet's Download is under Speech engines.
+    private let missingModelMessage = "Download the Parakeet speech model in Settings → Speech engines"
 
     // MARK: - Import
 

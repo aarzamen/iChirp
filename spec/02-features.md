@@ -29,7 +29,7 @@
 - Progress is real: stages `importing`, `normalizing`, `waitingForEngine`, `transcribing` (engine-reported),
   `identifyingSpeakers`, `finishing`. The Recent row shows "Transcribing · NN%".
 - **No silent downloads.** If the speech model is missing, the job fails with "Download the Parakeet speech model in
-  Settings → Speech model", and Capture shows a banner with a button that jumps to Settings.
+  Settings → Speech engines", and Capture shows a banner with a button that jumps to Settings.
 - Speaker labels run only when the setting is on and the diarizer model is downloaded. A diarization failure never
   fails the job: the transcript is kept without speakers.
 - A job killed with the app comes back as **Interrupted** with Retry. Since M1.5 a job keeps running after the person
