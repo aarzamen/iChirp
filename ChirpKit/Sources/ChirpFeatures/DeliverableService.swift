@@ -82,6 +82,8 @@ public enum DeliverableError: Error, Equatable, LocalizedError {
     case transcriptNotFound
     case emptyTranscript
     case templateNotFound
+    /// Plan 026: the template was deleted (it can be restored in Templates). Nothing was sent.
+    case templateDeleted
     /// Nothing was sent. Show `request.title` / `request.message`; on confirm, run again with the token.
     case privacyOverrideRequired(PrivacyOverrideRequest)
     /// `confirmOverride` was given a request this service did not issue, or one already answered.
@@ -107,6 +109,7 @@ public enum DeliverableError: Error, Equatable, LocalizedError {
         case .transcriptNotFound: "This transcript no longer exists."
         case .emptyTranscript: "This transcript has no text yet."
         case .templateNotFound: "This template no longer exists."
+        case .templateDeleted: "This template was deleted. Restore it in Templates to use it again."
         case .privacyOverrideRequired(let request): request.title
         case .unknownOverrideRequest: "That confirmation has expired. Start the run again."
         case .modelUnavailable(let reason): reason.message
@@ -130,6 +133,7 @@ public enum DeliverableError: Error, Equatable, LocalizedError {
         case .transcriptNotFound: "transcript_not_found"
         case .emptyTranscript: "empty_transcript"
         case .templateNotFound: "template_not_found"
+        case .templateDeleted: "template_deleted"
         case .privacyOverrideRequired: "privacy_override_required"
         case .unknownOverrideRequest: "unknown_override_request"
         case .modelUnavailable: "model_unavailable"
@@ -448,6 +452,8 @@ public actor DeliverableService {
             guard let found = try await deliverables.fetchTemplate(id: templateID),
                 let active = try await deliverables.fetchVersion(id: found.activeVersionID)
             else { throw DeliverableError.templateNotFound }
+            // Plan 026: a deleted template never runs (Capture's fallback or a retry could still name one).
+            guard found.deletedAt == nil else { throw DeliverableError.templateDeleted }
             template = found
             version = active
             // Plan 026: a version the person wrote gets the app rules (format, and clinical rules on a clinical run).

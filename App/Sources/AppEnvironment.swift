@@ -96,6 +96,14 @@ import Observation
     let languageModels: LanguageModelsViewModel
     /// M4: the Transforms tab's templates and recent documents.
     let deliverableLibrary: DeliverableLibraryViewModel
+    /// Plan 026: the Templates screen (Transforms → Templates · Edit, Settings → Text → Templates). Lazy because its
+    /// closures read the recipes and the Transforms lists of this environment. It is `@Observable` itself.
+    @ObservationIgnored private(set) lazy var templateLibrary = TemplateLibraryViewModel(
+        store: deliverableStore,
+        recipesUsing: { [weak self] id in
+            self?.create.recipes.recipes.filter { $0.uses(templateID: id) }.map(\.name) ?? []
+        },
+        didChange: { [weak self] in await self?.deliverableLibrary.load() })
     /// M6a (plan 021): Jev's toggle and model (UserDefaults) and API key (Keychain only).
     let jevSettings: JevSettingsStore
     /// M6a: **the only path from a transcript to a decision model**; clinical items are refused outright.
@@ -712,6 +720,16 @@ import Observation
     /// M4: one generated document (Transforms tab, or a finished Transform run).
     func makeDocumentViewModel(id: UUID) -> DeliverableDocumentViewModel {
         DeliverableDocumentViewModel(id: id, store: deliverableStore)
+    }
+
+    /// Plan 026: the template editor. A save reloads the Templates screen and the Transforms lists.
+    func makeTemplateEditor(_ mode: TemplateEditorViewModel.Mode) -> TemplateEditorViewModel {
+        TemplateEditorViewModel(
+            mode: mode, store: deliverableStore,
+            didSave: { [weak self] _ in
+                await self?.templateLibrary.load()
+                await self?.deliverableLibrary.load()
+            })
     }
 
     /// The Capture banner's facts about the final route's engine: its name, its model state (Parakeet's from

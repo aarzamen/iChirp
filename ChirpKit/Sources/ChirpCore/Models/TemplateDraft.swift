@@ -19,6 +19,18 @@ public struct TemplateDraft: Sendable, Equatable {
         /// The tag, written as `<name>` in lower case.
         case reservedTag(String)
 
+        /// The editor field a problem belongs to, so its sentence shows under that field.
+        public enum Field: Sendable, Equatable {
+            case name, instructions
+        }
+
+        public var field: Field {
+            switch self {
+            case .emptyName, .nameTooLong, .duplicateName: .name
+            case .emptyInstructions, .instructionsTooLong, .reservedTag: .instructions
+            }
+        }
+
         public var sentence: String {
             switch self {
             case .emptyName:

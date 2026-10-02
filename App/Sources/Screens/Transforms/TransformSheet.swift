@@ -108,8 +108,8 @@ struct TransformSheet: View {
                         .foregroundStyle(Tokens.Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                templateSection("Documents", library.documentTemplates)
-                templateSection("Rewrites", library.transformTemplates)
+                templateSection(TemplateWords.documentsSection, library.visibleDocumentTemplates)
+                templateSection(TemplateWords.rewritesSection, library.visibleRewriteTemplates)
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)

@@ -241,6 +241,8 @@ struct TemplateRow: View {
             if template.outputPrivacyClass == .clinical {
                 PrivacyClassBadge(privacyClass: .clinical)
             }
+            // Plan 026: a hidden template shown here (Jev's suggestion, the same template) says so.
+            if !template.isVisible { HiddenBadge() }
             if let trailing {
                 Image(systemName: trailing)
                     .chirpGlyph(13, .semibold, relativeTo: .subheadline)
@@ -253,7 +255,9 @@ struct TemplateRow: View {
         .frame(minHeight: 64)
         .background(CardBackground(radius: Tokens.Radius.m))
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        // Plan 026: "Clinic SOAP, your template, clinical, hidden" / "SOAP note, built-in, clinical. Subjective, …".
+        .accessibilityLabel(TemplateWords.spokenRow(template))
     }
 }
 

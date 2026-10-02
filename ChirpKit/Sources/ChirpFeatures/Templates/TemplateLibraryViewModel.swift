@@ -89,8 +89,10 @@ public struct TemplateDeleteImpact: Sendable, Equatable {
         return [.edit, .duplicate, visibility, .moveUp, .moveDown, .delete]
     }
 
-    public func setVisible(_ template: PromptTemplate, _ isVisible: Bool) async {
-        await change { try await self.store.setTemplateVisible(id: template.id, isVisible: isVisible) }
+    /// True when it was saved. A screen other than Templates (the Transforms tab's Hide) shows `actionError` when false.
+    @discardableResult
+    public func setVisible(_ template: PromptTemplate, _ isVisible: Bool) async -> Bool {
+        await change { try await self.store.setTemplateVisible(id: template.id, isVisible: isVisible) } != nil
     }
 
     public func canMoveUp(_ template: PromptTemplate) -> Bool {
@@ -132,14 +134,16 @@ public struct TemplateDeleteImpact: Sendable, Equatable {
 
     /// The delete question: the documents made with it stay, the recipes that make it stop until it is restored.
     public func deleteImpact(of template: PromptTemplate) async -> TemplateDeleteImpact {
-        let documents = (try? await store.countDeliverables(promptID: template.id)) ?? 0
+        // A count that cannot be read must not claim there are none: say they stay, without a number.
+        let documents = try? await store.countDeliverables(promptID: template.id)
         let recipes = recipesUsing(template.id)
         var sentences: [String] = []
         switch documents {
-        case 0: break
-        case 1: sentences.append("The document made with it stays and still says which template made it.")
-        default:
-            sentences.append("The \(documents) documents made with it stay and still say which template made it.")
+        case nil: sentences.append("Documents made with it stay.")
+        case 0?: break
+        case 1?: sentences.append("The document made with it stays and still says which template made it.")
+        case let count?:
+            sentences.append("The \(count) documents made with it stay and still say which template made it.")
         }
         switch recipes.count {
         case 0: break
@@ -184,6 +188,9 @@ public struct TemplateDeleteImpact: Sendable, Equatable {
             actionError = nil
         } catch {
             actionError = error.localizedDescription
+            // A refused order means this screen's list is out of date (another screen changed the section): read it
+            // again so the next move starts from what is stored.
+            if (error as? TemplateLibraryError) == .invalidOrder { await load() }
             return nil
         }
         await load()

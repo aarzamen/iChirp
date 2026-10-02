@@ -17,6 +17,13 @@ public struct DocumentTemplateProvenance: Sendable, Equatable {
     /// The exact instructions that made the document can be shown (its version is known).
     public var canShowInstructions: Bool
 
+    public init(made: String, changes: [String], isTemplateDeleted: Bool, canShowInstructions: Bool) {
+        self.made = made
+        self.changes = changes
+        self.isTemplateDeleted = isTemplateDeleted
+        self.canShowInstructions = canShowInstructions
+    }
+
     /// The "Template now" row: nil when nothing changed.
     public var now: String? { changes.isEmpty ? nil : changes.joined(separator: " ") }
 

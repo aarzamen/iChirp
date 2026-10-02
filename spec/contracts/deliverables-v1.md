@@ -170,6 +170,8 @@ implemented in `ChirpStore/TemplateLibraryStore.swift`) does every write in one 
   `fetchDeletedTemplates()` lists deleted templates newest delete first. `restoreDeletedTemplate` clears
   `deletedAt`; when another template took the name meanwhile it becomes "<name> (restored)", then "(restored 2)", …
   The id never changes, so recipes that name it run again.
+  A run of a deleted template is refused before anything is sent (`DeliverableError.templateDeleted`, "This
+  template was deleted. Restore it in Templates to use it again."); its documents still open.
 - `countDeliverables(promptID:)` counts the documents that name a template (for the delete question).
 - **Consumers.** Lists that resolve ids (recipes, Create's remembered choice, Jev's suggestion, Extract fields' SOAP
   hand-off) use every template that is not deleted, hidden ones included; only pickers leave hidden ones out (a
