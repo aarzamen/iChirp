@@ -57,11 +57,13 @@ this Mac, from the repo root, then restart the companion:
 ```bash
 cd ~/Documents/GitHub/iChirp
 uv lock --project companion --upgrade-package yt-dlp   # newest yt-dlp that pyproject.toml allows, into companion/uv.lock
-uv sync --project companion                            # installs it
-scripts/companion.sh                                   # restart (Control-C stops the old one)
+scripts/companion.sh                                   # restart (Control-C stops the old one); it installs the new yt-dlp first
 ```
 
-`companion/uv.lock` records the working version; commit it once YouTube works again.
+`companion/uv.lock` records the working version; commit it once YouTube works again. There is no separate install
+step: `scripts/companion.sh` runs `uv run`, which adds what the lock file needs. Do not run a bare
+`uv sync --project companion` here: `uv sync` is exact and would uninstall the Kokoro phonemizer if you added it with
+`--extra kokoro`.
 
 ## Pair the iPhone
 

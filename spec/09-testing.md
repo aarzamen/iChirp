@@ -70,9 +70,9 @@
 
 1. While iterating, run only the focused tests for the areas you touched: `scripts/check.sh <TestFilter>` (builds,
    runs the filter, and lints strictly).
-2. Run the full package suite **once per task**, as the final gate: `swift test --package-path ChirpKit`. If the
-   change touched `App/`, `Widgets/`, `UITests/` or `project.yml`, also `scripts/test.sh` (the app-hosted tests, which
-   hold the clinical-confirmation guard), and `companion/` also its pytest suite.
+2. Run the full suite **once per task**, as the final gate: `swift test --package-path ChirpKit`, or, if the change
+   touched `App/`, `Widgets/`, `UITests/` or `project.yml`, `scripts/test.sh` instead (it runs that same package suite
+   first, then the app-hosted tests, which hold the clinical-confirmation guard); for `companion/` also its pytest suite.
 3. If the change touches the pipeline (audio, engines, scheduler, store, coordinator), also run
    `scripts/device_smoke.sh` on the owner's iPhone. If the phone is locked or not paired, stop and ask the owner;
    do not claim device results from the simulator.
@@ -89,9 +89,11 @@ before committing).
 ## Continuous integration
 
 `.github/workflows/ci.yml`: README reference check, `scripts/check_scripts.sh`, strict lint, the Needle and llama.cpp
-runtime builds, the full package tests, project generation, and an unsigned simulator build of the app **and its
-app-hosted tests** (`build-for-testing`: compiled, not run). `.github/workflows/companion.yml` runs the companion's
-pytest suite, and only when `companion/` (or that workflow) changes; `ci.yml` ignores changes that only touch `docs/**`.
+runtime builds, the full package tests, project generation, an unsigned simulator build of the app **and its
+app-hosted tests** (`build-for-testing`: compiled, not run), and then `scripts/check_privacy_manifest.sh --app` on the
+built app (the privacy manifest against every binary's imports, including the Rust libraries; it comes last because it
+reads the builds' output). `.github/workflows/companion.yml` runs the companion's pytest suite, and only when
+`companion/` (or that workflow) changes; `ci.yml` ignores changes that only touch `docs/**`.
 CI never signs, never needs secrets, and never downloads models. Actions are pinned by commit and XcodeGen by version
 and checksum; the runner side of these workflows is only proven by a push (they cannot run locally).
 

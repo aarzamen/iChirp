@@ -18,9 +18,11 @@ The owner's end goal, in their words:
 
 What exists today: M0–M7 are built and merged on `main` and verified on the simulator (file transcription,
 dictation, meetings, language models and deliverables, ingest, Needle and Jev, the Mac companion, voices, Create, more
-speech engines, benchmarks); owner device QA is still pending. M8 polish is partly done. What each milestone covers
-and was verified with is the table in [`spec/README.md`](spec/README.md#milestones); the
-[plans board](docs/plans/README.md) tracks open work. Anything not built yet says "Not built yet — milestone Mx" in the app.
+speech engines, benchmarks); owner device QA is still pending, and four pieces are open: Needle round 4 (clinical
+safety: until it lands, do not use Extract fields on real clinical dictation), Laya, M7 live streaming and the Jev live
+eval. M8 polish is partly done. What each milestone covers and was verified with is the table in
+[`spec/README.md`](spec/README.md#milestones); the [plans board](docs/plans/README.md) tracks open work. Anything not
+built yet says "Not built yet — milestone Mx" in the app.
 
 Names: display name **Parakeet**; codename, repo, Xcode targets **iChirp**; package **ChirpKit**; bundle id
 `com.aarzamen.ichirp`. The owner is a physician (clinical notes are PHI, protected health information) and a
@@ -47,7 +49,8 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/make_benchmark_audio.sh [dir]` | Regenerates the M7 ASR benchmark reference set (`App/Resources/Benchmark`, known text) |
 | `scripts/sync_upstream.sh <ref>` | Replaces `upstream/macparakeet/` with a newer MacParakeet ref and commits it |
 | `scripts/check_readme_references.sh` | Fails when a module README names a `.swift` file that no longer exists |
-| `scripts/check_scripts.sh` | Checks the scripts themselves (bash 3.2 syntax, the `run_device.sh` failure classifier, the secret scanner, the build stamp) and the privacy manifest against the sources; CI runs it |
+| `scripts/check_scripts.sh` | Checks the scripts themselves (bash 3.2 syntax, the `run_device.sh` failure classifier, the secret scanner, the build stamp, the privacy manifest checker's rules); CI runs it |
+| `scripts/check_privacy_manifest.sh [--app <built .app>]` | Fails when the Swift sources, the vendored runtimes (`nm -u`) or a built app import a required-reason API that `App/PrivacyInfo.xcprivacy` does not declare; CI runs it with `--app` after the app build |
 | `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off), plus committed key/profile/keychain/.env/database files and recordings outside the synthetic-fixture folders; run before merging a lane or pushing |
 | `scripts/format.sh` | swift-format in place; review the diff afterwards |
 | `scripts/companion.sh [--download <model>]` | Runs the Parakeet companion on the Mac (local voices, YouTube audio; `companion/README.md`); prints the URL and pairing token |
@@ -129,10 +132,11 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
 1. **Find the governing spec, ADR and test first** ([`spec/README.md`](spec/README.md), `spec/adr/`, the module README).
 2. **State scope and must-not-change** before editing behavior: what is in, what must not change, how you will prove
    it ([`spec/10-ai-coding-method.md`](spec/10-ai-coding-method.md)).
-3. **Focused tests while iterating** (`scripts/check.sh <Filter>`); run the full `swift test --package-path ChirpKit`
-   **once per task**, as the final gate, plus `scripts/test.sh` when `App/`, `Widgets/`, `UITests/` or `project.yml`
-   changed (the app-hosted tests include the clinical-confirmation guard) and the companion's pytest when `companion/`
-   changed. Report exactly what ran and what did not.
+3. **Focused tests while iterating** (`scripts/check.sh <Filter>`); run the full suite **once per task**, as the final
+   gate: `swift test --package-path ChirpKit`, or `scripts/test.sh` instead when `App/`, `Widgets/`, `UITests/` or
+   `project.yml` changed (it runs that same package suite first, then the app-hosted tests, which include the
+   clinical-confirmation guard); add the companion's pytest when `companion/` changed. Report exactly what ran and what
+   did not.
 4. **Pipeline changes** (audio, engines, scheduler, store, pipeline coordinator) also need `scripts/device_smoke.sh`
    on the owner's iPhone before they count as done.
 5. **Never edit the generated `.xcodeproj`.** Change `project.yml`, then `scripts/gen.sh`.

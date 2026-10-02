@@ -33,10 +33,12 @@ When unsure, pick the lightest tier that still protects correctness and user tru
    directly on `main` and review it afterwards.
 2. **Define the context zone**: in scope, must-not-change, governing ADR/spec/contract, and the proof (tests,
    simulator, device smoke).
-3. **Build and verify**: focused tests while iterating, the full package suite once, and the checks for what you
-   touched: `scripts/test.sh` (the app-hosted tests, which hold the clinical-confirmation guard) when `App/`,
-   `Widgets/`, `UITests/` or `project.yml` changed; `cd companion && uv run --frozen --python 3.12 pytest -q` when
-   `companion/` changed; `scripts/check_scripts.sh` when a script, `Config/` or the privacy manifest changed;
+3. **Build and verify**: focused tests while iterating, then the full suite once: `swift test --package-path ChirpKit`,
+   or `scripts/test.sh` instead when `App/`, `Widgets/`, `UITests/` or `project.yml` changed (it runs that same package
+   suite first, then the app-hosted tests, which hold the clinical-confirmation guard; running both repeats the
+   package suite). Then the checks for what you touched: `cd companion && uv run --frozen --python 3.12 pytest -q`
+   when `companion/` changed; `scripts/check_scripts.sh` when a script, `Config/` or the privacy manifest changed
+   (after an app build, `scripts/check_privacy_manifest.sh --app <built app>` also reads the binaries);
    `scripts/device_smoke.sh` when the pipeline changed.
 4. **Fresh-eye agent review** on the exact diff (`git diff <base>..<head>`), in parallel, each reviewer with a
    distinct lens chosen by what the diff touches:
@@ -74,9 +76,10 @@ Write for a smart reader who was not in the room:
 ## Ready checklist
 
 - [ ] Worked on a branch; everything committed locally; nothing pushed without the owner's request
-- [ ] Focused tests green; full package suite green once; lint clean
-- [ ] App-hosted tests (`scripts/test.sh`) green if app code changed, companion pytest if `companion/` changed, script
-      checks (`scripts/check_scripts.sh`) if a script changed; device smoke `SMOKE PASS` if the pipeline changed
+- [ ] Focused tests green; lint clean; the full suite green once (`swift test --package-path ChirpKit`, or
+      `scripts/test.sh` instead if app code changed: it runs the package suite first)
+- [ ] Companion pytest if `companion/` changed, script checks (`scripts/check_scripts.sh`) if a script, `Config/` or the
+      privacy manifest changed; device smoke `SMOKE PASS` if the pipeline changed
 - [ ] Tests cover the new behavior and its failure modes
 - [ ] Fresh-eye review done; findings converged to trivial
 - [ ] No simulated progress, no dead code from abandoned approaches, simplest design that holds
