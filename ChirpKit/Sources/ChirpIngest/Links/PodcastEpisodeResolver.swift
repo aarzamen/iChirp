@@ -2,7 +2,8 @@
 // Changes: requests go through `IngestHTTPClient` (ephemeral session, readable network errors) instead of
 // `URLSession.shared`; an episode missing from the show's lookup (older than its latest 200) falls back to the RSS
 // feed, matched by the share link's title slug (`PodcastEpisodeMatcher.findByTitle` semantics on slugs); a show whose
-// lookup lists no episode also falls back to the feed; `latestEpisode(inFeed:)` serves plain feed links.
+// lookup lists no episode also falls back to the feed; `latestEpisode(inFeed:)` serves plain feed links; an episode
+// whose audio iOS cannot decode (Ogg, Opus, WebM) is refused with `MediaDownloadError.unsupportedFormat`.
 
 import ChirpCore
 import Foundation
@@ -80,6 +81,23 @@ public struct PodcastEpisodeResolver: PodcastResolving {
     public func resolveApplePodcast(showID: String, episodeID: String?, link: URL) async throws
         -> ResolvedPodcastEpisode
     {
+        try Self.decodable(try await resolveEpisode(showID: showID, episodeID: episodeID, link: link))
+    }
+
+    public func latestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
+        try Self.decodable(try await newestEpisode(inFeed: feedURL))
+    }
+
+    /// `episode`, unless its audio is a format iOS cannot decode (Ogg, Opus, WebM): then
+    /// `MediaDownloadError.unsupportedFormat`, before anything is downloaded.
+    static func decodable(_ episode: ResolvedPodcastEpisode) throws -> ResolvedPodcastEpisode {
+        if let format = LinkClassifier.undecodableFormat(url: URL(string: episode.audioURL), mimeType: nil) {
+            throw MediaDownloadError.unsupportedFormat(format)
+        }
+        return episode
+    }
+
+    private func resolveEpisode(showID: String, episodeID: String?, link: URL) async throws -> ResolvedPodcastEpisode {
         let lookupURL = try Self.lookupURL(collectionID: showID, episodeID: episodeID)
         let data: Data
         do {
@@ -122,10 +140,10 @@ public struct PodcastEpisodeResolver: PodcastResolving {
             return try Self.episode(from: latest, feedURL: feed)
         }
         guard let feed, let feedURL = URL(string: feed) else { throw PodcastResolveError.noPlayableAudio }
-        return try await latestEpisode(inFeed: feedURL)
+        return try await newestEpisode(inFeed: feedURL)
     }
 
-    public func latestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
+    private func newestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
         let (title, episodes) = try await feedEpisodes(feedURL)
         guard let latest = episodes.first else { throw PodcastFeedError.noEpisodes }
         return ResolvedPodcastEpisode(

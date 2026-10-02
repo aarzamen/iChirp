@@ -111,6 +111,24 @@ public enum LinkClassifier {
     static let undecodableExtensions: [String: String] = [
         "ogg": "Ogg", "oga": "Ogg", "opus": "Opus", "webm": "WebM", "wma": "Windows Media", "mkv": "Matroska",
     ]
+    /// The same formats by content type (lowercased, without parameters).
+    static let undecodableMIMETypes: [String: String] = [
+        "audio/ogg": "Ogg", "video/ogg": "Ogg", "application/ogg": "Ogg", "audio/vorbis": "Ogg", "audio/opus": "Opus",
+        "audio/webm": "WebM", "video/webm": "WebM", "audio/x-ms-wma": "Windows Media",
+        "video/x-ms-wmv": "Windows Media", "audio/x-matroska": "Matroska", "video/x-matroska": "Matroska",
+    ]
+
+    /// The name of the format when `url`'s extension or `mimeType` is one iOS cannot decode (a resolved enclosure, a
+    /// redirect target or a content type the pasted link did not show), else nil.
+    public static func undecodableFormat(url: URL?, mimeType: String?) -> String? {
+        if let ext = url?.pathExtension.lowercased(), let name = undecodableExtensions[ext] {
+            return name
+        }
+        let mime = (mimeType ?? "").split(separator: ";").first.map {
+            $0.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        return mime.flatMap { undecodableMIMETypes[$0] }
+    }
     static let feedExtensions: Set<String> = ["rss", "xml", "atom"]
 
     /// Host suffix → platform name for sites that need yt-dlp or an account (refused up front with a clear message).

@@ -69,7 +69,9 @@ capability, an account change the owner must approve.
 (the lookup, the feed, or a content-type probe for other web links) → a `.processing` row with `sourceURL` →
 `MediaDownloader` into `media/<id>/source.<ext>` with byte progress ("Downloading · NN%"), cancel, and resume on
 Retry (`Range` + `If-Range`) → the unchanged file pipeline. A web page, an X/TikTok/Instagram/Facebook/Vimeo/
-SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a message that says what to do instead.
+SoundCloud/Twitch/Spotify link, or an Ogg/Opus/WebM file is refused with a message that says what to do instead;
+an Ogg/Opus/WebM episode reached through a feed or the lookup, or a link whose server answers with such a content
+type, is refused the same way before any byte is saved (review R2-9).
 
 - `https://itunes.apple.com/lookup?id=<showId>&entity=podcastEpisode&limit=200` returns episode audio URLs
   (`episodeUrl`), the feed (`feedUrl`) and ids (`trackId`). Looking up an episode id directly returns nothing, so match

@@ -158,8 +158,19 @@ public struct IngestHTTPClient: Sendable {
 
     /// Learns what a link serves without downloading it: a HEAD request, or (when the server refuses HEAD) a GET of
     /// its first byte whose transfer is cancelled as soon as the headers arrive, so a server that ignores `Range` and
-    /// starts sending a whole video costs nothing. Returns the final URL after redirects and the content type.
+    /// starts sending a whole video costs nothing. Returns the final URL after redirects and the content type. Audio
+    /// or video iOS cannot decode (Ogg, Opus, WebM, …) throws `MediaDownloadError.unsupportedFormat`.
     public func probe(_ url: URL) async throws -> LinkProbeResult {
+        let result = try await probeAnswer(url)
+        if result.kind != .feed,
+            let format = LinkClassifier.undecodableFormat(url: result.finalURL, mimeType: result.mimeType)
+        {
+            throw MediaDownloadError.unsupportedFormat(format)
+        }
+        return result
+    }
+
+    private func probeAnswer(_ url: URL) async throws -> LinkProbeResult {
         var head = URLRequest(url: url)
         head.httpMethod = "HEAD"
         head.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")

@@ -37,7 +37,10 @@
   `media/<id>/download.part` (with `download.part.json`: URL, ETag / Last-Modified, total), with byte progress and
   cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. The finished
   file becomes `<stem>.<ext>` (extension from the link, else the content type). A web page or text answer is refused
-  (`MediaDownloadError.notMedia`).
+  (`MediaDownloadError.notMedia`); audio or video iOS cannot decode (Ogg, Opus, WebM, Windows Media, Matroska, by the
+  link's extension, a redirect's or the content type: `LinkClassifier.undecodableFormat`) is refused before any byte
+  is saved (`unsupportedFormat`, with the classifier's sentence). The probe and the podcast resolver refuse the same
+  formats before a row exists.
 - `Links/PodcastEpisodeResolver.swift`: port of upstream's resolver. The iTunes lookup
   (`lookup?id=<show>&entity=podcastEpisode&limit=200`) matches an episode link's `?i=` against `trackId`; an episode
   older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug; a show link takes the

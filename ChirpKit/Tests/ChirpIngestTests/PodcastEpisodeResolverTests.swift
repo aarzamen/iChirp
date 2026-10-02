@@ -152,6 +152,33 @@ final class PodcastEpisodeResolverTests: XCTestCase {
         }
     }
 
+    /// Review R2-9: an episode whose audio is Ogg or Opus is refused at the lookup, before anything is downloaded.
+    func testAnEpisodeIOSCannotDecodeIsRefusedClearly() async {
+        let opusFeed = """
+            <rss><channel><title>Synthetic Opus Show</title>
+            <item><title>Ep. 2</title><enclosure url="https://cdn.example.com/ep2.opus" type="audio/opus"/></item>
+            </channel></rss>
+            """
+        IngestStubURLProtocol.reset { _ in .text(opusFeed, contentType: "application/rss+xml") }
+        do {
+            _ = try await resolver.latestEpisode(inFeed: URL(string: "https://feeds.example.com/opus.rss")!)
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat("Opus"))
+        }
+        let oggLookup = """
+            {"resultCount": 1, "results": [{"trackId": 7, "trackName": "Ogg episode",
+             "episodeUrl": "https://cdn.example.com/ep7.ogg"}]}
+            """
+        IngestStubURLProtocol.reset { _ in .text(oggLookup, contentType: "application/json") }
+        do {
+            _ = try await resolver.resolveApplePodcast(showID: "1", episodeID: "7", link: episodeLink)
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat("Ogg"))
+        }
+    }
+
     func testSlugify() {
         XCTAssertEqual(PodcastEpisodeResolver.slugify("Ep. 12: Synthetic & Co!"), "ep-12-synthetic-co")
         XCTAssertEqual(PodcastEpisodeResolver.slugify("Café résumé"), "cafe-resume")

@@ -1,7 +1,9 @@
 // Semantics from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Services/PodcastAudioDownloader.swift @ bbae9e0e —
 // byte progress from Content-Length, an audio User-Agent/Accept pair, and `fileExtension(for:response:)` (extended
 // here with video types). Fresh implementation, not a line port: the body streams into the item's own media folder
-// through a data-task delegate so an interrupted download can resume with `Range`/`If-Range` on Retry.
+// through a data-task delegate so an interrupted download can resume with `Range`/`If-Range` on Retry. Upstream's
+// `ogg`/`opus` → "ogg" mapping is replaced by a refusal: iOS cannot decode Ogg, Opus or WebM, so a link or answer in
+// those formats fails with `unsupportedFormat` before any byte is saved (review R2-9).
 
 import ChirpCore
 import Foundation
@@ -49,9 +51,13 @@ public enum MediaDownloadError: Error, Equatable, LocalizedError {
     case writeFailed(String)
     /// The server answered a resume request with bytes that do not continue the partial file.
     case resumeMismatch
+    /// Audio or video iOS cannot decode (Ogg, Opus, WebM, …), named for the person; refused before any byte is saved.
+    case unsupportedFormat(String)
 
     public var errorDescription: String? {
         switch self {
+        case .unsupportedFormat(let name):
+            UnsupportedLink.format(name: name).message
         case .invalidURL:
             "The media link is not a valid web address."
         case .notMedia:
@@ -108,6 +114,10 @@ public final class MediaDownloader: MediaDownloading {
     ) async throws -> DownloadedFile {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw MediaDownloadError.invalidURL
+        }
+        if let format = LinkClassifier.undecodableFormat(url: url, mimeType: nil) {
+            logger.notice("download_refused reason=undecodable_extension")
+            throw MediaDownloadError.unsupportedFormat(format)
         }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -397,6 +407,10 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, Sendable
         }
         if MediaDownloader.isNonMedia(http.mimeType) {
             throw MediaDownloadError.notMedia(contentType: http.mimeType ?? "")
+        }
+        // Checked before `download.part` is opened: nothing is saved for a format iOS cannot decode.
+        if let format = LinkClassifier.undecodableFormat(url: http.url, mimeType: http.mimeType) {
+            throw MediaDownloadError.unsupportedFormat(format)
         }
 
         let handle: FileHandle

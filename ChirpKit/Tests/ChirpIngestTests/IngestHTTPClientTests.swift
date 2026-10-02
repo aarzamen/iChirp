@@ -153,6 +153,19 @@ final class IngestHTTPClientTests: XCTestCase {
         XCTAssertTrue(message.contains("https"), message)
     }
 
+    /// Review R2-9: a web link that serves Ogg, Opus or WebM is refused at the probe, before any row exists.
+    func testProbeRefusesMediaIOSCannotDecode() async {
+        IngestStubURLProtocol.reset { _ in
+            IngestStubResponse(status: 200, headers: ["Content-Type": "audio/ogg; codecs=opus"])
+        }
+        do {
+            _ = try await client.probe(URL(string: "https://example.com/get?id=1")!)
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat("Ogg"))
+        }
+    }
+
     func testNon2xxIsAReadableError() async {
         IngestStubURLProtocol.reset { _ in .text("slow down", status: 429) }
         do {

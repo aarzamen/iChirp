@@ -217,6 +217,42 @@ final class MediaDownloaderTests: XCTestCase {
         }
     }
 
+    // MARK: - Formats iOS cannot decode (review R2-9)
+
+    /// An Ogg, Opus or WebM answer (a feed enclosure, a content-type-only link) is refused before any byte is saved,
+    /// with the classifier's own sentence, instead of being saved as `.mp3` and failing later.
+    func testUndecodableContentTypesAreRefusedBeforeAnyByteIsSaved() async throws {
+        for (mime, name) in [("audio/ogg", "Ogg"), ("audio/opus", "Opus"), ("video/webm", "WebM")] {
+            IngestStubURLProtocol.reset { _ in .body(Self.payload, contentType: mime) }
+            do {
+                _ = try await downloader.download(
+                    from: URL(string: "https://cdn.example.com/get?id=7")!, into: directory, fileStem: "source",
+                    progress: { _ in })
+                XCTFail("\(mime): expected a refusal")
+            } catch {
+                XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat(name), mime)
+                XCTAssertEqual(
+                    (error as? MediaDownloadError)?.errorDescription, UnsupportedLink.format(name: name).message)
+            }
+            let saved = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            XCTAssertEqual(saved.filter { $0.hasPrefix("source") || $0 == MediaDownloader.partialFileName }, [], mime)
+        }
+    }
+
+    /// A link whose own extension iOS cannot decode is refused without a request.
+    func testAnUndecodableExtensionIsRefusedWithoutARequest() async {
+        IngestStubURLProtocol.reset { _ in .body(Self.payload, contentType: "audio/mpeg") }
+        do {
+            _ = try await downloader.download(
+                from: URL(string: "https://cdn.example.com/episode.opus")!, into: directory, fileStem: "source",
+                progress: { _ in })
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertEqual(error as? MediaDownloadError, .unsupportedFormat("Opus"))
+        }
+        XCTAssertTrue(IngestStubURLProtocol.requests.isEmpty)
+    }
+
     func testNonHTTPLinksAreRefused() async {
         do {
             _ = try await downloader.download(
