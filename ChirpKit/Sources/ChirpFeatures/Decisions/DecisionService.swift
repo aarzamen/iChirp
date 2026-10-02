@@ -23,6 +23,7 @@ public actor DecisionService {
     private let settings: any JevSettingsStoring
     private let factory: any DecisionModelFactory
     private let cleanupMode: @Sendable () -> CleanupMode
+    private let textContext: @Sendable () async -> TranscriptTextContext
     private let now: @Sendable () -> Date
     private let logger = Log.logger("decisions")
     private let privacyLogger = Log.logger("privacy")
@@ -32,6 +33,7 @@ public actor DecisionService {
     ///   - routingPolicy: read at every run, like `DeliverableService`.
     ///   - cleanupMode: the person's clean-up mode, read at every run: Jev reads the text they see in it (plan 024
     ///     Task 8), as Copy and the models do.
+    ///   - textContext: the person's clean-up rules, for a corrected transcript's Clean text (plan 025).
     public init(
         transcripts: any TranscriptionStoring,
         ledger: any DeliverableStoring,
@@ -39,6 +41,7 @@ public actor DecisionService {
         settings: any JevSettingsStoring,
         factory: any DecisionModelFactory,
         cleanupMode: @escaping @Sendable () -> CleanupMode = { .raw },
+        textContext: @escaping @Sendable () async -> TranscriptTextContext = { .none },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.transcripts = transcripts
@@ -47,6 +50,7 @@ public actor DecisionService {
         self.settings = settings
         self.factory = factory
         self.cleanupMode = cleanupMode
+        self.textContext = textContext
         self.now = now
     }
 
@@ -81,7 +85,8 @@ public actor DecisionService {
             }
 
             // 3. Window.
-            let shown = DecisionInputWindow.text(of: transcription, mode: cleanupMode())
+            let shown = DecisionInputWindow.text(
+                of: transcription, mode: cleanupMode(), context: await textContext())
             let facts = DecisionInputWindow.facts(for: transcription, paragraphCount: shown.lines.count)
             let window: (text: String, indexes: [Int])
             switch recipe {

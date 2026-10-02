@@ -103,6 +103,23 @@ public struct DraftSections: Sendable, Equatable {
     }
 
     public var draftItems: [DraftItem] { vitals + medications + allergies + problems + plan }
+
+    /// Plan 025: blanks every item's evidence (a stale run's spans index text that is gone).
+    mutating func hideEvidence() {
+        func blank(_ items: inout [DraftItem]) {
+            for index in items.indices {
+                items[index].evidence = ""
+                items[index].evidenceSentence = ""
+                items[index].highlight = nil
+            }
+        }
+        blank(&vitals)
+        blank(&medications)
+        blank(&allergies)
+        blank(&problems)
+        blank(&plan)
+        blank(&needsReview)
+    }
     public var isEmpty: Bool { draftItems.isEmpty && needsReview.isEmpty }
 
     static let tagKeys: Set<String> = ["dose", "value", "frequency"]
@@ -313,14 +330,30 @@ public enum SOAPDraftHandoff {
         return parts.joined(separator: " · ")
     }
 
+    /// Plan 025 D7: the shown run was made before the person corrected the transcript. Its evidence is hidden and the
+    /// SOAP hand-off is off until Extract Again.
+    public var isStale: Bool { draft?.sourceChanged ?? false }
+    /// The stale banner.
+    public static let staleNotice =
+        "You corrected this transcript after these fields were found. Extract again to use your corrections."
+    /// Why "Use in SOAP note" is off for a stale run.
+    public static let staleHandOffReason = "Extract again first."
+    /// What the SOAP hand-off button says it cannot do now; nil when it can.
+    public var soapHandOffBlockedReason: String? { isStale ? Self.staleHandOffReason : nil }
+
     public var soapNotes: String? {
-        guard let sections, let draft else { return nil }
+        guard !isStale, let sections, let draft else { return nil }
         return SOAPDraftHandoff.notes(for: sections, engineName: draft.isStub ? "the STUB (rules)" : draft.engineName)
     }
 
     private func show(_ draft: StructuredDraft) {
         self.draft = draft
-        sections = DraftSections(draft: draft)
+        var sections = DraftSections(draft: draft)
+        if draft.sourceChanged {
+            // Its spans index the text before the correction: no quote from it is shown (clinical safety).
+            sections.hideEvidence()
+        }
+        self.sections = sections
         phase = .ready
     }
 }

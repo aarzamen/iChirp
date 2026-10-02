@@ -49,6 +49,16 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
             merged.isFavorite = current.isFavorite
             merged.privacyClass = current.privacyClass
             merged.userNotes = current.userNotes  // M3: the person's notes are a user field too.
+            // Plan 025 D7: corrections are a user field too, kept attached while the words are the same (with the
+            // corrected title and snippet their last write derived) and detached when the words changed.
+            let corrections = try TranscriptionRecord.preservedCorrections(
+                stored: current.textCorrections, newWords: transcription.wordTimestamps ?? [], id: transcription.id,
+                now: Date())
+            merged.textCorrections = corrections.column
+            if corrections.stillApplied {
+                merged.derivedTitle = current.derivedTitle
+                merged.derivedSnippet = current.derivedSnippet
+            }
             try merged.update(db)
             // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
             return try TranscriptionRecord.fetchOne(db, key: merged.id)?.toTranscription()
@@ -95,6 +105,29 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
                 db,
                 Column("speakers").set(to: renamed.speakers),
                 Column("transcriptSegments").set(to: renamed.segments),
+                Column("updatedAt").set(to: Date()))
+            // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
+            return try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()
+        }
+    }
+
+    /// Plan 025: one transaction that reads the whole row, lets `change` edit a copy, and writes back only
+    /// `textCorrections`, `derivedTitle`, `derivedSnippet` (and `updatedAt`). A newer build's (or unreadable)
+    /// corrections are never replaced: nil, nothing written.
+    public func updateTextCorrections(
+        id: UUID, _ change: @escaping @Sendable (inout Transcription) throws -> Bool
+    ) async throws -> Transcription? {
+        try await database.writer.write { db in
+            guard let record = try TranscriptionRecord.fetchOne(db, key: id) else { return nil }
+            let stored = try record.toTranscription()
+            guard stored.textCorrections?.isFromNewerBuild != true else { return nil }
+            var changed = stored
+            guard try change(&changed), changed.textCorrections?.isFromNewerBuild != true else { return nil }
+            try TranscriptionRecord.filter(key: id).updateAll(
+                db,
+                Column("textCorrections").set(to: try TranscriptionRecord.encodeCorrections(changed.textCorrections)),
+                Column("derivedTitle").set(to: changed.derivedTitle),
+                Column("derivedSnippet").set(to: changed.derivedSnippet),
                 Column("updatedAt").set(to: Date()))
             // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
             return try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()

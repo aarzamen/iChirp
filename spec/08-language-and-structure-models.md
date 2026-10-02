@@ -107,7 +107,7 @@ Templates are versioned prompts that take `{{transcript}}` and optional `{{userN
 The nine built-ins are `ChirpFeatures.BuiltInTemplates` (canonical keys `summary`, `meeting-notes`, `action-items`,
 `agenda`, `soap-note`, `polish`, `distill`, `decide`, `brief`).
 
-**Your own templates (plan 026, [ADR-016](adr/016-your-own-templates.md)).** The person makes templates of their own
+**Your own templates (plan 026, [ADR-017](adr/017-your-own-templates.md)).** The person makes templates of their own
 (Transforms → Templates · Edit, or Settings → Text → Templates): blank, or a copy of any template ("Duplicate and
 edit"). A template has a name (≤ 40 characters, unique ignoring case), a kind (a Document or a Rewrite), instructions
 (≤ 4,000 characters, no Parakeet source tags) and one raise-only switch, "Makes clinical documents", the same

@@ -45,14 +45,19 @@ public enum ExportError: Error, Sendable, Equatable {
 public struct TranscriptExporter: Sendable {
     private let cleanupMode: CleanupMode
     private let effectivePrivacyClass: PrivacyClass?
+    private let context: TranscriptTextContext
 
     /// `effectivePrivacyClass` is the class the privacy rules use for the item (`EffectivePrivacyClass`: its own class
     /// raised by its documents'), as `ExportDocument.transcript` takes it; nil uses the row's own class. It is never
     /// lower than the row's own. A clinical item's TXT, Markdown and WebVTT files carry
     /// `ExportDocument.clinicalPrivacyLine` and its JSON says `"privacyClass": "clinical"` (review R1-13).
-    public init(cleanupMode: CleanupMode, effectivePrivacyClass: PrivacyClass? = nil) {
+    /// `context` is the person's clean-up rules, which a Clean export of a corrected transcript runs (plan 025 R4).
+    public init(
+        cleanupMode: CleanupMode, effectivePrivacyClass: PrivacyClass? = nil, context: TranscriptTextContext = .none
+    ) {
         self.cleanupMode = cleanupMode
         self.effectivePrivacyClass = effectivePrivacyClass
+        self.context = context
     }
 
     /// Renders `transcription` as `format`. Throws `ExportError.noTimestamps` for `.srt`/`.vtt` when
@@ -88,9 +93,10 @@ public struct TranscriptExporter: Sendable {
     /// The text the person sees in the current clean-up mode (`Transcription.text(.shown(cleanupMode))`, plan 024
     /// Task 8): TXT, Markdown, PDF and Word print its lines (reading paragraphs with their speakers), JSON's `text` is
     /// its whole text, the same text Copy writes. So a Clean export of a timed transcript carries the clean text, custom
-    /// words included (review R1-3, ADR-009). SRT, VTT and JSON's `segments` and `words` stay the words as heard.
+    /// words included (review R1-3, ADR-009). SRT, VTT and JSON's `segments` stay the words as heard, with the
+    /// person's corrections (plan 025); JSON's `words` are the engine's words.
     private func shown(_ transcription: Transcription) -> TranscriptText {
-        transcription.text(.shown(cleanupMode))
+        transcription.text(.shown(cleanupMode), context: context)
     }
 
     // MARK: - Privacy
@@ -262,9 +268,30 @@ public struct TranscriptExporter: Sendable {
         let speakers: [SpeakerInfo]
         let segments: [TranscriptSegmentRecord]
         let words: [WordTimestamp]
+        /// Plan 025: the person's corrections; omitted when there are none, so an uncorrected export is unchanged.
+        let corrections: [ExportedCorrection]?
+    }
+
+    /// One correction in the JSON export (spec/contracts/transcript-json-v1.md): the engine's words it replaced
+    /// (`wordRange` into `words`, `heard`), its text, its time envelope and where it came from.
+    private struct ExportedCorrection: Encodable {
+        let id: UUID
+        let wordRange: TranscriptSegmentWordRange
+        let heard: String
+        let text: String
+        let startMs: Int
+        let endMs: Int
+        let origin: String
     }
 
     private func renderJSON(_ transcription: Transcription) throws -> String {
+        let heard = transcription.text(.heard, context: context)
+        let corrections = heard.edits.compactMap { edit -> ExportedCorrection? in
+            guard let token = heard.tokens.first(where: { $0.editID == edit.id }) else { return nil }
+            return ExportedCorrection(
+                id: edit.id, wordRange: edit.wordRange, heard: edit.heard, text: edit.text, startMs: token.startMs,
+                endMs: token.endMs, origin: edit.origin.rawValue)
+        }
         let exported = ExportedTranscript(
             schema: "ichirp.transcript/v1",
             id: transcription.id,
@@ -274,12 +301,15 @@ public struct TranscriptExporter: Sendable {
             engine: transcription.engine,
             engineVariant: transcription.engineVariant,
             language: transcription.language,
-            text: transcription.plainText(.shown(cleanupMode)),
+            text: transcription.plainText(.shown(cleanupMode), context: context),
             privacyClass: privacyClass(of: transcription),
             speakers: transcription.speakers ?? [],
-            // The stored segments and the engine's words: the evidence as heard (spec/contracts/transcript-json-v1.md).
-            segments: transcription.transcriptSegments ?? [],
-            words: transcription.wordTimestamps ?? []
+            // The segments as heard, with the person's corrections (merged and marked `isTextEdited` where corrected;
+            // the stored segments when there are none), and the engine's words: the evidence as heard, never rewritten
+            // (spec/contracts/transcript-json-v1.md, transcript-corrections-v1.md).
+            segments: heard.segments ?? [],
+            words: transcription.wordTimestamps ?? [],  // text-read-guard: evidence
+            corrections: corrections.isEmpty ? nil : corrections
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]

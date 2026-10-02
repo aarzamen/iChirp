@@ -11,6 +11,37 @@
 > 3. Part B keeps learned rules ("Also fix future transcripts", B3–B4) as visible, revertible corrections, applied only
 >    when the person ticks it for that replacement.
 
+> **Part A drift check (2026-10-01, at `928a8074`; supersedes the plan text where they disagree):**
+> 1. The seam is merged: `ChirpKit/Sources/ChirpText/TranscriptText.swift` ships `TranscriptTextView`,
+>    `TranscriptTextContext`, `TranscriptToken`, `TranscriptTextLine`, `TranscriptText`, `Transcription.text(_:context:)`,
+>    `plainText(_:context:)`, `TranscriptTokens.of` (the one stream source) and `TranscriptTokens.words(of:)`; also
+>    `TranscriptParagraphBuilder.buildWithWordRanges(from:)`. Names match this plan. Not yet there (Part A adds them):
+>    `tokenUTF16Ranges`, `words`, `segments`, `edits`; `TranscriptTextContext` is not `Equatable`.
+> 2. Semantics as merged (plan 024 Task 8 report): `.heard` lines are engine-word paragraphs; `.shown(.raw)` is the raw
+>    text, except a dictation with stored clean text, which shows that text in either mode; `.shown(.clean)` is
+>    `displayText`. **Unedited rows' Clean lines are the stored clean text aligned onto the timed paragraphs
+>    (`CleanTextAligner`), so they read no rules; edited rows (Part A) run the deterministic clean-up over the edited
+>    token stream with the context's rules (R4), then align that text the same way.** Every consumer passed `.none`;
+>    `.none` hard-codes `removeUmFiller: true`. Part A plumbs the real context (manual enabled custom words, enabled
+>    snippets, the person's `removeUmFiller`) through `TranscriptTextContext.current(textRules:settings:)`.
+> 3. Consumers already routed by Task 8: model input (`TranscriptPromptFormatter.modelInput`, `timestampedText` is
+>    gone), Ask citations, Jev (`DecisionInputWindow.text(of:mode:)`), Copy, TXT/Markdown/PDF/Word (print `.shown(mode)`
+>    lines, not `.heard`), SRT/VTT (`TranscriptCueBuilder.build(from: Transcription)` over the stream), JSON `text`.
+>    Not routed: App screens (Part A Step A8), Library search, snippet and title, the Create chain, Extract fields, the
+>    dictation voice commands (R5-2, Part A), the guard script.
+> 4. Library search moved into the store (Task 3: `TranscriptionStoring.searchTranscriptions`,
+>    `TranscriptionListingQueries.search`); `LibraryViewModel.matches` no longer exists. Step A7's search change lands in
+>    the store query, and its test in `ChirpStoreTests`.
+> 5. Migrations end at `v10-deliverable-cut-off` (v9 an `llm_runs` index); Part A's is **`v11-transcript-corrections`**.
+>    Plan 026 (templates, in parallel) adds v12. No `textCorrections` column existed (R5-a is Part A's).
+> 6. The store has no whole-row update (review R1-16) and no protocol defaults for field-level writes;
+>    `updateTextCorrections` is a requirement every conformer implements (`GRDBTranscriptionStore`, `FakeStore`,
+>    `ListRecordingStore`).
+> 7. `TranscriptTextGoldenTests` (ChirpFeaturesTests, Task 8) already pins model input, Copy, TXT, Markdown, SRT, VTT,
+>    JSON, PDF/Word and Jev for five fixtures in Raw and Clean. Step A0's `UncorrectedOutputGoldenTests` is that file;
+>    A0 adds `UncorrectedSurfacesGoldenTests` for the remaining surfaces.
+> 8. R5-2 is fixed by Part A (controller ruling 2): the consumer table's row 13 "Covered (R5-2)" is superseded.
+
 > **Executor instructions:** Follow this plan step by step. Run every verification command and confirm the expected
 > result before moving on. If anything in "STOP conditions" occurs, stop and report; do not improvise. The plan has two
 > parts that are built and merged **in order**: Part A (F1, corrections) on its own branch, merged into `main`; then
@@ -66,7 +97,7 @@
 | **Depends on** | The review-fix lane (R2-1, R5-2) merged on `main` | Part A merged on `main` |
 | **Governing docs** | [ADR-009](../../spec/adr/009-deterministic-cleanup-raw-default.md), [ADR-002](../../spec/adr/002-local-first-and-privacy-classes.md), [spec/07](../../spec/07-text-processing.md), [spec/01](../../spec/01-data-model.md), [spec/04](../../spec/04-ui.md), [spec/12](../../spec/12-privacy.md), contracts [transcript-json-v1](../../spec/contracts/transcript-json-v1.md), [structured-results-v1](../../spec/contracts/structured-results-v1.md); new: ADR-016 and `spec/contracts/transcript-corrections-v1.md` (this plan writes them) | Same, plus the find and Text rules sections of spec/04 and spec/07 |
 | **Planned at** | commit `53bc2cc6`, 2026-10-01 | same |
-| **Status** | NOT STARTED | NOT STARTED |
+| **Status** | IN PROGRESS: core Steps A0–A7 (ChirpKit) on `worktree-agent-a6f38d146464e9ab1`; A8–A10 after plan 024 Task 9 | NOT STARTED |
 
 ## Why this matters
 

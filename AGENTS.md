@@ -49,6 +49,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/make_benchmark_audio.sh [dir]` | Regenerates the M7 ASR benchmark reference set (`App/Resources/Benchmark`, known text) |
 | `scripts/sync_upstream.sh <ref>` | Replaces `upstream/macparakeet/` with a newer MacParakeet ref and commits it |
 | `scripts/check_readme_references.sh` | Fails when a module README names a `.swift` file that no longer exists |
+| `scripts/check_transcript_text_reads.sh` | Fails when code reads a transcript's text fields outside the one accessor (`Transcription.text`), which carries corrections (plan 025); `check.sh` runs it |
 | `scripts/check_scripts.sh` | Checks the scripts themselves (bash 3.2 syntax, the `run_device.sh` failure classifier, the secret scanner, the build stamp, the privacy manifest checker's rules); CI runs it |
 | `scripts/check_privacy_manifest.sh [--app <built .app>]` | Fails when the Swift sources, the vendored runtimes (`nm -u`) or a built app import a required-reason API that `App/PrivacyInfo.xcprivacy` does not declare; CI runs it with `--app` after the app build |
 | `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off), plus committed key/profile/keychain/.env/database files and recordings outside the synthetic-fixture folders; run before merging a lane or pushing |

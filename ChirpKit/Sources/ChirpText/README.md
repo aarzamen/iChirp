@@ -37,9 +37,37 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
     next line after a sentence end when the replaced words span a paragraph break), so model input keeps its
     timestamps and the exports their turns while carrying every clean word, in order. A Clean line that held only
     fillers is left out; ids never move.
-  - `TranscriptTokens.of` is the single place the word stream is made (engine words 1:1 today; plan 025 Part A
-    applies corrections there). `TranscriptTextContext` carries the clean-up rules a Clean view over an edited stream
-    will need (plan 025 R6); unedited rows use the stored clean text, so nothing reads it yet.
+  - `TranscriptTokens.of` is the single place the word stream is made: the engine's words, with each valid
+    correction of `Transcription.textCorrections` (`TranscriptCorrections.validItems(in:)`; plan 025 Part A,
+    contract `spec/contracts/transcript-corrections-v1.md`) replacing its run of words by one token whose time is the
+    envelope of the words it replaced. Nothing else applies corrections. Lines keep the engine's paragraph boundaries
+    (ids never move) and hold the tokens that start in them, joined by single spaces, with `tokenUTF16Ranges` (where
+    each token sits, for the screen's marks); a paragraph whose words a correction from an earlier line covers is left
+    out. `TranscriptText.words` (tokens as word timings, a correction's line breaks flattened), `segments` (stored
+    segments; one that holds a correction carries the corrected text and `isTextEdited`, and segments a correction
+    straddles merge) and `edits` serve the cues, Extract fields and the JSON export.
+  - **Fast path (R3):** a row without applicable corrections returns exactly what it returned before (the goldens in
+    `ChirpFeaturesTests` pin it), and `plainText(_:context:)` builds no lines. **A corrected row (R4):** its whole text
+    is the tokens joined with upstream's separators (`FileTranscriptSegments.joinedText`); where the view would show
+    the stored clean text (Clean, or a polished dictation in either mode) it is the deterministic clean-up
+    (`TextProcessingPipeline`) over that joined text with `TranscriptTextContext`'s rules (manual custom words, the
+    filler setting, snippets for dictation rows only), placed on the lines by `CleanTextAligner`. A row that never had
+    clean text gets no fresh clean-up. `TranscriptTextContext` is read only for corrected rows.
+  - `Transcription.heardText(_:)` is the engine's words of a range as heard (Show Original); `TranscriptText.heardText`
+    the same from a loaded view's tokens (the planner). For the correction service: `wordsFingerprint`,
+    `hasWordTimings`, `applyCorrections(_:now:)` and `titleSource(context:)` (the pipelines' title source without
+    corrections, the corrected text in the row's own mode with them), so no consumer reads the baseline fields.
+- `Corrections/CorrectionPlanner.swift` (plan 025 A4): the person's edited text of one line → the smallest word-span
+  corrections (`TranscriptCorrectionPlan`): a word diff (case and punctuation count, whitespace does not), a pure
+  insertion or deletion takes its neighbor word (the previous one; the next at the start of a line), hunks widen to
+  whole tokens and merge when they overlap or touch, and a hunk retyped back to the words as heard reverts the
+  corrections inside it. Blank text throws `emptyText`.
+- `Corrections/VoiceCommandCorrections.swift` (review R5-2): a dictation's voice commands (`commandedText` →
+  `resultText`, the copied text) as `voiceCommand` corrections of its words: the commanded text is aligned to the heard
+  words (case and edge punctuation ignored) and the result to the commanded text (exact, line breaks included);
+  between stable points the changed stretch of heard words becomes one correction with the result's text there (a
+  scratched sentence or a paragraph break takes the word before it). Falls back to one correction over every word;
+  nil when the change cannot be stored (the caller then sends nothing on).
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name
@@ -188,10 +216,11 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   `AudioSource(rawValue:)?.displayLabel` (mapping raw source ids like `"microphone"`/`"system"` to
   `"Me"`/`"Others"`); `AudioSource` was not ported. The stored label is never shown: consumers read
   `TranscriptText.lines[i].speakerLabel`.
-- `TranscriptCueBuilder.build(from: Transcription)` builds from the word stream (`TranscriptTokens.words(of:)`, the
-  engine's words today). Upstream also has a segment-projection branch keyed on
-  `transcriptTextAlignment`/`isTextEdited` (timed-transcript-correction machinery); ChirpCore's `Transcription` has
-  neither, so that branch was dropped.
+- `TranscriptCueBuilder.build(from: Transcription)` builds from the word stream (`TranscriptTokens.words(of:)`), so
+  a correction is one word with its envelope and every other cue keeps its words and times. Upstream's
+  segment-projection branch (whole edited segments) is not ported: iChirp corrects word spans (plan 025 D1).
+- `FileTranscriptSegments.joinedText(_:)` (plan 025) is upstream's `joinedTokenText`: the corrected stream and
+  corrected segments are joined exactly as `materialize` joins words.
 - Never read a transcript's text fields in a consumer: go through `Transcription.text(_:context:)` so model input,
   Copy and the exports cannot drift apart again (the R2-1 bug class). Pipelines that write those fields, ChirpCore,
   ChirpStore and the device smoke are the exceptions (plan 025's guard script will enforce it).

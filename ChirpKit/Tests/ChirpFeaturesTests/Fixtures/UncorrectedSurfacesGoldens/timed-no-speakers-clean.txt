@@ -1,0 +1,29 @@
+=== heard lines ===
+#0 0-4180 words 0..<14: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+#1 7200-10480 words 14..<25: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== heard text ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== heard text without lines ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== shown lines ===
+#0 0-4180 words 0..<14: The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
+#1 7200-10480 words 14..<25: increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== shown text ===
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== shown text without lines ===
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== tokens ===
+Um,@0 the@300 patient@600 takes@900 zarelto@1200 20@1500 mg@1800 daily.@2100 Blood@2400 pressure@2700 was@3000 120@3300 over@3600 80.@3900 Uh,@7200 increase@7500 the@7800 dose@8100 to@8400 2.5@8700 mg.@9000 Recheck@9300 in@9600 2@9900 weeks.@10200
+
+=== screen paragraphs ===
+0-4180 -: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+7200-10480 -: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+
+=== extract fields source ===
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.

@@ -147,7 +147,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
   favorite, and `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs are the lines of `Transcription.text(.heard)` (the words as heard,
-  ADR-009; without words one paragraph of the text). Also speaker labels, `mediaURL` for the player, `plainText` for
+  ADR-009, with the person's corrections; without words one paragraph of the text). Plan 025: `heard`, `lines`,
+  `hasWordTimings`, `canCorrect`, `corrections`, `corrections(inLine:)`, `detachedCorrections`, `heardText(line:)`,
+  `baseline`, `correctionsChangedAt`, and `correct(line:text:)`, `revert`, `revertLine`, `undo`, `revertAll`,
+  `deleteDetached` through the injected `TranscriptCorrectionService` (nil: read-only); the injected text context
+  (`TranscriptTextContext.current`) reaches Copy and the exports. Also speaker labels, `mediaURL` for the player, `plainText` for
   Copy (`Transcription.plainText(.shown(mode))`, the text the exports and the models use; plan 024 Task 8),
   `exportFile` (async, review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`,
   `<tmp>/export-<id>/`), rename and favorite. `exportFile` and `exportDocument` (PDF, Word) mark the file clinical by
@@ -359,6 +363,25 @@ pipeline's `Task`s and publishes its progress to the UI.
   tab (`choice`) and the unsent question (`draftQuestion`), because the tab's view is rebuilt on every tab switch
   (review R6b-1).
 
+## Transcript corrections (plan 025 Part A, `Corrections/`; contract [transcript-corrections-v1](../../../spec/contracts/transcript-corrections-v1.md))
+
+- `Corrections/TranscriptCorrectionService.swift`: the one writer of `Transcription.textCorrections`. `correct(_:line:in:
+  baseline:text:)` plans the person's edited line against the text the screen loaded (`CorrectionPlanner` over that
+  `.heard` view, so a correction another write made meanwhile is never undone) and `apply(_:plan:baseline:)` writes it
+  in one store transaction (`updateTextCorrections`) that refuses a row that is not completed (`notCompleted`), has no
+  word timings (`noWordTimings`), has a newer build's corrections (`newerVersion`) or whose words are no longer the
+  ones loaded (`baseline` = `Transcription.wordsFingerprint`, else `transcriptChanged`); then it recomputes
+  `derivedTitle` and `derivedSnippet` from the corrected text (`Transcription.titleSource(context:)`: with no
+  corrections left, the pipelines' own source, so Revert all restores their title exactly). `revert`, `revertAll`,
+  `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
+  the undo plan. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
+  are gone) writes nothing, so `changedAt` does not move; `revertAll` takes the ids inside the store's transaction. Logs: ids, counts and origin names, never text.
+  `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off).
+- `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
+  `provider`) builds the accessor's clean-up rules from Settings: manual enabled custom words, enabled snippets,
+  `removeUmFiller`. Every consumer that reads a transcript's shown text passes it (a corrected row's Clean view runs
+  those rules; an uncorrected row ignores them).
+
 ## Meetings (M3, `Meeting/`)
 
 Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-012-m3-meetings.md`.
@@ -523,9 +546,11 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   without a drug is named in the previous medication fields ("… restates a dose without a drug (25 mcg) …") and never
   applied. It runs inside the gate's `review(_:engineID:)`, so the extraction service and the eval runner apply it the
   same way.
-- `Structure/StructuredSourceText.swift`: the run's source text (words joined from the word timestamps, else the
-  text), sentence ranges (`NLTokenizer`), and character range → `StructuredSourceSpan` (transcript word indices and
-  milliseconds).
+- `Structure/StructuredSourceText.swift`: the run's source text (the word stream of `Transcription.text(.heard)`,
+  with the person's corrections, joined by single spaces; else the text), sentence ranges (`NLTokenizer`), and
+  character range → `StructuredSourceSpan` (transcript word indices and milliseconds; a corrected passage covers every
+  word it replaced, plan 025). `StructuredDraft.sourceChanged` marks a run made before the latest correction change;
+  `ExtractFieldsViewModel.isStale` then hides its evidence and `soapNotes` is nil (`soapHandOffBlockedReason`).
 
 - `Structure/StructuredExtractionService.swift`: `StructureEngines` (Needle handed over as `any StructureModel` with an
   availability closure; the STUB runs, and says why, when Needle cannot), `StructuredDraft`, and the
@@ -565,6 +590,15 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental";
   `unresolvedSummary` is the Done screen's warning, "Couldn't tell what to scratch — check before copying.";
   dictation is routed as clinical, so command words only reach on-device engines). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+  Review R5-2 (plan 025 ruling 2): when the commands changed the text, the coordinator stores them as `voiceCommand`
+  corrections of the saved row (`ChirpText.VoiceCommandCorrections`, written through `TranscriptCorrectionService`,
+  one batch per dictation) **before** `perform` opens Send to SOAP / Send to Transform, so their model input
+  (`.shown`) reads what was copied and a scratched order never reaches it; the words as heard stay in the row. When
+  the edit cannot be stored (no word timings, a refused write) Send to SOAP / Transform are dropped and logged
+  (ids and the error type only), and `voiceCommandsNotSaved` (`.notSaved`) tells the Done screen to say so in place
+  of "Voice commands applied": the transcript still has every word. A dictation whose every sentence was scratched
+  copies nothing, stores nothing (a correction cannot be empty), keeps the words as heard, sends nothing on and says
+  so (`.everythingScratched`).
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
   order (Needle answered differently, and worse, when the schema keys were sorted).
@@ -809,8 +843,9 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   (`feature = decision`, `engineId = http.jev`, excerpt length, the provider's token counts, `callCount` 1 once
   `decide` was called except for its pre-send size check, else 0) whatever the outcome.
 - `DecisionInputWindow.swift`: `excerpt` (the first 3,000 characters cut back to a sentence end, or to a space when
-  the only sentence end is in the first third), `text(of:mode:)` (the text the person sees, `.shown(mode)`, whose lines
-  are the Transcript screen's paragraphs; `DecisionService` takes the app's clean-up mode), `paragraphExcerpt` (`p01: …`
+  the only sentence end is in the first third), `text(of:mode:context:)` (the text the person sees, `.shown(mode)`,
+  with their corrections, whose lines are the Transcript screen's paragraphs; `DecisionService` takes the app's
+  clean-up mode and text context), `paragraphExcerpt` (`p01: …`
   lines for at most 12 paragraphs, fewer when they are long, each numbered by its line `id` so a tag lands on the
   screen's paragraph) and content-free `facts`
   (`duration_seconds`, `speaker_count`, `paragraph_count`, `source` = audio/document/link). Nothing else is sent.

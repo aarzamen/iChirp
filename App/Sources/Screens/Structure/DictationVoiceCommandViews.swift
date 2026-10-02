@@ -62,7 +62,18 @@ struct DictationVoiceCommandBar: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Voice command not applied. \(warning)")
             }
-            if state == .done, let summary = commands.appliedSummary {
+            // Plan 025 fix round 1: the commands could not be saved to the transcript (it keeps every word), so say
+            // that instead of "Voice commands applied", and that Send to SOAP / Transform did not open.
+            if state == .done, let notSaved = environment.dictation.voiceCommandsNotSaved {
+                Label(notSaved.message, systemImage: "exclamationmark.triangle.fill")
+                    .chirpFont(14, .semibold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Tokens.Color.dictationAccent.opacity(0.35)))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Voice commands not saved. \(notSaved.message)")
+            } else if state == .done, let summary = commands.appliedSummary {
                 Text(summary)
                     .chirpFont(13)
                     .foregroundStyle(.white.opacity(0.72))

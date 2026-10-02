@@ -105,7 +105,8 @@ section; never delete its history.
 | [ADR-013](adr/013-jev-decision-model.md) | Jev as an opt-in cloud decision model (`ChirpEngineJev`, `DecisionModel` contract); clinical items never sent |
 | [ADR-014](adr/014-mac-companion.md) | The Parakeet companion on the owner's Mac (voices and YouTube audio) over the home network, with a pairing token |
 | [ADR-015](adr/015-on-device-llm-llama-cpp.md) | Small language models on the iPhone through llama.cpp built from source (`ChirpEngineLlamaCpp`); Qwen3.5 2B default, Qwen3 4B Instruct quality tier; MLX Swift not adopted |
-| [ADR-016](adr/016-your-own-templates.md) | Your own templates: one list with read-only built-ins (hide and move only), edits as immutable versions, soft delete with Restore, a raise-only clinical switch, app rules for text the person wrote (plan 026) |
+| [ADR-016](adr/016-transcript-corrections-over-an-immutable-baseline.md) | Transcript corrections over an immutable baseline: word-span corrections in one JSON column bound to a fingerprint of the words, applied only by the one accessor, written only by the correction service; pipelines keep or detach them; voice commands are corrections (plan 025) |
+| [ADR-017](adr/017-your-own-templates.md) | Your own templates: one list with read-only built-ins (hide and move only), edits as immutable versions, soft delete with Restore, a raise-only clinical switch, app rules for text the person wrote (plan 026) |
 
 ## Milestones
 

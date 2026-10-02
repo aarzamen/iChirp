@@ -77,6 +77,31 @@ final class LiveActivityContentTests: XCTestCase {
         XCTAssertEqual(plain.detail, "Copied to your clipboard", "an ordinary stop says nothing extra")
     }
 
+    /// Plan 025 fix round 2: a dictation whose every sentence was scratched copied nothing, so the Lock Screen never
+    /// says Copied; one whose voice commands could not be saved to the transcript says so with its Copied outcome.
+    func testVoiceCommandOutcomesSayWhatIsTrue() {
+        guard
+            case .end(let scratched?, _) = DictationLiveActivity.update(
+                for: .done, recordedSeconds: 12, voiceCommands: .everythingScratched(droppedSendOn: [.sendToSOAP]),
+                now: now)
+        else { return XCTFail() }
+        XCTAssertEqual(scratched.phase, .failed, "the extension titles it Not copied")
+        XCTAssertEqual(scratched.detail, "Everything was scratched — nothing copied")
+        guard
+            case .end(let notSaved?, _) = DictationLiveActivity.update(
+                for: .done, recordedSeconds: 12, voiceCommands: .notSaved(droppedSendOn: []), now: now)
+        else { return XCTFail() }
+        XCTAssertEqual(notSaved.phase, .copied)
+        XCTAssertEqual(notSaved.detail, "Copied · voice commands not saved to the transcript")
+        let notice = "Stopped early: the iPhone may be out of storage, so Parakeet could not save more audio."
+        guard
+            case .end(let both?, _) = DictationLiveActivity.update(
+                for: .done, recordedSeconds: 12, notice: notice,
+                voiceCommands: .everythingScratched(droppedSendOn: []), now: now)
+        else { return XCTFail() }
+        XCTAssertEqual(both.detail, "\(notice) Everything was scratched — nothing copied")
+    }
+
     /// Fix round 1 (minor 3): a call that takes the microphone while a dictation or meeting starts pauses it before it
     /// ever says Recording; that paused (or interrupted) state starts the activity too. A finishing or finished state
     /// never does (after a relaunch it has nothing to show).

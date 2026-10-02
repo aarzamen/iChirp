@@ -1,7 +1,7 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/TextProcessing/TranscriptCueBuilder.swift @ bbae9e0e
-// Changes: `build(from: Transcription)` reads the word stream (`TranscriptTokens.words(of:)`, plan 024 Task 8);
-// ChirpCore's `Transcription` has no `transcriptTextAlignment`/`isTextEdited` correction machinery, so the
-// segment-projection branch was dropped.
+// Changes: `build(from: Transcription)` reads the word stream (`TranscriptTokens.words(of:)`, plan 024 Task 8), which
+// carries the person's corrections as word spans with their time envelope (plan 025); upstream's segment-projection
+// branch for whole edited segments is not ported.
 
 import ChirpCore
 import Foundation

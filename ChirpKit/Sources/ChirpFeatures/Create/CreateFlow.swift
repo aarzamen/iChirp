@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpText
 import Foundation
 import Observation
 
@@ -109,6 +110,10 @@ public struct CreateFlowDependencies {
     public var deliverables: DeliverableService
     /// A fresh voice-message maker for one chain.
     public var makeVoiceMessage: @MainActor () -> any VoiceMessageProducing
+    /// The person's clean-up mode and rules: a voice message speaks the text they see (`Transcription.text(.shown)`,
+    /// with their corrections; plan 025).
+    public var cleanupMode: @Sendable () -> CleanupMode
+    public var textContext: @Sendable () async -> TranscriptTextContext
 
     public init(
         recordSpeech: @escaping @MainActor (PrivacyClass) async -> CreateSpeechOutcome,
@@ -118,7 +123,9 @@ public struct CreateFlowDependencies {
         waitForItem: @escaping @MainActor (UUID) async -> Transcription?,
         retryItem: @escaping @MainActor (UUID) async -> Void,
         deliverables: DeliverableService,
-        makeVoiceMessage: @escaping @MainActor () -> any VoiceMessageProducing
+        makeVoiceMessage: @escaping @MainActor () -> any VoiceMessageProducing,
+        cleanupMode: @escaping @Sendable () -> CleanupMode = { .raw },
+        textContext: @escaping @Sendable () async -> TranscriptTextContext = { .none }
     ) {
         self.recordSpeech = recordSpeech
         self.saveText = saveText
@@ -128,6 +135,8 @@ public struct CreateFlowDependencies {
         self.retryItem = retryItem
         self.deliverables = deliverables
         self.makeVoiceMessage = makeVoiceMessage
+        self.cleanupMode = cleanupMode
+        self.textContext = textContext
     }
 }
 
@@ -200,6 +209,8 @@ public struct CreateFlowDependencies {
     @ObservationIgnored private var makeModel: (@MainActor () throws -> any LanguageModel)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var chainID = UUID()
+    /// The person's clean-up rules, read when the chain's item is ready (plan 025).
+    @ObservationIgnored private var textContext = TranscriptTextContext.none
     @ObservationIgnored private let logger = Log.logger("create")
 
     public init(dependencies: CreateFlowDependencies) {
@@ -415,9 +426,12 @@ public struct CreateFlowDependencies {
         guard generation == self.generation else { return .stop }
         guard let row else { return fail(.transcribe, "This item no longer exists. It may have been deleted.") }
         item = row
+        textContext = await dependencies.textContext()
+        guard generation == self.generation else { return .stop }
         switch row.status {
         case .completed:
-            guard !row.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let shown = row.plainText(.shown(dependencies.cleanupMode()), context: textContext)
+            guard !shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return fail(.transcribe, "There was no text to work with.")
             }
             stages[.transcribe] = .done
@@ -505,6 +519,8 @@ public struct CreateFlowDependencies {
             item = await dependencies.waitForItem(itemID)
             guard generation == self.generation else { return .stop }
         }
+        textContext = await dependencies.textContext()
+        guard generation == self.generation else { return .stop }
         guard let voiceRequest = voiceMessageRequest() else {
             return fail(.output, "There is no text to speak.")
         }
@@ -537,7 +553,8 @@ public struct CreateFlowDependencies {
             privacyClass = deliverable.privacyClass.stricter(item.privacyClass)
             title = "\(deliverable.title) – \(item.displayTitle)"
         } else {
-            text = item.displayText
+            // The text the person sees, with their corrections (plan 025), as Copy writes it.
+            text = item.plainText(.shown(dependencies.cleanupMode()), context: textContext)
             source = item.isTextOnly ? .document(id: item.id) : .transcript(id: item.id)
             privacyClass = item.privacyClass
             title = item.displayTitle

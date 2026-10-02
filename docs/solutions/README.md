@@ -65,3 +65,5 @@ Add a line here for each new entry: `- [<title>](<category>/<slug>.md) — <one-
   — a command test passes alone, fails in the full suite; a resume overtook a pause
 - [Publish transient state when an in-order apply loop applies it](concurrency/in-order-apply-loop-must-publish-transient-state.md)
   — a live-preview drop never showed as lagging when a later chunk reported first
+- [Delete the Chirp module build folders when SwiftPM links stale objects after a struct layout change](build-errors/stale-swiftpm-objects-after-a-struct-layout-change.md)
+  — `Undefined symbols` for an old initializer, or EXC_BAD_ACCESS in `_swift_release_dealloc`, after a public struct changed

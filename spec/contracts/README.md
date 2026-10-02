@@ -34,6 +34,9 @@ Each contract document includes:
 
 - [Speech Engine Plug-in v1](speech-engine-plugin-v1.md): the `ChirpCore` protocols every engine target implements.
 - [Transcript JSON v1](transcript-json-v1.md): the `ichirp.transcript/v1` JSON export.
+- [Transcript Corrections v1](transcript-corrections-v1.md): `transcriptions.textCorrections` (`v11`), the person's
+  word-span corrections over the immutable words, their fingerprint, what pipeline saves keep, and the one accessor
+  that applies them (plan 025).
 - [Media Storage Layout v1](media-storage-layout-v1.md): the on-disk layout under `Application Support/iChirp/`.
 - [File Transcription Audio Tracks v1](file-transcription-audio-tracks-v1.md): which audio track of an imported
   file is transcribed, the track picker, and `transcriptions.audioTrackOrdinal` (M1.5).

@@ -125,6 +125,37 @@ final class TranscriptPromptTextTests: XCTestCase {
         }
     }
 
+    /// Plan 025: the model reads the corrected words (they enter the one stream), on the same lines and timestamps.
+    func testModelInputUsesCorrectedText() throws {
+        var row = timedRow()
+        let now = Date(timeIntervalSinceReferenceDate: 790_000_000)
+        row.textCorrections = try TranscriptCorrections.empty.applying(
+            TranscriptCorrectionPlan(add: [
+                TranscriptCorrection(
+                    wordRange: 2..<4, heard: "", text: "Later remarks.", origin: .edit, createdAt: now,
+                    updatedAt: now)
+            ]), words: row.wordTimestamps ?? [], now: now
+        ).corrections
+        XCTAssertEqual(
+            TranscriptPromptFormatter.modelInput(row.text(.shown(.raw))),
+            "[00:04] Dana: Hello there.\n[1:02:05] Speaker 2: Later remarks.\n[1:02:10] No speaker.")
+    }
+
+    /// Plan 025: a correction never moves a line, so a cited moment still seeks to the line's first word.
+    func testCitationsResolveToCorrectedSegmentStarts() throws {
+        var row = timedRow()
+        let now = Date(timeIntervalSinceReferenceDate: 790_000_000)
+        row.textCorrections = try TranscriptCorrections.empty.applying(
+            TranscriptCorrectionPlan(add: [
+                TranscriptCorrection(
+                    wordRange: 2..<3, heard: "", text: "Very late", origin: .edit, createdAt: now, updatedAt: now)
+            ]), words: row.wordTimestamps ?? [], now: now
+        ).corrections
+        let citations = TranscriptCitationParser.citations(
+            in: "As said at [1:02:05].", text: row.text(.shown(.raw)))
+        XCTAssertEqual(citations, [TranscriptCitation(label: "1:02:05", startMs: 3_725_000)])
+    }
+
     func testCitationsKeepOnlyRealLineStarts() {
         var row = Transcription(fileName: "synthetic.m4a", status: .completed)
         row.wordTimestamps = [word("a.", 12_500, "S1"), word("b.", 3_725_000, "S1")]

@@ -68,6 +68,12 @@ public struct Transcription: Codable, Identifiable, Sendable, Equatable {
     /// A PDF's text page by page, each marked text layer, OCR or empty; nil for other items.
     public var documentPages: [DocumentPage]?
 
+    /// Plan 025 (migration `v11-transcript-corrections`): the person's corrections of the words as heard, a user field
+    /// that pipeline saves keep (`TranscriptCorrections.preserved(acrossNewWords:now:)`). Nil until the first one. Only
+    /// ChirpText's accessor (`Transcription.text(_:context:)`) applies them; only `TranscriptCorrectionService` writes
+    /// them. Contract: `spec/contracts/transcript-corrections-v1.md`.
+    public var textCorrections: TranscriptCorrections?
+
     /// Creates a new row. Every property not listed here starts empty: optionals are nil, `isFavorite` is
     /// false and `updatedAt` equals `createdAt`.
     public init(

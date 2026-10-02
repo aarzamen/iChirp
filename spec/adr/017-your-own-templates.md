@@ -1,4 +1,4 @@
-# ADR-016: Your Own Templates
+# ADR-017: Your Own Templates
 
 > Status: Accepted (the owner approved plan 026; "Make again" is deferred by the controller's ruling)
 > Date: 2026-10-01

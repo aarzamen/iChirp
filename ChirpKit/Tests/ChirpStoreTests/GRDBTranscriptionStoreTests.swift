@@ -751,7 +751,7 @@ private enum TamperError: Error {
 
 /// Records the columns each `UPDATE` of `transcriptions` sets (GRDB reports them for every statement it runs), so a
 /// test can prove which columns a write touched.
-private final class UpdatedColumnsRecorder: TransactionObserver, @unchecked Sendable {
+final class UpdatedColumnsRecorder: TransactionObserver, @unchecked Sendable {
     // @unchecked Sendable: `updates` is only touched while `lock` is held.
     private let lock = NSLock()
     private var updates: [Set<String>] = []

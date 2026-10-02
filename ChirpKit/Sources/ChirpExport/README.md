@@ -17,7 +17,11 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
   words as heard;
   JSON is a custom `ichirp.transcript/v1` schema, not a raw `Transcription` encode: `speakers`, `segments` and
   `words` are always arrays, empty when the item has none (review R1-4), and `privacyClass` names the effective
-  class (review R1-13). `TranscriptExporter(cleanupMode:effectivePrivacyClass:)` takes the class the privacy rules
+  class (review R1-13). Plan 025: the person's corrections reach every format through the accessor; JSON's
+  `segments` are the accessor's (corrected, `isTextEdited`), `words` stay the engine's words (the one baseline read
+  here, as evidence) and a `corrections` array appears only when there are some, so an uncorrected export is
+  byte-identical. `TranscriptExporter(cleanupMode:effectivePrivacyClass:context:)` takes the person's clean-up rules
+  (`TranscriptTextContext`, read only for a corrected transcript in Clean) and the class the privacy rules
   use, like `ExportDocument.transcript` (nil: the row's own; never lower than it); a clinical item's TXT starts with
   `ExportDocument.clinicalPrivacyLine` ("Privacy: Clinical: contains patient information"), its Markdown has the
   line under the title and its VTT a `NOTE` block; SRT, which has no comment syntax, has none.
@@ -34,7 +38,7 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 
 - `ExportDocument.swift` — the page content both formats share: title, `ExportMetadataLine`s and blocks (`heading`,
   `paragraph`, `turn` with speaker and timestamp, `bullet` and `numbered` with their nesting `level`, `numbered` with
-  its `marker` exactly as written). `ExportDocument.transcript(_:cleanupMode:effectivePrivacyClass:)`
+  its `marker` exactly as written). `ExportDocument.transcript(_:cleanupMode:effectivePrivacyClass:context:)`
   says "Privacy: Clinical" when the row's own class or the effective class the caller passes (review M5) is clinical,
   and prints the lines of `Transcription.text(.shown(cleanupMode))` as turns (the speaker only when it changes, every
   paragraph's `mm:ss`) or, without word timings, the text's own paragraphs. `ExportDocument.text(title:body:metadata:)` reads a

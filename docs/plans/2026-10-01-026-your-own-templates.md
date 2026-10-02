@@ -749,7 +749,7 @@ Commit the tour (screenshots stay outside git, as for earlier tours).
   sends nothing), regression (built-in runs, Create Summary, Extract fields → Use in SOAP note, Jev Use this template),
   accessibility (AX sizes, VoiceOver row labels, Move up/down), the migration on the phone (install over the current
   build: Library documents open, Templates lists the nine built-ins), screenshots from Step 10.
-- `spec/adr/016-your-own-templates.md` from the Decisions section (Status "Accepted" if the owner approved this plan,
+- `spec/adr/017-your-own-templates.md` (016 went to plan 025) from the Decisions section (Status "Accepted" if the owner approved this plan,
   else "Proposed") and its row in `spec/README.md`.
 - `docs/plans/2026-09-23-023-owner-design-decisions.md` "Still open": one line — "F45: plan 026 makes the order the
   person's own; the default order is still open."
@@ -792,7 +792,7 @@ All must hold:
 - [ ] Every document still opens, keeps its title, and says which template and version made it after the template is
       edited, renamed or deleted
 - [ ] Routing tests unedited and green; built-in prompt bytes unchanged; no template text or name in logs or the ledger
-- [ ] Contract, spec/01, 04, 08, 12, READMEs, QA checklist, ADR-016 and the board updated
+- [ ] Contract, spec/01, 04, 08, 12, READMEs, QA checklist, ADR-017 and the board updated
 - [ ] No simulated progress or placeholder; `git status` clean apart from in-scope files; everything committed, nothing
       pushed
 

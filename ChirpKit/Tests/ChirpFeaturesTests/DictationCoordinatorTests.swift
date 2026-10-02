@@ -145,6 +145,124 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(row.rawTranscript, finalPass, "the saved transcript keeps every word")
     }
 
+    /// Review R5-2 (plan 025 ruling 2): the applied voice commands are stored as `voiceCommand` corrections before the
+    /// SOAP hand-off opens, so the SOAP note's model input reads what was copied: a scratched order never reaches it.
+    func testAScratchedOrderNeverReachesTheSOAPModelInput() async throws {
+        for polish in [false, true] {
+            let commands = Self.voiceCommands(enabled: true)
+            let speech = FakeSpeech()
+            let finalPass = "Patient seen today. Take aspirin 81 mg. Scratch that. Recheck in two weeks. Send to SOAP."
+            let words = finalPass.split(separator: " ").enumerated().map { index, word in
+                WordTimestamp(word: String(word), startMs: index * 300, endMs: index * 300 + 250, confidence: 0.9)
+            }
+            await speech.setTranscript(text: finalPass, words: words)
+            var settings = Harness.defaultSettings
+            settings.dictationPolishAfter = polish
+            let h = Harness(testCase: self, settings: settings, speech: speech, voiceCommands: commands)
+            await h.startRecording()
+            h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+            await h.stopAndWait()
+
+            let copied = "Patient seen today. Recheck in two weeks."
+            XCTAssertEqual(h.clipboard.copies, [copied], "polish \(polish)")
+            XCTAssertEqual(commands.pendingTransform?.target, .soap)
+            let row = try await h.row()
+            XCTAssertEqual(row.rawTranscript, finalPass, "the words as heard are kept")
+            XCTAssertEqual(row.wordTimestamps, words)
+            let items = try XCTUnwrap(row.textCorrections?.items)
+            XCTAssertFalse(items.isEmpty)
+            XCTAssertEqual(Set(items.map(\.origin)), [.voiceCommand])
+            XCTAssertEqual(Set(items.map(\.batchID)).count, 1, "one dictation's commands are one batch")
+            XCTAssertEqual(row.plainText(.shown(.raw)), copied)
+            XCTAssertFalse(row.derivedTitle?.contains("aspirin") ?? true)
+
+            // The SOAP run reads the stored row.
+            let deliverables = FakeDeliverableStore()
+            try await deliverables.installBuiltInTemplates(BuiltInTemplates.all)
+            let service = DeliverableService(
+                transcripts: h.store, deliverables: deliverables, routingPolicy: { PrivacyRoutingPolicy() })
+            let model = Destination.onDevice.makeModel()
+            model.script([.text("S: Synthetic.")])
+            for try await _ in service.generate(
+                templateID: BuiltInTemplates.soapNote.id, transcriptionID: row.id, model: model)
+            {}
+            XCTAssertTrue(model.everythingReceived.contains("Recheck in two weeks."), "polish \(polish)")
+            XCTAssertFalse(model.everythingReceived.contains("aspirin"), "polish \(polish): the scratched order")
+            XCTAssertFalse(model.everythingReceived.localizedCaseInsensitiveContains("scratch that"))
+        }
+    }
+
+    /// Plan 025 fix round 1: one dictation with voice commands on, its words matching the final pass.
+    private func dictate(
+        _ finalPass: String, words matching: Bool = true, prepare: (FakeStore) async -> Void = { _ in }
+    ) async throws -> (Harness, DictationVoiceCommands) {
+        let commands = Self.voiceCommands(enabled: true)
+        let speech = FakeSpeech()
+        let words = finalPass.split(separator: " ").enumerated().map { index, word in
+            WordTimestamp(word: String(word), startMs: index * 300, endMs: index * 300 + 250, confidence: 0.9)
+        }
+        await speech.setTranscript(text: finalPass, words: matching ? words : [])
+        let h = Harness(testCase: self, speech: speech, voiceCommands: commands)
+        await prepare(h.store)
+        await h.startRecording()
+        h.capture.send(.samples([Float](repeating: 0.1, count: 16_000)))
+        await h.stopAndWait()
+        return (h, commands)
+    }
+
+    /// Fix round 1 (review IMPORTANT 1): when the commands cannot be stored, Send to SOAP is not opened and the Done
+    /// screen says so in place of "Voice commands applied": the transcript still has every word.
+    func testCommandsThatCannotBeStoredSayYourTranscriptKeepsEveryWordAndOpenNoSOAP() async throws {
+        let finalPass = "Patient seen today. Take aspirin 81 mg. Scratch that. Send to SOAP."
+        for failure in ["no word timings", "a refused write"] {
+            let (h, commands) = try await dictate(finalPass, words: failure != "no word timings") { store in
+                if failure == "a refused write" {
+                    await store.failNextTextCorrectionWrite(with: FakeError(message: "synthetic write failure"))
+                }
+            }
+            XCTAssertEqual(h.clipboard.copies, ["Patient seen today."], failure)
+            XCTAssertNil(commands.pendingTransform, "\(failure): no SOAP from text that still has the scratched order")
+            XCTAssertEqual(h.coordinator.voiceCommandsNotSaved, .notSaved(droppedSendOn: [.sendToSOAP]), failure)
+            XCTAssertEqual(
+                h.coordinator.voiceCommandsNotSaved?.message,
+                "Your voice commands couldn’t be saved to the transcript; it still has every word. "
+                    + "Send to SOAP was not opened.")
+            let row = try await h.row()
+            XCTAssertNil(row.textCorrections, failure)
+            XCTAssertEqual(row.rawTranscript, finalPass)
+        }
+    }
+
+    /// Fix round 1: a dictation whose every sentence was scratched copies nothing, stores nothing (a correction cannot
+    /// be empty), keeps the words as heard, opens no SOAP and says so.
+    func testAFullyScratchedDictationSaysNothingWasSentAndKeepsTheHeardWords() async throws {
+        let finalPass = "Take aspirin 81 mg. Scratch that. Read it back. Send to SOAP."
+        let (h, commands) = try await dictate(finalPass)
+        // Fix round 2: nothing is copied (the person's clipboard is left as it was) and nothing is read back.
+        XCTAssertEqual(h.clipboard.copies, [])
+        XCTAssertNil(h.coordinator.copiedText)
+        XCTAssertFalse(commands.readBackUnavailable, "no read back of an empty text was attempted")
+        XCTAssertNil(commands.pendingTransform)
+        XCTAssertEqual(h.coordinator.voiceCommandsNotSaved, .everythingScratched(droppedSendOn: [.sendToSOAP]))
+        XCTAssertEqual(
+            h.coordinator.voiceCommandsNotSaved?.message,
+            "Everything was scratched, so nothing was copied or sent. The transcript keeps every word you said. "
+                + "Send to SOAP was not opened.")
+        let row = try await h.row()
+        XCTAssertNil(row.textCorrections)
+        XCTAssertEqual(row.rawTranscript, finalPass)
+        // The next dictation starts without the notice.
+        await h.startRecording()
+        XCTAssertNil(h.coordinator.voiceCommandsNotSaved)
+        await h.stopAndWait()
+    }
+
+    func testStoredCommandsLeaveNoNotice() async throws {
+        let (h, commands) = try await dictate("Patient seen today. Take aspirin 81 mg. Scratch that. Send to SOAP.")
+        XCTAssertNil(h.coordinator.voiceCommandsNotSaved)
+        XCTAssertEqual(commands.pendingTransform?.target, .soap)
+    }
+
     /// Review R5-17 (and L3 minor 6): a "stop" heard in the live preview is a chip only. The dictation keeps
     /// recording, so nothing said after a misheard "stop" is lost.
     func testALiveStopIsAChipAndTheDictationKeepsRecording() async throws {

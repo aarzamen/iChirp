@@ -103,7 +103,12 @@ The Extract fields card on the Transcript screen, the SOAP note hand-off, the Ev
   spaces, or its text when it has no words); `spanWord*` index `Transcription.wordTimestamps`; `spanStartMs` /
   `spanEndMs` let a tap seek the player. A field with a number spans that number's words; otherwise its sentence. The card
   shows the whole sentence with the number's words highlighted, so the reviewer sees which drug or vital it belongs to
-  (review L3 I2).
+  (review L3 I2). Plan 025: the source text is the word stream with the person's corrections
+  (`Transcription.text(.heard)`); a span over a corrected passage covers every word it replaced and its time envelope.
+- **Stale run (plan 025 D7):** a run whose `createdAt` is before the transcript's `textCorrections.changedAt` is
+  stale: its spans index text that changed. `StructuredDraft.sourceChanged` says so; the screen shows "You corrected
+  this transcript after these fields were found. Extract again to use your corrections.", hides every evidence quote,
+  and turns off "Use in SOAP note" ("Extract again first.") until a new run.
 - **Privacy:** clinical items only ever run on `.onDevice` structure engines. Logs carry run ids and counts only.
 
 ## Non-stable fields
@@ -133,6 +138,9 @@ value; old runs keep theirs.
   the eval).
 - `ChirpTextTests.NumericNormalizerTests` (spoken numbers across "and", ranges, tablet counts near a strength,
   combination strengths and the blood-pressure word).
+- `ChirpFeaturesTests.CorrectedConsumersTests` (plan 025: `testSourceTextUsesCorrections`,
+  `testSpanOverACorrectionCoversItsWords`, `testDraftIsStaleAfterACorrectionAndNotBefore`,
+  `testStaleDraftHidesEvidenceAndBlocksSOAPHandOff`).
 
 ## When this changes
 
