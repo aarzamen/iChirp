@@ -15,7 +15,8 @@
 #   - ChirpText/TranscriptText.swift (the accessor),
 #   - the writers of the baseline (plan 025 C7 row W): FileTranscriptionPipeline, MeetingFinalizer,
 #     DictationCoordinator, LinkIngestService, DocumentImportPipeline, TextItemService,
-#   - ChirpFeatures/Benchmark/ and App/Sources/Debug/SmokeTestRunner.swift (they measure the engine's own words).
+#   - ChirpFeatures/Benchmark/ and App/Sources/Debug/SmokeTestRunner.swift (they measure the engine's own words),
+#   - App/Sources/Debug/CorrectionsPreviewLaunch.swift (DEBUG: writes the corrections tour's synthetic sample).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -33,6 +34,7 @@ allowed() {
     ChirpKit/Sources/ChirpFeatures/Create/TextItemService.swift) return 0 ;;
     ChirpKit/Sources/ChirpFeatures/Benchmark/*) return 0 ;;
     App/Sources/Debug/SmokeTestRunner.swift) return 0 ;;
+    App/Sources/Debug/CorrectionsPreviewLaunch.swift) return 0 ;;  # DEBUG: writes the synthetic tour sample
   esac
   return 1
 }

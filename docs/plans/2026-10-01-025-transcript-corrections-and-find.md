@@ -97,7 +97,7 @@
 | **Depends on** | The review-fix lane (R2-1, R5-2) merged on `main` | Part A merged on `main` |
 | **Governing docs** | [ADR-009](../../spec/adr/009-deterministic-cleanup-raw-default.md), [ADR-002](../../spec/adr/002-local-first-and-privacy-classes.md), [spec/07](../../spec/07-text-processing.md), [spec/01](../../spec/01-data-model.md), [spec/04](../../spec/04-ui.md), [spec/12](../../spec/12-privacy.md), contracts [transcript-json-v1](../../spec/contracts/transcript-json-v1.md), [structured-results-v1](../../spec/contracts/structured-results-v1.md); new: ADR-016 and `spec/contracts/transcript-corrections-v1.md` (this plan writes them) | Same, plus the find and Text rules sections of spec/04 and spec/07 |
 | **Planned at** | commit `53bc2cc6`, 2026-10-01 | same |
-| **Status** | IN PROGRESS: core Steps A0–A7 (ChirpKit) on `worktree-agent-a6f38d146464e9ab1`; A8–A10 after plan 024 Task 9 | NOT STARTED |
+| **Status** | IMPLEMENTED on `worktree-agent-a6f38d146464e9ab1` (core merged to `main` at `4f9dc9bb`; app half A8–A10 on the lane): package suite, app-hosted suite, UI tour in light, dark and AX5 green; `scripts/device_smoke.sh` is the controller's | NOT STARTED |
 
 ## Why this matters
 

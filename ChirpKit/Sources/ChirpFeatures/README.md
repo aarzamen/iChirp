@@ -897,6 +897,8 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   finished or failed chain's model run and voice message (review M2), and the app resets a chain whenever it drops
   it (Done, Create another), so a failed voice message's chunk audio does not wait in `tmp` for the next launch. Logs carry the chain id, item ids,
   kinds and stage names only (`create_item_after_stop` for an item made after a Stop).
+  Plan 025: `itemShownText` is the item's text as the person sees it (their clean-up mode and rules, their
+  corrections), which the run's result card shows and copies; the voice message speaks the same text.
 - `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
   `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
 - `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,

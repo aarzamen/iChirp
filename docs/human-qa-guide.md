@@ -1118,6 +1118,36 @@ Accessibility
 - [ ] At AX sizes the Templates rows and the editor wrap without truncation; VoiceOver reads a row as "Clinic SOAP, your
       template, clinical, hidden"; ⋯ → Move up / Move down work without dragging.
 
+## Transcript corrections checklist (plan 025 Part A)
+
+Use a transcript you made yourself from synthetic speech (macOS `say`), never a patient recording. On the simulator,
+the DEBUG launch argument `-ChirpSeedCorrectionsSample` adds one synthetic transcript; the UI tour is
+`UITests/TranscriptCorrectionsTourUITests`.
+
+- [ ] Long-press a paragraph → **Correct…**: the sheet shows the speaker and times, Play passage plays that passage,
+      Save is off until you change a word. Change "met for men" to "metformin" and Save: the paragraph shows
+      "metformin" with a dotted underline and says "Corrected".
+- [ ] Copy, Share → Text, PDF, Word, Subtitles and Data (JSON) all carry "metformin"; the JSON also lists the
+      correction and keeps the words as heard.
+- [ ] Transform → SOAP note (and Ask) read "metformin", not "met for men". Library search finds the item by
+      "metformin" and still by "met for men". The Library title changes when the first sentence was corrected.
+- [ ] Long-press the corrected paragraph → **Show Original**: the heard words are shaded; Revert puts them back and
+      "Reverted. Undo" appears for about six seconds; Undo restores the correction.
+- [ ] More → **Corrections (N)…** lists every correction; **Revert All…** asks first, and afterwards the transcript
+      reads exactly as before your first correction (same title).
+- [ ] Edit a passage, then Cancel: it asks "Discard your changes?"; Keep Editing keeps the draft. Swipe-down does
+      nothing while edited.
+- [ ] Extract fields, then correct a word, then open Extract fields again: it says you corrected the transcript after
+      these fields were found, shows no quotes, and "Use in SOAP note" is off with "Extract again first.".
+- [ ] A document made before a correction is marked "Made before your corrections" under Made from this.
+- [ ] Dictate "Patient seen today. Take aspirin 81 mg. Scratch that. Send to SOAP." with voice commands on: the SOAP
+      note never mentions aspirin; the dictation's transcript underlines the scratched passage's replacement, and
+      Show Original shows what was said.
+- [ ] Create → Speak → Voice message: the voice speaks the text you see (with your corrections and the dictation's
+      voice commands), not the words as first heard.
+- [ ] VoiceOver: the paragraph's actions rotor offers Correct, Show Original and Listen from Here; a corrected line's
+      value is "Corrected". At the largest text size nothing is cut off or broken mid-word.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo
