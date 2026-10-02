@@ -46,7 +46,9 @@
   older than the latest 200 falls back to the show's RSS feed, matched by the link's title slug (exactly, else by a
   prefix that ends on a word boundary: the longest wins, a title under half the slug or a tie matches nothing, so a
   wrong episode is never picked); a show link takes the
-  latest episode; `latestEpisode(inFeed:)` serves feed links. Only the show id (and Apple's feed URL) is requested.
+  latest episode; `latestEpisode(inFeed:)` serves feed links and takes the newest episode by publication date (RFC 822
+  or ISO 8601; feed order when no date reads), so a serial, oldest-first feed gives its newest episode. Only the show
+  id (and Apple's feed URL) is requested.
 - `Links/YouTubeCaptionFetcher.swift`: captions by the youtube-transcript-api method (credited, re-implemented): watch
   page → `INNERTUBE_API_KEY` (passing the consent page with a one-request cookie) → `/youtubei/v1/player` as the
   ANDROID client → the best track (manual in a preferred language first) → timed text, classic or srv3, unescaped.
@@ -64,7 +66,8 @@
   name is `insecureAddressBlocked`; "unreachable" also names the Local Network permission). The endpoint and token
   come from ChirpCore's `CompanionEndpoint` (the app's `CompanionSettingsStore` supplies them).
 - `Links/PodcastFeedParser.swift`: port of upstream's `XMLParser` feed parser (episodes with an audio enclosure,
-  `itunes:duration`), plus the channel title.
+  `itunes:duration`), plus the channel title and Atom feeds (`<entry>` with `<link rel="enclosure">`, `<published>` or
+  `<updated>`).
 
 ### Documents
 

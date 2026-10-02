@@ -146,7 +146,7 @@ public struct PodcastEpisodeResolver: PodcastResolving {
 
     private func newestEpisode(inFeed feedURL: URL) async throws -> ResolvedPodcastEpisode {
         let (title, episodes) = try await feedEpisodes(feedURL)
-        guard let latest = episodes.first else { throw PodcastFeedError.noEpisodes }
+        guard let latest = Self.newest(episodes) else { throw PodcastFeedError.noEpisodes }
         return ResolvedPodcastEpisode(
             audioURL: latest.audioURL, episodeTitle: latest.title, showName: title,
             durationSeconds: latest.durationSeconds, feedURL: feedURL.absoluteString)
@@ -156,6 +156,56 @@ public struct PodcastEpisodeResolver: PodcastResolving {
         let (data, _) = try await http.get(
             feedURL, headers: ["Accept": "application/rss+xml, application/xml;q=0.9, */*;q=0.8"])
         return try PodcastFeedParser.parseFeed(data)
+    }
+
+    // MARK: - Newest episode
+
+    /// The episode with the latest publication date (serial and oldest-first feeds list episode 1 first); the first in
+    /// feed order when no date can be read. Equal dates keep feed order.
+    static func newest(_ episodes: [PodcastFeedEpisode]) -> PodcastFeedEpisode? {
+        let parser = PublicationDateParser()
+        var best: (episode: PodcastFeedEpisode, date: Date)?
+        for episode in episodes {
+            guard let date = parser.date(episode.published) else { continue }
+            if let current = best, date <= current.date { continue }
+            best = (episode, date)
+        }
+        return best?.episode ?? episodes.first
+    }
+
+    /// `raw` as a date: RSS's RFC 822 (`Mon, 6 Jan 2025 08:00:00 +0000`, named zones too) or Atom's ISO 8601.
+    static func publicationDate(_ raw: String?) -> Date? {
+        PublicationDateParser().date(raw)
+    }
+
+    /// The date formats feeds use, built once per feed.
+    private struct PublicationDateParser {
+        private let iso = ISO8601DateFormatter()
+        private let isoFractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        private let rfc822: [DateFormatter] = [
+            "EEE, d MMM yyyy HH:mm:ss Z", "EEE, d MMM yyyy HH:mm:ss zzz", "d MMM yyyy HH:mm:ss Z",
+            "d MMM yyyy HH:mm:ss zzz", "EEE, d MMM yyyy HH:mm Z", "EEE, d MMM yyyy HH:mm zzz", "EEE, d MMM yyyy",
+            "yyyy-MM-dd",
+        ].map { format in
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            return formatter
+        }
+
+        func date(_ raw: String?) -> Date? {
+            guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+            if let date = iso.date(from: raw) ?? isoFractional.date(from: raw) { return date }
+            for formatter in rfc822 {
+                if let date = formatter.date(from: raw) { return date }
+            }
+            return nil
+        }
     }
 
     // MARK: - Lookup URL

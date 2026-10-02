@@ -1,5 +1,7 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Services/PodcastFeedParser.swift @ bbae9e0e
-// Changes: also reads the channel's own `<title>` (`parseFeed(_:)` returns it with the episodes); swift-format style.
+// Changes: also reads the channel's own `<title>` (`parseFeed(_:)` returns it with the episodes); also reads Atom
+// feeds (`<entry>` with `<link rel="enclosure">`, `<published>`/`<updated>`) and RSS `<dc:date>` (review R2-15);
+// swift-format style.
 
 import Foundation
 
@@ -14,7 +16,7 @@ public struct PodcastFeedEpisode: Sendable, Equatable {
     public let audioURL: String
     /// Episode length in seconds, parsed from `<itunes:duration>` when present.
     public let durationSeconds: Int?
-    /// Raw `<pubDate>` (RFC-822) string, if present.
+    /// Raw `<pubDate>` (RFC-822) string, if present; for Atom, `<published>` or `<updated>` (ISO 8601).
     public let published: String?
 
     public init(
@@ -44,9 +46,11 @@ public enum PodcastFeedError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Parses a podcast RSS feed (XML) into episodes. Swift/`XMLParser` port of
+/// Parses a podcast RSS (or Atom) feed (XML) into episodes. Swift/`XMLParser` port of
 /// `podcast-fetch`'s `parse_feed` — episodes preserve feed order (typically
-/// newest first) and only those with an audio enclosure are included.
+/// newest first) and only those with an audio enclosure are included. Atom
+/// `<entry>` elements count as items and `<link rel="enclosure">` as their
+/// enclosure; `<published>` (else `<updated>`) is their date.
 public enum PodcastFeedParser {
     private static let audioExtensions: [String] = [
         ".mp3", ".m4a", ".mp4", ".ogg", ".opus", ".aac", ".wav", ".flac", ".wma", ".webm",
@@ -120,8 +124,16 @@ public enum PodcastFeedParser {
         private var itunesSummary = ""
         private var duration = ""
         private var pubDate = ""
+        /// Atom's dates, used when the item has no RSS `<pubDate>`.
+        private var publishedDate = ""
+        private var updatedDate = ""
         private var enclosureURL: String?
         private var enclosureIsAudio = false
+
+        /// An RSS `<item>` or an Atom `<entry>`.
+        private static func isItem(_ name: String) -> Bool {
+            name == "item" || name == "entry"
+        }
 
         func parser(
             _ parser: XMLParser,
@@ -136,7 +148,7 @@ public enum PodcastFeedParser {
                 inChannelTitle = true
                 return
             }
-            if name == "item" {
+            if Self.isItem(name) {
                 sawItem = true
                 inItem = true
                 elementStack = []
@@ -145,6 +157,8 @@ public enum PodcastFeedParser {
                 itunesSummary = ""
                 duration = ""
                 pubDate = ""
+                publishedDate = ""
+                updatedDate = ""
                 enclosureURL = nil
                 enclosureIsAudio = false
                 return
@@ -152,9 +166,10 @@ public enum PodcastFeedParser {
 
             guard inItem else { return }
             elementStack.append(name)
-            if name == "enclosure" {
-                // Accept lowercase or original-cased attribute keys.
-                let url = attributeDict["url"] ?? attributeDict["URL"]
+            let isAtomEnclosure = name == "link" && attributeDict["rel"]?.lowercased() == "enclosure"
+            if name == "enclosure" || isAtomEnclosure {
+                // Accept lowercase or original-cased attribute keys (RSS `url`, Atom `href`).
+                let url = attributeDict["url"] ?? attributeDict["URL"] ?? attributeDict["href"]
                 let type = (attributeDict["type"] ?? "").lowercased()
                 if let url, !url.isEmpty {
                     if type.hasPrefix("audio") || PodcastFeedParser.isAudioURL(url) {
@@ -178,8 +193,12 @@ public enum PodcastFeedParser {
                 itunesSummary += text
             } else if elementStack.contains("itunes:duration") || elementStack.contains("duration") {
                 duration += text
-            } else if elementStack.contains("pubdate") {
+            } else if elementStack.contains("pubdate") || elementStack.contains("dc:date") {
                 pubDate += text
+            } else if elementStack.contains("published") {
+                publishedDate += text
+            } else if elementStack.contains("updated") {
+                updatedDate += text
             }
         }
 
@@ -211,7 +230,7 @@ public enum PodcastFeedParser {
                 inChannelTitle = false
                 return
             }
-            guard name == "item" else {
+            guard Self.isItem(name) else {
                 if inItem, let last = elementStack.last, last == name {
                     elementStack.removeLast()
                 } else if inItem, let idx = elementStack.lastIndex(of: name) {
@@ -234,7 +253,7 @@ public enum PodcastFeedParser {
                     description: desc,
                     audioURL: audioURL.trimmingCharacters(in: .whitespacesAndNewlines),
                     durationSeconds: PodcastFeedParser.parseDuration(duration),
-                    published: PodcastFeedParser.firstNonEmpty(pubDate)
+                    published: PodcastFeedParser.firstNonEmpty(pubDate, publishedDate, updatedDate)
                 ))
         }
     }

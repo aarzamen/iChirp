@@ -78,6 +78,8 @@ type, is refused the same way before any byte is saved (review R2-9).
   the `?i=` value from the share link against the show's episodes, with the RSS feed as a fallback (port of upstream
   `PodcastEpisodeResolver`).
 - Download to a file with `URLSession`, then decode with `AVAssetReader` (documented for files).
+- A feed link (RSS or Atom) takes the feed's newest episode by publication date, so a serial podcast whose feed
+  lists episode 1 first still gives its latest episode; feed order decides only when no date can be read.
 - **Plain http (review R2-2).** iOS blocks plain http to internet hosts (App Transport Security; the app allows it
   only on the home network, and that setting is not loosened). A pasted bare host becomes `https://`, and every
   request and redirect for an `http://` link to an internet host (an older feed's enclosure, a pasted link) asks for
