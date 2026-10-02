@@ -171,6 +171,17 @@ implemented in `ChirpStore/TemplateLibraryStore.swift`) does every write in one 
   `deletedAt`; when another template took the name meanwhile it becomes "<name> (restored)", then "(restored 2)", …
   The id never changes, so recipes that name it run again.
 - `countDeliverables(promptID:)` counts the documents that name a template (for the delete question).
+- **Prompt assembly for the person's text (D5).** A run of a `user` version puts the text exactly where built-in text
+  goes (`{{transcript}}` / `{{userNotes}}` render as for built-ins; without `{{transcript}}` the `<transcript>` block
+  follows). The step that writes the result (single or combine) adds fixed app rules to the system message after the
+  unchanged preamble: for a Document "Respond with only the document, in Markdown: short headings, lists where they
+  help. No preamble and no closing remarks."; for a Rewrite "Respond with only the rewritten text. Do not add
+  explanations or preamble."; and, when the run's class is clinical, the clinical draft rules (never invent findings,
+  vital signs, doses, dates or durations; copy every number exactly; "Not documented." for a section the source does
+  not cover; `[unclear]` for anything uncertain). Map and condense carry the text as `<task>` with no rule. Reserved
+  source-tag openers in the person's text are neutralized (`<` → `‹`). Built-in, `systemUpdate`, Ask, Edit by voice
+  and Jev requests are unchanged. A template never picks a model, a host or a class below the item's: the switch
+  only raises the output to clinical, exactly like SOAP note's `outputPrivacyClass`.
 - **Logs** carry ids, kinds and counts only (`template_created`, `template_updated`, `template_hidden`,
   `template_shown`, `template_reordered`, `template_deleted`, `template_restored`); never a name or instructions.
 
@@ -225,7 +236,10 @@ mutable, or storing content in `llm_runs` is breaking and needs `deliverables-v2
   pre-existing column of every row, adds `isVisible` NOT NULL DEFAULT 1 (1 on every template) and keeps the version
   triggers. `TemplateLibraryStoreTests` (ChirpStoreTests): create, versions only on text change, uniqueness in the
   transaction, built-ins read-only, hide, reorder per section, built-in upgrades keep order and visibility, soft
-  delete, restore.
+  delete, restore. `UserTemplatePromptTests` (ChirpFeaturesTests): every built-in request byte-identical (SHA-256
+  golden), the app rules for the person's Documents and Rewrites, clinical rules only on clinical runs, the source
+  tagged after the text, imitated tags neutralized, no rule in map and condense, a 4,000-character clinical template
+  still leaves ≥ 3,000 characters of source per call on a 4K window.
 
 ## When this changes
 

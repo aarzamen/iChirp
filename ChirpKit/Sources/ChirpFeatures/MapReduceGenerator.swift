@@ -5,10 +5,28 @@
 // carries the template's task instead of a middle-truncated copy of the conversation; and nothing is ever truncated:
 // combined partials that do not fit are condensed again in groups (up to `maxCondenseLevels`), and input that still
 // cannot fit fails with `DeliverableError.transcriptTooLong`.
+// Plan 026 adds the app rules for a template the person wrote (semantics from upstream spec/11-llm-integration.md §3,
+// the transform system prompt "Respond with only the transformed text…"): fixed rules in the system message, the
+// person's text where built-in text goes, its reserved source tags neutralized. Built-in requests are unchanged.
 
 import ChirpCore
 import ChirpText
 import Foundation
+
+/// Who wrote a template's text: the app (a built-in version, `builtIn` or `systemUpdate`) or the person (plan 026; a
+/// `user` version), with the section it lives in, which picks the format rule.
+enum TemplateAuthor: Sendable, Equatable {
+    case app
+    case person(PromptTemplate.Category)
+
+    /// `.person` for a version the person wrote, else `.app`.
+    static func of(_ version: PromptVersion, _ template: PromptTemplate) -> TemplateAuthor {
+        switch version.origin {
+        case .builtIn, .systemUpdate: .app
+        case .user: .person(template.category)
+        }
+    }
+}
 
 /// What one run asks of the model: a template's text, or an Ask question.
 struct GenerationTask: Sendable, Equatable {
@@ -23,6 +41,9 @@ struct GenerationTask: Sendable, Equatable {
     var kind: Kind
     /// Notes the user supplied for `{{userNotes}}` (templates only).
     var userNotes: String?
+    /// Who wrote the template text (templates only). `.person` adds the app rules to the final step's system message
+    /// and neutralizes reserved source tags in the text; `.app` leaves the request exactly as before plan 026.
+    var author: TemplateAuthor = .app
 }
 
 /// One model call in a run.
@@ -65,6 +86,40 @@ enum DeliverablePromptAssembler {
         citesTimestamps ? askRules : askRulesWithoutTimestamps
     }
 
+    // Plan 026 (D5): the app rules for a template the person wrote. They join the system message of the step that
+    // writes the result (single or combine); map and condense steps get none. Keep them free of the test fakes' and
+    // the stub server's trigger phrases (`group `, `<transcript_part`, `SOAP`, `You revise a document`,
+    // `Answer the question`).
+
+    /// A Document of the person's own.
+    static let documentRule = """
+        Respond with only the document, in Markdown: short headings, lists where they help. No preamble and no \
+        closing remarks.
+        """
+
+    /// A Rewrite of the person's own (upstream spec/11 §3's transform rule).
+    static let rewriteRule = "Respond with only the rewritten text. Do not add explanations or preamble."
+
+    /// Any template of the person's own when the run's class is clinical.
+    static let clinicalRule = """
+        This is a clinical draft for the clinician to review and sign. Never invent findings, vital signs, doses, \
+        dates or durations; copy every number exactly as it appears in the source. Where the source says nothing \
+        for a section, write "Not documented." Mark anything uncertain or inaudible with [unclear].
+        """
+
+    /// The rules after the preamble for the final step: empty for the app's own text.
+    static func appRules(for author: TemplateAuthor, privacyClass: PrivacyClass) -> String {
+        guard case .person(let category) = author else { return "" }
+        let format = category == .transform ? rewriteRule : documentRule
+        let clinical = privacyClass == .clinical ? "\n\n\(clinicalRule)" : ""
+        return "\n\n\(format)\(clinical)"
+    }
+
+    /// The template text as the model reads it: the person's text with reserved source tags neutralized.
+    static func templateText(_ content: String, author: TemplateAuthor) -> String {
+        author == .app ? content : TemplateLimits.neutralizingReservedTags(in: content)
+    }
+
     static func request(
         task: GenerationTask,
         phase: GenerationPhase,
@@ -75,10 +130,11 @@ enum DeliverablePromptAssembler {
         let (system, prompt): (String, String)
         switch phase {
         case .single:
-            (system, prompt) = final(task: task, source: source, sourceTag: "transcript", note: nil)
+            (system, prompt) = final(
+                task: task, source: source, sourceTag: "transcript", privacyClass: privacyClass, note: nil)
         case .combine:
             (system, prompt) = final(
-                task: task, source: source, sourceTag: "transcript_notes",
+                task: task, source: source, sourceTag: "transcript_notes", privacyClass: privacyClass,
                 note: "The source is notes extracted, in order, from every part of one transcript. Together they "
                     + "cover the whole transcript.")
         case .extract(let index, let total):
@@ -127,6 +183,7 @@ enum DeliverablePromptAssembler {
         task: GenerationTask,
         source: String,
         sourceTag: String,
+        privacyClass: PrivacyClass,
         note: String?
     ) -> (String, String) {
         let sourceBlock = "<\(sourceTag)>\n\(source)\n</\(sourceTag)>"
@@ -137,7 +194,8 @@ enum DeliverablePromptAssembler {
                 "\(preamble)\n\n\(askRules(citesTimestamps: citesTimestamps))\(noteLine)",
                 "\(sourceBlock)\n\nQuestion: \(question)"
             )
-        case .template(let content):
+        case .template(let written):
+            let content = templateText(written, author: task.author)
             let notesBlock = notesBlock(task.userNotes)
             var body = PromptTemplateRenderer.render(
                 content, substitutions: [.transcript: sourceBlock, .userNotes: notesBlock]
@@ -149,7 +207,8 @@ enum DeliverablePromptAssembler {
             if !PromptTemplateRenderer.references(.userNotes, in: content), !notesBlock.isEmpty {
                 body += "\n\n\(notesBlock)"
             }
-            return ("\(preamble)\(noteLine)", body)
+            let rules = appRules(for: task.author, privacyClass: privacyClass)
+            return ("\(preamble)\(rules)\(noteLine)", body)
         }
     }
 
@@ -161,8 +220,10 @@ enum DeliverablePromptAssembler {
                 ? "Answer this question with timestamp citations: \(question)"
                 : "Answer this question with short quotations: \(question)"
         case .template(let content):
-            return PromptTemplateRenderer.render(content, substitutions: [.transcript: "", .userNotes: ""])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return PromptTemplateRenderer.render(
+                templateText(content, author: task.author), substitutions: [.transcript: "", .userNotes: ""]
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 

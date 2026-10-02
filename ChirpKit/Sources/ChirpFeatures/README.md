@@ -305,7 +305,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   `{{userNotes}}` placement, Ask citation rules), `GenerationBudget` (from the engine's context window: a quarter
   reserved for output, 3 characters per token, 10% margin) and `MapReduceGenerator` (one call when it fits;
   otherwise extract per part, condense in groups up to 4 levels, combine; never truncates, else
-  `transcriptTooLong`).
+  `transcriptTooLong`). Plan 026: `GenerationTask.author` (`TemplateAuthor.of(version, template)`: `.person(kind)`
+  for a `user` version, `.app` for `builtIn` / `systemUpdate`, set by `DeliverableService.run`). For the person's text
+  the step that writes the result (single or combine) gets the app rules after the preamble — `documentRule` or
+  `rewriteRule`, plus `clinicalRule` when the run's class is clinical — and the reserved source tags in the text are
+  neutralized (`TemplateLimits.neutralizingReservedTags`); map and condense carry the text as `<task>` with no rule.
+  Built-in requests are byte-identical (`UserTemplatePromptTests` pins a SHA-256 of every built-in request).
 - `BuiltInTemplates.swift`: the nine shipped templates (Summary, Meeting notes, Action items, Agenda, SOAP note with
   a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`
