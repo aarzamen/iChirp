@@ -77,7 +77,8 @@ import Observation
     @ObservationIgnored private let router: SpeechEngineRouter
     @ObservationIgnored private let physicalMemoryBytes: UInt64
     @ObservationIgnored private let budgetBytes: Int64
-    @ObservationIgnored private var activeDownloads: Set<SpeechEngineVariantKey> = []
+    /// Running downloads and the highest fraction each reported so far.
+    @ObservationIgnored private var activeDownloads: [SpeechEngineVariantKey: Double] = [:]
 
     public init(
         router: SpeechEngineRouter,
@@ -179,12 +180,14 @@ import Observation
             let engine = entry.engine
         else { return false }
         lastError = nil
-        activeDownloads.insert(key)
+        activeDownloads[key] = 0
         replace(key, status: .downloading(fraction: 0))
         do {
             try await engine.downloadAssets { [weak self] fraction in
                 Task { @MainActor [weak self] in
-                    guard let self, self.activeDownloads.contains(key) else { return }
+                    // Never backwards: these hops can arrive out of order (review R4-19, as in LanguageModelsViewModel).
+                    guard let self, let current = self.activeDownloads[key], fraction > current else { return }
+                    self.activeDownloads[key] = fraction
                     self.replace(key, status: .downloading(fraction: fraction))
                     onProgress?(fraction)
                 }
@@ -192,7 +195,7 @@ import Observation
         } catch {
             lastError = error.localizedDescription
         }
-        activeDownloads.remove(key)
+        activeDownloads[key] = nil
         let row = await makeRow(entry)
         replace(row)
         return row.isReady

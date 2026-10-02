@@ -166,7 +166,8 @@ pipeline's `Task`s and publishes its progress to the UI.
     final one (the budget, or one loading beside the other above the memory available now); a Transcripts choice too
     big for the live engine moves live text to it as well (`lastNotice` says so). Then `releaseUnroutedModels()`
     unloads the engine that left both routes (review I3), and the rows are read again.
-  - `download` goes through the engine. `delete` (review I2, N3) refuses an engine a route uses while a meeting
+  - `download` goes through the engine; its progress never goes backwards (review R4-19: a lower fraction arriving
+    late is ignored, as in `LanguageModelsViewModel`). `delete` (review I2, N3) refuses an engine a route uses while a meeting
     holds the lease; otherwise the delete is asked for first, and only once the engine agrees do its routes move
     back to Parakeet (Transcripts first), `lastNotice` names the fallback's own row (review N2, never
     `row(for: .final)`, which is wrong when the delete only moved Live text). An engine that refuses the delete
