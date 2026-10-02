@@ -38,7 +38,7 @@ struct MeetingRecoverySheet: View {
                         EmptyStateView(
                             title: "Nothing left to recover", message: "Recovered meetings are in the Library."
                         )
-                        .background(CardBackground(radius: Tokens.Radius.s))
+                        .background(ChirpCardBackground(radius: Tokens.Radius.s))
                     }
                 }
                 .padding(20)
@@ -104,7 +104,7 @@ struct MeetingRecoverySheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
         .accessibilityElement(children: .combine)
     }
 
@@ -132,23 +132,23 @@ struct MeetingRecoverySheet: View {
                 Button {
                     environment.recoverMeeting(item.id)
                 } label: {
-                    CapsuleButtonLabel(title: "Recover", kind: .filled)
+                    Text("Recover")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirp(.filled, size: .compact))
                 .frame(minHeight: 44)
                 .accessibilityHint("Transcribes the saved audio. It appears in the Library.")
                 Button {
                     pendingDiscard = item
                 } label: {
-                    CapsuleButtonLabel(title: "Discard…", kind: .destructive)
+                    Text("Discard…")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirp(.destructive, size: .compact))
                 .frame(minHeight: 44)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     private func recoveringRow(_ id: UUID) -> some View {
@@ -166,7 +166,7 @@ struct MeetingRecoverySheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s))
     }
 
     private func detail(_ item: PendingMeetingRecovery) -> String {
@@ -190,7 +190,7 @@ struct MeetingRecoveryBanner: View {
         let count = environment.pendingMeetingRecoveries.count
         HStack(spacing: 12) {
             Image(systemName: "waveform.badge.exclamationmark")
-                .font(.system(size: 18, weight: .semibold))
+                .chirpGlyph(18, .semibold, maxScale: 1.6)
                 .foregroundStyle(AppColor.accentText)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
@@ -205,14 +205,16 @@ struct MeetingRecoveryBanner: View {
             Button {
                 environment.isMeetingRecoveryPresented = true
             } label: {
-                CapsuleButtonLabel(title: "Review", kind: .filled)
+                Text("Review")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.chirp(.filled, size: .compact))
             .frame(minHeight: 44)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(CardBackground(radius: Tokens.Radius.s, fill: Tokens.Color.surface, stroke: AppColor.tintStroke))
+        .background(
+            ChirpCardBackground(radius: Tokens.Radius.s, fill: Tokens.Color.surface, stroke: AppColor.tintStroke)
+        )
         .accessibilityElement(children: .combine)
     }
 }

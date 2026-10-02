@@ -53,6 +53,9 @@ import Observation
     /// A Retry that would send a YouTube link to a Mac companion it was not confirmed for (another Mac in Settings, or
     /// a new launch) waits here for "Send this link to your Mac?" (review L1 M2; `CompanionRetryConfirmation`).
     var pendingCompanionRetry: PendingCompanionRetry?
+    /// Bumped when something outside Capture sends the person to Capture's top (a file shared to Parakeet), so Capture
+    /// pops any screen it had pushed and the new Recent row is on screen (R6a-14).
+    private(set) var captureNavigationResets = 0
     let jobCenter: TranscriptionJobCenter
     /// Plan 022: the Create sheet and its chain (App/Sources/Create).
     let create = CreateHost()
@@ -451,6 +454,7 @@ import Observation
     /// Parakeet declares no URL scheme, so anything but a file URL is ignored. M5: documents (PDF, Word, text…) go to
     /// the document path; audio and video to the transcription pipeline.
     func openIncoming(_ url: URL) {
+        captureNavigationResets += 1
         guard url.isFileURL else {
             logger.notice("open_url_ignored reason=not_a_file")
             return
@@ -533,8 +537,10 @@ import Observation
         }
         if item?.sourceType == .dictation {
             // A dictation's recording is already 16 kHz: the dictation final pass (no speaker labels), no clipboard.
+            // A tracked job like every other Retry (R6a-3): a background request, Cancel on Delete, no second run
+            // while one is going. The open screen re-reads the row when its status changes (`ItemReloadWatcher`).
             let dictation = self.dictation
-            Task { await dictation.retry(transcriptionID: id) }
+            jobCenter.startTracked(id, subject: .recording) { await dictation.retry(transcriptionID: id) }
             return
         }
         jobCenter.retry(id, pipeline: pipeline)

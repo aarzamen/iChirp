@@ -52,7 +52,7 @@ final class ShellScreensTourUITests: XCTestCase {
             shot("document")
             back()
         }
-        let failed = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Dictation'")).firstMatch
+        let failed = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Dictation, '")).firstMatch
         scrollTo(failed)
         if failed.exists {
             shot("library-failed-row")
@@ -66,7 +66,8 @@ final class ShellScreensTourUITests: XCTestCase {
     }
 
     private func open(rowContaining text: String) -> Bool {
-        let row = app.buttons.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+        // BEGINSWITH: a generated document's row ("Summary from Team sync…") must not match its source's title.
+        let row = app.buttons.containing(NSPredicate(format: "label BEGINSWITH[c] %@", text)).firstMatch
         scrollTo(row)
         guard row.exists else {
             print("ShellScreensTour: no row containing \(text); skipped")
@@ -90,6 +91,10 @@ final class ShellScreensTourUITests: XCTestCase {
         while !(element.exists && element.isHittable), tries < 6 {
             app.swipeUp()
             tries += 1
+        }
+        // "Hittable" includes behind the floating tab bar: bring the whole row above it.
+        if element.exists, element.frame.maxY > app.frame.height - 140 {
+            app.swipeUp(velocity: .slow)
         }
     }
 

@@ -1,21 +1,23 @@
 import ChirpFeatures
 import SwiftUI
 
-/// Presents the Meeting screen over the tabs while a meeting runs (unless the person chose "Hide recording"), and the
-/// recovery sheet at launch when an earlier launch left meetings behind. `RootTabView` applies it with one line.
-struct MeetingPresentation: ViewModifier {
+/// The Meeting screen over everything while a meeting runs (unless the person chose "Hide recording"). It lives in its
+/// own overlay window (`RootOverlayWindows`, review R6a-4), so it appears even over a sheet a tab screen has open.
+struct MeetingCoverLayer: View {
     @Environment(AppEnvironment.self) private var environment
 
-    func body(content: Content) -> some View {
-        @Bindable var environment = environment
-        content
+    var body: some View {
+        Color.clear
             .fullScreenCover(isPresented: isMeetingShown) {
                 MeetingCover()
                     .environment(environment)
             }
-            .sheet(isPresented: $environment.isMeetingRecoveryPresented) {
-                MeetingRecoverySheet()
-                    .environment(environment)
+            .onChange(of: environment.meeting.state) { _, state in
+                // R6a-2: a final pass that fails while the screen is hidden brings it back, with the error and Retry,
+                // instead of Capture's row quietly turning back into "Record Meeting".
+                if case .failed(_, let id) = state, id != nil, environment.meeting.isScreenHidden {
+                    environment.meeting.isScreenHidden = false
+                }
             }
     }
 
@@ -23,10 +25,9 @@ struct MeetingPresentation: ViewModifier {
     private var isMeetingShown: Binding<Bool> {
         Binding(
             get: {
-                // A dictation started during a meeting (Action Button) takes the screen; the meeting keeps
-                // recording and Capture's "Return" brings it back.
-                let dictating = environment.dictation.state != .idle && environment.dictation.state != .cancelled
-                return environment.meeting.state != .idle && !environment.meeting.isScreenHidden && !dictating
+                Self.isShown(
+                    state: environment.meeting.state, isScreenHidden: environment.meeting.isScreenHidden,
+                    dictationState: environment.dictation.state)
             },
             set: { presented in
                 guard !presented else { return }
@@ -36,6 +37,28 @@ struct MeetingPresentation: ViewModifier {
                     environment.meeting.isScreenHidden = true
                 }
             })
+    }
+
+    /// Whether the Meeting screen shows. A dictation started during a meeting (Action Button) takes the screen; the
+    /// meeting keeps recording and Capture's "Return" brings it back.
+    static func isShown(state: MeetingFlowState, isScreenHidden: Bool, dictationState: DictationFlowState) -> Bool {
+        let dictating = dictationState != .idle && dictationState != .cancelled
+        return state != .idle && !isScreenHidden && !dictating
+    }
+}
+
+/// The launch recovery sheet when an earlier launch left meetings behind (and the Library banner reopens it). It stays
+/// on the app's own window: it opens at launch, before anything else is up, or from the Library.
+struct MeetingRecoveryPresentation: ViewModifier {
+    @Environment(AppEnvironment.self) private var environment
+
+    func body(content: Content) -> some View {
+        @Bindable var environment = environment
+        content
+            .sheet(isPresented: $environment.isMeetingRecoveryPresented) {
+                MeetingRecoverySheet()
+                    .environment(environment)
+            }
     }
 }
 
@@ -49,7 +72,7 @@ private struct MeetingCover: View {
             MeetingScreen(openTranscript: { path = [$0] })
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: UUID.self) { id in
-                    TranscriptScreen(id: id, environment: environment)
+                    TranscriptScreen(id: id)
                 }
         }
         .onChange(of: environment.meeting.state) { _, state in
@@ -60,8 +83,8 @@ private struct MeetingCover: View {
 }
 
 extension View {
-    /// The M3 meeting cover and the launch recovery sheet.
-    func meetingPresentation() -> some View {
-        modifier(MeetingPresentation())
+    /// The M3 launch recovery sheet.
+    func meetingRecoveryPresentation() -> some View {
+        modifier(MeetingRecoveryPresentation())
     }
 }

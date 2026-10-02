@@ -232,18 +232,8 @@ struct ListenBarButton: View {
             if state == .listen { willListen() }
             player.toggleListening(to: source, privacyClass: privacyClass, text: text)
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: state.systemImage)
-                    .font(.system(size: 19, weight: .medium))
-                    .frame(height: 22)  // the same icon box as Copy and Share, so the labels line up (UX audit F40)
-                Text(state.title)
-                    .chirpFont(11, .semibold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-            }
-            .foregroundStyle(Tokens.Color.ink)
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .contentShape(Rectangle())
+            // The shared action-bar label: the same icon box and one-line title as Copy and Share (F40, F50).
+            ChirpActionBarLabel(state.title, systemImage: state.systemImage)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(state.accessibilityLabel)
@@ -259,7 +249,7 @@ struct VoiceNowPlayingBar: View {
         if let source = player.source, isShown {
             HStack(spacing: 12) {
                 Image(systemName: isFailed ? "exclamationmark.triangle.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .chirpGlyph(16, .semibold, maxScale: 1.6)
                     .foregroundStyle(isFailed ? AppColor.error : AppColor.accentText)
                     .frame(width: 28)
                     .accessibilityHidden(true)
@@ -280,7 +270,7 @@ struct VoiceNowPlayingBar: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(CardBackground(radius: Tokens.Radius.m))
+            .background(ChirpCardBackground(radius: Tokens.Radius.m))
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
             .accessibilityElement(children: .contain)
@@ -293,9 +283,9 @@ struct VoiceNowPlayingBar: View {
             Button {
                 Task { await player.retry() }
             } label: {
-                CapsuleButtonLabel(title: "Retry", kind: .filled)
+                Text("Retry")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.chirp(.filled, size: .compact))
         } else if case .paused = player.state {
             iconButton("play.fill", label: "Resume reading") { player.resume() }
         } else if case .speaking = player.state {
@@ -309,7 +299,7 @@ struct VoiceNowPlayingBar: View {
     private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .bold))
+                .chirpGlyph(15, .bold, maxScale: 1.6)
                 .foregroundStyle(Tokens.Color.ink)
                 .frame(width: 36, height: 36)
                 .background(Circle().fill(AppColor.quietFill))

@@ -14,15 +14,20 @@ struct PasteLinkSheet: View {
     /// Opens a row (the sheet closes first).
     let onOpen: (UUID) -> Void
 
-    @State private var model: LinkImportViewModel
+    /// The sheet's view model, made on its first render and kept (R6a-5: not re-made on every job-progress tick while
+    /// the "started" card shows).
+    @State private var box = OnceBox<LinkImportViewModel>()
     @State private var isConfirmingCompanion = false
     @State private var isImportingDocument = false
     @State private var pickerError: String?
     @FocusState private var fieldFocused: Bool
 
-    init(environment: AppEnvironment, onOpen: @escaping (UUID) -> Void) {
+    init(onOpen: @escaping (UUID) -> Void) {
         self.onOpen = onOpen
-        _model = State(initialValue: environment.makeLinkImportViewModel())
+    }
+
+    private var model: LinkImportViewModel {
+        box.get { environment.makeLinkImportViewModel() }
     }
 
     /// What the document picker offers: PDF, Word, RTF, HTML, Markdown and any plain text.
@@ -112,21 +117,23 @@ struct PasteLinkSheet: View {
         @Bindable var model = model
         return HStack(spacing: 8) {
             Image(systemName: "link")
-                .font(.system(size: 15, weight: .semibold))
+                .chirpGlyph(15, .semibold, maxScale: 1.6)
                 .foregroundStyle(Tokens.Color.secondary)
                 .accessibilityHidden(true)
-            TextField("Podcast, YouTube or web link", text: $model.text, axis: .vertical)
-                .chirpFont(15)
-                .foregroundStyle(Tokens.Color.ink)
-                .lineLimit(1...4)
-                .keyboardType(.URL)
-                .textContentType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .focused($fieldFocused)
-                .onSubmit { model.transcribe() }
-                .disabled(model.isWorking || model.startedID != nil)
+            TextField(
+                "Link", text: $model.text, prompt: .chirpPlaceholder("Podcast, YouTube or web link"), axis: .vertical
+            )
+            .chirpFont(15)
+            .foregroundStyle(Tokens.Color.ink)
+            .lineLimit(1...4)
+            .keyboardType(.URL)
+            .textContentType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.go)
+            .focused($fieldFocused)
+            .onSubmit { model.transcribe() }
+            .disabled(model.isWorking || model.startedID != nil)
             if !model.text.isEmpty, model.startedID == nil, !model.isWorking {
                 Button {
                     model.text = ""
@@ -152,7 +159,7 @@ struct PasteLinkSheet: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(minHeight: 50)
-        .background(CardBackground(radius: Tokens.Radius.cover))
+        .background(ChirpCardBackground(radius: Tokens.Radius.cover))
     }
 
     // MARK: - Detection
@@ -164,7 +171,7 @@ struct PasteLinkSheet: View {
                     RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
                         .fill(model.kind.isActionable ? AppColor.tintFill : AppColor.quietFill)
                     Image(systemName: Self.symbol(for: model.kind))
-                        .font(.system(size: 16, weight: .semibold))
+                        .chirpGlyph(16, .semibold, maxScale: 1.6)
                         .foregroundStyle(model.kind.isActionable ? Tokens.Color.accentInk : AppColor.error)
                 }
                 .frame(width: 34, height: 34)
@@ -181,7 +188,7 @@ struct PasteLinkSheet: View {
                 Spacer(minLength: 0)
             }
             .padding(14)
-            .background(CardBackground(radius: Tokens.Radius.s))
+            .background(ChirpCardBackground(radius: Tokens.Radius.s))
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Detected: \(model.kind.title). \(model.kind.detail)")
         }
@@ -213,7 +220,7 @@ struct PasteLinkSheet: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
-            .background(CardBackground(radius: Tokens.Radius.s))
+            .background(ChirpCardBackground(radius: Tokens.Radius.s))
         case .failed(let message):
             Label {
                 Text(message)
@@ -226,7 +233,7 @@ struct PasteLinkSheet: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CardBackground(radius: Tokens.Radius.s, stroke: AppColor.error.opacity(0.4)))
+            .background(ChirpCardBackground(radius: Tokens.Radius.s, stroke: AppColor.error.opacity(0.4)))
         case .started(let id):
             startedCard(id)
         case .companionOffer(let reason):
@@ -260,16 +267,14 @@ struct PasteLinkSheet: View {
                     model.getAudioFromMac()
                 }
             } label: {
-                CapsuleButtonLabel(title: "Get the audio from your Mac", kind: .filled)
-                    .frame(minHeight: 44)  // inside the label: a frame outside a Button does not widen its hit area
-                    .contentShape(Rectangle())
+                Text("Get the audio from your Mac")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.chirp(.filled, size: .compact))
             .accessibilityHint("Sends only this video’s link to your Mac.")
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
     }
 
     private func startedCard(_ id: UUID) -> some View {
@@ -304,44 +309,33 @@ struct PasteLinkSheet: View {
                     dismiss()
                     onOpen(id)
                 } label: {
-                    CapsuleButtonLabel(title: "Open", kind: .filled)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                    Text("Open")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirp(.filled, size: .compact))
                 Button {
                     model.reset()
                     fieldFocused = true
                 } label: {
-                    CapsuleButtonLabel(title: "Paste another link", kind: .tinted)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                    Text("Paste another link")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirp(.tinted, size: .compact))
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground(radius: Tokens.Radius.s, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
+        .background(ChirpCardBackground(radius: Tokens.Radius.s, fill: AppColor.tintFill, stroke: AppColor.tintStroke))
     }
 
     // MARK: - Actions
 
     @ViewBuilder private var transcribeButton: some View {
         if model.startedID == nil {
-            Button {
+            Button(model.phase == .editing || !model.isWorking ? "Transcribe" : "Working…") {
                 fieldFocused = false
                 model.transcribe()
-            } label: {
-                Text(model.phase == .editing || !model.isWorking ? "Transcribe" : "Working…")
-                    .chirpFont(16, .semibold)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(
-                        RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous)
-                            .fill(model.canTranscribe ? Tokens.Color.accentFill : Tokens.Color.mutedText))
             }
-            .buttonStyle(.plain)
+            // The one primary capsule (R6a-15); disabled reads `secondary` on a quiet fill, not white on grey.
+            .buttonStyle(.chirpPrimary)
             .disabled(!model.canTranscribe)
             .accessibilityHint("Uses the internet to fetch this link. Only the link leaves this iPhone.")
         }
@@ -388,13 +382,13 @@ struct PasteLinkSheet: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                    .chirpGlyph(13, .semibold, maxScale: 1.6)
                     .foregroundStyle(Tokens.Color.mutedText)
                     .accessibilityHidden(true)
             }
             .padding(14)
             .frame(minHeight: 68)
-            .background(CardBackground(radius: Tokens.Radius.tile))
+            .background(ChirpCardBackground(radius: Tokens.Radius.tile))
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.tile, style: .continuous))
         }
         .buttonStyle(.plain)

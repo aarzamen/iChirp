@@ -45,20 +45,11 @@ struct NotBuiltYetSheet: View {
                 summary: placeholder.summary,
                 systemImage: placeholder.systemImage
             )
-            Button {
-                dismiss()
-            } label: {
-                // F94: a capsule, like every other primary button on the canvas — this one was the odd rounded
-                // rectangle out.
-                Text("Done")
-                    .chirpFont(16, .semibold)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(Capsule().fill(Tokens.Color.accentFill))
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 16)
+            // F94, R6a-15: the one primary capsule.
+            Button("Done") { dismiss() }
+                .buttonStyle(.chirpPrimary)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Tokens.Color.ground)

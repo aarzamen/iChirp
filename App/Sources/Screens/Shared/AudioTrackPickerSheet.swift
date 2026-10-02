@@ -35,7 +35,7 @@ struct AudioTrackPickerSheet: View {
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "waveform")
-                                    .font(.system(size: 17, weight: .semibold))
+                                    .chirpGlyph(17, .semibold, maxScale: 1.6)
                                     .foregroundStyle(AppColor.accentText)
                                     .accessibilityHidden(true)
                                 Text(track.displayName)
@@ -44,13 +44,13 @@ struct AudioTrackPickerSheet: View {
                                     .multilineTextAlignment(.leading)
                                 Spacer(minLength: 8)
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
+                                    .chirpGlyph(13, .semibold, maxScale: 1.6)
                                     .foregroundStyle(Tokens.Color.secondary)
                                     .accessibilityHidden(true)
                             }
                             .padding(.horizontal, 16)
                             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                            .background(CardBackground(radius: Tokens.Radius.s))
+                            .background(ChirpCardBackground(radius: Tokens.Radius.s))
                             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous))
                         }
                         .buttonStyle(.plain)
@@ -60,19 +60,10 @@ struct AudioTrackPickerSheet: View {
                 .padding(.horizontal, 24)
             }
 
-            Button(action: onCancel) {
-                Text("Cancel import")
-                    .chirpFont(16, .semibold)
-                    // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
-                    .foregroundStyle(AppColor.accentTextOnTint)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(
-                        RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous)
-                            .fill(AppColor.tintFill))
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            Button("Cancel import", action: onCancel)
+                .buttonStyle(.chirpSecondary)  // the shared tint capsule (R6a-15), text-safe on its fill
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Tokens.Color.ground)

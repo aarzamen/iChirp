@@ -9,7 +9,10 @@ enum AppTab: Hashable {
 
 struct RootTabView: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppTab = .capture
+    /// The Dictating screen, the Meeting screen and the track choice, each in a window above this one (R6a-4).
+    @State private var overlays = RootOverlayWindows()
 
     var body: some View {
         TabView(selection: $selection) {
@@ -35,29 +38,34 @@ struct RootTabView: View {
             }
         }
         .tint(AppColor.accentText)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        // R6a-12: no app-wide Dynamic Type cap (it was AX2). Screens re-flow at every size; the few parts that cannot
+        // grow cap themselves (the Dictating timer, bar icons, the switch).
+        .background {
+            HostWindowReader { window in
+                guard !overlays.isInstalled else { return }
+                overlays.install(above: window) { layer in
+                    AnyView(
+                        RootOverlayLayer(layer: layer, openTab: { selection = $0 }) { active in
+                            overlays.setActive(active, layer: layer)
+                        }
+                        .environment(environment))
+                }
+            }
+        }
         .onOpenURL { url in
-            // Share sheet → Parakeet (or Files → Open in): show Capture, where the new Recent row appears.
+            // Share sheet → Parakeet (or Files → Open in): show Capture's top, where the new Recent row appears.
             selection = .capture
             environment.openIncoming(url)
         }
-        .fullScreenCover(isPresented: isDictating) {
-            // M2: the Dictating screen covers everything from the first tap (or Action Button) to Done.
-            DictatingScreen(openTab: { selection = $0 })
-                .environment(environment)
+        .onChange(of: scenePhase) { _, phase in
+            // R6a-17: back in the foreground (maybe the next morning), "Today" and "Yesterday" are re-read.
+            if phase == .active { environment.library.refreshDayTitles() }
         }
         .onChange(of: environment.dictation.state) { _, state in
             // A discarded dictation closes at once; its files are deleted in the background.
             if state == .cancelled { environment.dictation.dismiss() }
             // A dictation started elsewhere (Action Button, Control) while Create is open: the Dictating screen wins.
             if state == .starting, environment.create.isSheetPresented { environment.create.hide() }
-            // Plan 022: a spoken Create chain brings its sheet back once the Dictating screen has gone.
-            if state == .idle {
-                Task {
-                    try? await Task.sleep(for: .milliseconds(800))
-                    environment.create.dictationDidClose()
-                }
-            }
         }
         // Plan 022: Create (Capture's primary action) lives here so the Dictating screen can take over for Speak.
         .sheet(
@@ -69,8 +77,8 @@ struct RootTabView: View {
             CreateSheet(host: environment.create, environment: environment)
                 .environment(environment)
         }
-        // M3: the Meeting screen while a meeting runs, and the launch recovery sheet (App/Sources/Screens/Meeting).
-        .meetingPresentation()
+        // M3: the launch recovery sheet (the Meeting screen itself is an overlay layer).
+        .meetingRecoveryPresentation()
         // M6: DEBUG-only screenshot launch arguments (App/Sources/Debug/StructurePreviewLaunch.swift).
         .structurePreviewLaunch(environment: environment)
         // M7: DEBUG-only screenshot launch arguments (App/Sources/Debug/SpeechEnginesPreviewLaunch.swift).
@@ -79,34 +87,82 @@ struct RootTabView: View {
         .transformsPreviewLaunch(environment: environment)
         // Plan 019 / review L1 M2: a YouTube Retry to a Mac the link was not confirmed for asks first.
         .companionRetryConfirmation()
-        .sheet(item: pendingTrackChoice) { request in
-            // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
-            AudioTrackPickerSheet(
-                request: request,
-                onChoose: { environment.jobCenter.selectAudioTrack($0, for: request.id) },
-                onCancel: { environment.jobCenter.cancelAudioTrackSelection(request.id) }
-            )
-        }
-    }
-
-    /// Shown from the first start until Done/Close (or a Cancel). Read-only: only the coordinator ends it.
-    private var isDictating: Binding<Bool> {
-        Binding(
-            get: {
-                let state = environment.dictation.state
-                return state != .idle && state != .cancelled
-            }, set: { _ in })
-    }
-
-    /// The job center's pending track choice. Read-only: the sheet cannot be swiped away, and choosing or cancelling
-    /// goes through the job center, which then shows the next pending choice or nil.
-    private var pendingTrackChoice: Binding<TranscriptionJobCenter.AudioTrackSelectionRequest?> {
-        Binding(get: { environment.jobCenter.pendingAudioTrackSelection }, set: { _ in })
     }
 
     /// The canvas draws outline glyphs; the tab bar would otherwise switch to the filled variants.
     private func tabLabel(_ title: String, _ systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .environment(\.symbolVariants, .none)
+    }
+}
+
+/// One overlay window's content: nothing (touches pass through) until its screen is needed.
+struct RootOverlayLayer: View {
+    @Environment(AppEnvironment.self) private var environment
+    let layer: RootOverlayWindows.Layer
+    let openTab: (AppTab) -> Void
+    /// Called when this layer starts or stops presenting.
+    let onActiveChange: (Bool) -> Void
+
+    var body: some View {
+        content
+            .onChange(of: isActive, initial: true) { _, active in onActiveChange(active) }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch layer {
+        case .meeting:
+            MeetingCoverLayer()
+        case .trackChoice:
+            Color.clear
+                .sheet(item: pendingTrackChoice) { request in
+                    // A file with two or more audio tracks: nothing is imported until the person chooses (M1.5 Step 4).
+                    AudioTrackPickerSheet(
+                        request: request,
+                        onChoose: { environment.jobCenter.selectAudioTrack($0, for: request.id) },
+                        onCancel: { environment.jobCenter.cancelAudioTrackSelection(request.id) }
+                    )
+                }
+        case .dictating:
+            Color.clear
+                .fullScreenCover(
+                    isPresented: isDictating,
+                    // Plan 022: a spoken Create chain brings its sheet back once the Dictating screen has gone
+                    // (R6a-11: on its dismissal, not after a guessed 800 ms).
+                    onDismiss: { environment.create.dictationDidClose() }
+                ) {
+                    // M2: the Dictating screen covers everything from the first tap (or Action Button) to Done.
+                    DictatingScreen(openTab: openTab)
+                        .environment(environment)
+                }
+        }
+    }
+
+    /// Whether this layer shows its screen now.
+    private var isActive: Bool {
+        switch layer {
+        case .meeting:
+            MeetingCoverLayer.isShown(
+                state: environment.meeting.state, isScreenHidden: environment.meeting.isScreenHidden,
+                dictationState: environment.dictation.state)
+        case .trackChoice: environment.jobCenter.pendingAudioTrackSelection != nil
+        case .dictating: Self.showsDictating(environment.dictation.state)
+        }
+    }
+
+    /// Shown from the first start until Done/Close (or a Cancel).
+    static func showsDictating(_ state: DictationFlowState) -> Bool {
+        state != .idle && state != .cancelled
+    }
+
+    /// Read-only: only the coordinator ends it.
+    private var isDictating: Binding<Bool> {
+        Binding(get: { Self.showsDictating(environment.dictation.state) }, set: { _ in })
+    }
+
+    /// The job center's pending track choice. Read-only: the sheet cannot be swiped away, and choosing or cancelling
+    /// goes through the job center, which then shows the next pending choice or nil.
+    private var pendingTrackChoice: Binding<TranscriptionJobCenter.AudioTrackSelectionRequest?> {
+        Binding(get: { environment.jobCenter.pendingAudioTrackSelection }, set: { _ in })
     }
 }
