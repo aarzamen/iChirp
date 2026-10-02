@@ -11,10 +11,13 @@ import SwiftUI
 /// Button("Retry") { … }.buttonStyle(.chirp(.tinted, size: .compact))           // 32 pt pill in a 44 pt target
 /// ```
 ///
-/// - `.large`: fills the width it is offered, at least `Tokens.Metric.primaryButtonHeight` (50 pt) tall, a 16 pt bold
-///   label. It grows with its text at larger sizes and wraps to two lines rather than truncating.
+/// - `.large`: fills the width it is offered, at least `Tokens.Metric.primaryButtonHeight` (50 pt) tall (a capsule at
+///   that height; a taller one keeps its 25 pt corners), a 16 pt bold label. It grows with its text at larger sizes
+///   and wraps to up to three lines (centred) rather than truncating; keep labels short enough that three lines hold
+///   them at the largest text size.
 /// - `.compact`: hugs its label; a `Tokens.Metric.compactButtonHeight` (32 pt) pill with a 13.5 pt bold label inside a
-///   44 pt tap target (the frame is inside the label, so the target really is 44 pt).
+///   44 pt tap target (the frame is inside the label, so the target really is 44 pt). When the width it is offered is
+///   narrower than its label, it wraps to a second line and the pill (and target) grow, rather than truncating.
 ///
 /// Every label/fill pair is in `ContrastTests`. A disabled button (`.disabled(true)`) is a quiet capsule with a
 /// `secondary` label (4.65:1), not a grey fill with a white label; say why it cannot start in text beside it.
@@ -132,6 +135,12 @@ private struct ChirpButtonBody<Label: View>: View {
     @ScaledMetric(relativeTo: .body) private var largeFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var compactFont: CGFloat = 13.5
 
+    /// A capsule at the default height (corner radius = half of it), whose corners stay that size when the label
+    /// wraps: a true `Capsule` three lines tall curves into its own text.
+    private static func shape(height: CGFloat) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+    }
+
     var body: some View {
         styled
             .scaleEffect(isPressed ? 0.97 : 1)
@@ -145,21 +154,22 @@ private struct ChirpButtonBody<Label: View>: View {
                 .font(.system(size: largeFont, weight: .bold))
                 .foregroundStyle(kind.ink(isEnabled: isEnabled))
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
+                .lineLimit(1...3)
                 .padding(.horizontal, Tokens.Spacing.m)
                 .padding(.vertical, Tokens.Spacing.s)
                 .frame(maxWidth: .infinity, minHeight: Tokens.Metric.primaryButtonHeight)
-                .background(Capsule().fill(kind.fill(isEnabled: isEnabled)))
-                .contentShape(Capsule())
+                .background(Self.shape(height: Tokens.Metric.primaryButtonHeight).fill(kind.fill(isEnabled: isEnabled)))
+                .contentShape(Self.shape(height: Tokens.Metric.primaryButtonHeight))
         case .compact:
             label
                 .font(.system(size: compactFont, weight: .bold))
                 .foregroundStyle(kind.ink(isEnabled: isEnabled))
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .lineLimit(1...2)
                 .padding(.horizontal, Tokens.Spacing.m)
                 .padding(.vertical, Tokens.Spacing.xxs)
                 .frame(minHeight: Tokens.Metric.compactButtonHeight)
-                .background(Capsule().fill(kind.fill(isEnabled: isEnabled)))
+                .background(Self.shape(height: Tokens.Metric.compactButtonHeight).fill(kind.fill(isEnabled: isEnabled)))
                 // The pill keeps its canvas size; the target grows to 44 pt inside the label (a frame added outside
                 // a Button never widens its hit area, F7).
                 .frame(minHeight: Tokens.Metric.minTapTarget)

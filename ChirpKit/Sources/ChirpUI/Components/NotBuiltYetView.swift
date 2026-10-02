@@ -27,6 +27,8 @@ public struct NotBuiltYetView: View {
         static let glyph: CGFloat = 26
         static let badgeHorizontalPadding: CGFloat = 10
         static let badgeTracking: CGFloat = 0.6
+        /// The canvas placeholder's padding above and below its content.
+        static let verticalPadding: CGFloat = 36
     }
 
     public init(title: String, milestone: String, summary: String, systemImage: String = "hammer") {
@@ -72,7 +74,7 @@ public struct NotBuiltYetView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, Tokens.Spacing.xxl)
-        .padding(.vertical, Tokens.Spacing.xxl)
+        .padding(.vertical, Metrics.verticalPadding)
         .frame(maxWidth: .infinity)
         .background(Tokens.Color.ground)
         // One VoiceOver stop for the whole placeholder: title, milestone, then the summary.

@@ -153,6 +153,24 @@ final class ChirpUIComponentRenderTests: XCTestCase {
         }
     }
 
+    func testLargeButtonWrapsALongLabelAtAX5InsteadOfTruncating() throws {
+        // At AX5 a sheet-wide button holds about 14 bold characters a line: a one-word label is one line, a
+        // 34-character label needs three. Truncated, both capsules would be one line tall; wrapped, the long one is
+        // about two lines taller.
+        func button(_ title: String) -> some View {
+            Button(title) {}.buttonStyle(.chirpPrimary).padding(.horizontal, Tokens.Spacing.sheetGutter)
+        }
+        let short = try render(button("Done"), typeSize: .accessibility5, style: .light, name: "button-short")
+        let long = try render(
+            button("Transcribe and summarise this link"), typeSize: .accessibility5, style: .light,
+            name: "button-long")
+        let oneLine = short.size.height - 2 * Tokens.Spacing.s
+        XCTAssertGreaterThan(oneLine, 0)
+        XCTAssertGreaterThanOrEqual(
+            long.size.height + 1, short.size.height + 2 * oneLine * 0.9,
+            "the long label wraps to three lines at AX5 (\(short.size.height) → \(long.size.height) pt)")
+    }
+
     // MARK: - Rendering
 
     /// Hosts `view` (on `ground`, 402 pt wide, at `typeSize`) as the root of a window with `style`, sized to fit,
@@ -185,7 +203,7 @@ final class ChirpUIComponentRenderTests: XCTestCase {
             _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         if let name, let directory = ProcessInfo.processInfo.environment["CHIRP_RENDER_DIR"], !directory.isEmpty {
-            let size = typeSize == .large ? "default" : "ax3"
+            let size = typeSize == .large ? "default" : (typeSize == .accessibility5 ? "ax5" : "ax3")
             let url = URL(fileURLWithPath: directory).appendingPathComponent(
                 "chirpui-\(name)-\(size)-\(style.rawName).png")
             try FileManager.default.createDirectory(

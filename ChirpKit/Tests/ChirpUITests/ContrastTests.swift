@@ -189,6 +189,9 @@ final class ContrastTests: XCTestCase {
         table += pairs(secondary, on: [quietFill], .text, "ChirpButtonStyle .quiet and disabled labels")
         table += pairs(ink, on: [selectedSegment], .text, "ChirpSegmentedControl: the selected segment's title")
         table += pairs(
+            secondary, on: [selectedSegment], .text,
+            "ChirpSegmentedControl: a selected but disabled segment's title (secondary italic on the raised pill)")
+        table += pairs(
             secondary, on: [quietFill], .text, "ChirpSegmentedControl: an unselected or disabled segment's title")
         table += pairs(ink, on: [ground], .text, "ChirpActionBar item titles")
         table += pairs(accentInk, on: [ground], .text, "ChirpActionBar's emphasized item (Transform)")

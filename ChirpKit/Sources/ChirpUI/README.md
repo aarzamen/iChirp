@@ -4,7 +4,7 @@
 > converted from the owner's design canvas
 > (`docs/design/2026-09-21-iphone-canvas/*.dc.html`, text version at
 > `docs/plans/2026-09-22-001-feat-iphone-app-design-handoff.md`). No screens live here —
-> screens (Capture, Library, Transcript, Settings, Transforms) are Task 12b, built in `App/` on
+> screens (Capture, Library, Transcript, Settings, Transforms and the rest) are built in `App/` on
 > top of this module.
 
 ## Entry point
@@ -60,7 +60,7 @@ from the canvas.
   above every transcript paragraph.
 - `Components/NotBuiltYetView.swift` — `NotBuiltYetView`, the honest not-built-yet placeholder
   content (title, milestone badge, one-sentence summary, SF Symbol). The app's
-  `NotBuiltYetSheet` (Task 12b) wraps this in a sheet.
+  `NotBuiltYetSheet` (`App/Sources/Screens/Shared/NotBuiltYetSheet.swift`) wraps this in a sheet.
 
 ## What to know before editing
 
@@ -139,7 +139,7 @@ rather than eyeballing new numbers.
 - Every public view has a `#Preview`; open this package in Xcode and check them, or
   temporarily render a component in the app's root view and run it on the simulator
   (`scripts/run_sim.sh`) for a real-device screenshot — revert the temporary App change
-  afterward, since screens are Task 12b's job, not this module's.
+  afterward, since screens live in `App/`, not in this module.
 - `swift test --package-path ChirpKit --filter ChirpUITests` —
   `ChirpKit/Tests/ChirpUITests/ContrastTests.swift` measures WCAG contrast for every foreground × background pair the
   app draws (the table mirrors the call sites) in all four appearances, straight from `Tokens.Palette`: 4.5:1 for text,
