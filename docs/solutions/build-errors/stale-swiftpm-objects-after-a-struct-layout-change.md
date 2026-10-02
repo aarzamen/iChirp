@@ -48,6 +48,19 @@ swift build --package-path ChirpKit --jobs 3 --build-tests
 The rebuild is about one minute, because FluidAudio, WhisperKit, GRDB and the rest are not rebuilt. Touching only the
 named test files works for the link error but not for the crash.
 
+If the next build then stops with `couldn't build …/ChirpFeatures.build/sources because of missing inputs:
+…/DerivedSources/resource_bundle_accessor.swift`, the build plan still expects the deleted derived sources. Make SwiftPM
+re-plan, then rebuild:
+
+```bash
+cd /Users/ama/Documents/GitHub/iChirp   # or the worktree
+rm -f ChirpKit/.build/arm64-apple-macosx/debug/description.json ChirpKit/.build/debug.yaml
+swift build --package-path ChirpKit --jobs 3 --build-tests
+```
+
+Seen 2026-10-02 after a defaulted parameter was added to `TranscriptCorrections.applying` (the link error named the old
+signature from `CorrectedExportTests.swift.o`).
+
 ## Why this works
 
 Each `Chirp*.build` folder holds that module's object files and incremental-build records. Removing them, and the
