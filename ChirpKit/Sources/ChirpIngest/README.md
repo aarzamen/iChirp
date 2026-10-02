@@ -89,7 +89,9 @@
   the document queue one step at a time (`OpenedPDF`); recognition is awaited between them. Cancellable between
   pages.
 - `Documents/PageTextRecognizer.swift`: `VisionPageTextRecognizer`, Vision's `RecognizeDocumentsRequest` (paragraphs
-  in reading order), falling back to `RecognizeTextRequest` lines. On-device, so allowed for clinical items.
+  in reading order; every detected document kept, top to bottom then left to right), falling back to
+  `RecognizeTextRequest` lines when that request fails or reads no text (small print it does not take for a document;
+  checked on macOS 26.5, review R2-16). On-device, so allowed for clinical items.
 - `Documents/TextDocumentReaders.swift`: `PlainTextReader` (TXT and Markdown: UTF-8, BOM-marked UTF-16, else
   Windows-1252; binary refused; a Markdown `# ` or setext heading is the title), `HTMLTextReader` (a small converter,
   not WebKit: `NSAttributedString`'s HTML import must run on the main thread and loads WebKit; blocks become line
