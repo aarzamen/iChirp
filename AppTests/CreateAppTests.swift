@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpFeatures
+import ChirpText
 import Foundation
 import XCTest
 
@@ -49,14 +50,14 @@ final class CreateAppTests: XCTestCase {
     func testVoiceMessageJobsNameTheirSource() {
         var text = Transcription(sourceType: .text, fileName: "Text", status: .completed)
         text.rawTranscript = "# Synthetic heading\nSynthetic body."
-        let job = VoiceMessageJob.item(text)
+        let job = VoiceMessageJob.item(text, text: text.plainText(.shown(.raw)))
         XCTAssertEqual(job?.request.source, .document(id: text.id))
         XCTAssertEqual(job?.request.itemID, text.id)
         XCTAssertFalse(job?.request.text.contains("#") ?? true, "Markdown markers are not spoken")
 
         var empty = Transcription(sourceType: .file, fileName: "a.m4a", status: .completed)
         empty.rawTranscript = "   "
-        XCTAssertNil(VoiceMessageJob.item(empty), "nothing to speak, no job")
+        XCTAssertNil(VoiceMessageJob.item(empty, text: empty.plainText(.shown(.raw))), "nothing to speak, no job")
 
         let deliverable = Deliverable(
             transcriptionID: text.id, promptID: nil, promptVersionID: nil, title: "Summary", engineID: "x",
@@ -161,7 +162,7 @@ final class CreateAppTests: XCTestCase {
     func testAVoiceMessageSaysWhereItIsKept() throws {
         var text = Transcription(sourceType: .text, fileName: "Text", status: .completed)
         text.rawTranscript = "Synthetic body."
-        let item = try XCTUnwrap(VoiceMessageJob.item(text))
+        let item = try XCTUnwrap(VoiceMessageJob.item(text, text: text.plainText(.shown(.raw))))
         XCTAssertTrue(item.storageNote.hasPrefix("Saved with this item on your iPhone. Deleting the item deletes"))
         let deliverable = Deliverable(
             transcriptionID: text.id, promptID: nil, promptVersionID: nil, title: "Summary", engineID: "x",

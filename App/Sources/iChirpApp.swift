@@ -21,6 +21,8 @@ struct iChirpApp: App {
                             environment.smoke.start(environment: environment, reason: .launchArgument)
                         }
                         let arguments = ProcessInfo.processInfo.arguments
+                        // `-ChirpSeedCorrectionsSample` (plan 025's corrections tour).
+                        await CorrectionsPreviewLaunch.seedIfRequested(environment: environment, arguments: arguments)
                         if let model = LLMSmokeRunner.requestedModel(in: arguments) {
                             LLMSmokeRunner.shared.start(
                                 environment: environment, requested: model, runID: LLMSmokeRunner.runID(in: arguments))

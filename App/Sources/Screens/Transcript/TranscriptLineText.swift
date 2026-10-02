@@ -53,7 +53,8 @@ enum TranscriptCorrectionsCopy {
     static let documentsFooter = "Documents made earlier keep their text. Transform again to use your corrections."
 
     /// The Correct passage sheet's footer.
-    static let correctFooter = "Fix words Parakeet misheard. The words as heard are kept: Show Original brings them back."
+    static let correctFooter =
+        "Fix words Parakeet misheard. The words as heard are kept: Show Original brings them back."
 
     static let saveFailed = "Couldn’t save. Your text is still here."
 

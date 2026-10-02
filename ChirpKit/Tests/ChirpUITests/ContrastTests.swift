@@ -218,6 +218,9 @@ final class ContrastTests: XCTestCase {
         table += pairs(onAccent, on: [night], .glyph, "link cover glyph; Dictating's Stop square")
         table += pairs(ground, on: [ink], .glyph, "Ask's Stop answering glyph")
         table += pairs(accentInk, on: [tint], .glyph, "icon tiles")
+        table += pairs(
+            secondary, on: [ground, surface, tint], .glyph,
+            "plan 025: the dotted correction underline, also on the playhead paragraph's tint")
         table += pairs(success, on: [ground, surface], .glyph, "switch tint, ready dots, check glyphs")
         table += pairs(favorite, on: [ground, surface], .glyph, "the favorite star")
         table += pairs(mutedText, on: [ground, surface], .glyph, "chevrons, the unfavorited star, placeholders")
