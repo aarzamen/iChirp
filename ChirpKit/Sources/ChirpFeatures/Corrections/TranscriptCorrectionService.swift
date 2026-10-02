@@ -97,18 +97,21 @@ public struct TranscriptCorrectionService: Sendable {
         }
     }
 
-    /// Applies a plan (an undo, a Replace) bound to the words the screen loaded.
+    /// Applies a plan (a Replace, voice commands) bound to the words the screen loaded. An added correction replaces
+    /// the stored ones it covers whole. An undo goes through `undo(_:plan:baseline:)`, which never does.
     public func apply(_ id: UUID, plan: TranscriptCorrectionPlan, baseline: String?) async throws
         -> CorrectionOutcome
     {
         try await apply(id, baseline: baseline) { _ in plan }
     }
 
-    /// SCAFFOLD (red run): applies an undo plan.
+    /// Applies an undo plan (a `CorrectionOutcome.undo`, or several joined) strictly: when any correction it would put
+    /// back touches a correction it does not remove (the words were corrected again since, even on the same or fewer
+    /// words), it throws `correctedAgain` and writes nothing. A newer correction is never overwritten.
     public func undo(_ id: UUID, plan: TranscriptCorrectionPlan, baseline: String?) async throws
         -> CorrectionOutcome
     {
-        try await apply(id, plan: plan, baseline: baseline)
+        try await apply(id, baseline: baseline, strict: true) { _ in plan }
     }
 
     /// Reverts the given corrections (Show Original's Revert, a passage, a Replace-all batch). Ids no longer stored
@@ -129,7 +132,8 @@ public struct TranscriptCorrectionService: Sendable {
     /// The one write: `makePlan` sees the row as stored inside the transaction. A plan that would leave the stored
     /// items as they are writes nothing.
     private func apply(
-        _ id: UUID, baseline: String?, makePlan: @escaping @Sendable (Transcription) -> TranscriptCorrectionPlan
+        _ id: UUID, baseline: String?, strict: Bool = false,
+        makePlan: @escaping @Sendable (Transcription) -> TranscriptCorrectionPlan
     ) async throws -> CorrectionOutcome {
         let context = await self.context()
         let now = self.now()
@@ -141,7 +145,7 @@ public struct TranscriptCorrectionService: Sendable {
             guard !plan.isEmpty else { return false }
             let inverse: TranscriptCorrectionPlan
             do {
-                inverse = try row.applyCorrections(plan, now: now)
+                inverse = try row.applyCorrections(plan, now: now, strict: strict)
             } catch let error as TranscriptCorrectionsError {
                 throw Self.map(error)
             }

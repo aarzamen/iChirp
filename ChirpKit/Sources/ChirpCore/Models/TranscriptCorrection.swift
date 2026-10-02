@@ -183,6 +183,10 @@ public struct TranscriptCorrections: Codable, Sendable, Equatable {
     /// added item replaces the stored items it covers whole; one whose text equals its heard words only removes them (a
     /// revert by retyping). Returns the new envelope (`changedAt` = `now`, `baseline` = the words' fingerprint) and the
     /// inverse plan, which restores the previous items exactly.
+    ///
+    /// `strict` (an undo, which must restore exactly what it took): an added item may not touch any stored item that
+    /// `plan.remove` does not name, not even one it covers whole, so a correction made after the plan was built is
+    /// never overwritten. Such a plan throws `.overlapping` and nothing is applied.
     public func applying(
         _ plan: TranscriptCorrectionPlan, words: [WordTimestamp], now: Date, strict: Bool = false
     ) throws -> (
@@ -203,8 +207,9 @@ public struct TranscriptCorrections: Codable, Sendable, Equatable {
             }
             if let error = Self.check(range, text: add.text, in: words) { throw error }
             if index > 0, adds[index - 1].range.overlaps(range) { throw TranscriptCorrectionsError.overlapping }
-            // Stored items it touches must lie inside it: it replaces them whole.
+            // Stored items it touches must lie inside it: it replaces them whole. A strict plan touches none.
             let touched = kept.filter { $0.range.overlaps(range) }
+            if strict, !touched.isEmpty { throw TranscriptCorrectionsError.overlapping }
             if touched.contains(where: {
                 $0.range.lowerBound < range.lowerBound || $0.range.upperBound > range.upperBound
             }) {

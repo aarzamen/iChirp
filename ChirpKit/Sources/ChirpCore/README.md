@@ -18,7 +18,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   replaced by the person's text, with `heard`, `origin` (`edit`, `replace`, `replaceAll`, `rule`, `voiceCommand`; an
   unknown one reads as `edit`), `batchID`, `ruleID`), `TranscriptCorrectionPlan` (remove by id, add) and
   `TranscriptCorrections`, the `textCorrections` envelope (`schema`, `baseline`, `changedAt`, `items`, `detached`):
-  `applying(_:words:now:)` checks the invariants and returns the inverse plan (undo), `validItems(in:)` is what a reader
+  `applying(_:words:now:strict:)` checks the invariants and returns the inverse plan (undo; an undo is applied with
+  `strict`, which refuses to touch any stored item the plan does not remove), `validItems(in:)` is what a reader
   may apply, `preserved(acrossNewWords:now:)` is what a pipeline save keeps (same words: attached; other words:
   detached). A newer `schema` decodes to a placeholder that applies nothing. `Models/TranscriptFingerprint.swift`:
   `"w1:"` + SHA-256 of the words' text and times. Contract: `spec/contracts/transcript-corrections-v1.md`.

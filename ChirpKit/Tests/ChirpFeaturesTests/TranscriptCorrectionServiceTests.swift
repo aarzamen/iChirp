@@ -116,9 +116,9 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
 
         let reverted = try await corrections.revert(original.id, corrections: [items[0].id])
         XCTAssertEqual(reverted.row.textCorrections?.items, [items[1]])
-        let undone = try await corrections.apply(original.id, plan: reverted.undo, baseline: baseline(original))
+        let undone = try await corrections.undo(original.id, plan: reverted.undo, baseline: baseline(original))
         XCTAssertEqual(undone.row.textCorrections?.items, items, "undo restores the correction exactly")
-        let undoneAgain = try await corrections.apply(original.id, plan: corrected.undo, baseline: baseline(original))
+        let undoneAgain = try await corrections.undo(original.id, plan: corrected.undo, baseline: baseline(original))
         XCTAssertEqual(undoneAgain.row.textCorrections?.items, [], "undoing the first save removes both")
     }
 
@@ -275,7 +275,7 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
             original.id, line: 0, in: loaded, baseline: baseline(original),
             text: "The patient took metformin twice daily. She feels well today.")
         await assertThrows(.correctedAgain) {
-            _ = try await corrections.apply(original.id, plan: reverted.undo, baseline: self.baseline(original))
+            _ = try await corrections.undo(original.id, plan: reverted.undo, baseline: self.baseline(original))
         }
         XCTAssertEqual(
             TranscriptCorrectionError.correctedAgain.errorDescription,
