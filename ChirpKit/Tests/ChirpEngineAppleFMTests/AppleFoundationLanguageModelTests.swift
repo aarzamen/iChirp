@@ -56,8 +56,32 @@ final class AppleFoundationLanguageModelTests: XCTestCase {
         XCTAssertEqual(Model.delta(from: "", to: "Hello"), "Hello")
         XCTAssertEqual(Model.delta(from: "Hello", to: "Hello world"), " world")
         XCTAssertEqual(Model.delta(from: "Hello world", to: "Hello world"), "")
-        // A revised snapshot never re-sends text already emitted.
-        XCTAssertEqual(Model.delta(from: "Hello wor", to: "Hello there, friend"), "re, friend")
+    }
+
+    /// Review R3-10: the deltas always add up to exactly the model's text. A snapshot that merges the last character
+    /// (an emoji skin-tone modifier, a combining accent) is still an extension, scalar by scalar.
+    func testDeltasConcatenateToTheFinalSnapshotWhenTheLastCharacterGrows() {
+        for snapshots in [["👍", "👍🏽 ok"], ["Caf", "Cafe", "Cafe\u{301}", "Cafe\u{301} au lait"], ["🇺", "🇺🇸 flag"]] {
+            var emitted = ""
+            var received = ""
+            for snapshot in snapshots {
+                let next: String? = AppleFoundationLanguageModel.delta(from: emitted, to: snapshot)
+                guard let delta = next else { return XCTFail("\(snapshot) extends \(emitted)") }
+                received += delta
+                emitted = snapshot
+            }
+            XCTAssertEqual(
+                Array(received.unicodeScalars), Array(snapshots.last!.unicodeScalars), "stored text = model text")
+        }
+    }
+
+    /// A snapshot that rewrote text already sent cannot be expressed as a delta: the stream fails rather than storing
+    /// a hybrid such as "Hello worre, friend".
+    func testARevisedSnapshotIsNotADelta() {
+        let revised: String? = AppleFoundationLanguageModel.delta(from: "Hello wor", to: "Hello there, friend")
+        XCTAssertNil(revised)
+        let shortened: String? = AppleFoundationLanguageModel.delta(from: "500 mg", to: "50 mg")
+        XCTAssertNil(shortened)
     }
 
     // MARK: - Review R3-1: Apple's model never cuts an answer off silently

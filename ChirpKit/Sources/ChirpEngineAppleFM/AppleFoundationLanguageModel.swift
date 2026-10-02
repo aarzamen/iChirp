@@ -56,7 +56,10 @@ public struct AppleFoundationLanguageModel: LanguageModel {
                     var emitted = ""
                     for try await snapshot in stream {
                         try Task.checkCancellation()
-                        let delta = Self.delta(from: emitted, to: snapshot.content)
+                        guard let delta = Self.delta(from: emitted, to: snapshot.content) else {
+                            throw LanguageModelError.streamingError(
+                                "the on-device model rewrote text it had already sent")
+                        }
                         if !delta.isEmpty {
                             continuation.yield(.text(delta))
                         }
@@ -145,14 +148,15 @@ public struct AppleFoundationLanguageModel: LanguageModel {
         }
     }
 
-    /// The new text in `current` after `previous`. When the model revised earlier text (a snapshot that no longer
-    /// starts with what was sent), the whole snapshot is not re-sent; only the suffix past the common prefix is.
-    static func delta(from previous: String, to current: String) -> String {
-        if current.hasPrefix(previous) {
-            return String(current.dropFirst(previous.count))
-        }
-        let common = zip(previous, current).prefix { $0 == $1 }.count
-        return String(current.dropFirst(max(common, previous.count)))
+    /// The new text in `current` after `previous`, compared Unicode scalar by Unicode scalar (review R3-10), so the
+    /// deltas always add up to exactly the model's text: a snapshot that merges the last character (an emoji skin-tone
+    /// modifier, a combining accent, a flag's second half) still extends what was sent. Nil when the snapshot rewrote
+    /// text already sent: no delta can express that, and the stream fails instead of storing a hybrid.
+    static func delta(from previous: String, to current: String) -> String? {
+        let sent = previous.unicodeScalars
+        let now = current.unicodeScalars
+        guard now.starts(with: sent) else { return nil }
+        return String(String.UnicodeScalarView(now.dropFirst(sent.count)))
     }
 }
 

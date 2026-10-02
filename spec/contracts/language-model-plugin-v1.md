@@ -130,7 +130,8 @@ migrate every conformer and fake in the same change.
   request to Ollama or a LAN OpenAI-compatible server carries the faithful fields, other requests and cloud hosts
   none.
 - `AppleFoundationLanguageModelTests` (ChirpEngineAppleFMTests): descriptor, availability mapping, error mapping
-  without framework text, snapshot deltas, no `maximumResponseTokens` for any request (review R3-1), greedy sampling
+  without framework text, snapshot deltas that add up to the model's text and a rewritten snapshot that is refused
+  (review R3-10), no `maximumResponseTokens` for any request (review R3-1), greedy sampling
   for a clinical request only (review R3-2); opt-in real run with `CHIRP_LLM_TESTS=1`.
 - `LlamaCppLanguageModelTests`, `LlamaCppModelAssetsTests`, `LlamaCppModelCatalogTests` (ChirpEngineLlamaCppTests):
   descriptor and routing, stream order, UTF-8 across tokens, think-block filter, `contextTooLong` before decoding,
