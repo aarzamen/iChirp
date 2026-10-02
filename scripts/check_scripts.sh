@@ -141,6 +141,98 @@ else
   fail "bootstrap.sh --yes failed in the sandbox: $(tail -2 "$SANDBOX/out" | tr '\n' ' ')"
 fi
 
+# 5. scan_secrets.sh (R8-6): it must flag a recording, caption, keychain, signing-request or SQLite -wal/-shm file committed
+#    outside the synthetic-fixture folders, accept the synthetic ones, report a broken trufflehog instead of dying
+#    silently, and allow MacParakeet's placeholder-URL test only at its real paths. The copy runs in a throwaway git
+#    repository with a stub trufflehog; nothing is scanned for real and nothing leaves the machine.
+mkdir -p "$SANDBOX/ss/bin"
+cat >"$SANDBOX/ss/bin/trufflehog" <<'STUB'
+#!/usr/bin/env bash
+# Stub: `git` mode reports what $STUB_FINDING_FILE names (a path inside the repository), `filesystem` mode reports
+# nothing; STUB_FAIL=1 stands for a trufflehog that errors.
+if [ "${STUB_FAIL:-0}" = "1" ]; then
+  echo "boom: could not open the repository" >&2
+  exit 3
+fi
+if [ "${1:-}" = "git" ] && [ -n "${STUB_FINDING_FILE:-}" ]; then
+  printf '{"DetectorName":"Stub","Raw":"not-a-secret","SourceMetadata":{"Data":{"Git":{"file":"%s","commit":"0123456789abcdef"}}}}\n' "$STUB_FINDING_FILE"
+fi
+exit 0
+STUB
+chmod +x "$SANDBOX/ss/bin/trufflehog"
+sandbox_repo() { # sandbox_repo <name> <file...>: a new git repository holding scan_secrets.sh and empty files at these paths
+  local repo="$SANDBOX/ss/$1"
+  shift
+  mkdir -p "$repo/scripts"
+  cp scripts/scan_secrets.sh "$repo/scripts/scan_secrets.sh"
+  (
+    cd "$repo"
+    env -u GIT_DIR -u GIT_WORK_TREE git -c init.defaultBranch=main init -q .
+    for path in "$@"; do
+      mkdir -p "$(dirname "$path")"
+      : >"$path"
+    done
+    # -f: a global gitignore (this Mac's ignores keychains and signing requests) must not drop a file from the sandbox
+    env -u GIT_DIR -u GIT_WORK_TREE git add -f -A
+    env -u GIT_DIR -u GIT_WORK_TREE git -c user.name=check -c user.email=check@example.invalid -c commit.gpgsign=false \
+      -c core.hooksPath=/dev/null commit -q -m "sandbox"
+  )
+  echo "$repo"
+}
+scan_in() { # scan_in <repo> [NAME=value ...]: scan_secrets.sh with the stub trufflehog; prints its exit status, its output is in $SANDBOX/out
+  local repo="$1" status=0
+  shift
+  (cd "$repo" && env -u GIT_DIR -u GIT_WORK_TREE PATH="$SANDBOX/ss/bin:$PATH" ${@+"$@"} scripts/scan_secrets.sh >"$SANDBOX/out" 2>&1) || status=$?
+  echo "$status"
+}
+
+repo=$(sandbox_repo leaky notes/visit.m4a data/ichirp.sqlite-wal data/ichirp.sqlite-shm keys/Example.keychain-db \
+  signing/request.certSigningRequest docs/consult.vtt App/Resources/Samples/synthetic.m4a \
+  ChirpKit/Tests/ChirpAudioTests/Fixtures/synthetic.wav upstream/macparakeet/docs/demo.mp4)
+status=$(scan_in "$repo")
+missed=""
+for leaked in notes/visit.m4a data/ichirp.sqlite-wal data/ichirp.sqlite-shm keys/Example.keychain-db \
+  signing/request.certSigningRequest docs/consult.vtt; do
+  grep -q "$leaked" "$SANDBOX/out" || missed="$missed $leaked"
+done
+if [ "$status" != "1" ]; then
+  fail "scan_secrets.sh exits $status (expected 1) for a repository with a recording, a caption, a keychain and SQLite -wal/-shm files"
+elif [ -n "$missed" ]; then
+  fail "scan_secrets.sh did not name:$missed"
+elif grep -qE "Samples/synthetic.m4a|Fixtures/synthetic.wav|upstream/macparakeet/docs/demo.mp4" "$SANDBOX/out"; then
+  fail "scan_secrets.sh flags a synthetic fixture or the upstream mirror"
+else
+  pass "scan_secrets.sh flags recordings, captions, keychains and SQLite -wal/-shm files outside the fixture folders, and only those"
+fi
+
+repo=$(sandbox_repo tidy App/Resources/Samples/synthetic.m4a ChirpKit/Tests/ChirpAudioTests/Fixtures/synthetic.wav \
+  README.md)
+if [ "$(scan_in "$repo")" = "0" ] && grep -q "SECRET SCAN CLEAN" "$SANDBOX/out"; then
+  pass "scan_secrets.sh is clean for synthetic fixtures only"
+else
+  fail "scan_secrets.sh is not clean for a repository holding only synthetic fixtures: $(tail -3 "$SANDBOX/out" | tr '\n' ' ')"
+fi
+
+status=$(scan_in "$repo" STUB_FAIL=1)
+if [ "$status" = "2" ] && grep -q "boom: could not open the repository" "$SANDBOX/out"; then
+  pass "scan_secrets.sh reports a failing trufflehog (exit 2, its message shown) instead of exiting silently"
+else
+  fail "scan_secrets.sh hides a trufflehog failure (exit $status): $(tail -3 "$SANDBOX/out" | tr '\n' ' ')"
+fi
+
+status=$(scan_in "$repo" STUB_FINDING_FILE=upstream/macparakeet/Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift)
+if [ "$status" = "0" ]; then
+  pass "scan_secrets.sh allows MacParakeet's placeholder-URL test at its upstream path"
+else
+  fail "scan_secrets.sh flags MacParakeet's placeholder-URL test at its upstream path (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FINDING_FILE=ChirpKit/Tests/ChirpIngestTests/MediaPlatformTests.swift)
+if [ "$status" = "1" ] && grep -q "ChirpKit/Tests/ChirpIngestTests/MediaPlatformTests.swift" "$SANDBOX/out"; then
+  pass "scan_secrets.sh does not allow a file merely named MediaPlatformTests.swift elsewhere"
+else
+  fail "scan_secrets.sh allows a MediaPlatformTests.swift outside MacParakeet's paths (exit $status)"
+fi
+
 echo ""
 if [ "$failures" -gt 0 ]; then
   echo "SCRIPT CHECKS FAILED: $failures of $checks checks." >&2
