@@ -1,6 +1,6 @@
 === model input ===
-[00:00] Speaker 1: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
-[00:04] Dana: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+[00:00] Speaker 1: The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:04] Dana: increase the dose to 2.5 mg. Recheck in 2 weeks.
 [00:10] Speaker 1: Okay, I will tell her.
 
 === copy ===
@@ -8,10 +8,10 @@ The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase 
 
 === txt ===
 Speaker 1:
-Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
 
 Dana:
-Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 Speaker 1:
 Okay, I will tell her.
@@ -21,11 +21,11 @@ Okay, I will tell her.
 
 **Speaker 1**
 
-Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
 
 **Dana**
 
-Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 **Speaker 1**
 
@@ -352,8 +352,8 @@ Synthetic visit 1
 Date: <date>
 Duration: 00:12
 Speakers: Speaker 1, Dana
-Speaker 1 [00:00] Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
-Dana [00:04] Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+Speaker 1 [00:00] The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
+Dana [00:04] increase the dose to 2.5 mg. Recheck in 2 weeks.
 Speaker 1 [00:10] Okay, I will tell her.
 Made with Parakeet on iPhone
 
@@ -361,9 +361,9 @@ Made with Parakeet on iPhone
 The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
 
 === jev paragraphs ===
-p01: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+p01: The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
 
-p02: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+p02: increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 p03: Okay, I will tell her.
 indexes: [0, 1, 2]

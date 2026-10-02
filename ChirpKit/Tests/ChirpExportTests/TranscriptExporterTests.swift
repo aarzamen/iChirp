@@ -456,9 +456,31 @@ final class TranscriptExporterTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "Notes Ideas.txt")
     }
 
-    // MARK: - preferredText (Raw/Clean fallback rule)
+    // MARK: - The text the person sees (Raw/Clean, `Transcription.text(.shown(_:))`)
 
-    /// Pins the Raw/Clean fallback rule from `preferredText`'s doc comment: with both transcripts
+    /// Review R1-3: a Clean export of a timed transcript carries the clean text (a custom word fixed a drug name, a
+    /// filler went) on its timed paragraphs; SRT, VTT and JSON's words stay as heard.
+    func testCleanExportsOfATimedTranscriptCarryTheCleanText() throws {
+        var transcription = Transcription(fileName: "dictation.m4a")
+        transcription.status = .completed
+        transcription.wordTimestamps = ["um", "zarelto", "20", "mg", "daily."].enumerated().map {
+            WordTimestamp(word: $0.element, startMs: $0.offset * 300, endMs: $0.offset * 300 + 250, confidence: 1)
+        }
+        transcription.rawTranscript = "um zarelto 20 mg daily."
+        transcription.cleanTranscript = "Xarelto 20 mg daily."
+        let clean = TranscriptExporter(cleanupMode: .clean)
+
+        XCTAssertEqual(try clean.render(transcription, as: .txt), "Xarelto 20 mg daily.")
+        XCTAssertTrue(try clean.render(transcription, as: .markdown).contains("\nXarelto 20 mg daily.\n"))
+        XCTAssertTrue(try clean.render(transcription, as: .srt).contains("um zarelto 20 mg daily."))
+        XCTAssertTrue(try clean.render(transcription, as: .vtt).contains("um zarelto 20 mg daily."))
+        let json = try clean.render(transcription, as: .json)
+        XCTAssertTrue(json.contains("\"text\" : \"Xarelto 20 mg daily.\""))
+        XCTAssertTrue(json.contains("\"word\" : \"zarelto\""))
+        XCTAssertEqual(try TranscriptExporter(cleanupMode: .raw).render(transcription, as: .txt), "um zarelto 20 mg daily.")
+    }
+
+    /// Pins the Raw/Clean fallback rule: with both transcripts
     /// present and no words, `.raw` always exports the raw transcript, never the clean one.
     func testRawModeExportsRawTranscriptWhenBothTranscriptsPresent() throws {
         var transcription = Transcription(fileName: "note.mp3")

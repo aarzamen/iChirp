@@ -32,7 +32,8 @@ final class TranscriptTextGoldenTests: XCTestCase {
                     clock += 3_000
                 }
                 result.append(
-                    WordTimestamp(word: token, startMs: clock, endMs: clock + 280, confidence: 0.9, speakerId: part.speaker))
+                    WordTimestamp(
+                        word: token, startMs: clock, endMs: clock + 280, confidence: 0.9, speakerId: part.speaker))
                 clock += 300
             }
         }
@@ -146,9 +147,10 @@ final class TranscriptTextGoldenTests: XCTestCase {
         func export(_ format: ExportFormat) -> String {
             do { return try exporter.render(row, as: format) } catch { return "error: \(error)" }
         }
-        let jevParagraphs = DecisionInputWindow.paragraphExcerpt(DecisionInputWindow.paragraphs(of: row))
+        let shown = row.text(.shown(mode))
+        let jevParagraphs = DecisionInputWindow.paragraphExcerpt(DecisionInputWindow.text(of: row, mode: mode).lines)
         let sections: [(String, String)] = [
-            ("model input", TranscriptPromptFormatter.timestampedText(for: row)),
+            ("model input", TranscriptPromptFormatter.modelInput(shown)),
             ("copy", viewModel.plainText),
             ("txt", export(.txt)),
             ("markdown", export(.markdown)),
@@ -163,7 +165,7 @@ final class TranscriptTextGoldenTests: XCTestCase {
                     // The date line follows the Mac's time zone (the format style has no calendar time zone).
                     .replacingOccurrences(of: #"(?m)^Date: .*$"#, with: "Date: <date>", options: .regularExpression)
             ),
-            ("jev excerpt", DecisionInputWindow.excerpt(row.displayText)),
+            ("jev excerpt", DecisionInputWindow.excerpt(shown.plainText)),
             ("jev paragraphs", jevParagraphs.text + "\nindexes: \(jevParagraphs.indexes)"),
         ]
         return sections.map { "=== \($0.0) ===\n\($0.1)\n" }.joined(separator: "\n")

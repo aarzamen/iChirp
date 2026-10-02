@@ -7,10 +7,9 @@ dependency.
 
 ## Entry point
 
-Start with `TextProcessingPipeline.swift` (the five-step deterministic cleanup pipeline) and
-`TranscriptSegmenter.swift` (the word → segment boundary rules every other builder in this module
-reuses). `TextRefinement.swift` is the thin, mode-aware wrapper most callers use instead of the
-pipeline directly.
+Start with `TranscriptText.swift`, the one accessor for the text of a transcript (every consumer reads it), and
+`TextProcessingPipeline.swift` (the five-step deterministic cleanup pipeline). `TextRefinement.swift` is the thin,
+mode-aware wrapper the pipelines use instead of the pipeline directly.
 
 ## What's here
 
@@ -22,14 +21,33 @@ pipeline directly.
   `WordTimestamp`s on the SentencePiece `▁` boundary.
 - `SpeakerMerger.swift`: assigns each word the diarization segment (`DiarizationSegmentRecord`) with the
   most time overlap, then smooths isolated one-word speaker flips.
-- `TranscriptSegmenter.swift`: groups words into presentation segments (punctuation / long gap / speaker
-  change / 40-word cap) and durable `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats,
-  and `sanitizedExportStem(from:)` for a real file name (it strips the extension first, so exports do not use it:
-  they name their files with `ChirpExport.ExportFileName`).
+- `TranscriptText.swift` (plan 024 Task 8; the read seam of plan 025): `Transcription.text(_:context:)` and
+  `plainText(_:context:)`. Every consumer of a transcript's text goes through it instead of reading
+  `rawTranscript`, `cleanTranscript`, `displayText`, `wordTimestamps` or `transcriptSegments` itself.
+  - Views: `.heard` is the words as heard (the timed Transcript screen, ADR-009; SRT/VTT); `.shown(mode)` is the text
+    the person sees in their clean-up mode: Copy, model input (Transform, Ask, Create), Jev, and the TXT, Markdown,
+    PDF and Word exports. A dictation whose final pass stored polished text (Polish after, or Clean when it was made)
+    shows it in Raw too: its Done screen copied that text (review R4-1).
+  - `plainText` is exactly what Copy returned before the accessor (Raw: the raw transcript; Clean: the clean one when
+    it is not blank). `lines` are the reading paragraphs (`TranscriptParagraphBuilder` over the engine's words), each
+    with its stable `id` (the screen's paragraph index), times, speaker id and `speakerLabel` (the roster's name,
+    only when the row has a roster, never "Unknown Speaker": review R2-1). An untimed row has one untimed line.
+  - A Clean view of a timed row puts the stored clean text on those lines (`CleanTextAligner`: a word diff anchors
+    the words both texts share; replaced and added words go with the line of the words they replaced, moving to the
+    next line after a sentence end when the replaced words span a paragraph break), so model input keeps its
+    timestamps and the exports their turns while carrying every clean word, in order. A Clean line that held only
+    fillers is left out; ids never move.
+  - `TranscriptTokens.of` is the single place the word stream is made (engine words 1:1 today; plan 025 Part A
+    applies corrections there). `TranscriptTextContext` carries the clean-up rules a Clean view over an edited stream
+    will need (plan 025 R6); unedited rows use the stored clean text, so nothing reads it yet.
+- `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
+  (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
+  `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name
+  their files with `ChirpExport.ExportFileName` instead).
 - `TranscriptParagraphBuilder.swift`: reading-oriented paragraphs (up to 3 sentences / 80 words / 2.5s
-  pause).
+  pause); `buildWithWordRanges(from:)` also returns each paragraph's half-open word range (the `TranscriptText` lines).
 - `TranscriptCueBuilder.swift`: subtitle-style cues (up to 12 words / 800ms gap / 7s / speaker change);
-  used by `ChirpExport` for SRT/VTT.
+  used by `ChirpExport` for SRT/VTT. `build(from: Transcription)` reads the word stream (`TranscriptTokens.words`).
 - `NumericNormalizer.swift` (M6, plan 015; port of the owner's Needle Bench normalizer design): tags times, blood
   pressures, rates, SpO₂, temperatures, doses with units, frequencies, durations and laterality before a structure
   model reads the text (`dose_1`, `bp_1`, …), with a side table tag → value, unit, display, UTF-16 source range and a
@@ -126,10 +144,12 @@ pipeline directly.
     style does). `.textSelection(.enabled)` once at the top; a heading carries `.isHeader` and
     `.accessibilityHeading(_:)` for VoiceOver's rotor. A numbered item shows its own marker ("2)"); a bullet is
     drawn "•".
-- `TranscriptPromptText.swift`: model input shaping (M4). `TranscriptPromptFormatter.timestampedText(for:)`
-  (`[mm:ss] Speaker: text` per segment with the roster's current labels, else the display text), `TextChunker`
-  (ported upstream split: paragraph, then line, then sentence boundaries; never loses text) and
-  `TranscriptCitationParser` (keeps only `[mm:ss]` citations that match a real segment start).
+- `TranscriptPromptText.swift`: model input shaping (M4). `TranscriptPromptFormatter.modelInput(_:)` takes a
+  `TranscriptText` (`.shown(mode)`): `[mm:ss] Name: text` per line, the name only when the row has speakers, or the
+  view's text as it is without word timings. `TextChunker` (ported upstream split: paragraph, then line, then
+  sentence boundaries, then the last whitespace; never loses text and never cuts inside a word or a number such as
+  "2.5": review R4-16, pinned by a property test) and `TranscriptCitationParser` (keeps only `[mm:ss]` citations that
+  match the start of a line the model was shown).
 - `TextProcessingPipeline.swift`: the deterministic 5-step pipeline (filler removal → custom words →
   trailing action extraction → snippet expansion → whitespace/insertion-style cleanup).
 - `CustomWordReplacer.swift`: pre-compiled, reusable custom-word regex replacement (internal — the
@@ -163,13 +183,18 @@ pipeline directly.
   path does. `TextProcessingPipeline` itself still has the full upstream surface (`insertionStyle`,
   `postPasteAction`), exercised by `TextProcessingPipelineTests`; only the thinner `TextRefinement`
   wrapper dropped those.
-- `TranscriptSegmenter`'s and `FileTranscriptSegments`' speaker-label fallback is the speakerId itself.
-  Upstream falls back further to `AudioSource(rawValue:)?.displayLabel` (mapping raw source ids like
-  `"microphone"`/`"system"` to `"Me"`/`"Others"`); `AudioSource` was not ported.
-- `TranscriptCueBuilder.build(from: Transcription)` always builds from `transcription.wordTimestamps`.
-  Upstream also has a segment-projection branch keyed on `transcriptTextAlignment`/`isTextEdited`
-  (timed-transcript-correction machinery); ChirpCore's `Transcription` has neither, so that branch was
-  dropped.
+- `TranscriptSegmenter`'s and `FileTranscriptSegments`' speaker label is the roster's label, else the speakerId
+  itself, and "Unknown Speaker" for a word with no speakerId (upstream's rule). Upstream falls back further to
+  `AudioSource(rawValue:)?.displayLabel` (mapping raw source ids like `"microphone"`/`"system"` to
+  `"Me"`/`"Others"`); `AudioSource` was not ported. The stored label is never shown: consumers read
+  `TranscriptText.lines[i].speakerLabel`.
+- `TranscriptCueBuilder.build(from: Transcription)` builds from the word stream (`TranscriptTokens.words(of:)`, the
+  engine's words today). Upstream also has a segment-projection branch keyed on
+  `transcriptTextAlignment`/`isTextEdited` (timed-transcript-correction machinery); ChirpCore's `Transcription` has
+  neither, so that branch was dropped.
+- Never read a transcript's text fields in a consumer: go through `Transcription.text(_:context:)` so model input,
+  Copy and the exports cannot drift apart again (the R2-1 bug class). Pipelines that write those fields, ChirpCore,
+  ChirpStore and the device smoke are the exceptions (plan 025's guard script will enforce it).
 - `CustomWordReplacer` is intentionally not `public` — it is an implementation detail of
   `TextProcessingPipeline` step 2, reached in tests via `@testable import ChirpText`.
 

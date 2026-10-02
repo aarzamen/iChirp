@@ -24,14 +24,16 @@ final class DecisionServiceTests: XCTestCase {
         enabled: Bool = true,
         key: SecretValue? = SecretValue("ts-synthetic-key-0000"),
         keychainFails: Bool = false,
-        policy: PrivacyRoutingPolicy = PrivacyRoutingPolicy()
+        policy: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
+        cleanupMode: CleanupMode = .raw
     ) -> Harness {
         let store = FakeStore(rows: rows)
         let ledger = FakeDeliverableStore()
         let factory = RecordingDecisionFactory()
         let settings = InMemoryJevSettings(enabled: enabled, key: key, keychainFails: keychainFails)
         let service = DecisionService(
-            transcripts: store, ledger: ledger, routingPolicy: { policy }, settings: settings, factory: factory)
+            transcripts: store, ledger: ledger, routingPolicy: { policy }, settings: settings, factory: factory,
+            cleanupMode: { cleanupMode })
         return Harness(store: store, ledger: ledger, factory: factory, settings: settings, service: service)
     }
 
@@ -377,6 +379,34 @@ final class DecisionServiceTests: XCTestCase {
         XCTAssertEqual(request.state.facts["paragraph_count"], "15")
         guard case .decided(let report) = outcome else { return XCTFail("\(outcome)") }
         XCTAssertEqual(report.items.map(\.paragraphIndex), Array(0..<12))
+    }
+
+    /// Plan 024 Task 8: Jev reads the text the person sees (Clean here: a custom word fixed, fillers gone), and a tag
+    /// still names the screen's paragraph when a Clean paragraph that held only fillers is left out.
+    func testJevReadsTheShownTextAndTagsKeepTheScreensParagraphIndexes() async throws {
+        func words(_ text: String, from startMs: Int) -> [WordTimestamp] {
+            text.split(separator: " ").enumerated().map {
+                WordTimestamp(
+                    word: String($0.element), startMs: startMs + $0.offset * 300,
+                    endMs: startMs + $0.offset * 300 + 250, confidence: 0.9)
+            }
+        }
+        var item = row()
+        item.wordTimestamps =
+            words("Start zarelto daily.", from: 0) + words("Um, uh.", from: 10_000)
+            + words("Recheck in two weeks.", from: 20_000)
+        item.rawTranscript = "Start zarelto daily. Um, uh. Recheck in two weeks."
+        item.cleanTranscript = "Start Xarelto daily. Recheck in two weeks."
+        let h = harness(rows: [item], cleanupMode: .clean)
+        _ = try await h.service.run(recipe: .recordingKind, transcriptionID: item.id)
+        XCTAssertEqual(h.engine.requests.first?.state.text, "Start Xarelto daily. Recheck in two weeks.")
+
+        let outcome = try await h.service.run(recipe: .paragraphTags, transcriptionID: item.id)
+        let request = try XCTUnwrap(h.engine.requests.last)
+        XCTAssertEqual(request.state.text, "p01: Start Xarelto daily.\n\np03: Recheck in two weeks.")
+        XCTAssertEqual(request.questions.map(\.id), ["p01", "p03"])
+        guard case .decided(let report) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(report.items.map(\.paragraphIndex), [0, 2])
     }
 
     func testLongParagraphsMeanFewerTagQuestionsUnderTheWindow() {

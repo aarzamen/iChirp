@@ -146,12 +146,13 @@ pipeline's `Task`s and publishes its progress to the UI.
   tests). Delete (row plus
   its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
   favorite, and `loadError` / `dismissLoadError()`.
-- `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
-  `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` (async,
-  review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`, `<tmp>/export-<id>/`), rename and
-  favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
-  item's `EffectivePrivacyClass` when the app passes `deliverables` (plan 022 review M5: a personal transcript with a
-  clinical SOAP note counts as clinical; an unreadable store counts as clinical).
+- `TranscriptViewModel.swift`: one row. Paragraphs are the lines of `Transcription.text(.heard)` (the words as heard,
+  ADR-009; without words one paragraph of the text). Also speaker labels, `mediaURL` for the player, `plainText` for
+  Copy (`Transcription.plainText(.shown(mode))`, the text the exports and the models use; plan 024 Task 8),
+  `exportFile` (async, review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`,
+  `<tmp>/export-<id>/`), rename and favorite. `exportFile` and `exportDocument` (PDF, Word) mark the file clinical by
+  the item's `EffectivePrivacyClass` when the app passes `deliverables` (plan 022 review M5, review R1-13: a personal
+  transcript with a clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
   ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
@@ -270,7 +271,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   its deliverables; `installBuiltInTemplates()` installs `BuiltInTemplates.all`. Routes (first check and every
   later call) use the transcript's `EffectivePrivacyClass`. The question is titled "Send this clinical text to
   <provider>?" (any item, not only a transcript; UX audit F33), and `PrivacyOverrideRequest.reason` says why an item not
-  marked clinical counts as clinical (`ClinicalRunReason`), in front of `message`.
+  marked clinical counts as clinical (`ClinicalRunReason`), in front of `message`. **The model reads the text the
+  person sees** (plan 024 Task 8, reviews R2-1 / R4-1): `TranscriptPromptFormatter.modelInput(transcription.text(
+  .shown(cleanupMode())))`, the app's clean-up mode read at each run; Clean and a dictation's polished text reach the
+  model, speaker names only when the item has speakers (never "Unknown Speaker"). Ask parses citations against the
+  same lines and, for a source without timestamps (a document, typed text), asks for short quotations instead
+  (review R4-14).
 - `EffectivePrivacyClass.swift`: **the one rule for how private a transcript's content is** when it may leave the
   phone: the stricter of the transcript's class and every deliverable made from it (a personal transcript with a
   clinical SOAP note is clinical; review L4 M1). `DeliverableService`, `DecisionService` and `VoicePlayer`'s class
@@ -784,8 +790,10 @@ let pending = await recovery.discoverPendingRecoveries()   // at launch: the rec
   (`feature = decision`, `engineId = http.jev`, excerpt length, the provider's token counts, `callCount` 1 once
   `decide` was called except for its pre-send size check, else 0) whatever the outcome.
 - `DecisionInputWindow.swift`: `excerpt` (the first 3,000 characters cut back to a sentence end, or to a space when
-  the only sentence end is in the first third), `paragraphs(of:)` (the Transcript screen's paragraphs),
-  `paragraphExcerpt` (`p01: …` lines for at most 12 paragraphs, fewer when they are long) and content-free `facts`
+  the only sentence end is in the first third), `text(of:mode:)` (the text the person sees, `.shown(mode)`, whose lines
+  are the Transcript screen's paragraphs; `DecisionService` takes the app's clean-up mode), `paragraphExcerpt` (`p01: …`
+  lines for at most 12 paragraphs, fewer when they are long, each numbered by its line `id` so a tag lands on the
+  screen's paragraph) and content-free `facts`
   (`duration_seconds`, `speaker_count`, `paragraph_count`, `source` = audio/document/link). Nothing else is sent.
 - `DecisionRecipe.swift`: `recordingKind` (`kind`: meeting, dictation, lecture_or_talk, interview,
   clinical_encounter, other), `templateSuggestion` (`template`: the nine built-in keys plus `none`) and

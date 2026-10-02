@@ -1,20 +1,20 @@
 === model input ===
-[00:00] Unknown Speaker: Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+[00:00] Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 
 === copy ===
-Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 
 === txt ===
 Privacy: Clinical: contains patient information
 
-Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 
 === markdown ===
 # Synthetic visit 3
 
 Privacy: Clinical: contains patient information
 
-Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 
 
 === srt ===
@@ -65,7 +65,7 @@ Recheck potassium in 2 weeks.
   "speakers" : [
 
   ],
-  "text" : "Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.",
+  "text" : "Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.",
   "title" : "Synthetic visit 3",
   "words" : [
     {
@@ -148,12 +148,12 @@ Synthetic visit 3
 Date: <date>
 Duration: 00:03
 Privacy: Clinical: contains patient information
-[00:00] Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+[00:00] Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 Made with Parakeet on iPhone
 
 === jev excerpt ===
 Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 
 === jev paragraphs ===
-p01: Um, patient on zarelto 20 mg daily. Recheck potassium in 2 weeks.
+p01: Patient on Xarelto 20 mg daily. Recheck potassium in 2 weeks.
 indexes: [0]

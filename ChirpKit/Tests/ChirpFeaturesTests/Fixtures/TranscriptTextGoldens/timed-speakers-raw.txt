@@ -358,7 +358,7 @@ Speaker 1 [00:10] Okay, I will tell her.
 Made with Parakeet on iPhone
 
 === jev excerpt ===
-The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks. Okay, I will tell her.
 
 === jev paragraphs ===
 p01: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.

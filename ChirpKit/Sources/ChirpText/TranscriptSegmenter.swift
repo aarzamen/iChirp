@@ -1,6 +1,9 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Utilities/TranscriptSegmenter.swift @ bbae9e0e
 // Changes: dropped the `AudioSource` speaker-label fallback (not ported to iChirp) — an unrecognized
-// speakerId now falls back to the speakerId itself instead of a source display label.
+// speakerId now falls back to the speakerId itself instead of a source display label (a word with no speakerId is
+// "Unknown Speaker", as upstream).
+// Kept for upstream parity and its ported tests; no production code calls it (review R2-17). Durable segments come
+// from `FileTranscriptSegments`; what a consumer reads comes from `TranscriptText`.
 
 import ChirpCore
 import Foundation

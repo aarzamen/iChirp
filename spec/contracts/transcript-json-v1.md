@@ -32,7 +32,7 @@ A single JSON object encoded with sorted keys, pretty-printed, UTF-8:
 | `engine` | string or absent/null | `EngineDescriptor.id`, e.g. `fluidaudio.parakeet-tdt` |
 | `engineVariant` | string or absent/null | e.g. `v3` |
 | `language` | string or absent/null | BCP-47 when known |
-| `text` | string | Plain text in the exporter's clean-up mode (Raw: the engine text; Clean: `cleanTranscript` when present) |
+| `text` | string | Plain text in the exporter's clean-up mode, the text Copy writes (`Transcription.plainText(.shown(mode))`): Raw: the engine text, except a dictation that stored polished text (Polish after), which is that text; Clean: `cleanTranscript` when present |
 | `privacyClass` | string | `general`, `personal` or `clinical`: the class the privacy rules use for the item (its own class, raised by its documents'); `clinical` means the file holds patient information. Added 2026-10-01 (plan 024, review R1-13); absent in older files |
 | `speakers` | array | `{ "id": "S1", "label": "Speaker 1" }`; always present, empty when no speakers |
 | `segments` | array | `{ "id", "startMs", "endMs", "speakerId", "speakerLabel", "text", "wordRange": { "startIndex", "endIndexExclusive" } }`; always present, empty when none |

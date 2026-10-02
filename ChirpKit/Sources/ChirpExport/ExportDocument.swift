@@ -87,28 +87,24 @@ extension ExportDocument {
             metadata.append(clinicalPrivacyLine)
         }
 
+        // The text Copy writes in this mode (`Transcription.text(.shown(_:))`, plan 024 Task 8): a Clean file carries
+        // the clean text on its timed turns (review R1-3).
+        let text = transcription.text(.shown(cleanupMode))
         var blocks: [Block] = []
-        if let words = transcription.wordTimestamps, !words.isEmpty {
-            let roster = Dictionary(
-                (transcription.speakers ?? []).map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
+        if text.hasWordTimings {
             var lastSpeaker: String?
-            for paragraph in TranscriptParagraphBuilder.build(from: words) {
-                let speaker = paragraph.speakerId.flatMap { roster[$0] ?? $0 }
-                let shown = roster.isEmpty || speaker == lastSpeaker ? nil : speaker
+            for line in text.lines {
+                let speaker = line.speakerLabel
+                let shown = speaker == lastSpeaker ? nil : speaker
                 lastSpeaker = speaker
                 blocks.append(
                     .turn(
                         speaker: shown,
-                        timestamp: TranscriptPromptFormatter.timestamp(milliseconds: paragraph.startMs),
-                        text: paragraph.text))
+                        timestamp: TranscriptPromptFormatter.timestamp(milliseconds: line.startMs ?? 0),
+                        text: line.text))
             }
         } else {
-            let text: String
-            switch cleanupMode {
-            case .raw: text = transcription.rawTranscript ?? transcription.cleanTranscript ?? ""
-            case .clean: text = transcription.displayText
-            }
-            blocks = paragraphs(of: text).map { .paragraph($0) }
+            blocks = paragraphs(of: text.plainText).map { .paragraph($0) }
         }
         return ExportDocument(
             title: transcription.displayTitle, metadata: metadata, blocks: blocks, footer: defaultFooter)

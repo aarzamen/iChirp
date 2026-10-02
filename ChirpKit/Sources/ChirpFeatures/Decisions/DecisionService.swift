@@ -22,6 +22,7 @@ public actor DecisionService {
     private let routingPolicy: @Sendable () -> PrivacyRoutingPolicy
     private let settings: any JevSettingsStoring
     private let factory: any DecisionModelFactory
+    private let cleanupMode: @Sendable () -> CleanupMode
     private let now: @Sendable () -> Date
     private let logger = Log.logger("decisions")
     private let privacyLogger = Log.logger("privacy")
@@ -29,12 +30,15 @@ public actor DecisionService {
     /// - Parameters:
     ///   - ledger: the run-ledger writer `DeliverableService` uses (`recordRun`).
     ///   - routingPolicy: read at every run, like `DeliverableService`.
+    ///   - cleanupMode: the person's clean-up mode, read at every run: Jev reads the text they see in it (plan 024
+    ///     Task 8), as Copy and the models do.
     public init(
         transcripts: any TranscriptionStoring,
         ledger: any DeliverableStoring,
         routingPolicy: @escaping @Sendable () -> PrivacyRoutingPolicy,
         settings: any JevSettingsStoring,
         factory: any DecisionModelFactory,
+        cleanupMode: @escaping @Sendable () -> CleanupMode = { .raw },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.transcripts = transcripts
@@ -42,6 +46,7 @@ public actor DecisionService {
         self.routingPolicy = routingPolicy
         self.settings = settings
         self.factory = factory
+        self.cleanupMode = cleanupMode
         self.now = now
     }
 
@@ -76,14 +81,14 @@ public actor DecisionService {
             }
 
             // 3. Window.
-            let paragraphs = DecisionInputWindow.paragraphs(of: transcription)
-            let facts = DecisionInputWindow.facts(for: transcription, paragraphCount: paragraphs.count)
+            let shown = DecisionInputWindow.text(of: transcription, mode: cleanupMode())
+            let facts = DecisionInputWindow.facts(for: transcription, paragraphCount: shown.lines.count)
             let window: (text: String, indexes: [Int])
             switch recipe {
             case .recordingKind, .templateSuggestion:
-                window = (DecisionInputWindow.excerpt(transcription.displayText), [])
+                window = (DecisionInputWindow.excerpt(shown.plainText), [])
             case .paragraphTags:
-                window = DecisionInputWindow.paragraphExcerpt(paragraphs)
+                window = DecisionInputWindow.paragraphExcerpt(shown.lines)
             }
             let text = window.text
             let paragraphIndexes = window.indexes

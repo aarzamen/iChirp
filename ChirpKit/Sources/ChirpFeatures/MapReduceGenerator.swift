@@ -15,8 +15,9 @@ struct GenerationTask: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         /// A template; its text may contain `{{transcript}}` and `{{userNotes}}`.
         case template(content: String)
-        /// A question about the transcript, answered with `[mm:ss]` citations.
-        case ask(question: String)
+        /// A question about the transcript, answered with `[mm:ss]` citations when the source shows timestamps, else
+        /// with short quotations (a document or typed text has no timestamps to cite; review R4-14).
+        case ask(question: String, citesTimestamps: Bool = true)
     }
 
     var kind: Kind
@@ -52,6 +53,17 @@ enum DeliverablePromptAssembler {
         timestamp in square brackets exactly as it appears in the transcript, for example [04:06]. If the \
         transcript does not contain the answer, say so plainly.
         """
+
+    /// Ask on a source without timestamps (a document, typed text, a transcript without word timings): no example
+    /// timestamp a small model could copy (review R4-14).
+    static let askRulesWithoutTimestamps = """
+        Answer the question using only the text. After each statement, quote the short passage it comes from in \
+        quotation marks. If the text does not contain the answer, say so plainly.
+        """
+
+    static func askRules(citesTimestamps: Bool) -> String {
+        citesTimestamps ? askRules : askRulesWithoutTimestamps
+    }
 
     static func request(
         task: GenerationTask,
@@ -120,9 +132,9 @@ enum DeliverablePromptAssembler {
         let sourceBlock = "<\(sourceTag)>\n\(source)\n</\(sourceTag)>"
         let noteLine = note.map { "\n\n\($0)" } ?? ""
         switch task.kind {
-        case .ask(let question):
+        case .ask(let question, let citesTimestamps):
             return (
-                "\(preamble)\n\n\(askRules)\(noteLine)",
+                "\(preamble)\n\n\(askRules(citesTimestamps: citesTimestamps))\(noteLine)",
                 "\(sourceBlock)\n\nQuestion: \(question)"
             )
         case .template(let content):
@@ -144,8 +156,10 @@ enum DeliverablePromptAssembler {
     /// The task without any source, for the map and condense steps.
     static func taskDescription(_ task: GenerationTask) -> String {
         switch task.kind {
-        case .ask(let question):
-            return "Answer this question with timestamp citations: \(question)"
+        case .ask(let question, let citesTimestamps):
+            return citesTimestamps
+                ? "Answer this question with timestamp citations: \(question)"
+                : "Answer this question with short quotations: \(question)"
         case .template(let content):
             return PromptTemplateRenderer.render(content, substitutions: [.transcript: "", .userNotes: ""])
                 .trimmingCharacters(in: .whitespacesAndNewlines)

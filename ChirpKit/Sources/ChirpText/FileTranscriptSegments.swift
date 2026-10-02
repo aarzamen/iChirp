@@ -1,7 +1,10 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Utilities/KnowledgeSegmenter.swift @ bbae9e0e
 // Changes: ported `materializeFileTranscriptSegments` only (renamed to `FileTranscriptSegments.materialize`
 // — the search-index/FTS half of `KnowledgeSegmenter` is out of scope for M0/M1); dropped the
-// `AudioSource` speaker-label fallback (not ported to iChirp), same as `TranscriptSegmenter`.
+// `AudioSource` speaker-label fallback (not ported to iChirp), same as `TranscriptSegmenter`. The stored label of a
+// segment without a speaker stays upstream's "Unknown Speaker" (stored data and the JSON export's `segments`); no
+// consumer shows it: model input, Copy and the text exports read `TranscriptText`, which names speakers only when
+// the row has a roster (review R2-1).
 
 import ChirpCore
 import Foundation

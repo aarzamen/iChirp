@@ -1,6 +1,6 @@
 === model input ===
-[00:00] Unknown Speaker: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
-[00:07] Unknown Speaker: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+[00:00] Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:07] Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 === copy ===
 Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
@@ -254,7 +254,7 @@ Duration: 00:10
 Made with Parakeet on iPhone
 
 === jev excerpt ===
-The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks.
+Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80. Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 === jev paragraphs ===
 p01: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.

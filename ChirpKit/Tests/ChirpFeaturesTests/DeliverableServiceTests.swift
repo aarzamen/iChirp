@@ -146,14 +146,16 @@ final class DeliverableServiceTests: XCTestCase {
 
     func testAskReturnsOnlyCitationsThatPointAtRealSegments() async throws {
         var row = Transcription(fileName: "synthetic.m4a", status: .completed, privacyClass: .personal)
-        row.transcriptSegments = [
-            TranscriptSegmentRecord(
-                startMs: 12_500, endMs: 15_000, speakerId: "S1", speakerLabel: "Speaker 1",
-                text: "The review is on Thursday.", wordRange: TranscriptSegmentWordRange(startIndex: 0, endIndexExclusive: 5)),
-            TranscriptSegmentRecord(
-                startMs: 246_000, endMs: 250_000, speakerId: "S2", speakerLabel: "Speaker 2",
-                text: "Bring the heron map.", wordRange: TranscriptSegmentWordRange(startIndex: 5, endIndexExclusive: 9)),
-        ]
+        func words(_ text: String, from startMs: Int, _ speaker: String) -> [WordTimestamp] {
+            text.split(separator: " ").enumerated().map { index, word in
+                WordTimestamp(
+                    word: String(word), startMs: startMs + index * 300, endMs: startMs + index * 300 + 250,
+                    confidence: 0.9, speakerId: speaker)
+            }
+        }
+        row.wordTimestamps =
+            words("The review is on Thursday.", from: 12_500, "S1") + words("Bring the heron map.", from: 246_000, "S2")
+        row.rawTranscript = "The review is on Thursday. Bring the heron map."
         row.speakers = [SpeakerInfo(id: "S1", label: "Dana"), SpeakerInfo(id: "S2", label: "Speaker 2")]
         let transcripts = FakeStore(rows: [row])
         let service = DeliverableService(
@@ -170,6 +172,53 @@ final class DeliverableServiceTests: XCTestCase {
             [TranscriptCitation(label: "00:12", startMs: 12_500), TranscriptCitation(label: "04:06", startMs: 246_000)])
         XCTAssertTrue(model.everythingReceived.contains("[00:12] Dana: The review is on Thursday."))
         XCTAssertTrue(model.everythingReceived.contains("[04:06] Speaker 2: Bring the heron map."))
+    }
+
+    /// Review R4-14: a document has no timestamps, so Ask asks for short quotations, with no example timestamp a small
+    /// model could copy, and finds no citations.
+    func testAskOnADocumentAsksForQuotationsNotTimestamps() async throws {
+        var row = Transcription(sourceType: .document, fileName: "Leaflet.pdf", status: .completed)
+        row.rawTranscript = "Take 2.5 mg twice daily with food."
+        let service = DeliverableService(
+            transcripts: FakeStore(rows: [row]), deliverables: FakeDeliverableStore(),
+            routingPolicy: { PrivacyRoutingPolicy() })
+        let model = Destination.onDevice.makeModel()
+        model.script([.text("Twice daily [04:06].")])
+
+        var answer: AskAnswer?
+        for try await event in service.ask(question: "How often?", transcriptionID: row.id, model: model) {
+            if case .answered(let value) = event { answer = value }
+        }
+        XCTAssertEqual(answer?.citations, [])
+        XCTAssertFalse(model.everythingReceived.contains("[04:06]"))
+        XCTAssertFalse(model.everythingReceived.contains("timestamp"))
+        XCTAssertTrue(model.everythingReceived.contains("quote the short passage"))
+        XCTAssertTrue(model.everythingReceived.contains("Take 2.5 mg twice daily with food."))
+    }
+
+    /// Review R2-1 / R4-1: in Clean, the template reads the clean text (a custom word fixed a drug name), not the
+    /// engine's words, and a dictation without speakers has no "Unknown Speaker" label.
+    func testCleanModeTemplateReadsTheCleanTextWithoutUnknownSpeaker() async throws {
+        var row = Transcription(sourceType: .dictation, fileName: "Dictation", status: .completed)
+        row.wordTimestamps = ["Um,", "start", "zarelto", "20", "mg", "daily."].enumerated().map {
+            WordTimestamp(word: $0.element, startMs: $0.offset * 300, endMs: $0.offset * 300 + 250, confidence: 0.9)
+        }
+        row.rawTranscript = "Um, start zarelto 20 mg daily."
+        row.cleanTranscript = "Start Xarelto 20 mg daily."
+        row.transcriptSegments = FileTranscriptSegments.materialize(words: row.wordTimestamps!, speakers: nil)
+        let deliverables = FakeDeliverableStore()
+        try await deliverables.installBuiltInTemplates(BuiltInTemplates.all)
+        let service = DeliverableService(
+            transcripts: FakeStore(rows: [row]), deliverables: deliverables, routingPolicy: { PrivacyRoutingPolicy() },
+            cleanupMode: { .clean })
+        let model = Destination.onDevice.makeModel()
+        model.script([.text("Summary.")])
+        for try await _ in service.generate(
+            templateID: BuiltInTemplates.summary.id, transcriptionID: row.id, model: model)
+        {}
+        XCTAssertTrue(model.everythingReceived.contains("[00:00] Start Xarelto 20 mg daily."))
+        XCTAssertFalse(model.everythingReceived.contains("zarelto"))
+        XCTAssertFalse(model.everythingReceived.contains("Unknown Speaker"))
     }
 
     func testEmptyTranscriptSendsNothing() async throws {

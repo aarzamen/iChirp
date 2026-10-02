@@ -1,30 +1,28 @@
 // Text shaping for language-model input (M4). `TextChunker` is ported from MacParakeet (GPL-3.0):
 // Sources/MacParakeetCore/Services/LLM/InProcessLLMClient.swift @ bbae9e0e (`split`, `preferredChunkBoundary`,
 // `skipLeadingWhitespace`). Changes: it splits the transcript alone (upstream split the joined chat messages), also
-// prefers a line break before a sentence end, and never drops text: the chunks joined back together hold every
-// non-whitespace character of the input. `TranscriptPromptFormatter` and `TranscriptCitationParser` are new.
+// prefers a line break before a sentence end, never drops text (the chunks joined back together hold every
+// non-whitespace character of the input), and never cuts inside a word or a number: a sentence end counts only before
+// whitespace, and without a break the cut falls on the last whitespace (review R4-16). `TranscriptPromptFormatter` and
+// `TranscriptCitationParser` are new; both read `TranscriptText` (plan 024 Task 8).
 
 import ChirpCore
 import Foundation
 
 /// Turns a transcript into model input.
 public enum TranscriptPromptFormatter {
-    /// One line per segment, `[mm:ss] Speaker 1: text` (`[h:mm:ss]` past an hour), with the roster's current speaker
-    /// labels. Without segments, the transcript's display text. Timestamps let Ask cite moments that seek the player.
-    public static func timestampedText(for transcription: Transcription) -> String {
-        guard let segments = transcription.transcriptSegments, !segments.isEmpty else {
-            return transcription.displayText
-        }
-        let roster = Dictionary(
-            (transcription.speakers ?? []).map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
-        return
-            segments
-            .compactMap { segment -> String? in
-                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !text.isEmpty else { return nil }
-                let label = segment.speakerId.flatMap { roster[$0] } ?? segment.speakerLabel
-                let stamp = "[\(timestamp(milliseconds: segment.startMs))]"
-                return label.isEmpty ? "\(stamp) \(text)" : "\(stamp) \(label): \(text)"
+    /// The model input for one view of a transcript (`Transcription.text(.shown(mode))`, review R2-1 / R4-1): one line
+    /// per reading paragraph, `[mm:ss] Name: text` (`[h:mm:ss]` past an hour), the name only when the row has real
+    /// speakers; without word timings, the view's text as it is. Timestamps let Ask cite moments that seek the player.
+    public static func modelInput(_ text: TranscriptText) -> String {
+        guard text.hasWordTimings else { return text.plainText }
+        return text.lines
+            .compactMap { line -> String? in
+                let body = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !body.isEmpty else { return nil }
+                let stamp = "[\(timestamp(milliseconds: line.startMs ?? 0))]"
+                guard let label = line.speakerLabel, !label.isEmpty else { return "\(stamp) \(body)" }
+                return "\(stamp) \(label): \(body)"
             }
             .joined(separator: "\n")
     }
@@ -68,7 +66,9 @@ public enum TextChunker {
     }
 
     /// The last paragraph break, else line break, else sentence end in `range`, in its second half so chunks do not
-    /// get tiny; nil means cut at the hard limit.
+    /// get tiny; else the last whitespace anywhere in `range` (review R4-16: a cut never falls inside a word or a
+    /// number such as "2.5"). A sentence end counts only when whitespace or the end of the text follows it, also at
+    /// the edge of `range`. nil means `range` holds no whitespace at all: cut at the hard limit.
     static func preferredChunkBoundary(in range: Range<String.Index>, text: String) -> String.Index? {
         let length = text.distance(from: range.lowerBound, to: range.upperBound)
         let floor = text.index(range.lowerBound, offsetBy: length / 2)
@@ -84,11 +84,17 @@ public enum TextChunker {
             let punctuationIndex = text.index(before: cursor)
             if isSentenceTerminator(text[punctuationIndex]) {
                 let boundary = text.index(after: punctuationIndex)
-                if boundary == text.endIndex || boundary == range.upperBound || text[boundary].isWhitespace {
+                if boundary == text.endIndex || text[boundary].isWhitespace {
                     return boundary
                 }
             }
             cursor = punctuationIndex
+        }
+        // The last whitespace at or before the hard limit: the chunk ends just before it.
+        cursor = range.upperBound
+        while cursor > range.lowerBound {
+            if cursor < text.endIndex, text[cursor].isWhitespace { return cursor }
+            cursor = text.index(before: cursor)
         }
         return nil
     }
@@ -106,11 +112,11 @@ public enum TextChunker {
     }
 }
 
-/// A moment an answer cites, e.g. `[04:06]`, resolved to a segment of the transcript.
+/// A moment an answer cites, e.g. `[04:06]`, resolved to a line of the transcript.
 public struct TranscriptCitation: Sendable, Equatable {
     /// The text as written in the answer, e.g. "04:06".
     public var label: String
-    /// Where to seek the player: the start of the cited segment.
+    /// Where to seek the player: the start of the cited line.
     public var startMs: Int
 
     public init(label: String, startMs: Int) {
@@ -119,13 +125,14 @@ public struct TranscriptCitation: Sendable, Equatable {
     }
 }
 
-/// Finds `[mm:ss]` / `[h:mm:ss]` citations in a model's answer and keeps only those that point at a real segment
-/// start (a model can invent timestamps; an invented one is dropped, never guessed).
+/// Finds `[mm:ss]` / `[h:mm:ss]` citations in a model's answer and keeps only those that point at the start of a line
+/// the model was shown (a model can invent timestamps; an invented one is dropped, never guessed).
 public enum TranscriptCitationParser {
-    public static func citations(in answer: String, transcription: Transcription) -> [TranscriptCitation] {
-        // The prompt shows each segment's start in whole seconds; map that back to the segment's exact start.
+    /// - Parameter text: the view the model input was built from (`TranscriptPromptFormatter.modelInput`).
+    public static func citations(in answer: String, text: TranscriptText) -> [TranscriptCitation] {
+        // The prompt shows each line's start in whole seconds; map that back to the line's exact start.
         let starts = Dictionary(
-            (transcription.transcriptSegments ?? []).map { ($0.startMs / 1000, $0.startMs) },
+            text.lines.compactMap { line in line.startMs.map { ($0 / 1000, $0) } },
             uniquingKeysWith: { min($0, $1) })
         guard !starts.isEmpty else { return [] }
         let pattern = #"\[(\d{1,2}:)?(\d{1,2}):(\d{2})\]"#

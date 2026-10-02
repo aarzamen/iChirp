@@ -1,21 +1,21 @@
 === model input ===
-[00:00] Unknown Speaker: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
-[00:07] Unknown Speaker: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+[00:00] The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:07] increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 === copy ===
 The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 === txt ===
-Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
 
-Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 === markdown ===
 # Synthetic visit 2
 
-Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
 
-Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 
 === srt ===
@@ -249,15 +249,15 @@ Recheck in 2 weeks.
 Synthetic visit 2
 Date: <date>
 Duration: 00:10
-[00:00] Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
-[00:07] Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+[00:00] The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
+[00:07] increase the dose to 2.5 mg. Recheck in 2 weeks.
 Made with Parakeet on iPhone
 
 === jev excerpt ===
 The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80. increase the dose to 2.5 mg. Recheck in 2 weeks.
 
 === jev paragraphs ===
-p01: Um, the patient takes zarelto 20 mg daily. Blood pressure was 120 over 80.
+p01: The patient takes Xarelto 20 mg daily. Blood pressure was 120 over 80.
 
-p02: Uh, increase the dose to 2.5 mg. Recheck in 2 weeks.
+p02: increase the dose to 2.5 mg. Recheck in 2 weeks.
 indexes: [0, 1]

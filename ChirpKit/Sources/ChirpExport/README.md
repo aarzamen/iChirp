@@ -11,8 +11,10 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 ## What's here
 
 - `TranscriptExporter.swift`: `ExportFormat` (txt/markdown/srt/vtt/json, with `fileExtension` and
-  `displayName`), `ExportError.noTimestamps`, and `TranscriptExporter` itself. TXT/Markdown paragraphs
-  come from `ChirpText`'s `TranscriptParagraphBuilder`; SRT/VTT cues come from `TranscriptCueBuilder`;
+  `displayName`), `ExportError.noTimestamps`, and `TranscriptExporter` itself. Its text comes from `ChirpText`'s
+  one accessor (plan 024 Task 8): TXT/Markdown print the lines of `Transcription.text(.shown(cleanupMode))` (the
+  reading paragraphs, the speaker's name when it changes), SRT/VTT cues come from `TranscriptCueBuilder` over the
+  words as heard;
   JSON is a custom `ichirp.transcript/v1` schema, not a raw `Transcription` encode: `speakers`, `segments` and
   `words` are always arrays, empty when the item has none (review R1-4), and `privacyClass` names the effective
   class (review R1-13). `TranscriptExporter(cleanupMode:effectivePrivacyClass:)` takes the class the privacy rules
@@ -34,8 +36,8 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
   `paragraph`, `turn` with speaker and timestamp, `bullet` and `numbered` with their nesting `level`, `numbered` with
   its `marker` exactly as written). `ExportDocument.transcript(_:cleanupMode:effectivePrivacyClass:)`
   says "Privacy: Clinical" when the row's own class or the effective class the caller passes (review M5) is clinical,
-  and builds paragraphs from the word timings (`TranscriptParagraphBuilder`, the speaker only when it changes, every
-  paragraph's `mm:ss`) or from the text's own paragraphs. `ExportDocument.text(title:body:metadata:)` reads a
+  and prints the lines of `Transcription.text(.shown(cleanupMode))` as turns (the speaker only when it changes, every
+  paragraph's `mm:ss`) or, without word timings, the text's own paragraphs. `ExportDocument.text(title:body:metadata:)` reads a
   generated document's Markdown with the parser the screen and Copy use (review R1-6, plan 024 Task 4):
   `ChirpText.MarkdownBlockParser` for the blocks and `MarkdownInline.plain` for each line, so a PDF or Word file
   holds exactly the characters Copy writes — the templates' bold section names (`**Subjective**`) and `##`…`######`
@@ -66,28 +68,22 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 
 ## What to know before editing
 
-- SRT/VTT throw `ExportError.noTimestamps` when `transcription.wordTimestamps` is nil or empty. This is
+- SRT/VTT throw `ExportError.noTimestamps` when the row has no word timings. This is
   a deliberate behavior change from upstream `ExportService`, which instead falls back to a single cue
-  spanning `durationMs`. TXT/Markdown do not throw — with no words they fall back to `preferredText`
-  (below).
+  spanning `durationMs`. TXT/Markdown do not throw — with no words they print the view's whole text (below).
 - VTT escapes `&`, `<` and `>` in cue text and in the `<v …>` speaker label (review R1-8: "<5 mg" vanished in
   conforming players, a speaker renamed "A>B" broke the voice tag); a label's line breaks become spaces in SRT and
   VTT, so a cue line never splits. Upstream did neither.
-- `preferredText(_:)` is what TXT/Markdown use when there are no words to build paragraphs from, and
-  what JSON's `text` field always uses. **Raw/Clean fallback rule** (pinned by
-  `testRawModeExportsRawTranscriptWhenBothTranscriptsPresent`,
-  `testCleanModeExportsCleanTranscriptWhenBothTranscriptsPresent`,
-  `testCleanModeFallsBackToRawWhenCleanTranscriptIsEmpty` — matches the approved spec: Raw is the
-  default and shows the engine's literal output; Clean shows the deterministically cleaned copy):
-  - `.raw` → `rawTranscript`, falling back to `cleanTranscript` only if raw is absent.
-  - `.clean` → `transcription.displayText` (the non-empty `cleanTranscript` if there is one, else
-    `rawTranscript` — so `.clean` on a row whose clean transcript is nil or blank still exports text,
-    it never silently exports empty).
-
-  `cleanupMode` does not otherwise change TXT/Markdown/SRT/VTT rendering — when `wordTimestamps` is
-  non-empty, TXT/Markdown build their paragraphs from the words instead of calling `preferredText`, and
-  that word-derived path ignores `cleanupMode` entirely (words are the engine's literal output
-  regardless of mode).
+- **Which text, Raw or Clean** (plan 024 Task 8, review R1-3; ADR-009 "copy and export use it"): TXT, Markdown, PDF,
+  Word and JSON's `text` are `Transcription.text(.shown(cleanupMode))`, the text Copy writes and the models read.
+  - `.raw` → the raw transcript (the clean one only if raw is absent); a dictation that stored polished text
+    (Polish after) shows that text, as its Done screen copied it.
+  - `.clean` → the clean transcript when it is not blank, else the raw one (never an empty export).
+  - With word timings, the text is printed on the reading paragraphs with their speakers and times; in Clean the
+    clean words sit on the paragraphs their words came from (`ChirpText.CleanTextAligner`), so a custom word that
+    fixed a drug name is in the file. SRT, VTT and JSON's `segments` and `words` are always the words as heard.
+  - Pinned by `testCleanExportsOfATimedTranscriptCarryTheCleanText`, the three Raw/Clean fallback tests and the
+    ChirpFeatures goldens (`TranscriptTextGoldenTests`: every export of five kinds of item in Raw and Clean).
 - The JSON encoder uses `.withoutEscapingSlashes` — without it, Foundation's `JSONEncoder` escapes the
   `/` in the `"ichirp.transcript/v1"` schema string as `\/`, which the pinned `testJSONSchemaKey` test
   case (and the schema string on disk) must not contain.

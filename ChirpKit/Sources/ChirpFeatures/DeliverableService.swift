@@ -184,6 +184,7 @@ public actor DeliverableService {
     private let transcripts: any TranscriptionStoring
     private let deliverables: any DeliverableStoring
     private let routingPolicy: @Sendable () -> PrivacyRoutingPolicy
+    private let cleanupMode: @Sendable () -> CleanupMode
     private let now: @Sendable () -> Date
     private let logger = Log.logger("deliverables")
     private let privacyLogger = Log.logger("privacy")
@@ -191,16 +192,21 @@ public actor DeliverableService {
     private var pendingRequests: [UUID: PrivacyOverrideRequest] = [:]
     private var unusedOverrides: [UUID: PrivacyOverride] = [:]
 
-    /// - Parameter routingPolicy: read at every check, so un-trusting a host stops the next call of a running job.
+    /// - Parameters:
+    ///   - routingPolicy: read at every check, so un-trusting a host stops the next call of a running job.
+    ///   - cleanupMode: the person's clean-up mode, read at every run: the model reads the text they see in it
+    ///     (`Transcription.text(.shown(_:))`, plan 024 Task 8), the text Copy writes.
     public init(
         transcripts: any TranscriptionStoring,
         deliverables: any DeliverableStoring,
         routingPolicy: @escaping @Sendable () -> PrivacyRoutingPolicy,
+        cleanupMode: @escaping @Sendable () -> CleanupMode = { .raw },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.transcripts = transcripts
         self.deliverables = deliverables
         self.routingPolicy = routingPolicy
+        self.cleanupMode = cleanupMode
         self.now = now
     }
 
@@ -399,6 +405,8 @@ public actor DeliverableService {
         guard let transcription = try await transcripts.fetch(id: transcriptionID) else {
             throw DeliverableError.transcriptNotFound
         }
+        // The text the person sees (Clean or Raw, speaker names only when the item has speakers; review R2-1 / R4-1).
+        let shown = transcription.text(.shown(cleanupMode()))
         var template: PromptTemplate?
         var version: PromptVersion?
         let task: GenerationTask
@@ -411,7 +419,7 @@ public actor DeliverableService {
             version = active
             task = GenerationTask(kind: .template(content: active.content), userNotes: userNotes)
         case .ask(let question):
-            task = GenerationTask(kind: .ask(question: question))
+            task = GenerationTask(kind: .ask(question: question, citesTimestamps: shown.hasWordTimings))
         }
         let effective = try await EffectivePrivacyClass.of(transcription, in: deliverables)
         let route = makeRoute(
@@ -445,7 +453,7 @@ public actor DeliverableService {
             )
         }
 
-        let source = TranscriptPromptFormatter.timestampedText(for: transcription)
+        let source = TranscriptPromptFormatter.modelInput(shown)
         do {
             guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw DeliverableError.emptyTranscript
@@ -481,7 +489,7 @@ public actor DeliverableService {
             case .ask:
                 await writeLedger(
                     context, metrics, .succeeded, input: source.count, output: text.count, overrideUsed: overrideUsed)
-                let citations = TranscriptCitationParser.citations(in: text, transcription: transcription)
+                let citations = TranscriptCitationParser.citations(in: text, text: shown)
                 emit(.answered(AskAnswer(text: text, citations: citations, route: route)))
             }
             logger.info(
