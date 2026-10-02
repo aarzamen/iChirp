@@ -84,6 +84,26 @@ final class LinkClassifierTests: XCTestCase {
             .directMedia(URL(string: "https://media.example.com/@synthetic/talk.mp3")!))
     }
 
+    /// Fix round 2: only an "@" before the path makes bare text an e-mail address (or user info); an "@" in a bare
+    /// link's path or query keeps it a link, and it still becomes https.
+    func testAnAtSignInABareLinksPathOrQueryKeepsItALink() {
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com/a.mp3?from=a@b.org"),
+            .directMedia(URL(string: "https://cdn.example.com/a.mp3?from=a@b.org")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com/@show/ep1.mp3"),
+            .directMedia(URL(string: "https://cdn.example.com/@show/ep1.mp3")!))
+        XCTAssertEqual(
+            LinkClassifier.classify("cdn.example.com?ref=a@b.org"),
+            .webLink(URL(string: "https://cdn.example.com?ref=a@b.org")!))
+        // The e-mail cases are unchanged.
+        XCTAssertEqual(LinkClassifier.classify("jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        XCTAssertEqual(LinkClassifier.classify("Contact jane.doe@clinic.example.org"), .unsupported(.notWeb))
+        XCTAssertFalse(LinkClassifier.classify("jane.doe@clinic.example.org/notes").isActionable)
+        XCTAssertEqual(
+            LinkClassifier.classify("https://jane:secret@cdn.example.com/a.mp3"), .unsupported(.credentials))
+    }
+
     /// Review R2-19: the "YouTube page" refusal applies to youtube.com and its subdomains only, the same host rule as
     /// the other platforms.
     func testOnlyYouTubeHostsAreTreatedAsYouTubePages() {

@@ -19,9 +19,10 @@
 ### Links
 
 - `Links/LinkClassifier.swift`: `LinkKind` (Apple Podcasts episode or show, feed, direct media, YouTube, web link,
-  unsupported with a reason) from pasted text. A bare host ("cdn.example.com/talk.mp3") becomes an `https://` link;
-  text with an "@" never gets a scheme added (an e-mail address stays `mailto:`, refused), and a link that carries a
-  user name or password is refused (`credentials`), so neither leads to a request. Platforms that need yt-dlp (X, TikTok, Instagram, Facebook, Vimeo,
+  unsupported with a reason) from pasted text. A bare host ("cdn.example.com/talk.mp3") becomes an `https://` link
+  (an "@" in its path or query is fine); text with an "@" before its path never gets a scheme added (an e-mail
+  address stays `mailto:`, refused), and a link that carries a user name or password is refused (`credentials`), so
+  neither leads to a request. Platforms that need yt-dlp (X, TikTok, Instagram, Facebook, Vimeo,
   SoundCloud, Twitch, Spotify) and formats iOS cannot decode (Ogg, Opus, WebM) are refused up front with a clear
   message.
 - `Links/YouTubeURLValidator.swift`, `Links/PodcastURLValidator.swift`: ports of upstream's validators.

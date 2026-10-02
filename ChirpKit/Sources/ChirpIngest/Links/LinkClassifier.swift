@@ -196,15 +196,17 @@ public enum LinkClassifier {
 
     /// The first http(s)-looking link in `text`: the whole text when it is one; a bare host ("cdn.example.com/a.mp3")
     /// with `https://` added, before the data detector, which would add `http://` (iOS blocks plain http to internet
-    /// hosts); else the first link a data detector finds (so "Listen: https://…" works). Text with an "@" never gets
-    /// a scheme added: "jane.doe@clinic.example.org" is an e-mail address (the detector reads it as `mailto:`), not a
-    /// web link to the clinic's server.
+    /// hosts); else the first link a data detector finds (so "Listen: https://…" works). Text with an "@" before its
+    /// path never gets a scheme added: "jane.doe@clinic.example.org" is an e-mail address (the detector reads it as
+    /// `mailto:`), not a web link to the clinic's server, and "name:secret@host/…" is user info. An "@" in the path or
+    /// query ("cdn.example.com/@show/ep1.mp3", "…/a.mp3?from=a@b.org") is part of a link.
     static func firstLink(in text: String) -> URL? {
         let isOneWord = !text.contains(where: \.isWhitespace)
         if isOneWord, let url = URL(string: text), url.scheme != nil, url.host() != nil {
             return url
         }
-        if isOneWord, text.contains("."), !text.contains("@"), URL(string: text)?.scheme == nil,
+        let authority = text.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+        if isOneWord, authority.contains("."), !authority.contains("@"), URL(string: text)?.scheme == nil,
             let url = URL(string: "https://\(text)"), url.host() != nil
         {
             return url
