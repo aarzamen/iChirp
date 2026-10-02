@@ -580,6 +580,12 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   final-pass resolution; the pending Transform, cleared on reset; `appliedSummary` names STUB or "Experimental";
   `unresolvedSummary` is the Done screen's warning, "Couldn't tell what to scratch — check before copying.";
   dictation is routed as clinical, so command words only reach on-device engines). `DictationCoordinator` calls it at three points: reset, live text (chip only) and the copy.
+  Review R5-2 (plan 025 ruling 2): when the commands changed the text, the coordinator stores them as `voiceCommand`
+  corrections of the saved row (`ChirpText.VoiceCommandCorrections`, written through `TranscriptCorrectionService`,
+  one batch per dictation) **before** `perform` opens Send to SOAP / Send to Transform, so their model input
+  (`.shown`) reads what was copied and a scratched order never reaches it; the words as heard stay in the row. When
+  the edit cannot be stored (no row, an empty result, a refused write) Send to SOAP / Transform are dropped and logged
+  (ids and the error type only).
 
 - `Structure/OrderedJSON.swift`: JSON that keeps key order; the model-facing tool array is the catalog file's own
   order (Needle answered differently, and worse, when the schema keys were sorted).

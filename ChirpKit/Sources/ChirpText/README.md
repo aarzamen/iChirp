@@ -62,6 +62,12 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   insertion or deletion takes its neighbor word (the previous one; the next at the start of a line), hunks widen to
   whole tokens and merge when they overlap or touch, and a hunk retyped back to the words as heard reverts the
   corrections inside it. Blank text throws `emptyText`.
+- `Corrections/VoiceCommandCorrections.swift` (review R5-2): a dictation's voice commands (`commandedText` →
+  `resultText`, the copied text) as `voiceCommand` corrections of its words: the commanded text is aligned to the heard
+  words (case and edge punctuation ignored) and the result to the commanded text (exact, line breaks included);
+  between stable points the changed stretch of heard words becomes one correction with the result's text there (a
+  scratched sentence or a paragraph break takes the word before it). Falls back to one correction over every word;
+  nil when the change cannot be stored (the caller then sends nothing on).
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name

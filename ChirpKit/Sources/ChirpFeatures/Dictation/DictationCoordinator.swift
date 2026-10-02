@@ -561,7 +561,17 @@ public struct DictationTextRules: Sendable {
                 let copied = commands?.text ?? saved.text
                 clipboard.copy(copied)
                 copiedText = copied
-                voiceCommands?.perform(commands?.actions ?? [], copiedText: copied, transcriptionID: row.id)
+                var actions = commands?.actions ?? []
+                if copied != saved.text {
+                    // Review R5-2 (plan 025): the commands' edits become corrections of the saved transcript before
+                    // anything opens it, so Send to SOAP / Transform read what was copied. When they cannot be stored,
+                    // nothing is sent on: a scratched order must never reach a model.
+                    let stored = await storeVoiceCommands(of: saved.row, commanded: saved.text, result: copied)
+                    if !stored {
+                        actions.removeAll { $0 == .sendToSOAP || $0 == .sendToTransform }
+                    }
+                }
+                voiceCommands?.perform(actions, copiedText: copied, transcriptionID: row.id)
             }
             if saved.row == nil {
                 // The person deleted the row meanwhile; nothing to point at.
@@ -587,6 +597,37 @@ public struct DictationTextRules: Sendable {
     private struct FinalText {
         var text: String
         var row: Transcription?
+    }
+
+    /// Stores the final pass's voice commands (`commanded` → `result`, the copied text) as `voiceCommand`
+    /// corrections of `row`'s words (`VoiceCommandCorrections`, review R5-2), through the one correction writer. True
+    /// when the stored transcript now reads as `result`, or nothing needed storing.
+    private func storeVoiceCommands(of row: Transcription?, commanded: String, result: String) async -> Bool {
+        guard let row else { return false }
+        let now = Date()
+        guard
+            let plan = VoiceCommandCorrections.plan(
+                words: row.wordTimestamps ?? [], commandedText: commanded, resultText: result, batchID: UUID(),
+                now: now)
+        else {
+            logger.error("dictation_commands_not_stored id=\(row.id, privacy: .public) reason=unrepresentable")
+            return false
+        }
+        guard !plan.isEmpty else { return true }
+        let rules = await textRules()
+        let context = TranscriptTextContext(
+            customWords: rules.customWords.filter { $0.isEnabled && $0.source == .manual },
+            snippets: rules.snippets.filter(\.isEnabled), removeUmFiller: settings.load().removeUmFiller)
+        let service = TranscriptCorrectionService(store: store, context: { context }, now: { now })
+        do {
+            _ = try await service.apply(row.id, plan: plan, baseline: row.wordsFingerprint)
+            return true
+        } catch {
+            logger.error(
+                "dictation_commands_not_stored id=\(row.id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)"
+            )
+            return false
+        }
     }
 
     /// The final Parakeet pass on the recorded WAV, clean-up, and the saved row. The returned text is exactly what

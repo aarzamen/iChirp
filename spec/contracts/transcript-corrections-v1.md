@@ -18,6 +18,9 @@ reaches a SOAP note.
   run the change, write `textCorrections`, `derivedTitle`, `derivedSnippet` and `updatedAt` only). Called only by
   `ChirpFeatures/Corrections/TranscriptCorrectionService`.
 - `GRDBTranscriptionStore.savePreservingUserMetadata` — keeps the stored envelope across a pipeline save (D7 below).
+- `DictationCoordinator` (review R5-2) — a dictation's applied voice commands, as `voiceCommand` corrections planned by
+  `ChirpText.VoiceCommandCorrections` and written through the service before Send to SOAP / Transform opens; when they
+  cannot be stored those two actions are dropped.
 - Migration `v11-transcript-corrections` — adds the nullable TEXT column; every earlier row reads nil.
 
 ## Consumers
@@ -120,6 +123,9 @@ Additive keys inside the envelope or an item are allowed in v1. A change to the 
   nothing; pipeline saves keep or detach; a newer build's envelope survives every write path; an unreadable one never
   hides the row; concurrent writes both land).
 - `ChirpFeaturesTests.FileTranscriptionPipelineTests.testRetryOfACorrectedRowKeepsOrDetachesCorrections`.
+- `ChirpTextTests.VoiceCommandCorrectionsTests` and
+  `ChirpFeaturesTests.DictationCoordinatorTests.testAScratchedOrderNeverReachesTheSOAPModelInput` (R5-2, Raw and
+  Polish after).
 - `ChirpTextTests.TranscriptTextCorrectionsTests` (fast path, envelope token, stable lines, token ranges, segments,
   cues, Raw and Clean over the corrected stream, dictation snippets, invalid/detached/untimed never applied),
   `FileTranscriptSegmentsTests`, `TranscriptPromptTextTests.testModelInputUsesCorrectedText` and
