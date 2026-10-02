@@ -81,20 +81,36 @@ enum SyntheticPDF {
 
 /// A minimal ZIP writer for tests (stored or deflated entries), so DOCX files can be generated at test time.
 enum SyntheticZip {
+    /// One entry exactly as the archive will describe it: tests can make the declared size lie.
+    struct RawEntry {
+        var name: String
+        var method: UInt16
+        var payload: Data
+        var declaredSize: Int
+        var crc: UInt32
+    }
+
     static func make(_ files: [(name: String, data: Data)], deflate: Bool = true) -> Data {
+        make(
+            rawEntries: files.map { file in
+                if deflate, let packed = try? (file.data as NSData).compressed(using: .zlib) as Data {
+                    return RawEntry(
+                        name: file.name, method: 8, payload: packed, declaredSize: file.data.count,
+                        crc: CRC32.checksum(file.data))
+                }
+                return RawEntry(
+                    name: file.name, method: 0, payload: file.data, declaredSize: file.data.count,
+                    crc: CRC32.checksum(file.data))
+            })
+    }
+
+    static func make(rawEntries: [RawEntry]) -> Data {
         var archive = Data()
         var directory = Data()
-        for file in files {
-            let crc = CRC32.checksum(file.data)
-            let compressed: Data
-            let method: UInt16
-            if deflate, let packed = try? (file.data as NSData).compressed(using: .zlib) as Data {
-                compressed = packed
-                method = 8
-            } else {
-                compressed = file.data
-                method = 0
-            }
+        for file in rawEntries {
+            let crc = file.crc
+            let compressed = file.payload
+            let method = file.method
             let offset = UInt32(archive.count)
             let name = Data(file.name.utf8)
             var local = Data()
@@ -106,7 +122,7 @@ enum SyntheticZip {
             local.append(le16(0))
             local.append(le32(crc))
             local.append(le32(UInt32(compressed.count)))
-            local.append(le32(UInt32(file.data.count)))
+            local.append(le32(UInt32(file.declaredSize)))
             local.append(le16(UInt16(name.count)))
             local.append(le16(0))
             local.append(name)
@@ -123,7 +139,7 @@ enum SyntheticZip {
             central.append(le16(0))
             central.append(le32(crc))
             central.append(le32(UInt32(compressed.count)))
-            central.append(le32(UInt32(file.data.count)))
+            central.append(le32(UInt32(file.declaredSize)))
             central.append(le16(UInt16(name.count)))
             central.append(le16(0))
             central.append(le16(0))
@@ -139,8 +155,8 @@ enum SyntheticZip {
         archive.append(le32(0x0605_4b50))
         archive.append(le16(0))
         archive.append(le16(0))
-        archive.append(le16(UInt16(files.count)))
-        archive.append(le16(UInt16(files.count)))
+        archive.append(le16(UInt16(rawEntries.count)))
+        archive.append(le16(UInt16(rawEntries.count)))
         archive.append(le32(UInt32(directory.count)))
         archive.append(le32(directoryOffset))
         archive.append(le16(0))

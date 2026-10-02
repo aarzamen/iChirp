@@ -2,7 +2,7 @@
 
 > M5 (plan 014). How things other than a picked audio file get into Parakeet: links (Apple Podcasts, feeds, direct
 > media, YouTube captions) and documents (PDF, text, RTF, HTML, DOCX). Depends on `ChirpCore` and Apple frameworks
-> only (Foundation, PDFKit, Vision, CoreGraphics); **no third-party dependency**.
+> only (Foundation, Compression, PDFKit, Vision, CoreGraphics); **no third-party dependency**.
 
 ## Rules
 
@@ -80,7 +80,9 @@
 - `Documents/SymbolFontMap.swift`: symbol-font codes → Unicode. The Symbol font in full (so "≥", "≤", "±", "°", "µ"
   survive; slot 0x6D is the micro sign U+00B5), Wingdings only for Word's check boxes, check and cross marks and square
   bullet; any other symbol becomes U+FFFD (visible, counted in the log), never dropped.
-- `Documents/ZipArchiveReader.swift`: a read-only ZIP central-directory reader on Foundation (stored and deflated
-  entries via `NSData.decompressed(using: .zlib)`, CRC-32 checked, ZIP64 and encryption refused, 128 MB per entry).
-  It replaces ZIPFoundation, so M5 adds **no dependency** (nothing new in `THIRD_PARTY_LICENSES.md`).
+- `Documents/ZipArchiveReader.swift`: a read-only ZIP central-directory reader on Foundation and Compression (stored
+  and deflated entries, CRC-32 checked, ZIP64 and encryption refused). Deflated entries inflate in 64 KB steps
+  (`compression_stream`, raw DEFLATE), and inflation stops as soon as the output passes the size the entry declares
+  (at most 128 MB): an entry that lies about its size ("zip bomb") is refused as damaged with memory bounded by that
+  declaration. It replaces ZIPFoundation, so M5 adds **no dependency** (nothing new in `THIRD_PARTY_LICENSES.md`).
 - `Support/HTMLEntities.swift`: character-reference decoding for HTML documents and YouTube caption text.
