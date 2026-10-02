@@ -151,14 +151,18 @@ fi
 mkdir -p "$SANDBOX/ss/bin"
 cat >"$SANDBOX/ss/bin/trufflehog" <<'STUB'
 #!/usr/bin/env bash
-# Stub: `git` mode reports what $STUB_FINDING_FILE names (a path inside the repository), `filesystem` mode reports
-# nothing; STUB_FAIL=1 stands for a trufflehog that errors.
+# Stub: `git` mode reports what $STUB_FINDING_FILE names (a repository-relative path, as trufflehog's git mode does),
+# `filesystem` mode reports what $STUB_FS_FINDING_FILE names (an ABSOLUTE path, as its filesystem mode does);
+# STUB_FAIL=1 stands for a trufflehog that errors.
 if [ "${STUB_FAIL:-0}" = "1" ]; then
   echo "boom: could not open the repository" >&2
   exit 3
 fi
 if [ "${1:-}" = "git" ] && [ -n "${STUB_FINDING_FILE:-}" ]; then
   printf '{"DetectorName":"Stub","Raw":"not-a-secret","SourceMetadata":{"Data":{"Git":{"file":"%s","commit":"0123456789abcdef"}}}}\n' "$STUB_FINDING_FILE"
+fi
+if [ "${1:-}" = "filesystem" ] && [ -n "${STUB_FS_FINDING_FILE:-}" ]; then
+  printf '{"DetectorName":"Stub","Raw":"not-a-secret","SourceMetadata":{"Data":{"Filesystem":{"file":"%s"}}}}\n' "$STUB_FS_FINDING_FILE"
 fi
 exit 0
 STUB
@@ -234,6 +238,43 @@ if [ "$status" = "1" ] && grep -q "ChirpKit/Tests/ChirpIngestTests/MediaPlatform
   pass "scan_secrets.sh does not allow a file merely named MediaPlatformTests.swift elsewhere"
 else
   fail "scan_secrets.sh allows a MediaPlatformTests.swift outside MacParakeet's paths (exit $status)"
+fi
+
+# Filesystem mode reports ABSOLUTE paths, and the main checkout holds one worktree per lane (.claude/worktrees/<name>/),
+# each with its own upstream/macparakeet copy. Run from the repository root, as AGENTS.md says to before every push, the
+# scan must allow MacParakeet's test in all of them (it printed about 49 false findings without this) and still flag any
+# other file. The finding paths below are built from the logical path the shell reports ($PWD), like trufflehog's.
+worktree="$repo/.claude/worktrees/lane-x"
+mirror_test="upstream/macparakeet/Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift"
+status=$(scan_in "$repo" STUB_FS_FINDING_FILE="$repo/$mirror_test")
+if [ "$status" = "0" ]; then
+  pass "scan_secrets.sh allows MacParakeet's test at its upstream path when the filesystem scan reports it absolutely"
+else
+  fail "scan_secrets.sh flags MacParakeet's test at its upstream path in filesystem mode (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FS_FINDING_FILE="$worktree/$mirror_test")
+if [ "$status" = "0" ]; then
+  pass "scan_secrets.sh allows MacParakeet's test inside a lane worktree under .claude/worktrees"
+else
+  fail "scan_secrets.sh flags MacParakeet's test inside a lane worktree (exit $status): $(grep -m1 MediaPlatformTests "$SANDBOX/out" | cut -c1-160)"
+fi
+status=$(scan_in "$repo" STUB_FS_FINDING_FILE="$worktree/Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift")
+if [ "$status" = "0" ]; then
+  pass "scan_secrets.sh allows MacParakeet's test at its pre-mirror path inside a lane worktree"
+else
+  fail "scan_secrets.sh flags MacParakeet's test at its pre-mirror path inside a lane worktree (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FS_FINDING_FILE="$worktree/ChirpKit/Tests/ChirpIngestTests/MediaPlatformTests.swift")
+if [ "$status" = "1" ] && grep -q ".claude/worktrees/lane-x/ChirpKit/Tests/ChirpIngestTests/MediaPlatformTests.swift" "$SANDBOX/out"; then
+  pass "scan_secrets.sh still flags any other file inside a lane worktree"
+else
+  fail "scan_secrets.sh allows another MediaPlatformTests.swift inside a lane worktree (exit $status)"
+fi
+status=$(scan_in "$repo" STUB_FS_FINDING_FILE="$repo/notes/.claude/worktrees/lane-x/$mirror_test")
+if [ "$status" = "1" ]; then
+  pass "scan_secrets.sh strips .claude/worktrees/<name>/ only at the start of the path"
+else
+  fail "scan_secrets.sh allows a MediaPlatformTests.swift under notes/.claude/worktrees (exit $status)"
 fi
 
 # 6. stamp_build_identity.sh (R8-24): the app and its widget extension get the same build date and CFBundleVersion even

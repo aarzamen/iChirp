@@ -46,21 +46,37 @@ scan tree filesystem "$PWD" --exclude-paths="$TMP/exclude.txt"
 
 # Known false positive: MacParakeet's URL-parsing test uses a user:password placeholder URL. Allowed only at the two
 # paths that file has ever had (inside the read-only upstream mirror, and at the repo root before the mirror existed),
-# not "anywhere a file has that name".
+# not "anywhere a file has that name". The working-tree pass also walks every lane worktree under .claude/worktrees (on
+# purpose: that is where unmerged work lives), and each holds its own copy of the file, so the same two paths count
+# inside `.claude/worktrees/<name>/` too (the documented run from the repo root printed ~49 false findings without it).
 FINDINGS=$(python3 - "$TMP/git.json" "$TMP/tree.json" <<'PY'
-import json, os, sys
-root = os.getcwd()
+import json, os, re, sys
+# trufflehog's filesystem mode reports absolute paths as it was given them (`$PWD`, which may go through a symlink such as
+# /var -> /private/var), while Python's cwd is the resolved path: try each spelling of the repository root.
+roots = [os.getcwd(), os.path.realpath("."), os.environ.get("PWD", "")]
+worktree_prefix = re.compile(r"^\.claude/worktrees/[^/]+/")
 allow = {
     "upstream/macparakeet/Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift",
     "Tests/MacParakeetTests/Utilities/MediaPlatformTests.swift",
 }
+
+
+def relative_to_repo(where):
+    if os.path.isabs(where):
+        for root in roots:
+            if root and where.startswith(root.rstrip("/") + "/"):
+                where = os.path.relpath(where, root)
+                break
+    return where
+
+
 seen = set()
 for path in sys.argv[1:]:
     for line in open(path):
         d = json.loads(line)
         data = d.get("SourceMetadata", {}).get("Data", {})
         where = data.get("Git", {}).get("file") or data.get("Filesystem", {}).get("file") or "?"
-        relative = os.path.relpath(where, root) if os.path.isabs(where) else where
+        relative = worktree_prefix.sub("", relative_to_repo(where), count=1)
         if relative in allow:
             continue
         raw = d.get("Raw", "")
