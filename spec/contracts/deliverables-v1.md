@@ -89,8 +89,9 @@ database and every screen that lists or edits documents.
   version row on the phone; it is never logged and never in the ledger. Restore appends the chosen text as a
   `restore` version (no model). The call is sent with the class it is allowed under at that moment (review R4-12).
   When the screen holds an unsaved draft, the edit rewrites that draft (`baseText`, review R5-9): once the edit
-  succeeds the draft is saved first (`updateDeliverableText`, so the append keeps it as a `handEdit` version) and the
-  rewrite becomes the next version; a failed edit stores nothing.
+  succeeds the draft is appended as a `handEdit` version (with no engine provenance; the append first keeps the stored
+  text, as the `original` with the model's provenance on a document without versions) and the rewrite becomes the
+  next version; a failed edit stores nothing.
 
 ### Cut off at the length limit (plan 024 Task 8, reviews R3-1 and R4-2; migration `v10-deliverable-cut-off`)
 
@@ -122,7 +123,8 @@ database and every screen that lists or edits documents.
   newest first (`createdAt`, then id): there is no limit anywhere, so no document can become unreachable.
   `observeDeliverableSummaries()` emits the same list now and after every change to `deliverables` (a new document,
   an edit, a new version, a raised class, a delete, a transcript's cascade).
-- A `DeliverableSummary` carries everything but the full text: `textStart` is the first 320 characters. The same
+- A `DeliverableSummary` carries everything but the full text: `textStart` is the first 320 characters, and
+  `isCutOff` (plan 024 Task 8) lets a list mark a document the model stopped at its length limit. The same
   fallbacks as a full read apply (an unknown class reads `clinical`, an unknown locality `cloud`); a row that cannot
   be read at all is skipped and logged by id only, so one bad row never empties the list.
 - `searchDeliverables(matching:)` returns the ids whose title or text contains the query, ignoring case; `%` and `_`

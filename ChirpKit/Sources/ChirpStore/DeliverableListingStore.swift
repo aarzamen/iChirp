@@ -61,7 +61,7 @@ enum DeliverableListingQueries {
             db,
             sql: """
                 SELECT id, transcriptionId, promptId, title, privacyClass, provider, locality, createdAt, updatedAt,
-                       editedAt, substr(text, 1, ?)
+                       editedAt, substr(text, 1, ?), isCutOff
                 FROM deliverables
                 ORDER BY createdAt DESC, id
                 """,
@@ -100,7 +100,8 @@ enum DeliverableListingQueries {
             locality: EngineLocality(rawValue: locality) ?? .cloud,
             createdAt: createdAt, updatedAt: updatedAt,
             editedAt: Date.fromDatabaseValue(row[9] as DatabaseValue),
-            textStart: String.fromDatabaseValue(row[10] as DatabaseValue) ?? "")
+            textStart: String.fromDatabaseValue(row[10] as DatabaseValue) ?? "",
+            isCutOff: Bool.fromDatabaseValue(row[11] as DatabaseValue) ?? false)
     }
 
     /// Ids of documents whose title or text contains `needle`, ignoring case. An ASCII query uses SQLite's `LIKE`

@@ -880,7 +880,8 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   must implement it, `versionsUnavailable` otherwise) as the next version. Ledger feature `edit`; the instruction is
   never logged or in the ledger. `DeliverableRunViewModel.Request.edit` drives it for a screen. Review R5-9 (service
   side): `edit(…, baseText:)` / `Request.edit(…, baseText:)` edit the screen's unsaved draft; after a successful edit
-  the draft is saved first (kept as a hand-edit version) and the rewrite becomes the next version, and
+  the draft is appended as a `handEdit` version (after the stored text, which stays the `original` on a document
+  without versions) and the rewrite becomes the next version, and
   `DeliverableDocumentViewModel.applyEdit(_:)` shows the result instead of the stale draft (the screen half is Task 10).
   `Create/SpokenInstructionRecorder.swift`: hold to speak; the dictation path's final pass (`.dictation` slot and
   purpose, Clean with custom words) on a temporary WAV that is deleted after; no row, no clipboard, on-device engines

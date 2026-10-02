@@ -776,8 +776,9 @@ public actor DeliverableService {
     /// that does not fit fails with `documentTooLongToEdit` before anything is sent.
     ///
     /// - Parameter baseText: the text to edit when the screen holds an unsaved draft of the document (review R5-9):
-    ///   the model rewrites that draft, and once the edit succeeds the draft is saved first (so it is kept as the
-    ///   person's own version) and the rewrite becomes the next version. Nil edits the stored text.
+    ///   the model rewrites that draft, and once the edit succeeds the draft is appended as the person's own
+    ///   `handEdit` version (after the stored text, which a document without versions keeps as its `original`), then
+    ///   the rewrite becomes the next version. A failed edit stores nothing. Nil edits the stored text.
     public nonisolated func edit(
         deliverableID: UUID,
         instruction: String,
@@ -874,12 +875,17 @@ public actor DeliverableService {
             let text = DeliverablePromptAssembler.unwrappedEdit(written)
             guard !text.isEmpty else { throw DeliverableError.emptyResult }
             let storedClass = try await currentClass(of: route, seen: metrics.raisedClass)
-            // Review R5-9: the person's draft is theirs: it is saved (and so kept as a version) before the rewrite
-            // replaces it, never dropped.
+            // Review R5-9: the person's draft is theirs: it is appended as their own `handEdit` version before the
+            // rewrite replaces it, never dropped. The append keeps the stored text first (as the `original`, with the
+            // model's provenance, on a document that has no versions yet), so nothing earlier is lost or relabeled.
             if let baseText, baseText != document.text {
-                guard try await deliverables.updateDeliverableText(id: deliverableID, text: baseText) != nil else {
-                    throw DeliverableError.documentNotFound
-                }
+                guard
+                    try await versionStore.appendDeliverableVersion(
+                        DeliverableVersionDraft(
+                            text: baseText, origin: .handEdit, privacyClass: storedClass, createdAt: now(),
+                            isCutOff: document.isCutOff),
+                        deliverableID: deliverableID) != nil
+                else { throw DeliverableError.documentNotFound }
             }
             if metrics.cutOff {
                 logger.notice("run_cut_off run=\(runID, privacy: .public) feature=edit")

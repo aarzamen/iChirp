@@ -239,8 +239,11 @@ actor FakeDeliverableStore: DeliverableStoring {
             list.append(
                 DeliverableVersion(
                     deliverableID: deliverableID, versionNumber: next, text: document.text,
-                    origin: list.isEmpty ? .original : .handEdit, privacyClass: document.privacyClass,
-                    isCutOff: document.isCutOff))
+                    origin: list.isEmpty ? .original : .handEdit,
+                    // As the store: the original keeps the model's provenance; a kept hand edit has none.
+                    engineID: list.isEmpty ? document.engineID : nil, provider: list.isEmpty ? document.provider : nil,
+                    model: list.isEmpty ? document.model : nil, locality: list.isEmpty ? document.locality : nil,
+                    privacyClass: document.privacyClass, isCutOff: document.isCutOff))
             next += 1
         }
         let raised = document.privacyClass.stricter(draft.privacyClass)

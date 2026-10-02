@@ -288,13 +288,49 @@ final class DeliverableCutOffAndLedgerTests: XCTestCase {
 
         XCTAssertTrue(model.everythingReceived.contains("Plus the person's unsaved line."), "the draft was edited")
         let versions = try await harness.deliverables.fetchDeliverableVersions(deliverableID: document.id)
+        // Fix round 1: the model's text stays version 1 with its provenance; the draft is the person's hand edit.
         XCTAssertEqual(
             versions.map(\.text),
-            ["Generated document. Plus the person's unsaved line.", "A shorter version of the draft."],
-            "the draft is kept as the person's version before the rewrite")
+            [
+                "Generated document.", "Generated document. Plus the person's unsaved line.",
+                "A shorter version of the draft.",
+            ])
+        XCTAssertEqual(versions.map(\.origin), [.original, .handEdit, .spokenEdit])
+        XCTAssertEqual(versions[0].engineID, document.engineID, "the original keeps the model's provenance")
+        XCTAssertEqual(versions[0].provider, document.provider)
+        XCTAssertNil(versions[1].engineID, "the draft is the person's, not the model's")
+        XCTAssertNil(versions[1].instruction)
         screen.applyEdit(edited)
         XCTAssertEqual(screen.draft, "A shorter version of the draft.", "the result is shown, not hidden by the draft")
         XCTAssertFalse(screen.hasUnsavedChanges)
+    }
+
+    /// A document that already has versions: the draft is appended as a hand edit after them, nothing earlier changes.
+    func testAnEditOfADraftAfterEarlierVersionsAppendsTheDraftThenTheRewrite() async throws {
+        let harness = try await DeliverableHarness(privacy: .personal)
+        let document = try completed(try await harness.run(model: Destination.onDevice.makeModel()))
+        let first = Destination.onDevice.makeModel()
+        first.script([.text("Version two.")])
+        for try await _ in harness.service.edit(
+            deliverableID: document.id, instruction: "Shorter", spoken: false, model: first)
+        {}
+        let before = try await harness.deliverables.fetchDeliverableVersions(deliverableID: document.id)
+        XCTAssertEqual(before.map(\.text), ["Generated document.", "Version two."])
+
+        let second = Destination.onDevice.makeModel()
+        second.script([.text("Version four.")])
+        for try await _ in harness.service.edit(
+            deliverableID: document.id, instruction: "Tighten", spoken: true, model: second,
+            baseText: "Version two, with the person's line.")
+        {}
+        let after = try await harness.deliverables.fetchDeliverableVersions(deliverableID: document.id)
+        XCTAssertEqual(
+            after.map(\.text),
+            ["Generated document.", "Version two.", "Version two, with the person's line.", "Version four."])
+        XCTAssertEqual(after.map(\.origin), [.original, .typedEdit, .handEdit, .spokenEdit])
+        XCTAssertEqual(Array(after.prefix(2)), before, "earlier versions never change")
+        let stored = try await harness.deliverables.fetchDeliverable(id: document.id)
+        XCTAssertEqual(stored?.text, "Version four.")
     }
 
     func testAFailedEditOfADraftSavesNothing() async throws {

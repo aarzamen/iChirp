@@ -23,6 +23,9 @@ public struct DeliverableSummary: Sendable, Equatable, Identifiable {
     public var editedAt: Date?
     /// The first `textStartLength` characters of the text, as stored.
     public var textStart: String
+    /// The model stopped at its length limit while writing the current text (`Deliverable.isCutOff`, plan 024 Task 8),
+    /// so a list can mark the document incomplete.
+    public var isCutOff: Bool
 
     /// The start of the text on one line, without Markdown markers (`snippet(from:)`). Folded when a row asks, so a
     /// list of thousands never folds the ones it does not show.
@@ -39,7 +42,8 @@ public struct DeliverableSummary: Sendable, Equatable, Identifiable {
         createdAt: Date,
         updatedAt: Date,
         editedAt: Date?,
-        textStart: String
+        textStart: String,
+        isCutOff: Bool = false
     ) {
         self.id = id
         self.transcriptionID = transcriptionID
@@ -52,6 +56,7 @@ public struct DeliverableSummary: Sendable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.editedAt = editedAt
         self.textStart = String(textStart.prefix(Self.textStartLength))
+        self.isCutOff = isCutOff
     }
 
     /// A full document's summary.
@@ -60,7 +65,7 @@ public struct DeliverableSummary: Sendable, Equatable, Identifiable {
             id: deliverable.id, transcriptionID: deliverable.transcriptionID, promptID: deliverable.promptID,
             title: deliverable.title, privacyClass: deliverable.privacyClass, provider: deliverable.provider,
             locality: deliverable.locality, createdAt: deliverable.createdAt, updatedAt: deliverable.updatedAt,
-            editedAt: deliverable.editedAt, textStart: deliverable.text)
+            editedAt: deliverable.editedAt, textStart: deliverable.text, isCutOff: deliverable.isCutOff)
     }
 
     /// One line from the start of a document: heading marks, list bullets, quote marks and emphasis markers (`**`,
