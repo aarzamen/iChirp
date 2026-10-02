@@ -87,8 +87,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   Contract: `spec/contracts/speech-synthesis-plugin-v1.md`; conformers arrive in plan 020.
 - `Engines/LanguageModel.swift`: the M4 text-generation contract (`LanguageModel` with `endpointHost`,
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
-  `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
-  `ChirpEngineHTTPLLM`. Contract: `spec/contracts/language-model-plugin-v1.md`.
+  `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). `GenerationStopReason` and
+  `GenerationUsage.isLengthCapped` say, the same way for every provider, that a finished stream was cut off at a
+  length limit and is not a whole document (review R3-1). Conformers: `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM`,
+  `ChirpEngineLlamaCpp`. Contract: `spec/contracts/language-model-plugin-v1.md`.
 - `Engines/DecisionModel.swift` (M6a): the typed-decision contract (`DecisionModel` with `endpointHost`,
   `availability()` and `decide`; `DecisionQuestion` with 2…250 options and `validate()`, `DecisionState`,
   `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionRequestError`). Reuses `LanguageModelAvailability`

@@ -51,14 +51,19 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
                         }
                         if sawDone { break }
                     }
+                    if let refusal = LLMHTTPStopReason.refusal(stopReason) { throw refusal }
                     // Strict hosts (OpenAI, OpenRouter) must send `[DONE]`; lenient servers may just close.
                     try LLMHTTPStreamCompletionPolicy.validateStreamCompletion(
                         settings: settings, sawSentinel: sawDone, yieldedAnyContent: yieldedAnyContent)
+                    // `length` reaches the consumer as a length-capped usage (review R3-1).
+                    let reason = LLMHTTPStopReason.resolved(
+                        stopReason, completionTokens: usage?.completion_tokens,
+                        maxOutputTokens: request.maxOutputTokens)
                     continuation.yield(
                         .usage(
                             GenerationUsage(
                                 promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens,
-                                model: model, stopReason: stopReason)))
+                                model: model, stopReason: reason)))
                     continuation.yield(.finished)
                     continuation.finish()
                 } catch {
@@ -237,6 +242,18 @@ struct OpenAIStreamChunk: Decodable {
     let model: String?
     let choices: [StreamChoice]
     let usage: StreamUsage?
+
+    private enum CodingKeys: String, CodingKey {
+        case model, choices, usage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        // A usage-only final chunk may carry no `choices` at all; its usage still counts (review R3-1).
+        choices = try container.decodeIfPresent([StreamChoice].self, forKey: .choices) ?? []
+        usage = try container.decodeIfPresent(StreamUsage.self, forKey: .usage)
+    }
 
     struct StreamChoice: Decodable {
         let delta: StreamDelta?

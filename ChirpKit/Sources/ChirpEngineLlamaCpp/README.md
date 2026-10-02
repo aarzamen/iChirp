@@ -40,7 +40,8 @@ and without the runtime the models say "not in this build".
   so Retry loads a fresh context (review I1); each run ends with one confirming decode of its last token, because
   llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
-  generation, `maxOutputTokens` or a full window (`stopReason` "length"; for a **clinical** request that is an error,
+  generation, `maxOutputTokens` or a full window (`stopReason` "length", which ChirpCore reads as
+  `GenerationUsage.isLengthCapped`: not a whole document, review R3-1; for a **clinical** request it is an error,
   not a document, review minor 8: `looksRepetitive` checks the last ~600 characters for a short repeated unit and
   names the loop only when it finds one, otherwise it says plainly that the draft hit the model's length limit — a
   rewrite-style template on a long dictation can reach that honestly, with nothing to repeat, review N3); run

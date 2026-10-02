@@ -57,6 +57,17 @@ is recorded as `GenerationUsage.model`, a catalog id such as `qwen3.5-2b-q4_k_m`
   exactly once. Anything else (a throw, or an end without `.finished`) is not a document. EOF without a provider's
   completion marker (Anthropic `message_stop`; OpenAI and OpenRouter `[DONE]`) and a stream with no text are
   `streamingError`.
+- **Why it stopped (review R3-1).** A finished stream's `.usage` carries the provider's own stop word in
+  `GenerationUsage.stopReason`; ChirpCore reads it the same way for every engine (`normalizedStopReason`,
+  `GenerationStopReason`). `isLengthCapped` is true when the text was cut off at a length limit: Anthropic
+  `max_tokens` or `model_context_window_exceeded`; OpenAI-compatible, Ollama and llama.cpp `length`; and an HTTP
+  provider that sent no word but used the whole `maxOutputTokens` allowance (reported as `length`). Such a stream
+  still ends with `.finished`, but its text is **not a whole document**: a consumer must not store it as finished.
+  Engines without a provider word report `stop` or `length` themselves. A clinical llama.cpp draft cut off at the
+  limit throws instead (review minor 8). Apple's model is never given `maximumResponseTokens`, because
+  FoundationModels ends a capped answer early with no error and no signal: its answer is bounded by the context
+  window, and one that outgrows it throws `contextTooLong`. A provider's safety stop part-way through an answer
+  (Anthropic `refusal`, OpenAI `content_filter`) throws `refused`.
 - Cancellation (the consumer stops iterating or its task is cancelled) cancels the request promptly and surfaces as
   `CancellationError`.
 - Errors are `LanguageModelError`. `kindName` is the only error text that may be logged or stored; associated
@@ -100,13 +111,18 @@ migrate every conformer and fake in the same change.
 
 - `LanguageModelProviderTests` (ChirpCoreTests): local-host rules, derived locality, trust ignored for cloud hosts,
   validation, no key in the encoded configuration, stable engine ids, `SecretValue` redaction.
+- `LanguageModelContractTests` (ChirpCoreTests): every provider stop word normalizes the same way, and a length or
+  context-window stop is `isLengthCapped`.
 - `HTTPLanguageModelTests` (ChirpEngineHTTPLLMTests): request shapes and headers per provider, SSE / NDJSON
   parsing, usage, sentinel truncation errors, empty-stream error, mid-stream and HTTP error mapping, key scrubbing,
   `max_completion_tokens` policy, Ollama `num_ctx` equals the budgeted window,
   `testRedirectsAreRefusedAndNothingIsForwarded`, `testCloudProviderWithoutKeyIsUnavailableAndSendsNothing`,
-  `testModelDescriptionNeverShowsTheKey`, `testTestConnectionSendsNoUserContent`.
+  `testModelDescriptionNeverShowsTheKey`, `testTestConnectionSendsNoUserContent`; review R3-1: a length stop per
+  provider (`max_tokens`, `model_context_window_exceeded`, `length`) is `isLengthCapped`, a missing stop word with the
+  whole allowance used reads `length`, and `refusal` / `content_filter` throw `refused`.
 - `AppleFoundationLanguageModelTests` (ChirpEngineAppleFMTests): descriptor, availability mapping, error mapping
-  without framework text, snapshot deltas; opt-in real run with `CHIRP_LLM_TESTS=1`.
+  without framework text, snapshot deltas, no `maximumResponseTokens` for any request (review R3-1); opt-in real run
+  with `CHIRP_LLM_TESTS=1`.
 - `LlamaCppLanguageModelTests`, `LlamaCppModelAssetsTests`, `LlamaCppModelCatalogTests` (ChirpEngineLlamaCppTests):
   descriptor and routing, stream order, UTF-8 across tokens, think-block filter, `contextTooLong` before decoding,
   `maxOutputTokens`, content never parsed as special tokens, cancellation, not downloaded / not in build / memory /

@@ -156,6 +156,29 @@ enum LLMHTTPStreamCompletionPolicy {
     }
 }
 
+/// How a finished stream says why it stopped (review R3-1). Every adapter reports the provider's own word in
+/// `GenerationUsage.stopReason`; ChirpCore normalizes it (`isLengthCapped`) for the consumer.
+enum LLMHTTPStopReason {
+    /// The provider's word; when it sent none, "length" if the answer used the whole allowance the request asked for
+    /// (an older Ollama without `done_reason`, a server that drops `finish_reason`), otherwise nil (unknown).
+    static func resolved(_ reported: String?, completionTokens: Int?, maxOutputTokens: Int?) -> String? {
+        if let reported, !reported.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return reported }
+        guard let completionTokens, let maxOutputTokens, maxOutputTokens > 0, completionTokens >= maxOutputTokens
+        else { return nil }
+        return "length"
+    }
+
+    /// A safety system stopped the answer part-way (Anthropic `refusal`, OpenAI `content_filter`): what streamed is
+    /// not a document, so the stream fails with `refused` instead of finishing.
+    static func refusal(_ reported: String?) -> LanguageModelError? {
+        switch reported?.lowercased() {
+        case "refusal": .refused("the provider's safety system stopped this answer.")
+        case "content_filter": .refused("the provider's content filter stopped this answer.")
+        default: nil
+        }
+    }
+}
+
 // MARK: - Shared wire types
 
 struct OpenAIErrorResponse: Decodable {

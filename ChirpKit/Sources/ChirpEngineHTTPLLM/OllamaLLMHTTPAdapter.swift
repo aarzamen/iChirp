@@ -51,11 +51,16 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
                     }
                     try LLMHTTPStreamCompletionPolicy.validateStreamCompletion(
                         settings: settings, sawSentinel: sawDone, yieldedAnyContent: yieldedAnyContent)
+                    // `done_reason: "length"` (the `num_predict` cap) reaches the consumer as a length-capped usage
+                    // (review R3-1).
+                    let reason = LLMHTTPStopReason.resolved(
+                        lastChunk?.done_reason, completionTokens: lastChunk?.eval_count,
+                        maxOutputTokens: request.maxOutputTokens)
                     continuation.yield(
                         .usage(
                             GenerationUsage(
                                 promptTokens: lastChunk?.prompt_eval_count, completionTokens: lastChunk?.eval_count,
-                                model: lastChunk?.model, stopReason: lastChunk?.done_reason)))
+                                model: lastChunk?.model, stopReason: reason)))
                     continuation.yield(.finished)
                     continuation.finish()
                 } catch {

@@ -69,6 +69,7 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         XCTAssertEqual(result.usage?.completionTokens, 3)
         XCTAssertEqual(result.usage?.model, "test-model")
         XCTAssertEqual(result.usage?.stopReason, "stop")
+        XCTAssertEqual(result.usage?.normalizedStopReason, .completed)
         XCTAssertGreaterThan(result.usage?.promptTokens ?? 0, 0)
         XCTAssertEqual(loader.log.resets, 1, "each request starts from an empty cache")
     }
@@ -113,6 +114,10 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         XCTAssertNil(result.error)
         XCTAssertEqual(result.usage?.completionTokens, 5)
         XCTAssertEqual(result.usage?.stopReason, "length")
+        // Review R3-1: a personal draft cut off at the limit still streams `.finished`, but its usage says the text is
+        // not a whole document (a clinical one fails instead, below).
+        XCTAssertEqual(result.usage?.normalizedStopReason, .outputLimit)
+        XCTAssertEqual(result.usage?.isLengthCapped, true)
         XCTAssertTrue(result.finished)
     }
 

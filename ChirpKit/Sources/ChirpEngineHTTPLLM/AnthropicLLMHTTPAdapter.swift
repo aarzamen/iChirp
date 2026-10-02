@@ -59,13 +59,19 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
                                 completionTokens = usage["output_tokens"] as? Int ?? completionTokens
                             }
                         case "message_stop":
+                            if let refusal = LLMHTTPStopReason.refusal(stopReason) { throw refusal }
                             try LLMHTTPStreamCompletionPolicy.validateStreamCompletion(
                                 settings: settings, sawSentinel: true, yieldedAnyContent: yieldedAnyContent)
+                            // `max_tokens` / `model_context_window_exceeded` reach the consumer as a length-capped
+                            // usage (review R3-1): the stream finished, the document did not.
+                            let reason = LLMHTTPStopReason.resolved(
+                                stopReason, completionTokens: completionTokens,
+                                maxOutputTokens: request.maxOutputTokens ?? Self.defaultMaxTokens)
                             continuation.yield(
                                 .usage(
                                     GenerationUsage(
                                         promptTokens: promptTokens, completionTokens: completionTokens, model: model,
-                                        stopReason: stopReason)))
+                                        stopReason: reason)))
                             continuation.yield(.finished)
                             continuation.finish()
                             return

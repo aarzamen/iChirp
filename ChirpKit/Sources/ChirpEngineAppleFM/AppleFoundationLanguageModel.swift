@@ -50,8 +50,7 @@ public struct AppleFoundationLanguageModel: LanguageModel {
                     }
                     let instructions = request.system.flatMap { $0.isEmpty ? nil : $0 }
                     let session = LanguageModelSession(model: model, instructions: instructions)
-                    let options = GenerationOptions(maximumResponseTokens: request.maxOutputTokens)
-                    let stream = session.streamResponse(to: request.prompt, options: options)
+                    let stream = session.streamResponse(to: request.prompt, options: Self.options(for: request))
 
                     // Snapshots carry the whole text so far; forward only what is new.
                     var emitted = ""
@@ -66,7 +65,7 @@ public struct AppleFoundationLanguageModel: LanguageModel {
                     guard !emitted.isEmpty else {
                         throw LanguageModelError.streamingError("the on-device model returned no text")
                     }
-                    continuation.yield(.usage(GenerationUsage(model: "apple-on-device")))
+                    continuation.yield(.usage(Self.finishedUsage))
                     continuation.yield(.finished)
                     continuation.finish()
                 } catch {
@@ -76,6 +75,20 @@ public struct AppleFoundationLanguageModel: LanguageModel {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    // MARK: - Options (internal for tests)
+
+    /// The options for one request. `maximumResponseTokens` is never set (review R3-1): FoundationModels ends a
+    /// response at that cap early with no error and no signal (Apple's documentation), so a cut-off answer would pass
+    /// as finished. Uncapped, the answer is bounded by the context window, and one that outgrows it throws
+    /// `exceededContextWindowSize` (`contextTooLong`: the planner re-plans with smaller parts). So here
+    /// `request.maxOutputTokens` is the planner's estimate, not a cap.
+    static func options(for request: GenerationRequest) -> GenerationOptions {
+        GenerationOptions()
+    }
+
+    /// What a finished stream reports. Apple gives no stop word; uncapped, a response that finishes ended on its own.
+    static let finishedUsage = GenerationUsage(model: "apple-on-device", stopReason: "stop")
 
     // MARK: - Mapping (internal for tests)
 

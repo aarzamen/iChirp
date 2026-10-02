@@ -35,6 +35,10 @@ final class HTTPLanguageModelTests: XCTestCase {
         events.compactMap { if case .text(let text) = $0 { text } else { nil } }.joined()
     }
 
+    private func usage(_ events: [GenerationEvent]) -> GenerationUsage? {
+        events.lazy.compactMap { if case .usage(let usage) = $0 { usage } else { nil } }.first
+    }
+
     private func expectError(
         _ stream: AsyncThrowingStream<GenerationEvent, Error>,
         file: StaticString = #filePath,
@@ -328,6 +332,147 @@ final class HTTPLanguageModelTests: XCTestCase {
         XCTAssertEqual(json["max_tokens"] as? Int, 1)
         XCTAssertEqual(json["stream"] as? Bool, false)
         XCTAssertEqual((json["messages"] as? [[String: String]])?.first?["content"], "Hi")
+    }
+
+    // MARK: - Review R3-1: an answer cut off at the output limit says so
+
+    func testAnthropicMaxTokensStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"message_start","message":{"model":"claude-test-1","usage":{"input_tokens":42,"output_tokens":1}}}"#,
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Plan: amoxicillin 500"}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":256}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "max_tokens", "the provider's word is kept")
+        XCTAssertEqual(usage.normalizedStopReason, .outputLimit)
+        XCTAssertTrue(usage.isLengthCapped, "cut off at max_tokens: not a whole document")
+        XCTAssertEqual(events.last, .finished)
+    }
+
+    func testAnthropicContextWindowStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Assessment:"}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"model_context_window_exceeded"}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.normalizedStopReason, .contextWindowFull)
+        XCTAssertTrue(usage.isLengthCapped)
+    }
+
+    func testAnthropicRefusalStopIsARefusalNotADocument() async {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Synthetic part"}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"refusal"}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        let error = await expectError(engine.generate(request))
+        guard case .refused = error as? LanguageModelError else {
+            return XCTFail("expected refused, got \(String(describing: error))")
+        }
+    }
+
+    func testOpenAICompatibleLengthStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"qwen","choices":[{"delta":{"content":"Plan: amoxicillin 500"}}]}"#,
+                #"data: {"model":"qwen","choices":[{"delta":{},"finish_reason":"length"}]}"#,
+                "data: [DONE]",
+            ])
+        }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length")
+        XCTAssertTrue(usage.isLengthCapped)
+        XCTAssertEqual(events.last, .finished)
+    }
+
+    func testOpenAICompatibleWithNoFinishReasonButTheWholeAllowanceUsedIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"qwen","choices":[{"delta":{"content":"Plan: amoxicillin 500"}}]}"#,
+                #"data: {"model":"qwen","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":256}}"#,
+            ])
+        }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length", "no finish_reason, but all 256 requested tokens were used")
+        XCTAssertTrue(usage.isLengthCapped)
+    }
+
+    func testOpenAIContentFilterStopIsARefusalNotADocument() async {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"gpt-4o","choices":[{"delta":{"content":"Synthetic part"}}]}"#,
+                #"data: {"model":"gpt-4o","choices":[{"delta":{},"finish_reason":"content_filter"}]}"#,
+                "data: [DONE]",
+            ])
+        }
+        let engine = model(.openAICompatible, "https://api.openai.com/v1", modelName: "gpt-4o", key: key)
+        let error = await expectError(engine.generate(request))
+        guard case .refused = error as? LanguageModelError else {
+            return XCTFail("expected refused, got \(String(describing: error))")
+        }
+    }
+
+    func testOllamaLengthStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines(
+                [
+                    #"{"model":"llama3.1:8b","message":{"role":"assistant","content":"Plan: amoxicillin 500"},"done":false}"#,
+                    #"{"model":"llama3.1:8b","message":{"role":"assistant","content":""},"done":true,"done_reason":"length","prompt_eval_count":30,"eval_count":256}"#,
+                ], contentType: "application/x-ndjson")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length")
+        XCTAssertTrue(usage.isLengthCapped)
+        XCTAssertEqual(events.last, .finished)
+    }
+
+    func testOllamaWithNoDoneReasonButTheWholeAllowanceUsedIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines(
+                [
+                    #"{"model":"llama3.1:8b","message":{"content":"Plan: amoxicillin 500"},"done":false}"#,
+                    #"{"model":"llama3.1:8b","message":{"content":""},"done":true,"eval_count":256}"#,
+                ], contentType: "application/x-ndjson")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length", "an older Ollama without done_reason that used all 256 tokens")
+        XCTAssertTrue(usage.isLengthCapped)
+    }
+
+    func testAProviderThatSaysItStoppedNaturallyIsBelievedEvenAtTheAllowance() async throws {
+        StubURLProtocol.reset { _ in
+            .lines(
+                [
+                    #"{"model":"llama3.1:8b","message":{"content":"Heron notes."},"done":false}"#,
+                    #"{"model":"llama3.1:8b","message":{"content":""},"done":true,"done_reason":"stop","eval_count":256}"#,
+                ], contentType: "application/x-ndjson")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.normalizedStopReason, .completed)
+        XCTAssertFalse(usage.isLengthCapped)
     }
 
     // MARK: Pure parsing

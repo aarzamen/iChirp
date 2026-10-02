@@ -24,8 +24,9 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
   redirect (the 3xx becomes `LanguageModelError.redirectRefused`); error mapping that keeps cancellation as
   `CancellationError`.
 - `LLMHTTPErrorMapper.swift`: HTTP status and mid-stream error mapping onto `LanguageModelError`, API-key scrubbing
-  of provider messages, context-overflow detection, and the stream-sentinel policy (Anthropic `message_stop` and
-  OpenAI/OpenRouter `[DONE]` are required; EOF without them is a truncation error).
+  of provider messages, context-overflow detection, the stream-sentinel policy (Anthropic `message_stop` and
+  OpenAI/OpenRouter `[DONE]` are required; EOF without them is a truncation error) and `LLMHTTPStopReason` (review
+  R3-1): the stop word a finished stream reports, and the safety stops that fail it.
 - `AnthropicLLMHTTPAdapter.swift`, `OpenAICompatibleLLMHTTPAdapter.swift`, `OllamaLLMHTTPAdapter.swift`: request
   bodies and SSE / NDJSON stream parsing for each wire protocol.
 
@@ -36,6 +37,11 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
 - **`num_ctx` equals the budgeted window.** Ollama silently drops the start of a prompt longer than its context.
   The engine reports `contextWindowTokens()` and sends the same number as `num_ctx`, so the planner in ChirpFeatures
   splits long input instead of Ollama truncating it. Do not remove `num_ctx`.
+- **A cut-off answer says so (review R3-1).** Every finished stream reports the provider's stop word in
+  `GenerationUsage.stopReason`: Anthropic `max_tokens` or `model_context_window_exceeded`, OpenAI-compatible and
+  Ollama `length` read as `isLengthCapped` in ChirpCore (the text is not a whole document). A provider that sends no
+  word but used the whole `maxOutputTokens` allowance reports `length`. A safety stop mid-answer (Anthropic
+  `refusal`, OpenAI `content_filter`) fails the stream with `refused` instead of finishing it.
 - **The key is a `SecretValue`.** It is revealed only when a header is written. Never log a request, its headers or
   its body; log ids, the engine id and `LanguageModelError.kindName`.
 - **Provider messages can echo the prompt.** `LanguageModelError` associated strings may be shown to the user but

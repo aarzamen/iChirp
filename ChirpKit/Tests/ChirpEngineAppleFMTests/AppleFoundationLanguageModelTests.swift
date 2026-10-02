@@ -60,6 +60,30 @@ final class AppleFoundationLanguageModelTests: XCTestCase {
         XCTAssertEqual(Model.delta(from: "Hello wor", to: "Hello there, friend"), "re, friend")
     }
 
+    // MARK: - Review R3-1: Apple's model never cuts an answer off silently
+
+    func testTheResponseIsNeverCappedSoALengthStopCannotPassAsAFinishedAnswer() {
+        // FoundationModels ends a response at `maximumResponseTokens` early with no error and no signal (Apple's
+        // documentation of `GenerationOptions.maximumResponseTokens`), so a capped answer would look finished.
+        // Uncapped, a response that outgrows the context window throws `exceededContextWindowSize` instead.
+        typealias Model = AppleFoundationLanguageModel
+        for privacyClass in PrivacyClass.allCases {
+            for maxOutputTokens in [nil, 1, 256, 1_024] {
+                let request = GenerationRequest(
+                    prompt: "Synthetic.", privacyClass: privacyClass, maxOutputTokens: maxOutputTokens)
+                XCTAssertNil(
+                    Model.options(for: request).maximumResponseTokens,
+                    "\(privacyClass) with maxOutputTokens \(String(describing: maxOutputTokens))")
+            }
+        }
+        let context = LanguageModelSession.GenerationError.Context(debugDescription: "synthetic")
+        XCTAssertEqual(
+            Model.map(LanguageModelSession.GenerationError.exceededContextWindowSize(context)) as? LanguageModelError,
+            .contextTooLong, "an answer that outgrows the window fails loudly and the planner re-plans")
+        XCTAssertEqual(Model.finishedUsage.normalizedStopReason, .completed, "a finished stream ended on its own")
+        XCTAssertFalse(Model.finishedUsage.isLengthCapped)
+    }
+
     /// Opt-in: `CHIRP_LLM_TESTS=1 swift test --package-path ChirpKit --filter AppleFoundationLanguageModelTests`.
     /// Runs Apple's model on this Mac when Apple Intelligence is on; skips otherwise.
     func testRealOnDeviceGenerationWhenAvailable() async throws {
