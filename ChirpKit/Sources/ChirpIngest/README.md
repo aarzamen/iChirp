@@ -24,8 +24,10 @@
   message.
 - `Links/YouTubeURLValidator.swift`, `Links/PodcastURLValidator.swift`: ports of upstream's validators.
 - `Links/IngestHTTPClient.swift`: small requests (lookup, feeds, captions) and `probe(_:)`, which learns a web
-  link's content type (HEAD, else a one-byte ranged GET) before anything is downloaded. `IngestNetworkError` words
-  failures for the person.
+  link's content type (HEAD, else a one-byte ranged GET) before anything is downloaded. Each request streams through
+  its own session delegate: a body over its limit (16 MB by default) is refused as soon as the declared length or the
+  bytes received pass it, and the probe reads headers only and cancels the transfer, so a server that ignores `Range`
+  and sends a whole video never fills memory. `IngestNetworkError` words failures for the person.
 - `Links/MediaDownloader.swift`: `MediaDownloading` on a `URLSession` data task. The body streams into
   `media/<id>/download.part` (with `download.part.json`: URL, ETag / Last-Modified, total), with byte progress and
   cancellation. Retry resumes with `Range` + `If-Range` when the server allows; otherwise it starts over. The finished
