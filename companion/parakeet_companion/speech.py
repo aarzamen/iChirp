@@ -19,9 +19,10 @@ import importlib.util
 import io
 import json
 import logging
+import os
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -74,20 +75,35 @@ class ModelSpec:
     needs: tuple[tuple[str, str], ...] = ()
 
 
-MODELS: tuple[ModelSpec, ...] = (
-    ModelSpec("qwen3-tts-1.7b", "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit", "qwen3", True, "3.1 GB"),
-    # The 0.6B CustomVoice model ignores style instructions (mlx-audio drops them), so its voices say so.
-    ModelSpec("qwen3-tts-0.6b", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", "qwen3", False, "2.0 GB"),
-    ModelSpec(
-        "kokoro-82m",
-        "mlx-community/Kokoro-82M-bf16",
-        "kokoro",
-        False,
-        "390 MB",
-        local_dirs=(Path.home() / "Kokoro-82M",),
-        needs=(("misaki", "uv sync --project companion --extra kokoro"),),
-    ),
-)
+#: Where an MLX copy of Kokoro-82M may already live besides the Hugging Face cache: `~/Kokoro-82M` unless this variable
+#: names another folder (`~` allowed). Read once, when the companion starts (R8-21: it was a hard-coded home path).
+KOKORO_DIR_ENV = "PARAKEET_KOKORO_DIR"
+
+
+def kokoro_folder(environ: Mapping[str, str]) -> Path:
+    configured = environ.get(KOKORO_DIR_ENV, "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / "Kokoro-82M"
+
+
+def default_models(environ: Mapping[str, str]) -> tuple[ModelSpec, ...]:
+    """The models this companion serves, with settings read from `environ`."""
+    return (
+        ModelSpec("qwen3-tts-1.7b", "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit", "qwen3", True, "3.1 GB"),
+        # The 0.6B CustomVoice model ignores style instructions (mlx-audio drops them), so its voices say so.
+        ModelSpec("qwen3-tts-0.6b", "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit", "qwen3", False, "2.0 GB"),
+        ModelSpec(
+            "kokoro-82m",
+            "mlx-community/Kokoro-82M-bf16",
+            "kokoro",
+            False,
+            "390 MB",
+            local_dirs=(kokoro_folder(environ),),
+            needs=(("misaki", "uv sync --project companion --extra kokoro"),),
+        ),
+    )
+
+
+MODELS: tuple[ModelSpec, ...] = default_models(os.environ)
 DEFAULT_MODEL = "qwen3-tts-1.7b"
 
 

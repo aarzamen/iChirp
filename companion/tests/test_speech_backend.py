@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,7 +19,14 @@ from parakeet_companion.errors import (
     UnknownModel,
     UnknownVoice,
 )
-from parakeet_companion.speech import MODELS, MLXSpeech, is_complete_model_dir
+from parakeet_companion.speech import (
+    KOKORO_DIR_ENV,
+    MODELS,
+    MLXSpeech,
+    default_models,
+    is_complete_model_dir,
+    locate_in_hf_cache,
+)
 
 
 class FakeModel:
@@ -233,3 +241,40 @@ def test_pytorch_kokoro_folder_is_not_an_mlx_model(tmp_path) -> None:
     (folder / "kokoro-v1_0.pth").write_bytes(b"x")
     (folder / "voices" / "af_heart.pt").write_bytes(b"x")
     assert not is_complete_model_dir(folder)
+
+
+# MARK: The Kokoro folder is a setting, not a hard-coded home path (review R8-21).
+
+
+def kokoro_spec(specs):
+    return next(spec for spec in specs if spec.id == "kokoro-82m")
+
+
+def test_the_kokoro_folder_defaults_to_kokoro_82m_in_the_home_folder() -> None:
+    assert kokoro_spec(default_models({})).local_dirs == (Path.home() / "Kokoro-82M",)
+    assert kokoro_spec(default_models({KOKORO_DIR_ENV: "  "})).local_dirs == (Path.home() / "Kokoro-82M",)
+
+
+def test_the_kokoro_folder_can_be_set_and_is_used_to_find_the_model(tmp_path) -> None:
+    folder = make_model_dir(tmp_path / "my-kokoro", voices=("af_heart", "bm_george"))
+    specs = default_models({KOKORO_DIR_ENV: str(folder)})
+    assert kokoro_spec(specs).local_dirs == (folder,)
+    assert locate_in_hf_cache(kokoro_spec(specs)) == folder  # found in the chosen folder, before any cache lookup
+    assert MLXSpeech(specs=specs, locate=locate_in_hf_cache, has_module=lambda name: True)._kokoro_voice_names(
+        kokoro_spec(specs)
+    ) == ["af_heart", "bm_george"]
+
+
+def test_a_tilde_in_the_kokoro_folder_setting_means_the_home_folder() -> None:
+    specs = default_models({KOKORO_DIR_ENV: "~/Models/Kokoro"})
+    assert kokoro_spec(specs).local_dirs == (Path.home() / "Models" / "Kokoro",)
+
+
+def test_the_other_models_are_the_same_whatever_the_kokoro_setting() -> None:
+    assert [spec for spec in default_models({KOKORO_DIR_ENV: "/elsewhere"}) if spec.family == "qwen3"] == [
+        spec for spec in default_models({}) if spec.family == "qwen3"
+    ]
+
+
+def test_the_models_the_companion_starts_with_come_from_the_environment() -> None:
+    assert MODELS == default_models(os.environ)

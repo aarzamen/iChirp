@@ -5,6 +5,8 @@
 #        scripts/companion.sh --port 8766                  another port
 #        scripts/companion.sh --list-models                which speech models are ready
 #        scripts/companion.sh --download qwen3-tts-1.7b    download a speech model once (Hugging Face cache)
+#        PARAKEET_KOKORO_DIR=/path/to/Kokoro-82M scripts/companion.sh   an MLX copy of Kokoro outside ~/Kokoro-82M
+# YouTube stopped working? companion/README.md → "When YouTube stops working" (update yt-dlp).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
