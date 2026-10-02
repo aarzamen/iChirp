@@ -135,21 +135,55 @@ final class ReviewFixesTask10AppTests: XCTestCase {
 
     func testSpeakingAddsToATypedInstruction() {
         XCTAssertEqual(
-            EditByVoiceSheet.instruction(typed: "Make it shorter and", previouslyHeard: nil, heard: "Add a follow-up."),
+            InstructionField.appending("Add a follow-up.", to: "Make it shorter and"),
             "Make it shorter and add a follow-up.")
         XCTAssertEqual(
-            EditByVoiceSheet.instruction(typed: "Make it shorter.", previouslyHeard: nil, heard: "Add a follow-up."),
-            "Make it shorter. Add a follow-up.")
+            InstructionField.appending("Add a follow-up.", to: "Make it shorter."), "Make it shorter. Add a follow-up.")
         XCTAssertEqual(
-            EditByVoiceSheet.instruction(typed: "Rewrite the plan and", previouslyHeard: nil, heard: "SOAP format."),
-            "Rewrite the plan and SOAP format.", "an acronym keeps its capitals")
-        XCTAssertEqual(
-            EditByVoiceSheet.instruction(typed: "  ", previouslyHeard: nil, heard: "Fix the grammar."),
-            "Fix the grammar.")
-        XCTAssertEqual(
-            EditByVoiceSheet.instruction(
-                typed: "Fix the grammar.", previouslyHeard: "Fix the grammar.", heard: "Make it shorter."),
-            "Make it shorter.", "speaking again replaces what was only heard before")
+            InstructionField.appending("SOAP format.", to: "Rewrite the plan and"), "Rewrite the plan and SOAP format.",
+            "an acronym keeps its capitals")
+        var field = InstructionField()
+        field.text = "  "
+        field.appendHeard("Fix the grammar.")
+        XCTAssertEqual(field.text, "Fix the grammar.")
+        XCTAssertTrue(field.isSpoken, "every word was heard")
+    }
+
+    /// Fix round 1 (review Important 1): a second speech used to drop the typed part, because the whole field counted as
+    /// "heard" after the first one.
+    func testTypedThenSpokenTwiceKeepsEveryWordAndIsNotMarkedSpoken() {
+        var field = InstructionField()
+        field.text = "Make it shorter"
+        field.appendHeard("add a follow-up")
+        XCTAssertEqual(field.text, "Make it shorter add a follow-up")
+        field.appendHeard("and fix the grammar")
+        XCTAssertEqual(field.text, "Make it shorter add a follow-up and fix the grammar", "the typed words stay")
+        XCTAssertTrue(field.isUnchangedSinceSpeech, "the Heard line shows")
+        XCTAssertFalse(field.isSpoken, "typed and spoken words: not recorded as a spoken edit")
+    }
+
+    func testSpokenThenEditedThenSpokenKeepsTheEditAndIsMixed() {
+        var field = InstructionField()
+        field.appendHeard("Make it shorter")
+        XCTAssertTrue(field.isSpoken)
+        field.text = "Make it much shorter"  // the person fixes a word
+        XCTAssertFalse(field.isUnchangedSinceSpeech)
+        field.appendHeard("add a follow-up")
+        XCTAssertEqual(field.text, "Make it much shorter add a follow-up", "the edit is kept")
+        XCTAssertFalse(field.isSpoken, "an edited word makes it mixed")
+    }
+
+    func testSpokenTwiceIsStillSpokenAndASuggestionIsNot() {
+        var field = InstructionField()
+        field.appendHeard("Make it shorter.")
+        field.appendHeard("Add a follow-up.")
+        XCTAssertEqual(field.text, "Make it shorter. Add a follow-up.", "a second speech adds, never replaces")
+        XCTAssertTrue(field.isSpoken)
+        field.choose("Fix the grammar")
+        XCTAssertFalse(field.isSpoken, "a suggestion chip's words were picked, not heard")
+        field.text = ""
+        field.appendHeard("Make it shorter")
+        XCTAssertTrue(field.isSpoken, "a cleared field starts over")
     }
 
     func testEditByVoiceRewritesTheDraftOnScreenAndShowsTheResult() async throws {
@@ -319,14 +353,22 @@ final class ReviewFixesTask10AppTests: XCTestCase {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         for folder in ["Settings", "Structure", "Create", "Transforms", "Ask", "Decisions"] {
             let root = repo.appendingPathComponent("App/Sources/Screens/\(folder)")
-            let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-            for file in files where file.pathExtension == "swift" {
+            // Recursive (fix round 1): a screen in a subfolder counts too.
+            let files = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+            for case let file as URL in files where file.pathExtension == "swift" {
                 let text = try String(contentsOf: file, encoding: .utf8)
                 XCTAssertNil(
                     text.range(of: #"(?m)^\s*import\s+ChirpEngine"#, options: .regularExpression),
                     "\(folder)/\(file.lastPathComponent) imports an engine target")
             }
         }
+    }
+
+    /// Fix round 1: Ask's class-specific heads-up waits for the effective class instead of first saying the stored one.
+    func testAskWaitsForTheEffectiveClassBeforeTheClinicalLine() throws {
+        let source = try Self.source("App/Sources/Screens/Ask/AskView.swift")
+        XCTAssertTrue(source.contains("if let effectiveClass {"))
+        XCTAssertFalse(source.contains("effectiveClass ?? transcription.privacyClass"))
     }
 
     // MARK: - Helpers

@@ -86,9 +86,14 @@ struct AskView: View {
                             }
                         }
                         // One heads-up for every model chooser (review R6b-8; Ask had none).
-                        ModelRunNotes(
-                            choice: choice, subject: .transcript,
-                            isClinical: (effectiveClass ?? transcription.privacyClass) == .clinical)
+                        // The class-specific line waits for the effective class (stricter when a document made
+                        // from the transcript is clinical), so it never first says the stored class.
+                        if let effectiveClass {
+                            ModelRunNotes(
+                                choice: choice, subject: .transcript, isClinical: effectiveClass == .clinical)
+                        } else if let message = environment.unavailableMessage(for: choice) {
+                            ModelUnavailableNote(message: message)
+                        }
                         intro
                         if let failure {
                             Text(failure)

@@ -72,9 +72,8 @@ struct EditByVoiceSheet: View {
     @State private var recorder: SpokenInstructionRecorder
     @State private var host: EditRunHost
     @State private var choice: LanguageModelChoice
-    @State private var instruction = ""
-    /// The text the recorder gave, to tell a spoken instruction from a typed one.
-    @State private var spokenText: String?
+    /// The instruction and where its words came from (spoken, typed or both; review R5-15).
+    @State private var field = InstructionField()
     @State private var isConfirmingCancel = false
     /// The document's class as the router uses it (raised by its transcript), for the clinical heads-up.
     @State private var effectiveClass: PrivacyClass?
@@ -257,38 +256,20 @@ struct EditByVoiceSheet: View {
 
     private func finishSpeaking() async {
         guard let text = await recorder.stop() else { return }
-        let combined = Self.instruction(typed: instruction, previouslyHeard: spokenText, heard: text)
-        instruction = combined
-        spokenText = combined
-    }
-
-    /// What the field holds after the person speaks (review R5-15): what they typed, then what was heard, so speaking
-    /// never silently replaces a typed instruction ("Make it shorter and" + "Add a follow-up." → "Make it shorter and
-    /// add a follow-up."). An empty field, or one that still holds only the last spoken instruction, takes the new one.
-    static func instruction(typed: String, previouslyHeard: String?, heard: String) -> String {
-        let kept = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        let new = heard.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !kept.isEmpty, typed != previouslyHeard else { return new }
-        guard !new.isEmpty else { return kept }
-        let endsSentence = kept.last.map { ".!?;:".contains($0) } ?? false
-        // "Add a follow-up" continues as "add a follow-up"; "I", "SOAP" and "BP" keep their capitals.
-        let firstWord = new.prefix { !$0.isWhitespace && !$0.isPunctuation }
-        let keepsCapital = firstWord.count < 2 || firstWord.dropFirst().contains(where: \.isUppercase)
-        let continued = endsSentence || keepsCapital ? new : new.prefix(1).lowercased() + new.dropFirst()
-        return kept + " " + continued
+        field.appendHeard(text)
     }
 
     private var instructionField: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel("Instruction")
-            ChirpTextField("Or type what to change", text: $instruction, axis: .vertical)
+            ChirpTextField("Or type what to change", text: $field.text, axis: .vertical)
                 .chirpFont(15.5)
                 .lineLimit(1...5)
                 .focused($fieldFocused)
                 .padding(12)
                 .background(CardBackground(radius: Tokens.Radius.s))
                 .accessibilityLabel("Instruction")
-            if spokenText != nil, spokenText == instruction {
+            if field.isUnchangedSinceSpeech {
                 Label("Heard on this iPhone. Edit it if a word is wrong.", systemImage: "waveform")
                     .chirpFont(12)
                     .foregroundStyle(Tokens.Color.secondary)
@@ -301,8 +282,7 @@ struct EditByVoiceSheet: View {
             HStack(spacing: 8) {
                 ForEach(Self.suggestions, id: \.self) { suggestion in
                     Button {
-                        instruction = suggestion
-                        spokenText = nil
+                        field.choose(suggestion)
                     } label: {
                         Text(suggestion)
                             .chirpFont(13, .semibold)
@@ -357,7 +337,7 @@ struct EditByVoiceSheet: View {
                     .foregroundStyle(Tokens.Color.ink)
             }
             .accessibilityElement(children: .combine)
-            Text("“\(instruction)”")
+            Text("“\(field.text)”")
                 .chirpFont(13.5)
                 .italic()
                 .foregroundStyle(Tokens.Color.secondary)
@@ -412,7 +392,7 @@ struct EditByVoiceSheet: View {
 
     /// Closing now would drop a rewrite in progress or an instruction typed or heard.
     private var hasWorkToLose: Bool {
-        isRewriting || (host.run == nil && DiscardDecision.holdsInput(instruction))
+        isRewriting || (host.run == nil && DiscardDecision.holdsInput(field.text))
     }
 
     // MARK: - Bottom bar
@@ -432,7 +412,7 @@ struct EditByVoiceSheet: View {
                     }
                 } else {
                     let ready =
-                        !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recorder.isBusy
+                        !field.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recorder.isBusy
                         && environment.unavailableMessage(for: choice) == nil && document.deliverable != nil
                     Button("Apply edit") { apply() }
                         .buttonStyle(.chirpPrimary)
@@ -449,10 +429,11 @@ struct EditByVoiceSheet: View {
     }
 
     private func apply() {
-        let text = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = field.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let current = document.deliverable else { return }
         fieldFocused = false
-        let spoken = spokenText != nil && spokenText == instruction
+        // Marked spoken only when every word was heard on this iPhone; typed or mixed text is not (review fix round 1).
+        let spoken = field.isSpoken
         // No save first (review R6b-11: a failed save used to stop here with no message). The draft goes with the
         // request; the service keeps it as a version and rewrites it, and any failure shows in this sheet with Retry.
         let baseText = Self.baseText(of: document)
@@ -465,5 +446,58 @@ struct EditByVoiceSheet: View {
     private func close() {
         host.cancel()
         dismiss()
+    }
+}
+
+/// Edit by voice's instruction field and where its words came from (review R5-15; plan 024 Task 10 fix round 1).
+///
+/// Speaking always adds to what the field holds, so nothing typed, edited or heard before is ever replaced by a later
+/// speech ("Make it shorter" + "add a follow-up" + "and fix the grammar" keeps all three; clear the field to start
+/// over). The request is marked spoken only when every word was heard on this iPhone and none was typed or edited
+/// since; typed or mixed text is not.
+struct InstructionField: Equatable {
+    /// The field's text, as typed, heard or edited.
+    var text = ""
+    /// The text right after the last speech; it differs once the person types or edits.
+    private(set) var lastHeardText: String?
+    /// Some words were typed, picked from a suggestion or edited, now or before an earlier speech.
+    private(set) var hasTypedWords = false
+
+    /// The field shows exactly what the last speech left (the "Heard on this iPhone" line).
+    var isUnchangedSinceSpeech: Bool { lastHeardText != nil && lastHeardText == text }
+
+    /// Every word was heard on this iPhone: the edit is recorded as spoken.
+    var isSpoken: Bool { isUnchangedSinceSpeech && !hasTypedWords }
+
+    /// Adds what the recorder heard after whatever the field holds.
+    mutating func appendHeard(_ heard: String) {
+        let kept = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if kept.isEmpty {
+            hasTypedWords = false
+        } else if text != lastHeardText {
+            hasTypedWords = true  // typed, or edited since the last speech
+        }
+        text = Self.appending(heard, to: kept)
+        lastHeardText = text
+    }
+
+    /// A suggestion chip: its words were picked, not heard.
+    mutating func choose(_ suggestion: String) {
+        text = suggestion
+        lastHeardText = nil
+        hasTypedWords = true
+    }
+
+    /// `kept` then `heard`, continuing the sentence: "Make it shorter and" + "Add a follow-up." → "Make it shorter and
+    /// add a follow-up."; after a sentence end the capital stays; "I", "SOAP" and "BP" keep their capitals.
+    static func appending(_ heard: String, to kept: String) -> String {
+        let new = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !kept.isEmpty else { return new }
+        guard !new.isEmpty else { return kept }
+        let endsSentence = kept.last.map { ".!?;:".contains($0) } ?? false
+        let firstWord = new.prefix { !$0.isWhitespace && !$0.isPunctuation }
+        let keepsCapital = firstWord.count < 2 || firstWord.dropFirst().contains(where: \.isUppercase)
+        let continued = endsSentence || keepsCapital ? new : new.prefix(1).lowercased() + new.dropFirst()
+        return kept + " " + continued
     }
 }
