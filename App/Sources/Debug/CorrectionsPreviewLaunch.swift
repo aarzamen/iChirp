@@ -1,3 +1,4 @@
+#if DEBUG
 import ChirpCore
 import ChirpText
 import Foundation
@@ -18,12 +19,10 @@ enum CorrectionsPreviewLaunch {
     static func seedIfRequested(environment: AppEnvironment, arguments: [String] = ProcessInfo.processInfo.arguments)
         async
     {
-        #if DEBUG
         guard arguments.contains(seedArgument) else { return }
         let rows = (try? await environment.store.fetchAll()) ?? []
         guard !rows.contains(where: { $0.fileName == fileName }) else { return }
         try? await environment.store.insert(sample())
-        #endif
     }
 
     static func sample() -> Transcription {
@@ -54,3 +53,4 @@ enum CorrectionsPreviewLaunch {
         return row
     }
 }
+#endif

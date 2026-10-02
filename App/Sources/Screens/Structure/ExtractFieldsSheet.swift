@@ -41,6 +41,9 @@ struct ExtractFieldsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    // Plan 025 (fix round 1, M10): a stale run says so first, so it is in view when the sheet opens,
+                    // even at the largest text sizes.
+                    if case .ready = model.phase, model.isStale { staleBanner }
                     header
                     content
                 }
@@ -160,7 +163,6 @@ struct ExtractFieldsSheet: View {
                 .foregroundStyle(AppColor.error)
                 .fixedSize(horizontal: false, vertical: true)
         case .ready:
-            if model.isStale { staleBanner }
             if let sections = model.sections { card(sections) }
         }
     }

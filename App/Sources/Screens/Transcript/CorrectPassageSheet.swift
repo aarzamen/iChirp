@@ -24,6 +24,9 @@ struct CorrectPassageSheet: View {
     @State private var error: String?
     @State private var isConfirmingDiscard = false
     @FocusState private var editorFocused: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The editor's height grows with the text size, capped so the passage's start stays in view (fix round 1, M3).
+    @ScaledMetric(relativeTo: .body) private var editorHeight: CGFloat = 180
 
     init(
         line: TranscriptTextLine, speakerLabel: String?, player: AudioPlayerModel,
@@ -92,11 +95,12 @@ struct CorrectPassageSheet: View {
         }
         .discardInputConfirmation(
             "Discard your changes?", message: "The passage keeps its current words.",
-            hasInput: draft.hasChanges && !isSaving, isAsking: $isConfirmingDiscard
+            hasInput: draft.hasChanges, isAsking: $isConfirmingDiscard
         ) { close() }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .onAppear { editorFocused = true }
+        // At accessibility sizes the keyboard would push the passage's start off screen: the person taps to edit.
+        .onAppear { if !typeSize.isAccessibilitySize { editorFocused = true } }
     }
 
     private var editor: some View {
@@ -105,7 +109,7 @@ struct CorrectPassageSheet: View {
             .foregroundStyle(Tokens.Color.ink)
             .scrollContentBackground(.hidden)
             .focused($editorFocused)
-            .frame(minHeight: 180)
+            .frame(height: min(editorHeight, 360))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(ChirpCardBackground(radius: Tokens.Radius.m))
@@ -143,6 +147,7 @@ struct CorrectPassageSheet: View {
             try await save(draft.text)
             close()
         } catch {
+            // "Your text is still here" is said once, by `saveFailed`; the reason says only why (fix round 1, M4).
             let reason = (error as? LocalizedError)?.errorDescription ?? Formatting.message(for: error)
             self.error = "\(TranscriptCorrectionsCopy.saveFailed) \(reason)"
             AccessibilityNotification.Announcement(TranscriptCorrectionsCopy.saveFailed).post()

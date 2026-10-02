@@ -260,6 +260,31 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
         XCTAssertTrue(again.undo.isEmpty)
     }
 
+    /// App fix round 1 (M5, M4): an undo whose words were corrected again in the meantime says so in plain words; a
+    /// changed transcript's message leaves "your text is still here" to the sheet, which says it once.
+    func testAnUndoOverWordsCorrectedAgainSaysSo() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let corrections = service(store)
+        let loaded = original.text(.heard)
+        let first = try await corrections.correct(
+            original.id, line: 0, in: loaded, baseline: baseline(original),
+            text: "The patient takes metformin daily. She feels well today.")
+        let reverted = try await corrections.revert(original.id, corrections: Set(first.created))
+        _ = try await corrections.correct(
+            original.id, line: 0, in: loaded, baseline: baseline(original),
+            text: "The patient took metformin twice daily. She feels well today.")
+        await assertThrows(.correctedAgain) {
+            _ = try await corrections.apply(original.id, plan: reverted.undo, baseline: self.baseline(original))
+        }
+        XCTAssertEqual(
+            TranscriptCorrectionError.correctedAgain.errorDescription,
+            "Those words were corrected again, so this can’t be undone.")
+        XCTAssertFalse(
+            TranscriptCorrectionError.transcriptChanged.errorDescription?.localizedCaseInsensitiveContains(
+                "still here") ?? true)
+    }
+
     func testDetachedCorrectionsAreKeptUntilDeletedOnRequest() async throws {
         let original = row()
         let store = FakeStore(rows: [original])

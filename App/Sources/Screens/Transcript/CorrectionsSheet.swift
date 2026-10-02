@@ -6,14 +6,13 @@ import SwiftUI
 
 /// More → Corrections (plan 025 D5): every correction in time order with where it came from, Revert per row (a Replace
 /// all or one dictation's voice commands as one group), Revert All… with a question, and the corrections kept from an
-/// earlier transcript of this audio (never applied) with Copy Text and Delete….
+/// earlier transcript of this audio (never applied) with Copy Text and Delete…. A revert's Undo and any error show in
+/// this sheet's own bottom bar (fix round 1, I1).
 struct CorrectionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     let model: TranscriptViewModel
-    /// Reverts and offers Undo on the screen.
-    let revert: (Set<UUID>) async -> Void
-    let revertAll: () async -> Void
-    let deleteDetached: (Set<UUID>) async -> Void
+
+    @State private var undo = CorrectionUndoController()
 
     @State private var isConfirmingRevertAll = false
     @State private var detachedToDelete: TranscriptCorrection?
@@ -87,11 +86,14 @@ struct CorrectionsSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !corrections.isEmpty {
-                    ChirpBottomBar {
-                        Button("Revert All…") { isConfirmingRevertAll = true }
-                            .buttonStyle(.chirp(.destructive))
-                            .accessibilityHint("Asks first; puts back every word Parakeet heard")
+                VStack(spacing: 0) {
+                    CorrectionUndoBar(controller: undo, model: model)
+                    if !corrections.isEmpty {
+                        ChirpBottomBar {
+                            Button("Revert All…") { isConfirmingRevertAll = true }
+                                .buttonStyle(.chirp(.destructive))
+                                .accessibilityHint("Asks first; puts back every word Parakeet heard")
+                        }
                     }
                 }
             }
@@ -100,7 +102,7 @@ struct CorrectionsSheet: View {
                 isPresented: $isConfirmingRevertAll, titleVisibility: .visible
             ) {
                 Button(TranscriptCorrectionsCopy.revertAllButton(count: corrections.count), role: .destructive) {
-                    Task { await revertAll() }
+                    Task { await undo.revertAll(model: model) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -114,7 +116,7 @@ struct CorrectionsSheet: View {
             ) {
                 Button("Delete", role: .destructive) {
                     guard let item = detachedToDelete else { return }
-                    Task { await deleteDetached([item.id]) }
+                    Task { await undo.deleteDetached([item.id], model: model) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -158,7 +160,7 @@ struct CorrectionsSheet: View {
                     .foregroundStyle(Tokens.Color.secondary)
             }
             Button(group.items.count == 1 ? "Revert" : "Revert these \(group.items.count)") {
-                Task { await revert(Set(group.items.map(\.id))) }
+                Task { await undo.revert(Set(group.items.map(\.id)), model: model) }
             }
             .buttonStyle(.chirp(.quiet, size: .compact))
             .accessibilityLabel(
@@ -192,34 +194,5 @@ struct CorrectionsSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .chirpCard(radius: Tokens.Radius.m, padding: Tokens.Spacing.m)
         .accessibilityElement(children: .contain)
-    }
-}
-
-/// The Undo a revert offers on the Transcript screen for six seconds (plan 025 D5).
-struct CorrectionUndoOffer: Identifiable, Equatable {
-    static let seconds: Double = 6
-    let id = UUID()
-    let message: String
-    let plan: TranscriptCorrectionPlan
-}
-
-/// "Reverted. Undo" above the Transcript screen's action bar.
-struct CorrectionUndoBar: View {
-    let offer: CorrectionUndoOffer
-    let undo: () -> Void
-
-    var body: some View {
-        ChirpBottomBar {
-            HStack(spacing: Tokens.Spacing.s) {
-                Text(offer.message)
-                    .chirpFont(14.5, .semibold)
-                    .foregroundStyle(Tokens.Color.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Button("Undo", action: undo)
-                    .buttonStyle(.chirp(.tinted, size: .compact))
-                    .accessibilityHint("Puts the reverted corrections back")
-            }
-        }
     }
 }
