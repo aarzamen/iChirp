@@ -312,6 +312,7 @@ pipeline's `Task`s and publishes its progress to the UI.
   `rewriteRule`, plus `clinicalRule` when the run's class is clinical — and the reserved source tags in the text are
   neutralized (`TemplateLimits.neutralizingReservedTags`); map and condense carry the text as `<task>` with no rule.
   Built-in requests are byte-identical (`UserTemplatePromptTests` pins a SHA-256 of every built-in request).
+  `DeliverableService.run` refuses a deleted template before anything is sent (`DeliverableError.templateDeleted`).
 - `BuiltInTemplates.swift`: the nine shipped templates (Summary, Meeting notes, Action items, Agenda, SOAP note with
   a clinical output class, Polish, Distill, Decide, Brief). Ids and canonical keys are reserved forever.
 - `DeliverableRunViewModel.swift`: one Transform or Ask run for a screen: `start()` routes, `.needsConfirmation`

@@ -129,6 +129,8 @@ actor FakeDeliverableStore: DeliverableStoring {
     var versions: [UUID: PromptVersion] = [:]
     /// Plan 026: the next template-library write throws this before changing anything.
     var pendingTemplateFailure: (any Error)?
+    /// Plan 026 review: the next `fetchTemplates` or `countDeliverables` throws this.
+    var pendingReadFailure: (any Error)?
     /// Plan 026: distinct delete times, one second apart, for "newest delete first".
     var templateDeleteStamp: TimeInterval = 0
     private(set) var deliverables: [UUID: Deliverable] = [:]
@@ -148,7 +150,11 @@ actor FakeDeliverableStore: DeliverableStoring {
     }
 
     func fetchTemplates() async throws -> [PromptTemplate] {
-        templates.values.filter { $0.deletedAt == nil }.sorted {
+        if let failure = pendingReadFailure {
+            pendingReadFailure = nil
+            throw failure
+        }
+        return templates.values.filter { $0.deletedAt == nil }.sorted {
             ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name)
         }
     }
