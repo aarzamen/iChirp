@@ -275,35 +275,71 @@ struct VerdictBadge: View {
 }
 
 /// One option: its name, a bar as long as its probability, and the percentage (labels and numbers, not color alone).
+///
+/// R6b-6 (plan 024 Task 10): the name and percentage columns grow with Dynamic Type (`@ScaledMetric`), and from
+/// xLarge on the name goes above the bar on its own line, so "Clinical encounter" and "100%" are never cut off.
 struct OptionBar: View {
     let option: DecisionOption
     let isChoice: Bool
     var compact = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .subheadline) private var nameWidth: CGFloat = 128
+    @ScaledMetric(relativeTo: .subheadline) private var compactNameWidth: CGFloat = 96
+    @ScaledMetric(relativeTo: .footnote) private var percentWidth: CGFloat = 40
+
+    /// The name goes above the bar from this text size on.
+    static func stacksName(at size: DynamicTypeSize) -> Bool { size >= .xLarge }
+
     var body: some View {
-        HStack(spacing: 10) {
-            Text(option.title)
-                .chirpFont(compact ? 12.5 : 13.5, isChoice ? .bold : .regular)
-                .foregroundStyle(Tokens.Color.ink)
-                .lineLimit(1)
-                .frame(width: compact ? 96 : 128, alignment: .leading)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(AppColor.quietFill)
-                    Capsule()
-                        .fill(isChoice ? Tokens.Color.accent : Tokens.Color.mutedText)
-                        .frame(width: max(2, proxy.size.width * min(max(option.probability, 0), 1)))
+        Group {
+            if Self.stacksName(at: typeSize) {
+                VStack(alignment: .leading, spacing: 4) {
+                    name.fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        bar
+                        percent
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    name
+                        .lineLimit(1)
+                        .frame(width: compact ? compactNameWidth : nameWidth, alignment: .leading)
+                    bar
+                    percent
                 }
             }
-            .frame(height: compact ? 6 : 8)
-            Text("\(Int((option.probability * 100).rounded()))%")
-                .chirpFont(compact ? 12 : 13, .semibold)
-                .monospacedDigit()
-                .foregroundStyle(Tokens.Color.secondary)
-                .frame(width: 40, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(option.title), \(Int((option.probability * 100).rounded())) percent" + (isChoice ? ", chosen" : ""))
+    }
+
+    private var name: some View {
+        Text(option.title)
+            .chirpFont(compact ? 12.5 : 13.5, isChoice ? .bold : .regular)
+            .foregroundStyle(Tokens.Color.ink)
+    }
+
+    private var bar: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(AppColor.quietFill)
+                Capsule()
+                    .fill(isChoice ? Tokens.Color.accent : Tokens.Color.mutedText)
+                    .frame(width: max(2, proxy.size.width * min(max(option.probability, 0), 1)))
+            }
+        }
+        .frame(height: compact ? 6 : 8)
+    }
+
+    private var percent: some View {
+        Text("\(Int((option.probability * 100).rounded()))%")
+            .chirpFont(compact ? 12 : 13, .semibold)
+            .monospacedDigit()
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize()
+            .frame(minWidth: percentWidth, alignment: .trailing)
     }
 }

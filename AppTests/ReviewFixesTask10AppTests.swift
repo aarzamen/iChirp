@@ -236,6 +236,99 @@ final class ReviewFixesTask10AppTests: XCTestCase {
         XCTAssertNil(TransformSheet.originalChoice(of: document, in: [.onDevice]), "gone: the default is offered")
     }
 
+    // MARK: - R7-1, R7-18, R6b-12: Settings rows
+
+    func testASettingsRowKeepsItsControlBesideTheTitleUnlessTheControlIsWide() {
+        XCTAssertTrue(SettingsRowLayout.sideBySide(width: 330, trailingWidth: 51), "a switch stays beside the title")
+        XCTAssertTrue(SettingsRowLayout.sideBySide(width: 330, trailingWidth: 0), "no control: one column")
+        XCTAssertTrue(SettingsRowLayout.sideBySide(width: 330, trailingWidth: 170))
+        XCTAssertFalse(
+            SettingsRowLayout.sideBySide(width: 330, trailingWidth: 200),
+            "a wide control drops under the title instead of squeezing it")
+    }
+
+    func testDeletingAModelNamesTheModel() {
+        XCTAssertEqual(ModelAssetRow.deleteQuestion(title: "Qwen3.5 2B"), "Delete Qwen3.5 2B?")
+        let source = try? Self.source("App/Sources/Screens/Settings/SpeechEnginesScreen.swift")
+        XCTAssertTrue(source?.contains("ModelAssetRow.deleteQuestion(") == true, "one wording for every model")
+    }
+
+    // MARK: - R6b-14: the confidence gate
+
+    func testProvisionalNeverGoesAboveAct() {
+        var settings = StructureSettings()
+        settings.actThreshold = 0.85
+        settings.provisionalThreshold = 0.60
+        let raised = StructureGateScreen.settingProvisional(0.95, in: settings)
+        XCTAssertEqual(raised.provisionalThreshold, 0.85, accuracy: 0.0001, "clamped to Act")
+        let lowered = StructureGateScreen.settingAct(0.70, in: raised)
+        XCTAssertEqual(lowered.actThreshold, 0.70, accuracy: 0.0001)
+        XCTAssertEqual(lowered.provisionalThreshold, 0.70, accuracy: 0.0001, "follows Act down")
+        XCTAssertEqual(StructureGateScreen.summary(lowered), "70 / 70", "the row shows the gate that applies")
+    }
+
+    // MARK: - R6b-6: Jev bars at large text
+
+    func testJevOptionNamesGoAboveTheirBarFromXLarge() {
+        XCTAssertFalse(OptionBar.stacksName(at: .large))
+        XCTAssertTrue(OptionBar.stacksName(at: .xLarge))
+        XCTAssertTrue(OptionBar.stacksName(at: .accessibility2))
+    }
+
+    // MARK: - R6b-7: Run a template → Choose a transcript
+
+    func testTheTranscriptPickerSearchesTitlesAndKeepsOnlyFinishedItems() {
+        var visit = Transcription(fileName: "visit.m4a", status: .completed)
+        visit.titleOverride = "Synthetic clinic visit"
+        var team = Transcription(fileName: "team.m4a", status: .completed)
+        team.titleOverride = "Team sync"
+        var running = Transcription(fileName: "running.m4a", status: .processing)
+        running.titleOverride = "Synthetic clinic follow-up"
+        let items = [visit, team, running].map(TranscriptionSummary.init)
+        XCTAssertEqual(
+            TemplateLaunchSheet.transcripts(items, matching: "").map(\.displayTitle),
+            ["Synthetic clinic visit", "Team sync"])
+        XCTAssertEqual(
+            TemplateLaunchSheet.transcripts(items, matching: "CLINIC vis").map(\.displayTitle),
+            ["Synthetic clinic visit"])
+        let source = try? Self.source("App/Sources/Screens/Transforms/TransformSheet.swift")
+        XCTAssertTrue(source?.contains("LazyVStack(spacing: 8) {") == true, "rows are built as they scroll in")
+    }
+
+    // MARK: - R6b-4: the SOAP hand-off's bar
+
+    func testTheSOAPHandOffHasNoTemplatesBackItem() throws {
+        let source = try Self.source("App/Sources/Screens/Structure/ExtractFieldsSheet.swift")
+        XCTAssertTrue(source.contains("onChooseAnother: nil, onDone: { dismiss() })"))
+        XCTAssertTrue(source.contains("if host?.run == nil {"), "the outer Close goes once the run view shows")
+    }
+
+    // MARK: - R6b-20: the provider form
+
+    func testTheProviderFormKnowsWhenClosingWouldLoseTyping() {
+        let original = LanguageModelProviderDraft(kind: .anthropic)
+        var typed = original
+        XCTAssertFalse(ProviderEditorSheet.hasChanges(typed, from: original))
+        typed.apiKeyText = "synthetic-key"
+        XCTAssertTrue(ProviderEditorSheet.hasChanges(typed, from: original))
+    }
+
+    // MARK: - R3-15: no engine SDK in a screen
+
+    func testNoSettingsScreenImportsAnEngineTarget() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        for folder in ["Settings", "Structure", "Create", "Transforms", "Ask", "Decisions"] {
+            let root = repo.appendingPathComponent("App/Sources/Screens/\(folder)")
+            let files = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            for file in files where file.pathExtension == "swift" {
+                let text = try String(contentsOf: file, encoding: .utf8)
+                XCTAssertNil(
+                    text.range(of: #"(?m)^\s*import\s+ChirpEngine"#, options: .regularExpression),
+                    "\(folder)/\(file.lastPathComponent) imports an engine target")
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     static func source(_ path: String) throws -> String {

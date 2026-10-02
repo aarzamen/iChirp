@@ -75,6 +75,7 @@ struct TextRulesScreen: View {
             } footer: {
                 Text("Parakeet writes the word exactly as you typed it, or its replacement when you give one.")
             }
+            .listRowBackground(Tokens.Color.surface)
 
             Section {
                 if model.snippets.isEmpty {
@@ -95,6 +96,7 @@ struct TextRulesScreen: View {
                     "Custom words and snippets apply when Clean runs: “Polish after” on a dictation, or Clean in "
                         + "Settings → Text for every transcription.")
             }
+            .listRowBackground(Tokens.Color.surface)
         }
         .scrollContentBackground(.hidden)
         .background(Tokens.Color.ground)

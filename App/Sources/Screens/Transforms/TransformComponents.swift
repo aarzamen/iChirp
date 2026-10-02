@@ -118,7 +118,7 @@ struct PrivacyClassControl: View {
             HStack(spacing: 3) {
                 PrivacyClassBadge(privacyClass: raised?.effective ?? current, text: raised?.label)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .chirpGlyph(9, .bold, relativeTo: .caption)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
             }
@@ -177,6 +177,16 @@ struct PrivacyClassControl: View {
 
 // MARK: - Templates
 
+/// One symbol per kind of output (R7-11): Create's tiles, the Create run's header and the Transforms template list use
+/// the same glyph for the same thing, and no glyph means two things (Summary is not the text-item cover's
+/// `text.alignleft`, nor Extract fields' `list.bullet.rectangle`).
+enum OutputSymbol {
+    static let transcript = "text.quote"
+    static let summary = "list.bullet.clipboard"
+    static let document = "doc.richtext"
+    static let voiceMessage = "waveform.badge.plus"
+}
+
 /// How a template looks in lists: an icon and one line on what it makes. Built-ins by canonical key; user templates
 /// get a generic style.
 struct TemplateStyle: Equatable {
@@ -184,7 +194,7 @@ struct TemplateStyle: Equatable {
     let summary: String
 
     static let builtIns: [String: TemplateStyle] = [
-        "summary": TemplateStyle(systemImage: "text.alignleft", summary: "The main points in a few paragraphs"),
+        "summary": TemplateStyle(systemImage: OutputSymbol.summary, summary: "The main points in a few paragraphs"),
         "meeting-notes": TemplateStyle(systemImage: "person.2", summary: "Summary, decisions and owners"),
         "action-items": TemplateStyle(systemImage: "checklist", summary: "Who does what, by when"),
         "agenda": TemplateStyle(systemImage: "list.number", summary: "Topics and time boxes for the next meeting"),
@@ -213,7 +223,7 @@ struct TemplateRow: View {
             ZStack {
                 Circle().fill(AppColor.tintFill)
                 Image(systemName: style.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
+                    .chirpGlyph(16, .semibold, relativeTo: .body)
                     .foregroundStyle(Tokens.Color.accentInk)
             }
             .frame(width: 38, height: 38)
@@ -233,7 +243,7 @@ struct TemplateRow: View {
             }
             if let trailing {
                 Image(systemName: trailing)
-                    .font(.system(size: 13, weight: .semibold))
+                    .chirpGlyph(13, .semibold, relativeTo: .subheadline)
                     .foregroundStyle(Tokens.Color.mutedText)
                     .accessibilityHidden(true)
             }
@@ -368,7 +378,7 @@ struct ModelChoiceMenu: View {
                     text: "\(prefix) \(choice.placeWithName)", locality: choice.locality,
                     trustedForClinical: choice.isTrustedForClinical)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .chirpGlyph(9, .bold, relativeTo: .caption)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
             }

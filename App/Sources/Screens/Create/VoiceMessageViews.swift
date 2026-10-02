@@ -203,12 +203,8 @@ struct VoiceMessageProgressCard: View {
                     onShare(file)
                 } label: {
                     Label("Share voice message", systemImage: "square.and.arrow.up")
-                        .chirpFont(15, .semibold)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 46)
-                        .background(Capsule().fill(Tokens.Color.accentFill))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.chirpPrimary)  // R6b-18: the one primary button
             case .failed:
                 Button(action: onRetry) {
                     CapsuleButtonLabel(title: "Retry", kind: .filled)

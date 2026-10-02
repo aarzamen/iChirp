@@ -31,6 +31,9 @@ import Observation
 
     /// False when the app was built without a diarizer; the diarizer actions then do nothing.
     public var isDiarizerAvailable: Bool { diarizer != nil }
+    /// The diarizer's static facts (its download size for Settings), so no screen imports an engine target to read
+    /// them (review R3-15).
+    public var diarizerDescriptor: EngineDescriptor? { diarizer?.descriptor }
 
     private var storedSettings: TranscriptionSettings
     @ObservationIgnored private let speech: any SpeechEngine

@@ -155,7 +155,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   transcript with a clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional
   `onProgress` also receives each fraction, for the system's progress UI; both downloads return whether the model is
-  ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), and
+  ready), delete (the engine's "in use" refusal lands in `lastError`, cleared by `dismissError()`), the diarizer's
+  `diarizerDescriptor` (so Settings reads its download size without importing an engine target, review R3-15), and
   `settingsValue`, which saves on every set — only the fields Settings edits, onto the freshest stored value, so the
   dictation screen's "Polish after" (M2) is never overwritten by an older copy.
 - `SpeechEnginesViewModel.swift` (M7, plan 016): Settings → Speech engines.

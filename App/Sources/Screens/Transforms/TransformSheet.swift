@@ -170,6 +170,8 @@ struct TemplateLaunchSheet: View {
     @State private var notes = ""
     @State private var runTranscript: TranscriptionSummary?
     @State private var isConfirmingDiscard = false
+    /// Narrows the transcript list by title (R6b-7).
+    @State private var search = ""
 
     init(template: PromptTemplate, environment: AppEnvironment) {
         self.template = template
@@ -192,8 +194,28 @@ struct TemplateLaunchSheet: View {
         .task { await environment.languageModels.refresh() }
     }
 
+    /// Finished items whose title holds every word of `query` (case and accents ignored), newest first as the
+    /// Library lists them. Review R6b-7: the picker no longer builds every row of a large Library at once (the list is
+    /// lazy) and can be searched.
+    static func transcripts(_ items: [TranscriptionSummary], matching query: String) -> [TranscriptionSummary] {
+        let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        return items.filter { item in
+            item.status == .completed
+                && words.allSatisfy {
+                    item.displayTitle.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                }
+        }
+    }
+
+    /// The class the router uses for an item: its own, raised by any document made from it (as the Library badges it).
+    private func effectiveClass(_ item: TranscriptionSummary) -> PrivacyClass {
+        environment.library.documents(madeFrom: item.id).reduce(item.privacyClass) {
+            $0.stricter($1.effectivePrivacyClass)
+        }
+    }
+
     private var picker: some View {
-        let transcripts = environment.library.items.filter { $0.status == .completed }
+        let transcripts = Self.transcripts(environment.library.items, matching: search)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 TemplateRow(template: template)
@@ -203,13 +225,17 @@ struct TemplateLaunchSheet: View {
                     .padding(.leading, 4)
                     .padding(.top, 8)
                 if transcripts.isEmpty {
-                    Text("No finished transcripts yet. Import a file in Capture, then come back.")
-                        .chirpFont(14)
-                        .foregroundStyle(Tokens.Color.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .chirpCard(radius: Tokens.Radius.m, padding: 14)
+                    Text(
+                        search.isEmpty
+                            ? "No finished transcripts yet. Import a file in Capture, then come back."
+                            : "No finished transcript has “\(search)” in its title."
+                    )
+                    .chirpFont(14)
+                    .foregroundStyle(Tokens.Color.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .chirpCard(radius: Tokens.Radius.m, padding: 14)
                 }
-                VStack(spacing: 8) {
+                LazyVStack(spacing: 8) {
                     ForEach(transcripts) { item in
                         Button {
                             runTranscript = item
@@ -228,6 +254,7 @@ struct TemplateLaunchSheet: View {
             .padding(.bottom, 24)
         }
         .background(Tokens.Color.ground)
+        .searchable(text: $search, prompt: "Search transcript titles")
         .navigationTitle("Run \(template.name)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -260,7 +287,8 @@ struct TemplateLaunchSheet: View {
                     .foregroundStyle(Tokens.Color.secondary)
             }
             Spacer(minLength: 8)
-            if item.privacyClass == .clinical {
+            // The class the router uses (a personal transcript with a SOAP note counts as clinical; R6b-7).
+            if effectiveClass(item) == .clinical {
                 PrivacyClassBadge(privacyClass: .clinical)
             }
         }

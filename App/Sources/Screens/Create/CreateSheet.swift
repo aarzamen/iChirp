@@ -256,10 +256,10 @@ struct CreateSheet: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "link")
-                    .font(.system(size: 15, weight: .semibold))
+                    .chirpGlyph(15, .semibold, relativeTo: .body)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
-                TextField("Podcast, YouTube or web link", text: $draft.link, axis: .vertical)
+                ChirpTextField("Podcast, YouTube or web link", text: $draft.link, axis: .vertical)
                     .chirpFont(15)
                     .lineLimit(1...3)
                     .keyboardType(.URL)
@@ -298,7 +298,7 @@ struct CreateSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: draft.file == nil ? "folder" : "doc.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .chirpGlyph(17, .semibold, relativeTo: .body)
                     .foregroundStyle(Tokens.Color.accentInk)
                     .frame(width: 34, height: 34)
                     .background(
@@ -321,7 +321,7 @@ struct CreateSheet: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .chirpGlyph(12, .semibold, relativeTo: .footnote)
                     .foregroundStyle(Tokens.Color.mutedText)
                     .accessibilityHidden(true)
             }
@@ -344,12 +344,9 @@ struct CreateSheet: View {
             templateMenu
             modelRow
         case .voiceMessage:
-            Picker("Speak", selection: $draft.voiceSummarizeFirst) {
-                Text("The whole text").tag(false)
-                Text("A summary").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("What the voice message says")
+            ChirpSegmentedControl(
+                "What the voice message says", selection: $draft.voiceSummarizeFirst,
+                segments: [.init("The whole text", value: false), .init("A summary", value: true)], width: .fill)
             voiceRow
             if draft.voiceSummarizeFirst { modelRow }
         }
@@ -389,7 +386,7 @@ struct CreateSheet: View {
                     PrivacyClassBadge(privacyClass: .clinical)
                 }
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
+                    .chirpGlyph(11, .semibold, relativeTo: .footnote)
                     .foregroundStyle(Tokens.Color.secondary)
                     .accessibilityHidden(true)
             }
@@ -454,7 +451,7 @@ struct CreateSheet: View {
             }
         let row = HStack(spacing: 12) {
             Image(systemName: existing == nil ? "bookmark" : "bookmark.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .chirpGlyph(16, .semibold, relativeTo: .body)
                 .foregroundStyle(Tokens.Color.accentInk)
                 .frame(width: 34, height: 34)
                 .background(
@@ -524,36 +521,27 @@ struct CreateSheet: View {
             draft, speechModelReady: environment.isSpeechModelReady,
             modelProblem: environment.unavailableMessage(for: choice),
             voiceProblem: environment.voiceSettings.setupProblem)
-        return VStack(spacing: 6) {
-            if let problem, !isShownInline(problem) {
-                Text(problem)
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+        // The ChirpUI bar and primary button (R6b-18): disabled is the text-safe quiet capsule, not white on grey.
+        return ChirpBottomBar {
+            VStack(spacing: 6) {
+                if let problem, !isShownInline(problem) {
+                    Text(problem)
+                        .chirpFont(12.5)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button {
+                    start()
+                } label: {
+                    Label(
+                        draft.input == .speak ? "Start speaking" : "Create",
+                        systemImage: draft.input == .speak ? "mic.fill" : "sparkles")
+                }
+                .buttonStyle(.chirpPrimary)
+                .disabled(problem != nil)
             }
-            Button {
-                start()
-            } label: {
-                Label(
-                    draft.input == .speak ? "Start speaking" : "Create",
-                    systemImage: draft.input == .speak ? "mic.fill" : "sparkles"
-                )
-                .chirpFont(16, .bold)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Capsule().fill(problem == nil ? Tokens.Color.accentFill : Tokens.Color.mutedText))
-            }
-            .buttonStyle(.plain)
-            .disabled(problem != nil)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(
-            Tokens.Color.ground
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom))
     }
 
     /// The notes above already say it (the speech model, the voice, Apple's model): the bar does not repeat it.
@@ -566,7 +554,7 @@ struct CreateSheet: View {
     private func start() {
         guard let request = draft.request else { return }
         // A recipe's own choices are not Create's last answers; anything changed here is.
-        if recipe?.choices != draft.choices { choicesStore.save(draft.choices) }
+        // (`onChange(of: draft.choices)` already saved any change made here; R6b-19's redundant save is gone.)
         textFocused = false
         linkFocused = false
         host.start(

@@ -84,24 +84,18 @@ struct TransformsScreen: View {
         } else {
             LazyVStack(spacing: 8) {
                 ForEach(recent) { deliverable in
+                    // R7-7: the Library's own document row, so the same document looks the same in both places
+                    // (source title first, type and effective-class badges).
                     NavigationLink(value: deliverable.id) {
-                        DeliverableRow(deliverable: deliverable, sourceTitle: sourceTitle(deliverable))
+                        LibraryDocumentRowContent(document: libraryDocument(deliverable), style: .full)
                     }
                     .buttonStyle(.plain)
                 }
                 if hasMore {
-                    Button {
+                    Button("Show older documents") {
                         Task { await environment.deliverableLibrary.showMore() }
-                    } label: {
-                        Text("Show older documents")
-                            .chirpFont(14, .semibold)
-                            // Text-safe ink on the tint fill (F8): `accentText` alone is 4.39:1 there.
-                            .foregroundStyle(AppColor.accentTextOnTint)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(Capsule().fill(AppColor.tintFill))
-                            .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.chirpSecondary)
                     .padding(.top, 4)
                     .accessibilityHint("Adds the next older documents to this list")
                 }
@@ -148,59 +142,20 @@ struct TransformsScreen: View {
         }
     }
 
-    private func sourceTitle(_ deliverable: Deliverable) -> String? {
-        environment.library.items.first { $0.id == deliverable.transcriptionID }?.displayTitle
-    }
-}
-
-/// A generated document in a list: title, source transcript, where it ran and when, and its privacy class.
-struct DeliverableRow: View {
-    let deliverable: Deliverable
-    let sourceTitle: String?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
-                    .fill(AppColor.quietFill)
-                Image(systemName: "doc.richtext")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.secondary)
-            }
-            .frame(width: 38, height: 38)
-            .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(deliverable.title)
-                    .chirpFont(15.5, .semibold)
-                    .foregroundStyle(Tokens.Color.ink)
-                    .lineLimit(1)
-                Text(meta)
-                    .chirpFont(12.5)
-                    .foregroundStyle(Tokens.Color.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            if deliverable.privacyClass == .clinical {
-                PrivacyClassBadge(privacyClass: .clinical)
-            }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Tokens.Color.mutedText)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(minHeight: 64)
-        .background(CardBackground(radius: Tokens.Radius.m))
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+    /// The Library's row for `deliverable`: the Library's own entry when it has one (the same effective class), else
+    /// one joined here the same way (`LibraryViewModel`: the stricter of the document, its source and the source's
+    /// other documents; clinical when the source is not in the Library).
+    private func libraryDocument(_ deliverable: Deliverable) -> LibraryDocument {
+        Self.libraryDocument(deliverable, library: environment.library)
     }
 
-    private var meta: String {
-        var parts: [String] = []
-        if let sourceTitle { parts.append(sourceTitle) }
-        parts.append(Formatting.day(deliverable.createdAt) + " " + Formatting.timeOfDay(deliverable.createdAt))
-        parts.append(deliverable.provider)
-        return parts.joined(separator: " · ")
+    static func libraryDocument(_ deliverable: Deliverable, library: LibraryViewModel) -> LibraryDocument {
+        if let listed = library.documents.first(where: { $0.id == deliverable.id }) { return listed }
+        let source = library.items.first { $0.id == deliverable.transcriptionID }
+        let siblings = library.documents(madeFrom: deliverable.transcriptionID).map(\.summary.privacyClass)
+        let strictest = siblings.reduce(deliverable.privacyClass) { $0.stricter($1) }
+        return LibraryDocument(
+            summary: DeliverableSummary(deliverable), sourceTitle: source?.displayTitle, sourceType: source?.sourceType,
+            effectivePrivacyClass: (source?.privacyClass ?? .clinical).stricter(strictest))
     }
 }

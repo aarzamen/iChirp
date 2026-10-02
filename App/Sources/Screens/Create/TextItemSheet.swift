@@ -182,7 +182,9 @@ struct ClinicalToggleRow: View {
                     .foregroundStyle(Tokens.Color.ink)
                 Text(
                     isClinical
-                        ? "Stays on this iPhone. Parakeet asks before any step would send it to a cloud or untrusted model or voice."
+                        // Worded as the router works: a trusted Mac takes clinical text without a question.
+                        ? "Only this iPhone or a Mac you trust may read it without a question; Parakeet asks before "
+                            + "any step would send it to a cloud or untrusted model or voice."
                         : "Saved as personal. Mark it clinical if it holds patient information."
                 )
                 .chirpFont(12.5)
@@ -190,7 +192,7 @@ struct ClinicalToggleRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .tint(Tokens.Color.success)
+        .toggleStyle(.chirp)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(CardBackground(radius: Tokens.Radius.s))

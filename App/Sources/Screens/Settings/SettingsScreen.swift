@@ -1,14 +1,15 @@
 import ChirpCore
-import ChirpEngineFluidAudio
 import ChirpFeatures
 import ChirpUI
 import SwiftUI
 
 /// Tab 4 (canvas `Settings.dc.html`): Capture (M2: trigger help, stop mode, keep audio), Speech (real model management),
 /// Privacy (with Settings → Models, M4), Text, About (the build stamp) and, in DEBUG builds, Diagnostics.
+///
+/// Plan 024 Task 10: no engine SDK import here (R3-15: the speaker model's size comes through the view model); the
+/// unused placeholder sheet is gone (R6b-25); switches and the Raw | Clean control are ChirpUI's (R7-5).
 struct SettingsScreen: View {
     @Environment(AppEnvironment.self) private var environment
-    @State private var placeholder: Placeholder?
 
     var body: some View {
         NavigationStack {
@@ -39,7 +40,6 @@ struct SettingsScreen: View {
             .statusBarScrim()
             .toolbar(.hidden, for: .navigationBar)
         }
-        .sheet(item: $placeholder) { NotBuiltYetSheet(placeholder: $0) }
         .alert(
             "Model action failed",
             isPresented: Binding(
@@ -82,7 +82,7 @@ struct SettingsScreen: View {
             SettingsRow(title: "Keep dictation audio", caption: "For playback and Retry in the Library") {
                 Toggle("Keep dictation audio", isOn: $speech.settingsValue.keepDictationAudio)
                     .labelsHidden()
-                    .tint(Tokens.Color.success)
+                    .toggleStyle(.chirp)
             }
         }
     }
@@ -92,13 +92,10 @@ struct SettingsScreen: View {
         NavigationLink {
             DictationTriggerHelpScreen(topic: topic)
         } label: {
-            SettingsRow(title: title) {
+            SettingsRow(title: title, showsChevron: true) {
                 Text(value)
                     .chirpFont(15)
                     .foregroundStyle(Tokens.Color.secondary)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.mutedText)
             }
             .contentShape(Rectangle())
         }
@@ -127,14 +124,14 @@ struct SettingsScreen: View {
             ) {
                 Toggle("Speaker labels", isOn: $speech.settingsValue.speakerLabelsEnabled)
                     .labelsHidden()
-                    .tint(Tokens.Color.success)
+                    .toggleStyle(.chirp)
             }
             if speech.isDiarizerAvailable {
                 ModelAssetRow(
                     title: "Speaker model",
                     value: "Community-1",
                     status: speech.diarizerStatus,
-                    approximateDownloadBytes: FluidAudioDiarizer.engineDescriptor.approximateDownloadBytes,
+                    approximateDownloadBytes: speech.diarizerDescriptor?.approximateDownloadBytes,
                     runsOn: "Neural Engine",
                     onDownload: { environment.downloadDiarizer() },
                     onDelete: { Task { await speech.deleteDiarizer() } }
@@ -161,7 +158,7 @@ struct SettingsScreen: View {
                     RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
                         .fill(Tokens.Color.privacyBadgeFill)
                     Image(systemName: onDevice ? "lock.fill" : "network")
-                        .font(.system(size: 15, weight: .semibold))
+                        .chirpGlyph(15, .semibold, relativeTo: .body)
                         .foregroundStyle(Tokens.Color.privacyBadgeInk)
                 }
                 .frame(width: 34, height: 34)
@@ -215,27 +212,18 @@ struct SettingsScreen: View {
                 + "“Polish after” is always cleaned."
         ) {
             SettingsRow(title: "Clean-up") {
-                Picker("Clean-up", selection: $speech.settingsValue.cleanupMode) {
-                    Text("Raw").tag(CleanupMode.raw)
-                    Text("Clean").tag(CleanupMode.clean)
-                }
-                .pickerStyle(.segmented)
-                // F77: no fixed width — a hard-coded pixel width squeezed this at accessibility Dynamic Type
-                // sizes; let it size to its own content instead.
-                .fixedSize()
-                .labelsHidden()
+                ChirpSegmentedControl(
+                    "Clean-up", selection: $speech.settingsValue.cleanupMode,
+                    segments: [.init("Raw", value: CleanupMode.raw), .init("Clean", value: CleanupMode.clean)])
             }
             NavigationLink {
                 TextRulesScreen(model: environment.textRules)
             } label: {
-                SettingsRow(title: "Custom words & snippets") {
+                SettingsRow(title: "Custom words & snippets", showsChevron: true) {
                     Text(environment.textRules.count == 0 ? "None" : "\(environment.textRules.count)")
                         .chirpFont(15)
                         .monospacedDigit()
                         .foregroundStyle(Tokens.Color.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.mutedText)
                 }
                 .contentShape(Rectangle())
             }

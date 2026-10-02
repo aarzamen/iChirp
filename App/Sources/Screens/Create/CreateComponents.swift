@@ -162,12 +162,13 @@ extension CreateChoices.OutputKind {
         }
     }
 
+    /// One symbol per output, shared with Transforms' templates and the Create run (R7-11, `OutputSymbol`).
     var systemImage: String {
         switch self {
-        case .transcript: "text.alignleft"
-        case .summary: "list.bullet.rectangle"
-        case .document: "doc.richtext"
-        case .voiceMessage: "waveform.badge.plus"
+        case .transcript: OutputSymbol.transcript
+        case .summary: OutputSymbol.summary
+        case .document: OutputSymbol.document
+        case .voiceMessage: OutputSymbol.voiceMessage
         }
     }
 }
@@ -187,10 +188,10 @@ struct CreateOptionTile: View {
             HStack(spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Tokens.Radius.iconTile, style: .continuous)
-                        .fill(isSelected ? Tokens.Color.accent : AppColor.tintFill)
+                        .fill(isSelected ? Tokens.Color.accentFill : AppColor.tintFill)
                     Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(isSelected ? .white : Tokens.Color.accentInk)
+                        .chirpGlyph(15, .semibold, relativeTo: .subheadline)
+                        .foregroundStyle(isSelected ? Tokens.Color.onAccent : Tokens.Color.accentInk)
                 }
                 .frame(width: 32, height: 32)
                 .accessibilityHidden(true)
@@ -207,6 +208,8 @@ struct CreateOptionTile: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 8)
+                // R7-24: room for the selected tile's check, so a long title never runs under it.
+                .padding(.trailing, 18)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 11)
@@ -219,7 +222,7 @@ struct CreateOptionTile: View {
             .overlay(alignment: .topTrailing) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .chirpGlyph(14, .semibold, relativeTo: .footnote)
                         .foregroundStyle(Tokens.Color.accent)
                         .padding(6)
                         .accessibilityHidden(true)

@@ -47,7 +47,7 @@ struct ASRBenchmarkScreen: View {
                     ) {
                         Toggle("Reference set", isOn: Bindable(model).includeReferenceSet)
                             .labelsHidden()
-                            .tint(Tokens.Color.success)
+                            .toggleStyle(.chirp)
                     }
                     ForEach(model.userItems) { item in
                         SettingsRow(title: item.title, caption: "Copied for this run only") {
@@ -114,7 +114,7 @@ struct ASRBenchmarkScreen: View {
                 isOn: Binding(get: { model.selected.contains(engine.key) }, set: { _ in model.toggle(engine.key) })
             )
             .labelsHidden()
-            .tint(Tokens.Color.success)
+            .toggleStyle(.chirp)
             .disabled(!engine.isReady || model.isRunning)
         }
     }
