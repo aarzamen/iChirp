@@ -159,6 +159,38 @@ final class DictationRecorderTests: XCTestCase {
         XCTAssertEqual(abs(mixed.floatChannelData![0][5]), 0.4, accuracy: 0.0001)
     }
 
+    /// Review R5-4: what a kill leaves of a dictation (the file as it is before `close()`) holds every sample but reads
+    /// as 0 s; the header repair the dictation runs before adopting or transcribing it makes it read back exactly what
+    /// the recorder wrote.
+    func testAKilledDictationReadsBackWholeOnceItsHeaderIsRepaired() throws {
+        let writer = try RecordingWriter(url: outputURL, extractChannelZero: false)
+        for buffer in try fixtureBuffers().buffers { writer.process(buffer) }
+        let killed = directory.appendingPathComponent("killed.wav")
+        try FileManager.default.copyItem(at: outputURL, to: killed)
+        let recorded = writer.close()
+        XCTAssertGreaterThan(recorded.sampleCount, 16_000)
+        XCTAssertEqual(try AVAudioFile(forReading: killed).length, 0, "the problem: a killed WAV reads as 0 s")
+
+        let repair = try SpeechWAVFile.repairHeader(at: killed)
+        XCTAssertTrue(repair.didRepair)
+        XCTAssertEqual(repair.frameCount, recorded.sampleCount)
+        XCTAssertEqual(try readSamples(killed), try readSamples(recorded.url), "the samples the closed file holds")
+    }
+
+    /// Every sample, read in 4096-frame steps (one large `read(into:)` can return fewer frames than the file holds).
+    private func readSamples(_ url: URL) throws -> [Float] {
+        let file = try AVAudioFile(forReading: url)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4_096))
+        var all: [Float] = []
+        while file.framePosition < file.length {
+            try file.read(into: buffer, frameCount: 4_096)
+            guard buffer.frameLength > 0 else { break }
+            all.append(
+                contentsOf: UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+        }
+        return all
+    }
+
     func testStartWhileRecordingIsRefused() async throws {
         let h = Harness()
         _ = try await h.recorder.start(recordingTo: outputURL)

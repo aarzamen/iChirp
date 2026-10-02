@@ -67,6 +67,9 @@ temporary files from leaking. Every job, player, exporter and future recovery fl
   chain's class). The row is inserted with that class, and the file is deleted once the row exists. A `dictation.wav`
   that a killed process left without a row is adopted at launch with the class in this file; when the file is
   missing, unreadable or names an unknown class, it is adopted **clinical** (the most protective reading).
+- A `dictation.wav` its writer never closed (the app was killed while recording) holds its samples, but its RIFF and
+  `data` sizes say 0 s. Adoption and every final pass rewrite them from the file's length first (review R5-4,
+  `SpeechWAVFile.repairHeader`); the samples are not changed, and a finished file is not touched.
 - M5 (additive, [document-items-v1](document-items-v1.md)): `source.<ext>` is also a document's copy (`.pdf`,
   `.docx`, …) or a downloaded episode. `download.part` / `download.part.json` exist only while a link download is
   unfinished; Retry resumes from them, and completing the download removes both.

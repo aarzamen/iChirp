@@ -572,6 +572,9 @@ public struct DictationTextRules: Sendable {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw FileTranscriptionPipeline.PipelineError.sourceFileMissing
             }
+            // Review R5-4: a recording a kill left behind (adopted now or by an older build) reads as 0 s until its
+            // header describes the samples on disk. A finished file is not touched.
+            let repaired = await repairInterruptedRecording(url)
             let result = try await scheduler.run(.dictation) {
                 try await speech.prepare()
                 return try await speech.transcribe(
@@ -601,7 +604,7 @@ public struct DictationTextRules: Sendable {
             completed.engine = speech.descriptor.id
             completed.engineVariant = result.engineVariant
             // The recording's length is authoritative (the 0.5 s pad can put a last word's end past it).
-            completed.durationMs = completed.durationMs ?? result.words.map(\.endMs).max()
+            completed.durationMs = completed.durationMs ?? repaired?.durationMs ?? result.words.map(\.endMs).max()
             let title = TitleDeriver.derive(from: text) ?? ""
             completed.derivedTitle = title
             completed.derivedSnippet = SnippetDeriver.derive(from: text, excluding: title) ?? ""
@@ -661,12 +664,14 @@ public struct DictationTextRules: Sendable {
             let folder = paths.mediaDirectory(for: id)
             let wav = folder.appendingPathComponent(Self.fileName, isDirectory: false)
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
+            // Review R5-4: the kill left the samples with a header that says 0 s; make it describe them first.
+            let repaired = await repairInterruptedRecording(wav)
             // Review R5-1: the class the dictation was started with; Clinical when it is unknown.
             let privacyClass = Self.recordedPrivacyClass(in: folder)
             var row = Transcription(
                 id: id, sourceType: .dictation, fileName: "Dictation.wav",
                 mediaRelativePath: paths.relativePath(for: wav), fileSizeBytes: Self.fileSize(wav),
-                status: .interrupted, privacyClass: privacyClass)
+                durationMs: repaired?.durationMs, status: .interrupted, privacyClass: privacyClass)
             row.errorMessage = "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
             let orphan = row
             do {
@@ -711,6 +716,23 @@ public struct DictationTextRules: Sendable {
         await session?.finish()
         liveTextTask?.cancel()
         liveTextTask = nil
+    }
+
+    /// Review R5-4: makes a WAV a kill left behind readable to its last frame (`SpeechWAVFile.repairHeader`), off the
+    /// main actor. Nil when the file is not a WAV it can read; the final pass then fails with the engine's own words.
+    private func repairInterruptedRecording(_ url: URL) async -> SpeechWAVFile.HeaderRepair? {
+        do {
+            let repair = try await Task.detached(priority: .userInitiated) {
+                try SpeechWAVFile.repairHeader(at: url)
+            }.value
+            if repair.didRepair {
+                logger.notice("dictation_header_repaired frames=\(repair.frameCount, privacy: .public)")
+            }
+            return repair
+        } catch {
+            logger.error("dictation_header_unreadable error_type=\(error.logTypeName, privacy: .public)")
+            return nil
+        }
     }
 
     // MARK: - The class on disk (review R5-1)

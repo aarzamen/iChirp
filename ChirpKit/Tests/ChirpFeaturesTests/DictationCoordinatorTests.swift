@@ -1,3 +1,4 @@
+import AVFoundation
 import ChirpCore
 import ChirpText
 import Foundation
@@ -497,6 +498,73 @@ final class DictationCoordinatorTests: XCTestCase {
                 fileExists(h.paths.mediaDirectory(for: id).appendingPathComponent(DictationCoordinator.sessionFileName))
             )
         }
+    }
+
+    // MARK: - Review R5-4: a killed recording is transcribed whole
+
+    /// A dictation killed while recording leaves a WAV that holds its samples but whose header says 0 s (real file
+    /// bytes, written through AVAudioFile like the recorder). Adoption repairs the header first: the file reads back
+    /// whole and the Library row has its length.
+    func testLaunchAdoptsAKilledRecordingThatReadsBackWhole() async throws {
+        let h = Harness(testCase: self)
+        let id = UUID()
+        let folder = h.paths.mediaDirectory(for: id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+        try Self.writeKilledRecording(frames: 24_000, to: wav)
+        XCTAssertEqual(try AVAudioFile(forReading: wav).length, 0, "what a kill leaves reads as 0 s")
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, 1)
+        XCTAssertEqual(try AVAudioFile(forReading: wav).length, 24_000, "every sample the kill left is readable")
+        let row = try await h.row(id)
+        XCTAssertEqual(row.status, .interrupted)
+        XCTAssertEqual(row.durationMs, 1_500)
+    }
+
+    /// An older build adopted such a recording without the repair: Retry repairs it before the final pass reads it.
+    func testRetryRepairsARecordingAnOlderBuildAdoptedBeforeTheFinalPassReadsIt() async throws {
+        let h = Harness(testCase: self)
+        let id = UUID()
+        let folder = h.paths.mediaDirectory(for: id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wav = folder.appendingPathComponent(DictationCoordinator.fileName)
+        try Self.writeKilledRecording(frames: 16_000, to: wav)
+        let adopted = Transcription(
+            id: id, sourceType: .dictation, fileName: "Dictation.wav",
+            mediaRelativePath: h.paths.relativePath(for: wav),
+            status: .interrupted)
+        try await h.store.insert(adopted)
+
+        let hold = await h.speech.holdNextTranscription()
+        let retry = Task { await h.coordinator.retry(transcriptionID: id) }
+        await hold.entered.wait()
+        XCTAssertEqual(try AVAudioFile(forReading: wav).length, 16_000, "repaired before the engine reads it")
+        hold.release.fire()
+        let saved = await retry.value
+        XCTAssertEqual(saved?.status, .completed)
+        XCTAssertEqual(saved?.durationMs, 1_000, "the recording's own length")
+    }
+
+    /// Writes `frames` of a synthetic tone as the recorder does (AVAudioFile, 16 kHz mono Float32 WAV) and leaves at
+    /// `url` exactly what a kill leaves: the file as it is before `close()`.
+    static func writeKilledRecording(frames: Int, to url: URL) throws {
+        let open = url.deletingLastPathComponent().appendingPathComponent("open-\(UUID().uuidString).wav")
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000.0, AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false,
+        ]
+        let file = try AVAudioFile(
+            forWriting: open, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        let format = try XCTUnwrap(
+            AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
+        buffer.frameLength = AVAudioFrameCount(frames)
+        for index in 0..<frames { buffer.floatChannelData![0][index] = 0.3 * sinf(Float(index) * 0.06) }
+        try file.write(from: buffer)
+        try FileManager.default.copyItem(at: open, to: url)
+        file.close()
+        try FileManager.default.removeItem(at: open)
     }
 
     /// Cancel, then start again at once: the new dictation waits for the discard, keeps its own recording, and the

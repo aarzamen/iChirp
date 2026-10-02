@@ -126,7 +126,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   writes nothing, mute writes silence, `stop` and `cancel` never delete audio), implemented by ChirpAudio's
   `MeetingRecorder`.
 - `Pipeline/SpeechWAVFile.swift` (M3): a Foundation-only 16 kHz mono Float32 WAV writer for a meeting's temporary
-  live-preview chunks.
+  live-preview chunks. Review R5-4: `repairHeader(at:)` rewrites the RIFF and `data` sizes (and a `fact` count) of a
+  WAV whose writer was killed before closing it (AVFoundation writes them only on close, so it reads as 0 s), from the
+  file's length; a finished file, or one with a chunk after its audio, is never changed.
 - `Pipeline/VoiceMessageWriting.swift` (plan 022): the seam between ChirpFeatures' `VoiceMessageExporter` and
   ChirpAudio's `VoiceMessageWriter` (chunk files in, one `.m4a` out), plus `SynthesizedAudio.Format.fileExtension`.
 - `Pipeline/SpeechAudioPlaying.swift` (plan 020): the speech output seam (`SpeechAudioPlaying`,

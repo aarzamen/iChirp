@@ -157,6 +157,11 @@ read).
   `stop()` unsubscribes, drains the queue and closes the file, then rejects
   anything under 0.3 s (`AudioCaptureError.tooShort`, file removed);
   `cancel()` deletes the file. Helpers: `Capture/CaptureBuffers.swift`.
+  A WAV is only finished on close: a dictation the app was killed while
+  writing reads as 0 s until ChirpCore's `SpeechWAVFile.repairHeader`
+  rewrites its sizes, which the dictation coordinator does before adopting or
+  transcribing it (review R5-4, `DictationRecorderTests` proves it on a real
+  `RecordingWriter` file).
 
 - `Capture/MeetingRecorder.swift` (M3) — port of upstream's
   `MeetingAudioStorageWriter` for one microphone. Same capture plumbing as the

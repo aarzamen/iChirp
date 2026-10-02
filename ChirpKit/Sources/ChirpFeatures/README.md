@@ -179,6 +179,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   class to `media/<id>/dictation.json` before the recorder starts, inserts the row with it (so a Clinical dictation is
   never Personal, not even for a moment), routes the live preview on it, and deletes the file once the row exists.
   An orphan is adopted with the class in that file, or Clinical when it is missing or unreadable.
+  Review R5-4: a WAV the app was killed while writing holds its samples but its header says 0 s; adoption and every
+  final pass first run `SpeechWAVFile.repairHeader` (off the main actor; a finished file is not touched), so Retry
+  transcribes what was kept and the adopted row gets its length.
 - `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
   (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
   ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final
