@@ -236,9 +236,12 @@ final class DictationCoordinatorTests: XCTestCase {
     /// Fix round 1: a dictation whose every sentence was scratched copies nothing, stores nothing (a correction cannot
     /// be empty), keeps the words as heard, opens no SOAP and says so.
     func testAFullyScratchedDictationSaysNothingWasSentAndKeepsTheHeardWords() async throws {
-        let finalPass = "Take aspirin 81 mg. Scratch that. Send to SOAP."
+        let finalPass = "Take aspirin 81 mg. Scratch that. Read it back. Send to SOAP."
         let (h, commands) = try await dictate(finalPass)
-        XCTAssertEqual(h.coordinator.copiedText, "")
+        // Fix round 2: nothing is copied (the person's clipboard is left as it was) and nothing is read back.
+        XCTAssertEqual(h.clipboard.copies, [])
+        XCTAssertNil(h.coordinator.copiedText)
+        XCTAssertFalse(commands.readBackUnavailable, "no read back of an empty text was attempted")
         XCTAssertNil(commands.pendingTransform)
         XCTAssertEqual(h.coordinator.voiceCommandsNotSaved, .everythingScratched(droppedSendOn: [.sendToSOAP]))
         XCTAssertEqual(

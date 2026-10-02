@@ -40,7 +40,8 @@ public struct DictationTextRules: Sendable {
 /// still has every word as heard; Send to SOAP / Transform, when said, were not opened. The Done screen shows
 /// `message` in place of "Voice commands applied".
 public enum VoiceCommandsNotSaved: Sendable, Equatable {
-    /// The commands left no text (every sentence scratched): nothing was copied, stored or sent.
+    /// The commands left no text (every sentence scratched): nothing was copied (the clipboard keeps what it had),
+    /// read back, stored or sent; `copiedText` is nil.
     case everythingScratched(droppedSendOn: [VoiceCommandAction])
     /// The edit could not be stored (no word timings, a refused write).
     case notSaved(droppedSendOn: [VoiceCommandAction])
@@ -593,21 +594,26 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
                 let commands = await voiceCommands?.applyToFinalPass(saved.text)
                 guard !Task.isCancelled else { return }
                 let copied = commands?.text ?? saved.text
-                clipboard.copy(copied)
-                copiedText = copied
                 var actions = commands?.actions ?? []
                 voiceCommandsNotSaved = nil
-                if copied != saved.text {
+                let sendOn = actions.filter { $0 == .sendToSOAP || $0 == .sendToTransform }
+                if copied != saved.text, copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Every sentence was scratched (fix round 2): nothing is copied (the clipboard keeps what it
+                    // had), read back, stored or sent. A correction cannot be empty, so the transcript keeps the
+                    // words as heard, and the Done screen says so.
+                    actions.removeAll { sendOn.contains($0) || $0 == .readBack }
+                    copiedText = nil
+                    if saved.row != nil { voiceCommandsNotSaved = .everythingScratched(droppedSendOn: sendOn) }
+                } else {
+                    clipboard.copy(copied)
+                    copiedText = copied
                     // Review R5-2 (plan 025): the commands' edits become corrections of the saved transcript before
-                    // anything opens it, so Send to SOAP / Transform read what was copied. When they cannot be stored,
-                    // nothing is sent on (a scratched order must never reach a model) and the Done screen says so.
-                    let sendOn = actions.filter { $0 == .sendToSOAP || $0 == .sendToTransform }
-                    if copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // Every sentence was scratched: a correction cannot be empty, so the transcript keeps the
-                        // words as heard, and nothing is stored or sent.
-                        actions.removeAll { sendOn.contains($0) }
-                        if saved.row != nil { voiceCommandsNotSaved = .everythingScratched(droppedSendOn: sendOn) }
-                    } else if await !storeVoiceCommands(of: saved.row, commanded: saved.text, result: copied) {
+                    // anything opens it, so Send to SOAP / Transform read what was copied. When they cannot be
+                    // stored, nothing is sent on (a scratched order must never reach a model) and the Done screen
+                    // says so.
+                    if copied != saved.text,
+                        await !storeVoiceCommands(of: saved.row, commanded: saved.text, result: copied)
+                    {
                         actions.removeAll { sendOn.contains($0) }
                         if saved.row != nil { voiceCommandsNotSaved = .notSaved(droppedSendOn: sendOn) }
                     }
