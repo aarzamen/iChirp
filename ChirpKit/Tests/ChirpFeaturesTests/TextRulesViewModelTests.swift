@@ -96,4 +96,58 @@ final class TextRulesViewModelTests: XCTestCase {
         XCTAssertNotEqual(expected, FakeSpeech.helloText)
         XCTAssertTrue(expected?.contains("Obi-Wan") ?? false)
     }
+
+    // MARK: - Learned rules (plan 025 B3)
+
+    func testAddLearnedRuleSavesLearnedSource() async throws {
+        let store = FakeTextRulesStore()
+        let model = TextRulesViewModel(store: store)
+        await model.load()
+        let outcome = await model.addLearnedRule(word: " met for men ", replacement: " metformin ")
+        XCTAssertEqual(outcome, .added)
+        let stored = try await store.customWords()
+        XCTAssertEqual(stored.map(\.word), ["met for men"])
+        XCTAssertEqual(stored.map(\.replacement), ["metformin"])
+        XCTAssertEqual(stored.map(\.source), [.learned])
+        XCTAssertEqual(model.learnedRules.map(\.word), ["met for men"])
+        XCTAssertEqual(model.manualWords.map(\.word), [])
+        XCTAssertNil(model.lastError, "the outcome carries the message, not the editor's error")
+    }
+
+    func testDuplicateLearnedRuleReportsExisting() async throws {
+        let store = FakeTextRulesStore()
+        let model = TextRulesViewModel(store: store)
+        _ = await model.addWord("Met For Men", replacement: "metformin")
+        let outcome = await model.addLearnedRule(word: "met for men", replacement: "Metformin")
+        XCTAssertEqual(outcome, .alreadyExists("“met for men” already has a rule in Settings → Text rules."))
+        let stored = try await store.customWords()
+        XCTAssertEqual(stored.count, 1)
+        await store.fail(with: CocoaError(.fileWriteUnknown))
+        let failed = await model.addLearnedRule(word: "smyth", replacement: "Smith")
+        guard case .failed = failed else { return XCTFail("a store error is reported: \(failed)") }
+    }
+
+    func testManualWordsExcludeLearnedRules() async throws {
+        let store = FakeTextRulesStore()
+        let model = TextRulesViewModel(store: store)
+        _ = await model.addWord("Kenobi", replacement: "Obi-Wan")
+        _ = await model.addLearnedRule(word: "met for men", replacement: "metformin")
+        XCTAssertEqual(model.manualWords.map(\.word), ["Kenobi"])
+        XCTAssertEqual(model.learnedRules.map(\.word), ["met for men"])
+        // Clean (files, dictation, meetings) and the accessor's context see manual words only.
+        let rules = await DictationTextRules.enabled(in: store)
+        XCTAssertEqual(rules.customWords.map(\.word), ["Kenobi"])
+        let manual = try await store.enabledManualCustomWords()
+        XCTAssertEqual(manual.map(\.word), ["Kenobi"])
+        let learned = try await store.enabledLearnedRules()
+        XCTAssertEqual(learned.map(\.word), ["met for men"])
+        let context = await TranscriptTextContext.current(textRules: store, settings: InMemorySettingsStore())
+        XCTAssertEqual(context.customWords.map(\.word), ["Kenobi"])
+        // A turned-off rule is not applied.
+        var rule = try XCTUnwrap(model.learnedRules.first)
+        rule.isEnabled = false
+        _ = await model.update(rule)
+        let enabled = try await store.enabledLearnedRules()
+        XCTAssertEqual(enabled.map(\.word), [])
+    }
 }

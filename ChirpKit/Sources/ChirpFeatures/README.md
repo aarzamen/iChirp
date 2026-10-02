@@ -152,7 +152,12 @@ pipeline's `Task`s and publishes its progress to the UI.
   ADR-009, with the person's corrections; without words one paragraph of the text). Plan 025: `heard`, `lines`,
   `hasWordTimings`, `canCorrect`, `corrections`, `corrections(inLine:)`, `detachedCorrections`, `heardText(line:)`,
   `baseline`, `correctionsChangedAt`, and `correct(line:text:)`, `revert`, `revertLine`, `undo`, `revertAll`,
-  `deleteDetached` through the injected `TranscriptCorrectionService` (nil: read-only); the injected text context
+  `deleteDetached` through the injected `TranscriptCorrectionService` (nil: read-only). Part B (Find): `findBlocks`
+  (the line texts a `TranscriptFindMatch.blockIndex` indexes), `timeMs(of:)` (the start of the token a match starts
+  in), `canReplace` / `replaceUnavailableReason`, `replace(_:query:with:)` and `replaceAll(_:query:with:)` (a stale
+  match whose text no longer matches the query is skipped; Replace all is one plan, one write, one `batchID`; both
+  return a `ReplaceOutcome` with the undo plan, the count and the D8 `LearnedRuleSuggestion`) and
+  `effectivePrivacyClassNow()` (the rule offer's clinical note); the injected text context
   (`TranscriptTextContext.current`) reaches Copy and the exports. Also speaker labels, `mediaURL` for the player, `plainText` for
   Copy (`Transcription.plainText(.shown(mode))`, the text the exports and the models use; plan 024 Task 8),
   `exportFile` (async, review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`,
@@ -256,7 +261,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   discard stays `DictationCoordinator.cancel()`, unchanged.
 - `TextRulesViewModel.swift` (M2): Settings → Text → Custom words & snippets over `ChirpText.TextRulesStoring`:
   add (trimmed; a blank replacement is none), edit, on/off, delete, readable errors for empty fields and duplicates;
-  `DictationTextRules.enabled(in:)` reads the enabled lists for a dictation.
+  `DictationTextRules.enabled(in:)` reads the enabled manual words and snippets for a dictation. Plan 025 D8:
+  `manualWords` (Clean and meetings use only these) and `learnedRules` ("Fixes from your corrections"), and
+  `addLearnedRule(word:replacement:)` → `.added`, `.alreadyExists("“met for men” already has a rule in Settings → Text
+  rules.")` or `.failed`, which never sets `lastError` (the Transcript screen shows it).
 - `SettingsStore.swift`: `SettingsStoring` and `UserDefaultsSettingsStore`, a JSON blob under
   `ichirp.transcriptionSettings` that falls back to the defaults when missing or unreadable.
 - `LanguageModelProviderStore.swift`: `LanguageModelProviderStoring` and `UserDefaultsLanguageModelProviderStore`
@@ -378,7 +386,24 @@ pipeline's `Task`s and publishes its progress to the UI.
   `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
   the undo plan. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
   are gone) writes nothing, so `changedAt` does not move; `revertAll` takes the ids inside the store's transaction. Logs: ids, counts and origin names, never text.
-  `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off).
+  `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off). Part B: `correct(_:lines:in:
+  baseline:origin:batchID:)` plans several lines in one write (Replace all), and `applyLearnedRules(_:)` applies the
+  enabled learned rules (the `learnedRules` provider) to a transcript a pipeline just saved, as `rule` corrections
+  planned inside the transaction (`LearnedRuleMatcher`); it never throws: no rules, no timings or a failure return nil
+  (the failure logged by id), so a rule never fails a job.
+
+## Find in transcript (plan 025 Part B, `Find/`)
+
+- `Find/TranscriptFindModel.swift`: port of upstream's `TranscriptFindModel` (same API: `setQuery`, `setBlocks`,
+  `next`, `prev`, `clear`, `current`, `displayPosition`; the current match survives a block change, else its ordinal)
+  with matching in `ChirpText.TranscriptSearchIndex`, rebuilt once per `setBlocks`. Adds `hasQueryButNoMatches`,
+  `counterText` ("3 of 12", "No matches"), `positionAnnouncement(timeMs:)` ("3 of 12, at 12:04") and
+  `takeCountAnnouncement()` ("12 matches", only when the count changes). Announcements carry counts and times, never
+  text. Its 20 upstream tests are ported unchanged in `TranscriptFindModelTests`.
+- `Find/TranscriptReplace.swift`: `ReplaceOutcome` and `LearnedRuleSuggestion` (D8: offered only when the query has no
+  edge spaces, is at least three characters with a letter, the replacement is not blank and differs, and every
+  replaced match is a whole-word place the rule would match, `LearnedRuleMatcher.isWholeWord`), with the banner's
+  question and the clinical note.
 - `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
   `provider`) builds the accessor's clean-up rules from Settings: manual enabled custom words, enabled snippets,
   `removeUmFiller`. Every consumer that reads a transcript's shown text passes it (a corrected row's Clean view runs

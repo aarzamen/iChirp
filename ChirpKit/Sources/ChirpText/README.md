@@ -76,6 +76,12 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   searched; matches never overlap or cross a block. Budget (D4): 20,000 words, index ≤ 50 ms and query ≤ 8 ms p95 on
   the iPhone (the device smoke's `FIND BENCH` line); `TranscriptSearchIndexPerformanceTests` checks a looser Mac debug
   bound.
+- `Corrections/LearnedRuleMatcher.swift` (plan 025 B3, D8): learned rules ("Also fix future transcripts",
+  `CustomWord.Source.learned`) as `rule` corrections of a transcript's `.heard` lines: each enabled rule with a
+  replacement matches as a custom word does (`\b<word>\b`, case-insensitive), each match goes through
+  `CorrectionPlanner` (one batch per rule, `ruleID` set). Rules do not chain; a match touching a corrected word, or
+  overlapping an earlier match, is skipped, so a plan never removes a correction. `isWholeWord(_:in:word:)` is the
+  check behind the rule offer after a Replace.
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name
@@ -204,6 +210,8 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
 - `Models/`: `CustomWord`, `TextSnippet`, `KeyAction`, `DictationInsertionStyle`, `TextProcessingResult`
   — ported with their upstream fields, minus GRDB persistence conformances (ChirpStore owns persistence).
   `Models/TextRulesStoring.swift` (M2) is the persistence contract for words and snippets (`enabledCustomWords()`,
+  plan 025's `enabledManualCustomWords()` for Clean and the meeting applier and `enabledLearnedRules()` for the
+  correction service,
   `enabledSnippets()`, `TextRulesStoreError.duplicate`), implemented by `ChirpStore.GRDBTextRulesStore`.
 
 - `MeetingTranscriptVocabularyApplier.swift` (M3): the only text step meetings run (upstream rule): the person's

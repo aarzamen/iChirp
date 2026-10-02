@@ -160,6 +160,102 @@ import Observation
         apply(try await service.deleteDetached(id, corrections: corrections))
     }
 
+    // MARK: - Find (plan 025 Part B)
+
+    /// The find bar's blocks: the screen's line texts, in order. A `TranscriptFindMatch.blockIndex` indexes `lines`.
+    public var findBlocks: [String] { lines.map(\.text) }
+
+    /// When `match` was said: the start of the token the match starts in (an engine word's own start, a correction's
+    /// envelope start); nil without word timings or for a match outside the lines.
+    public func timeMs(of match: TranscriptFindMatch) -> Int? {
+        guard hasWordTimings, let heard, heard.lines.indices.contains(match.blockIndex) else { return nil }
+        let line = heard.lines[match.blockIndex]
+        guard let offset = line.tokenUTF16Ranges.firstIndex(where: { $0.upperBound > match.range.location }) else {
+            return line.startMs
+        }
+        let tokenIndex = line.tokenRange.lowerBound + offset
+        return heard.tokens.indices.contains(tokenIndex) ? heard.tokens[tokenIndex].startMs : line.startMs
+    }
+
+    /// Replace and Replace All are offered: the same conditions as Correct… (a correction writer, a finished, timed
+    /// transcript whose corrections this build can change).
+    public var canReplace: Bool { canCorrect }
+
+    /// Why Replace is not offered, for the find bar; nil when it is.
+    public var replaceUnavailableReason: String? {
+        guard !canReplace else { return nil }
+        if transcription != nil, !hasWordTimings { return "Replace needs word timings; this transcript has none." }
+        if transcription?.textCorrections?.isFromNewerBuild == true {
+            return TranscriptCorrectionError.newerVersion.errorDescription
+        }
+        if transcription != nil, transcription?.status != .completed {
+            return TranscriptCorrectionError.notCompleted.errorDescription
+        }
+        return "Replace isn’t available for this transcript."
+    }
+
+    /// Replaces one find match with `replacement`, as a `replace` correction of the smallest span of words (plan 025
+    /// B3). `query` is the find query the match came from: a match whose text no longer matches it is skipped (count 0).
+    /// Throws `TranscriptCorrectionError` when the write is refused.
+    @discardableResult
+    public func replace(_ match: TranscriptFindMatch, query: String, with replacement: String) async throws
+        -> ReplaceOutcome
+    {
+        try await replace([match], query: query, with: replacement, origin: .replace, batchID: nil)
+    }
+
+    /// Replaces every given match with `replacement` in one write: every line with matches (its matches applied last
+    /// first), one plan, `replaceAll` corrections sharing one `batchID`, so the outcome's `undo` reverts them together.
+    @discardableResult
+    public func replaceAll(_ matches: [TranscriptFindMatch], query: String, with replacement: String) async throws
+        -> ReplaceOutcome
+    {
+        try await replace(matches, query: query, with: replacement, origin: .replaceAll, batchID: UUID())
+    }
+
+    private func replace(
+        _ matches: [TranscriptFindMatch], query: String, with replacement: String,
+        origin: TranscriptCorrection.Origin, batchID: UUID?
+    ) async throws -> ReplaceOutcome {
+        let (service, heard) = try correctionInputs()
+        var texts: [Int: String] = [:]
+        var replaced: [(text: String, range: NSRange)] = []
+        var skipped = 0
+        let byBlock = Dictionary(grouping: matches, by: \.blockIndex)
+        for (blockIndex, blockMatches) in byBlock {
+            guard heard.lines.indices.contains(blockIndex) else {
+                skipped += blockMatches.count
+                continue
+            }
+            let line = heard.lines[blockIndex]
+            // The places the query matches in the line now; a stale match is skipped.
+            let current = Set(TranscriptSearchIndex(blocks: [line.text]).matches(for: query).map(\.range))
+            let valid = blockMatches.filter { current.contains($0.range) }
+            skipped += blockMatches.count - valid.count
+            guard !valid.isEmpty else { continue }
+            let text = NSMutableString(string: line.text)
+            for match in valid.sorted(by: { $0.range.location > $1.range.location }) {
+                replaced.append((line.text, match.range))
+                text.replaceCharacters(in: match.range, with: replacement)
+            }
+            texts[line.id] = text as String
+        }
+        guard !texts.isEmpty else { return ReplaceOutcome(undo: .init(), count: 0, skipped: skipped) }
+        let outcome = try await service.correct(
+            id, lines: texts, in: heard, baseline: baseline, origin: origin, batchID: batchID)
+        apply(outcome.row)
+        return ReplaceOutcome(
+            undo: outcome.undo, count: replaced.count, skipped: skipped,
+            ruleSuggestion: LearnedRuleSuggestion.make(query: query, replacement: replacement, replaced: replaced))
+    }
+
+    /// The class the privacy rules use for this item now (its documents' raise it): the find bar's rule offer adds
+    /// the clinical note when it is clinical (plan 025 D6).
+    public func effectivePrivacyClassNow() async -> PrivacyClass {
+        guard let transcription else { return .personal }
+        return await effectivePrivacyClass(of: transcription)
+    }
+
     private func correctionInputs() throws -> (TranscriptCorrectionService, TranscriptText) {
         guard let correctionService, let heard else { throw TranscriptError.notLoaded }
         return (correctionService, heard)

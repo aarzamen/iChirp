@@ -54,17 +54,22 @@ public enum TranscriptCorrectionError: Error, Equatable, LocalizedError {
 public struct TranscriptCorrectionService: Sendable {
     private let store: any TranscriptionStoring
     private let context: @Sendable () async -> TranscriptTextContext
+    private let learnedRules: @Sendable () async -> [CustomWord]
     private let now: @Sendable () -> Date
     private static let logger = Log.logger("corrections")
 
     /// - Parameter context: the person's clean-up rules (`TranscriptTextContext.current(textRules:settings:)`), read at
     ///   every write for the derived title of a row with clean text.
+    /// - Parameter learnedRules: the enabled learned rules (`TextRulesStoring.enabledLearnedRules()`, plan 025 D8), read
+    ///   by `applyLearnedRules(_:)`; none by default.
     public init(
         store: any TranscriptionStoring, context: @escaping @Sendable () async -> TranscriptTextContext,
+        learnedRules: @escaping @Sendable () async -> [CustomWord] = { [] },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.store = store
         self.context = context
+        self.learnedRules = learnedRules
         self.now = now
     }
 
@@ -87,6 +92,66 @@ public struct TranscriptCorrectionService: Sendable {
             throw Self.map(error)
         }
         return try await apply(id, plan: plan, baseline: baseline)
+    }
+
+    /// Several lines of `loaded` edited at once (Replace all), saved as one plan in one write: every line's smallest
+    /// spans (`CorrectionPlanner`), sharing `origin` and `batchID`. Lines whose text did not change add nothing.
+    public func correct(
+        _ id: UUID, lines texts: [Int: String], in loaded: TranscriptText, baseline: String,
+        origin: TranscriptCorrection.Origin, batchID: UUID? = nil
+    ) async throws -> CorrectionOutcome {
+        var plan = TranscriptCorrectionPlan()
+        let now = self.now()
+        for (lineID, text) in texts.sorted(by: { $0.key < $1.key }) {
+            guard let target = loaded.lines.first(where: { $0.id == lineID }) else {
+                throw TranscriptCorrectionError.transcriptChanged
+            }
+            do {
+                let linePlan = try CorrectionPlanner.plan(
+                    line: target, tokens: loaded.tokens, heard: { loaded.heardText($0) }, editedText: text,
+                    origin: origin, batchID: batchID, now: now)
+                plan.remove.formUnion(linePlan.remove)
+                plan.add += linePlan.add
+            } catch let error as TranscriptCorrectionsError {
+                throw Self.map(error)
+            }
+        }
+        return try await apply(id, plan: plan, baseline: baseline)
+    }
+
+    /// Plan 025 D8: applies the enabled learned rules to a transcript a pipeline just saved, as `rule` corrections
+    /// (`LearnedRuleMatcher`, planned inside the store's transaction against the row as stored). Returns the row as
+    /// saved, or nil when nothing was written: no rules, no word timings, not completed, nothing matched, or a failure,
+    /// which is logged by id and swallowed (a rule never fails a job).
+    public func applyLearnedRules(_ id: UUID) async -> Transcription? {
+        let rules = await learnedRules().filter(\.isEnabled)
+        guard !rules.isEmpty else { return nil }
+        let context = await self.context()
+        let now = self.now()
+        let count = Mutex(0)
+        do {
+            let saved = try await write(id) { row in
+                guard row.status == .completed, row.hasWordTimings, row.textCorrections?.isFromNewerBuild != true else {
+                    return false
+                }
+                let plan = LearnedRuleMatcher.plan(row.text(.heard, context: context), rules: rules, now: now)
+                guard !plan.isEmpty else { return false }
+                _ = try row.applyCorrections(plan, now: now)
+                Self.derive(&row, context: context)
+                count.withLock { $0 = plan.add.count }
+                return true
+            }
+            if saved != nil {
+                Self.logger.notice(
+                    "corrections_saved id=\(id, privacy: .public) added=\(count.withLock { $0 }, privacy: .public) removed=0 origin=rule"
+                )
+            }
+            return saved
+        } catch {
+            Self.logger.error(
+                "learned_rules_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
+            return nil
+        }
     }
 
     /// Applies a plan (an undo, a Replace) bound to the words the screen loaded.

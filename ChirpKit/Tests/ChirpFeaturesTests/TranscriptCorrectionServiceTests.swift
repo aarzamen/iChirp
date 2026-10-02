@@ -295,6 +295,68 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
         XCTAssertFalse(context.removeUmFiller)
     }
 
+    // MARK: - Learned rules (plan 025 B3)
+
+    private func service(_ store: FakeStore, rules: [CustomWord]) -> TranscriptCorrectionService {
+        let now = self.now
+        return TranscriptCorrectionService(store: store, context: { .none }, learnedRules: { rules }, now: { now })
+    }
+
+    func testApplyLearnedRulesMarksRuleOrigin() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let rule = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
+        let saved = await service(store, rules: [rule]).applyLearnedRules(original.id)
+        XCTAssertEqual(saved?.textCorrections?.items.map(\.origin), [.rule])
+        XCTAssertEqual(saved?.textCorrections?.items.map(\.ruleID), [rule.id])
+        XCTAssertEqual(saved?.textCorrections?.items.map(\.text), ["metformin"])
+        XCTAssertEqual(saved?.plainText(.shown(.raw)), "The patient takes metformin daily. She feels well today.")
+        XCTAssertEqual(saved?.derivedTitle, TitleDeriver.derive(from: saved?.plainText(.shown(.raw)) ?? ""))
+        let stored = await store.row(original.id)
+        XCTAssertEqual(stored?.rawTranscript, original.rawTranscript, "the words as heard are never rewritten")
+        XCTAssertEqual(stored?.wordTimestamps, original.wordTimestamps)
+    }
+
+    func testApplyLearnedRulesNeverOverwritesThePersonsCorrections() async throws {
+        let original = row()
+        let store = FakeStore(rows: [original])
+        let mine = try await service(store).correct(
+            original.id, line: 0, in: original.text(.heard), baseline: baseline(original),
+            text: "The patient takes met for men twice daily. She feels well today.")
+        XCTAssertEqual(mine.row.textCorrections?.items.map(\.text), ["men twice"])
+        // A rule that would cover the person's correction leaves it alone; one elsewhere still applies.
+        let rules = [
+            CustomWord(word: "met for men", replacement: "metformin", source: .learned),
+            CustomWord(word: "feels well", replacement: "feels fine", source: .learned),
+        ]
+        let saved = await service(store, rules: rules).applyLearnedRules(original.id)
+        XCTAssertEqual(
+            saved?.textCorrections?.items.map(\.text), ["men twice", "fine"],
+            "the smallest span: \"well\" becomes \"fine\"")
+        XCTAssertEqual(saved?.textCorrections?.items.map(\.origin), [.edit, .rule])
+    }
+
+    func testApplyLearnedRulesWithoutRulesOrWordsWritesNothingAndNeverThrows() async throws {
+        let timed = row()
+        let untimed = row(words: false)
+        let processing = row(status: .processing)
+        let store = FakeStore(rows: [timed, untimed, processing])
+        let rule = CustomWord(word: "met for men", replacement: "metformin", source: .learned)
+        let none = await service(store, rules: []).applyLearnedRules(timed.id)
+        XCTAssertNil(none)
+        let noWords = await service(store, rules: [rule]).applyLearnedRules(untimed.id)
+        XCTAssertNil(noWords)
+        let notDone = await service(store, rules: [rule]).applyLearnedRules(processing.id)
+        XCTAssertNil(notDone)
+        let missing = await service(store, rules: [rule]).applyLearnedRules(UUID())
+        XCTAssertNil(missing)
+        await store.failNextTextCorrectionWrite(with: FakeError(message: "disk full"))
+        let failed = await service(store, rules: [rule]).applyLearnedRules(timed.id)
+        XCTAssertNil(failed, "a failure is logged and swallowed")
+        let writes = await store.textCorrectionWrites
+        XCTAssertEqual(writes, 0)
+    }
+
     // MARK: - Draft rules
 
     func testCannotSaveBlankOrUnchanged() {
