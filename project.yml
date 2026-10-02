@@ -17,7 +17,8 @@ targets:
       - path: App/Sources
       - path: App/Resources
       # R8-22: the privacy manifest (required-reason APIs), at the root of the app bundle where App Store processing
-      # looks for it. scripts/check_scripts.sh compares it with the sources.
+      # looks for it. scripts/check_privacy_manifest.sh compares it with the sources, the vendored runtimes and, in CI,
+      # the built app.
       - path: App/PrivacyInfo.xcprivacy
         buildPhase: resources
       # M2: the Live Activity attributes and App Intents shared with the widget extension.

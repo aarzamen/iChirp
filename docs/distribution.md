@@ -16,9 +16,13 @@ Not available today: TestFlight and the App Store. An Apple Distribution certifi
 no agreement or app record for the team (its stale "Membership Expired" state; only an Apple Developer Support ticket
 from the Account Holder fixes it: see [`APPLE_DEVELOPER_WARNING.md`](../APPLE_DEVELOPER_WARNING.md)), and GPL-3.0 would
 need the MacParakeet copyright holder's permission for the App Store. For the day an upload is possible: the app already
-ships a privacy manifest (`App/PrivacyInfo.xcprivacy`, kept honest by `scripts/check_scripts.sh`), and the App Privacy
-questions (what is "collected" when the person sends text to a cloud model or voice they chose with their own key) are
-the owner's to answer then.
+ships a privacy manifest (`App/PrivacyInfo.xcprivacy`: user defaults, disk space and file timestamps; the last comes
+from the Rust libraries inside Needle and FluidAudio's NeMo text library, not from first-party code).
+`scripts/check_privacy_manifest.sh` fails when the Swift sources, the vendored runtimes (`nm -u`) or, in CI, the built
+app import a required-reason API the manifest does not declare. It cannot see what Apple's own frameworks do or the
+manifests other packages ship (GRDB has its own), and a declaration it finds no use for is only a note, so it is a
+guard, not a privacy review. The App Privacy questions (what is "collected" when the person sends text to a cloud model
+or voice they chose with their own key) are the owner's to answer then.
 
 ## The hard rules (from `APPLE_DEVELOPER_WARNING.md`)
 

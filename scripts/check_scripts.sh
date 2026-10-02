@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Checks the scripts themselves: that every script parses under macOS's bash 3.2, and the logic that nothing else runs
-# automatically because it needs a phone, signing or a scanner. Nothing here builds the app, signs, installs, reaches the
-# network or touches Config/Device.local, Config/Signing.local.xcconfig or a phone: each check runs a copy of the script
-# in a temporary folder, with stubs where the real tool would be.
+# automatically because it needs a phone, signing or a scanner. Nothing here builds the app (section 7 compiles a few
+# three-line C programs with cc to read their imports), signs, installs, reaches the network or touches
+# Config/Device.local, Config/Signing.local.xcconfig or a phone: each check runs a copy of the script in a temporary
+# folder, with stubs where the real tool would be.
 #
 # Usage: scripts/check_scripts.sh      (CI runs it; a few seconds)
 # Exit:  0 all checks passed · 1 at least one failed (each failure is printed)
@@ -342,71 +343,207 @@ else
   fail "an app-only run reused a stale build date: $(plist_value app CFBundleVersion)"
 fi
 
-# 7. The privacy manifest (R8-22) declares exactly the "required reason" API categories the app's own sources use: a
-#    category the code uses but the manifest lacks would be flagged at upload (ITMS-91053), and one declared but no
-#    longer used is a false statement. Comment lines are ignored; third-party packages ship their own manifests.
-privacy_problems() { # privacy_problems <manifest> <source folder...>: one line per problem, nothing when consistent
-  local manifest="$1"
-  shift
-  python3 - "$manifest" "$@" <<'PY'
-import json, re, subprocess, sys
-from pathlib import Path
-
-manifest = json.loads(subprocess.check_output(["plutil", "-convert", "json", "-o", "-", sys.argv[1]]))
-declared = {item["NSPrivacyAccessedAPIType"] for item in manifest.get("NSPrivacyAccessedAPITypes", [])}
-patterns = {
-    "NSPrivacyAccessedAPICategoryUserDefaults": r"\bUserDefaults\b|\bNSUserDefaults\b|\bAppStorage\b",
-    "NSPrivacyAccessedAPICategoryDiskSpace": r"volumeAvailableCapacity|volumeTotalCapacity|systemFreeSize|\.systemSize\b"
-    r"|NSFileSystemFreeSize|NSFileSystemSize|\bstatfs\b|\bstatvfs\b",
-    "NSPrivacyAccessedAPICategoryFileTimestamp": r"\.creationDate\b|\.modificationDate\b|contentModificationDate"
-    r"|creationDateKey|NSFileCreationDate|NSFileModificationDate|\bstat\(|\blstat\(|\bfstat\(|getattrlist"
-    r"|contentAccessDate|attributeModificationDate",
-    "NSPrivacyAccessedAPICategorySystemBootTime": r"systemUptime|mach_absolute_time|mach_continuous_time|\bclock_gettime",
-    "NSPrivacyAccessedAPICategoryActiveKeyboards": r"activeInputModes",
-}
-used = {}
-for root in sys.argv[2:]:
-    for path in sorted(Path(root).rglob("*.swift")):
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            if line.lstrip().startswith("//"):
-                continue
-            for category, pattern in patterns.items():
-                if category not in used and re.search(pattern, line):
-                    used[category] = f"{path}:{number}"
-for category, where in sorted(used.items()):
-    if category not in declared:
-        print(f"{category} is used ({where}) but the manifest does not declare it")
-for category in sorted(declared):
-    if category not in used:
-        print(f"{category} is declared but no source uses it")
-PY
-}
+# 7. The privacy manifest (R8-22) declares the "required reason" API categories the app really uses. A category that is
+#    used but not declared is flagged at upload (ITMS-91053), so scripts/check_privacy_manifest.sh compares the manifest
+#    with the first-party sources, with the imports (`nm -u`) of the vendored runtimes when they are built, and, in CI,
+#    with every binary of the built app. The first version read Swift sources only and missed that the Rust standard
+#    library inside needle-c imports stat, fstat and lstat (fix round 1 of plan 024). A declared category the scan
+#    does not see is a note, not a failure: only a missing declaration blocks an upload. Every rule below is proven on a
+#    compiled test program (a few lines of C, built with cc), so a pattern that stopped matching fails here.
 if ! plutil -lint App/PrivacyInfo.xcprivacy >"$SANDBOX/out" 2>&1; then
   fail "App/PrivacyInfo.xcprivacy is not a valid property list: $(head -1 "$SANDBOX/out")"
 else
-  problems=$(privacy_problems App/PrivacyInfo.xcprivacy ChirpKit/Sources App/Sources App/Shared Widgets)
-  if [ -z "$problems" ]; then
-    pass "App/PrivacyInfo.xcprivacy declares exactly the required-reason APIs the sources use"
+  pass "App/PrivacyInfo.xcprivacy is a valid property list"
+fi
+PRIVACY_CHECK=scripts/check_privacy_manifest.sh
+privacy_case() { # privacy_case <what it proves> <expected exit code> <expected output: extended regex, "" for any> <args...>
+  local what="$1" want_code="$2" want_text="$3" code=0
+  shift 3
+  "$PRIVACY_CHECK" "$@" >"$SANDBOX/pm/out" 2>&1 || code=$?
+  if [ "$code" -ne "$want_code" ]; then
+    fail "$what: exit $code, expected $want_code: $(tail -2 "$SANDBOX/pm/out" | tr '\n' ' ')"
+  elif [ -n "$want_text" ] && ! grep -qE -- "$want_text" "$SANDBOX/pm/out"; then
+    fail "$what: the output lacks /$want_text/: $(tail -2 "$SANDBOX/pm/out" | tr '\n' ' ')"
   else
-    fail "App/PrivacyInfo.xcprivacy disagrees with the sources: $(echo "$problems" | tr '\n' ';')"
+    pass "$what"
   fi
-fi
-# The check itself is not vacuous: a manifest without a category the sources use, and a source that uses one it lacks.
-mkdir -p "$SANDBOX/pm/Sources"
-cp App/PrivacyInfo.xcprivacy "$SANDBOX/pm/without-disk-space.xcprivacy"
-plutil -remove NSPrivacyAccessedAPITypes.1 "$SANDBOX/pm/without-disk-space.xcprivacy"
-if privacy_problems "$SANDBOX/pm/without-disk-space.xcprivacy" ChirpKit/Sources App/Sources App/Shared Widgets \
-  | grep -q "DiskSpace is used .* but the manifest does not declare it"; then
-  pass "the manifest check notices a used category the manifest lacks"
-else
-  fail "the manifest check missed a used category the manifest lacks"
-fi
+}
+manifest_without() { # manifest_without <category> <file>: a copy of the real manifest that does not declare one category
+  python3 - "$1" "$2" <<'PY'
+import plistlib
+import sys
+
+with open("App/PrivacyInfo.xcprivacy", "rb") as handle:
+    manifest = plistlib.load(handle)
+manifest["NSPrivacyAccessedAPITypes"] = [
+    item
+    for item in manifest["NSPrivacyAccessedAPITypes"]
+    if item["NSPrivacyAccessedAPIType"] != "NSPrivacyAccessedAPICategory" + sys.argv[1]
+]
+with open(sys.argv[2], "wb") as handle:
+    plistlib.dump(manifest, handle)
+PY
+}
+mkdir -p "$SANDBOX/pm/src" "$SANDBOX/pm/bin" "$SANDBOX/pm/empty" "$SANDBOX/pm/Sources"
+manifest_without FileTimestamp "$SANDBOX/pm/no-file-timestamp.xcprivacy"
+manifest_without DiskSpace "$SANDBOX/pm/no-disk-space.xcprivacy"
 printf 'import Foundation\nlet uptime = ProcessInfo.processInfo.systemUptime\n' >"$SANDBOX/pm/Sources/Boot.swift"
-if privacy_problems App/PrivacyInfo.xcprivacy "$SANDBOX/pm/Sources" \
-  | grep -q "SystemBootTime is used .* but the manifest does not declare it"; then
-  pass "the manifest check notices a new use of a required-reason API"
+NO_SOURCES="$SANDBOX/pm/empty"
+
+# Test programs: what a binary imports is read from a real binary, not assumed.
+cat >"$SANDBOX/pm/src/clean.c" <<'C'
+int main(void) { return 0; }
+C
+cat >"$SANDBOX/pm/src/stat.c" <<'C'
+#include <sys/stat.h>
+int main(void) { struct stat info; return stat("/", &info); }
+C
+cat >"$SANDBOX/pm/src/statfs.c" <<'C'
+#include <sys/mount.h>
+int main(void) { struct statfs info; return statfs("/", &info); }
+C
+cat >"$SANDBOX/pm/src/boot.c" <<'C'
+#include <mach/mach_time.h>
+int main(void) { return (int)mach_absolute_time(); }
+C
+cat >"$SANDBOX/pm/src/selector.c" <<'C'
+const char *selector = "systemUptime";
+int main(void) { return selector[0]; }
+C
+cat >"$SANDBOX/pm/src/inode64.c" <<'C'
+extern int stat_inode64(const char *path, void *info) __asm__("_stat$INODE64");
+int probe(void) { char info[512]; return stat_inode64("/", info); }
+C
+if ! command -v cc >/dev/null 2>&1; then
+  fail "cc (Xcode's command line tools) is needed to build the privacy checker's test programs"
+fi
+for name in clean stat statfs boot selector; do
+  if ! cc -w -o "$SANDBOX/pm/bin/$name" "$SANDBOX/pm/src/$name.c" 2>"$SANDBOX/pm/cc.err"; then
+    fail "cc could not build the $name test program: $(head -1 "$SANDBOX/pm/cc.err")"
+  fi
+done
+if cc -w -c -o "$SANDBOX/pm/bin/stat.o" "$SANDBOX/pm/src/stat.c" 2>"$SANDBOX/pm/cc.err" \
+  && cc -w -c -o "$SANDBOX/pm/bin/inode64.o" "$SANDBOX/pm/src/inode64.c" 2>>"$SANDBOX/pm/cc.err" \
+  && ar rcs "$SANDBOX/pm/bin/libstat.a" "$SANDBOX/pm/bin/stat.o" 2>>"$SANDBOX/pm/cc.err" \
+  && ar rcs "$SANDBOX/pm/bin/libinode64.a" "$SANDBOX/pm/bin/inode64.o" 2>>"$SANDBOX/pm/cc.err"; then
+  :
 else
-  fail "the manifest check missed a new use of a required-reason API"
+  fail "cc or ar could not build the static test libraries: $(head -1 "$SANDBOX/pm/cc.err")"
+fi
+
+# The real manifest against the real sources and, when they are built, the real vendored runtimes (a fresh checkout
+# has none, and CI builds them after this script runs, so there it reads the sources only).
+privacy_case "the manifest covers what the sources use and what the vendored runtimes import (when they are built)" \
+  0 "covers every required-reason API"
+privacy_case "the check notices a used category the manifest lacks (sources)" \
+  1 'DiskSpace is used \(.+\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-disk-space.xcprivacy" --binary "$SANDBOX/pm/bin/clean"
+privacy_case "the check notices a new first-party use of a required-reason API" \
+  1 'SystemBootTime is used \(.*Boot\.swift:2\) but the manifest does not declare it' \
+  --sources "$SANDBOX/pm/Sources" --binary "$SANDBOX/pm/bin/clean"
+
+# The imports of a binary, which the first version could not see.
+privacy_case "stat imported by a program is File Timestamp, and a manifest without it is a mismatch" \
+  1 'FileTimestamp is used \(.*/bin/stat imports _stat\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/stat"
+privacy_case "the same import inside a static library, the shape of the vendored needle-c archive" \
+  1 'FileTimestamp is used \(.*/libstat\.a imports _stat\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/libstat.a"
+privacy_case "the x86_64 spelling stat\$INODE64 counts as stat" \
+  1 'FileTimestamp is used \(.*/libinode64\.a imports _stat\$INODE64\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/libinode64.a"
+privacy_case "statfs imported by a program is Disk Space" \
+  1 'DiskSpace is used \(.*/bin/statfs imports _statfs\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-disk-space.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/statfs"
+privacy_case "mach_absolute_time imported by a program is System Boot Time (the manifest declares none)" \
+  1 'SystemBootTime is used \(.*/bin/boot imports _mach_absolute_time\) but the manifest does not declare it' \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/boot"
+privacy_case "the Objective-C selector systemUptime inside a program is System Boot Time" \
+  1 'SystemBootTime is used \(.*/bin/selector contains the selector systemUptime\) but the manifest does not declare it' \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/selector"
+privacy_case "the manifest as it stands accepts the stat and statfs imports (File Timestamp, Disk Space)" \
+  0 "covers every required-reason API" \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/stat" --binary "$SANDBOX/pm/bin/statfs"
+privacy_case "a declared category the scan does not see is a note, not a failure" \
+  0 'note: not seen by this scan.*FileTimestamp' \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean"
+
+# A built app: every Mach-O file counts, the XCTest frameworks of a test build do not.
+mkdir -p "$SANDBOX/pm/Fake.app/Frameworks/XCTest.framework" "$SANDBOX/pm/Shipped.app/Frameworks/Other.framework" \
+  "$SANDBOX/pm/Empty.app"
+if [ -x "$SANDBOX/pm/bin/stat" ] && [ -x "$SANDBOX/pm/bin/boot" ]; then
+  cp "$SANDBOX/pm/bin/stat" "$SANDBOX/pm/Fake.app/Fake"
+  cp "$SANDBOX/pm/bin/boot" "$SANDBOX/pm/Fake.app/Frameworks/XCTest.framework/XCTest"
+  cp "$SANDBOX/pm/bin/stat" "$SANDBOX/pm/Shipped.app/Shipped"
+  cp "$SANDBOX/pm/bin/boot" "$SANDBOX/pm/Shipped.app/Frameworks/Other.framework/Other"
+fi
+printf 'not a binary\n' >"$SANDBOX/pm/Empty.app/README.txt"
+privacy_case "--app reads the app's own binary (stat is File Timestamp)" \
+  1 'FileTimestamp is used \(Fake\.app/Fake imports _stat\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" \
+  --app "$SANDBOX/pm/Fake.app"
+privacy_case "--app skips the XCTest framework of a test build (its mach_absolute_time is not shipped)" \
+  0 "covers every required-reason API" \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Fake.app"
+privacy_case "--app reads a shipped framework (the same import in Frameworks/Other.framework is a mismatch)" \
+  1 'SystemBootTime is used \(Shipped\.app/Frameworks/Other\.framework/Other imports _mach_absolute_time\)' \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Shipped.app"
+privacy_case "--app with no Mach-O file in it fails, so a wrong path cannot pass" \
+  1 "no Mach-O file found" \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Empty.app"
+
+# With no --binary the check reads the vendored runtimes that exist: a copy of the script in a made-up checkout whose
+# vendor/ holds a Needle archive that imports stat and a llama framework that imports mach_absolute_time.
+mkdir -p "$SANDBOX/pmrepo/scripts" "$SANDBOX/pmrepo/App" "$SANDBOX/pmrepo/ChirpKit/Sources" "$SANDBOX/pmrepo/App/Sources" \
+  "$SANDBOX/pmrepo/App/Shared" "$SANDBOX/pmrepo/Widgets" "$SANDBOX/pmrepo/vendor/NeedleC.xcframework/ios-arm64" \
+  "$SANDBOX/pmrepo/vendor/llama.xcframework/ios-arm64/llama.framework"
+cp scripts/check_privacy_manifest.sh "$SANDBOX/pmrepo/scripts/check_privacy_manifest.sh"
+chmod +x "$SANDBOX/pmrepo/scripts/check_privacy_manifest.sh"
+cp "$SANDBOX/pm/no-file-timestamp.xcprivacy" "$SANDBOX/pmrepo/App/PrivacyInfo.xcprivacy"
+if [ -f "$SANDBOX/pm/bin/libstat.a" ] && [ -x "$SANDBOX/pm/bin/boot" ]; then
+  cp "$SANDBOX/pm/bin/libstat.a" "$SANDBOX/pmrepo/vendor/NeedleC.xcframework/ios-arm64/libneedle_c.a"
+  cp "$SANDBOX/pm/bin/boot" "$SANDBOX/pmrepo/vendor/llama.xcframework/ios-arm64/llama.framework/llama"
+fi
+PRIVACY_CHECK="$SANDBOX/pmrepo/scripts/check_privacy_manifest.sh"
+privacy_case "with no arguments the check reads the vendored Needle archive (stat is File Timestamp)" \
+  1 'FileTimestamp is used \(vendor/NeedleC\.xcframework/ios-arm64/libneedle_c\.a imports _stat\)'
+privacy_case "with no arguments the check reads the vendored llama framework too" \
+  1 'SystemBootTime is used \(vendor/llama\.xcframework/ios-arm64/llama\.framework/llama imports _mach_absolute_time\)'
+cp App/PrivacyInfo.xcprivacy "$SANDBOX/pmrepo/App/PrivacyInfo.xcprivacy"
+if [ -x "$SANDBOX/pm/bin/clean" ]; then
+  cp "$SANDBOX/pm/bin/clean" "$SANDBOX/pmrepo/vendor/llama.xcframework/ios-arm64/llama.framework/llama"
+fi
+privacy_case "the real manifest covers the vendored Needle archive's stat imports" \
+  0 "scanned 0 source files and 2 binaries"
+rm -rf "$SANDBOX/pmrepo/vendor"
+privacy_case "with no vendored runtimes and no --app the check says no binary was scanned" \
+  0 "note: no binary was scanned"
+PRIVACY_CHECK=scripts/check_privacy_manifest.sh
+
+# Bad usage and missing files are exit 2, never a quiet pass.
+privacy_case "an unknown argument is a usage error" 2 "unknown argument" --nonsense
+privacy_case "a missing manifest is exit 2" 2 "is missing or is not a property list" --manifest "$SANDBOX/pm/none.xcprivacy"
+privacy_case "a missing source folder is exit 2, so a renamed folder cannot make the scan vacuous" \
+  2 "source folder .* not found" --sources "$SANDBOX/pm/nowhere"
+privacy_case "a missing --binary file is exit 2" \
+  2 "binary .* not found" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/nowhere"
+privacy_case "--app pointing at nothing is exit 2" \
+  2 "is not a folder" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Nowhere.app"
+
+# CI cannot run here, so its order is checked: the vendored runtimes and the app are built before the manifest is compared
+# with the built app (a step above them would read neither).
+ci_line() { # ci_line <awk regex>: the first line of the workflow that matches
+  awk -v pattern="$1" '$0 ~ pattern { print NR; exit }' .github/workflows/ci.yml
+}
+needle_line=$(ci_line '^[[:space:]]+scripts/build_needle[.]sh$')
+llama_line=$(ci_line '^[[:space:]]+run: scripts/build_llamacpp[.]sh$')
+app_line=$(ci_line '^[[:space:]]+xcodebuild build-for-testing')
+privacy_line=$(ci_line '^[[:space:]]+run: scripts/check_privacy_manifest[.]sh --app ')
+if [ -n "$needle_line" ] && [ -n "$llama_line" ] && [ -n "$app_line" ] && [ -n "$privacy_line" ] \
+  && [ "$needle_line" -lt "$app_line" ] && [ "$llama_line" -lt "$app_line" ] && [ "$app_line" -lt "$privacy_line" ]; then
+  pass "CI compares the privacy manifest with the built app, after the Needle and llama.cpp builds and the app build"
+else
+  fail "ci.yml must run scripts/check_privacy_manifest.sh --app <built app> after the vendored runtimes and the app are built (lines: needle=${needle_line:-none} llama=${llama_line:-none} app=${app_line:-none} privacy=${privacy_line:-none})"
 fi
 
 # 8. .gitignore keeps the shared runtimes out of git whether `vendor` is a real folder or the symlink every lane worktree

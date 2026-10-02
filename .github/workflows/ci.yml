@@ -1,6 +1,7 @@
-# CI for iChirp: README reference check, script self-checks, strict format lint, ChirpKit package tests, and an unsigned
-# iOS Simulator build of the app and its app-hosted tests. Nothing here signs, archives or touches the Apple Developer
-# account. The real-model test stays skipped (it runs only with CHIRP_MODEL_TESTS=1), so CI never downloads models.
+# CI for iChirp: README reference check, script self-checks, strict format lint, ChirpKit package tests, an unsigned
+# iOS Simulator build of the app and its app-hosted tests, and the privacy manifest compared with the built app. Nothing
+# here signs, archives or touches the Apple Developer account. The real-model test stays skipped (it runs only with
+# CHIRP_MODEL_TESTS=1), so CI never downloads models.
 # The Mac companion's tests run in their own workflow (companion.yml, only when companion/ changes).
 name: CI
 
@@ -59,7 +60,9 @@ jobs:
         run: scripts/check_readme_references.sh
 
       # The scripts' own logic: syntax under macOS's bash 3.2, the run_device.sh failure classifier, device selection,
-      # bootstrap, the secret scanner's rules, the build stamp, and the privacy manifest against the sources.
+      # bootstrap, the secret scanner's rules, the build stamp, and the privacy manifest checker's rules (proven on small
+      # compiled test programs) plus the manifest against the sources. The vendored runtimes and the app do not exist yet
+      # here; the manifest is compared with them in the last step, "Privacy manifest against the built app".
       - name: Script and manifest checks
         run: scripts/check_scripts.sh
 
@@ -102,3 +105,11 @@ jobs:
             -derivedDataPath .build/xcode \
             CODE_SIGNING_ALLOWED=NO \
             -quiet
+
+      # R8-22: the privacy manifest against what the built app imports. It reads every Mach-O file of the app, including
+      # the statically linked Rust libraries (needle-c, and FluidAudio's NeMo text library) whose standard library imports
+      # stat, fstat, lstat and fstatat, and `nm -u` of the vendored runtimes built above. A required-reason API that is
+      # used but not declared in App/PrivacyInfo.xcprivacy fails here, not at App Store upload (ITMS-91053). It stays after
+      # the builds because it reads their output; scripts/check_scripts.sh checks the order.
+      - name: Privacy manifest against the built app
+        run: scripts/check_privacy_manifest.sh --app .build/xcode/Build/Products/Debug-iphonesimulator/iChirp.app
