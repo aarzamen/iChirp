@@ -5,6 +5,8 @@
 // Review fixes (fix/asr-review): a cancelled call leaves the permit queue and the shared load at once (I1); one load at
 // a time, and a delete waits for a load in flight and discards its model (M3); the tokenizer config is part of "ready".
 // fix/speech-memory-fit: a load that would not fit the memory iOS lets the app use now is refused before it starts.
+// Review R3-7/R3-8/R3-9: the marker is written only over a complete model and never after a cancellation; Delete also
+// removes (and the size counts) the Hub's partial downloads for this variant; no load starts while an unload runs.
 
 import ChirpCore
 import Foundation
@@ -13,15 +15,17 @@ import Foundation
 /// `argmax.whisperkit`, variant `base` or `large-v3-turbo`, on-device.
 ///
 /// - **Explicit downloads only.** `downloadAssets` fetches the Core ML model and its tokenizer into
-///   `<modelsDirectory>/models/…` and then writes a completion marker. `assetStatus`, `prepare` and `transcribe`
-///   read local files only, and `transcribe` throws `modelNotDownloaded` while the marker or a tokenizer file is
-///   missing (WhisperKit would otherwise fetch the tokenizer from Hugging Face at load).
+///   `<modelsDirectory>/models/…` and then, once every model file is there and the download was not cancelled, writes
+///   a completion marker (review R3-7). `assetStatus`, `prepare` and `transcribe` read local files only, and
+///   `transcribe` throws `modelNotDownloaded` while the marker, a model file or a tokenizer file is missing (WhisperKit
+///   would otherwise fetch the tokenizer from Hugging Face at load).
 /// - **One call at a time** on the loaded pipeline (WhisperKit is not thread-safe): a FIFO permit. A call cancelled
 ///   while it waits for the permit, or for the shared load (a first-time Core ML compile can take minutes), stops
 ///   waiting at once with `CancellationError`; the running call and the load go on (contract: cancellation is honored
 ///   promptly).
-/// - **One load at a time.** Concurrent callers share it; `unloadModels()` is refused while it runs. `deleteAssets`
-///   waits for a load in flight, releases what it loaded and only then removes the files.
+/// - **One load at a time.** Concurrent callers share it; `unloadModels()` is refused while it runs, and a load waits
+///   for an unload still releasing the previous pipeline (review R3-9), so two pipelines are never in memory at once.
+///   `deleteAssets` waits for a load in flight, releases what it loaded and only then removes the files.
 /// - `unloadModels()` frees the model (the benchmark between engines, a route change away from this engine).
 /// - **Memory fit** (fix/speech-memory-fit): right before a load starts (never while joining one), the registry row's
 ///   `memoryToLoadBytes` (the first-load Core ML compile peak) is compared with what `availableMemory` says iOS lets
@@ -33,6 +37,19 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     /// Every tokenizer file a local load reads (`tokenizer_config.json` too: without it the local load throws and
     /// WhisperKit falls back to a Hugging Face download).
     static let tokenizerFiles = ["tokenizer.json", "tokenizer_config.json"]
+    /// Every model file a local load needs, relative to the model folder (review R3-7): the three Core ML bundles
+    /// WhisperKit loads (`MelSpectrogram`, `AudioEncoder`, `TextDecoder`) with their compiled description, program and
+    /// weights, and the two configs, which the Hugging Face snapshot fetches last. Checked before the completion marker
+    /// is written and whenever readiness is read.
+    static let requiredModelFiles = [
+        "AudioEncoder.mlmodelc/coremldata.bin", "AudioEncoder.mlmodelc/model.mil",
+        "AudioEncoder.mlmodelc/weights/weight.bin",
+        "MelSpectrogram.mlmodelc/coremldata.bin", "MelSpectrogram.mlmodelc/model.mil",
+        "MelSpectrogram.mlmodelc/weights/weight.bin",
+        "TextDecoder.mlmodelc/coremldata.bin", "TextDecoder.mlmodelc/model.mil",
+        "TextDecoder.mlmodelc/weights/weight.bin",
+        "config.json", "generation_config.json",
+    ]
 
     public nonisolated let variant: WhisperKitVariant
     public nonisolated let modelsDirectory: URL
@@ -62,6 +79,17 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     private var lastFailure: String?
     /// A call holds the permit.
     private var busy = false
+    /// `unloadModels()` is still releasing the previous pipeline; a load waits for it (review R3-9).
+    private var unloading: Task<Void, Never>?
+
+    // Test observation (review R3-19: tests wait on these signals instead of sleeping).
+    /// Calls waiting in line for the permit.
+    var queuedCallCount: Int { permit.pendingWaiterCount() }
+    /// Callers waiting on the shared load right now.
+    private(set) var sharedLoadWaiterCount = 0
+    /// Callers waiting for an unload to finish before they load.
+    private(set) var loadsWaitingForUnload = 0
+    var isDeleting: Bool { deletion != nil }
 
     /// - Parameter availableMemory: what iOS lets the app use now, read right before each load (the app passes
     ///   `ProcessAvailableMemory`; nil readings, as on the Mac and in the Simulator, skip the check).
@@ -113,13 +141,29 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
             .appendingPathComponent(variant.tokenizerRepo, isDirectory: true)
     }
 
+    /// Where the Hugging Face snapshot keeps this variant's download metadata and resumable `.incomplete` files:
+    /// `<modelsDirectory>/models/argmaxinc/whisperkit-coreml/.cache/huggingface/download/<folder>` (review R3-8). The
+    /// tokenizer's own cache sits inside `tokenizerFolder`.
+    nonisolated var hubDownloadCacheFolder: URL {
+        modelsDirectory.appendingPathComponent(
+            "models/argmaxinc/whisperkit-coreml/.cache/huggingface/download", isDirectory: true
+        )
+        .appendingPathComponent(variant.modelFolderName, isDirectory: true)
+    }
+
     /// Every file a local load needs is on disk and the download finished.
     nonisolated var filesPresent: Bool {
         let manager = FileManager.default
         return manager.fileExists(atPath: modelFolder.appendingPathComponent(Self.completionMarker).path)
+            && Self.missingModelFiles(in: modelFolder).isEmpty
             && Self.tokenizerFiles.allSatisfy {
                 manager.fileExists(atPath: tokenizerFolder.appendingPathComponent($0).path)
             }
+    }
+
+    /// `requiredModelFiles` not on disk in `folder`.
+    static func missingModelFiles(in folder: URL) -> [String] {
+        requiredModelFiles.filter { !FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }
     }
 
     // MARK: - ModelAssetManaging
@@ -127,7 +171,10 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     public func assetStatus() async -> ModelAssetStatus {
         if let downloadFraction { return .downloading(fraction: downloadFraction) }
         if deletion == nil, filesPresent {
-            return .ready(bytesOnDisk: Self.size(of: modelFolder) + Self.size(of: tokenizerFolder))
+            // The Hub's partial files count too: Delete frees them (review R3-8).
+            return .ready(
+                bytesOnDisk: Self.size(of: modelFolder) + Self.size(of: tokenizerFolder)
+                    + Self.size(of: hubDownloadCacheFolder))
         }
         return lastFailure.map { .failed(message: $0) } ?? .notDownloaded
     }
@@ -150,6 +197,11 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
                 reported.report(fraction)
                 Task { await self.setDownloadFraction(fraction) }
             }
+            // The Hugging Face snapshot returns normally when its task is cancelled between files: never mark a model
+            // complete after a cancellation or with a file missing (review R3-7).
+            try Task.checkCancellation()
+            let missing = Self.missingModelFiles(in: modelFolder)
+            guard missing.isEmpty else { throw WhisperKitDownloadError.incomplete(missing) }
             try Data().write(to: modelFolder.appendingPathComponent(Self.completionMarker))
             Self.excludeFromBackup(modelsDirectory)
         }
@@ -191,12 +243,17 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
         loadJob = nil
         let pendingDownload = downloading
         pendingDownload?.cancel()
-        let folders = [modelFolder, tokenizerFolder]
+        let pendingUnload = unloading
+        // This variant's model, tokenizer and the Hub's partial downloads for it (review R3-8); never the other
+        // variant's files or the shared Hub folder itself.
+        let folders = [modelFolder, tokenizerFolder, hubDownloadCacheFolder]
         let task = Task {
             defer { self.deletion = nil }
-            // The load may be reading the model and the download writing it: both end before anything is removed.
+            // The load may be reading the model and the download writing it, and an unload may still be releasing it:
+            // all of them end before anything is removed.
             _ = await pendingLoad?.result
             _ = await pendingDownload?.result
+            await pendingUnload?.value
             await loaded?.unload()
             let manager = FileManager.default
             for folder in folders where manager.fileExists(atPath: folder.path) {
@@ -250,11 +307,15 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
 
     // MARK: - SpeechEngineUnloading
 
-    /// Frees the loaded model. Refused (silently) while a call holds it, while a load or a delete runs.
+    /// Frees the loaded model. Refused (silently) while a call holds it, while a load or a delete runs. Until the release
+    /// has finished, a new load waits for it (review R3-9).
     public func unloadModels() async {
         guard !busy, loadJob == nil, deletion == nil, let loaded = pipeline else { return }
         pipeline = nil
-        await loaded.unload()
+        let task = Task { await loaded.unload() }
+        unloading = task
+        await task.value
+        if unloading == task { unloading = nil }
     }
 
     // MARK: - Loading
@@ -264,6 +325,14 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
     /// call. Never downloads. A new load that would not fit the memory iOS lets the app use now is refused
     /// (`insufficientMemory`) before it starts; a caller joining a load already running is not checked again.
     private func loadedPipeline() async throws -> any WhisperKitTranscribing {
+        // An unload still releasing the previous pipeline finishes first: otherwise the memory check below would read
+        // memory that pipeline still holds, or two pipelines would briefly coexist (review R3-9). Once it has finished
+        // there is no pipeline left to unload, so one wait is enough.
+        if let unloading {
+            loadsWaitingForUnload += 1
+            await unloading.value
+            loadsWaitingForUnload -= 1
+        }
         if let pipeline { return pipeline }
         guard deletion == nil, downloading == nil, filesPresent else {
             throw SpeechEngineError.modelNotDownloaded(Self.engineID)
@@ -291,6 +360,8 @@ public actor WhisperKitEngine: SpeechEngine, SpeechEngineUnloading {
             job = LoadJob(id: id, task: task)
             loadJob = job
         }
+        sharedLoadWaiterCount += 1
+        defer { sharedLoadWaiterCount -= 1 }
         do {
             return try await awaitSharedTask(job.task)
         } catch {
@@ -406,6 +477,18 @@ final class MonotonicFraction: @unchecked Sendable {
             return clamped
         }
         if let next { forward(next) }
+    }
+}
+
+/// Why a download that returned normally is still not a model (review R3-7).
+enum WhisperKitDownloadError: LocalizedError, Equatable {
+    case incomplete([String])
+
+    var errorDescription: String? {
+        switch self {
+        case .incomplete(let missing):
+            "The download stopped before every model file arrived (missing: \(missing.joined(separator: ", ")))."
+        }
     }
 }
 

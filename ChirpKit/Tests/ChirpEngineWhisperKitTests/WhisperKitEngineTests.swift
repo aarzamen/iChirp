@@ -52,14 +52,18 @@ final class WhisperKitEngineTests: XCTestCase {
         private var maxRunning = 0
         private var started = 0
         private var unloads = 0
+        private var unloading = false
         let hold: Bool
         /// When set, every call waits here (after it started) until the test opens it.
         let gate: Gate?
+        /// When set, every `unload()` waits here until the test opens it (review R3-9: releasing a model takes time).
+        let unloadGate: Gate?
 
-        init(outputs: [String?: WhisperKitOutput], hold: Bool = false, gate: Gate? = nil) {
+        init(outputs: [String?: WhisperKitOutput], hold: Bool = false, gate: Gate? = nil, unloadGate: Gate? = nil) {
             self.outputs = outputs
             self.hold = hold
             self.gate = gate
+            self.unloadGate = unloadGate
         }
 
         var requestedLanguages: [String?] { lock.withLock { languages } }
@@ -67,6 +71,8 @@ final class WhisperKitEngineTests: XCTestCase {
         var startedCount: Int { lock.withLock { started } }
         var wasUnloaded: Bool { lock.withLock { unloads > 0 } }
         var unloadCount: Int { lock.withLock { unloads } }
+        /// True while an `unload()` is still releasing the model.
+        var isUnloading: Bool { lock.withLock { unloading } }
 
         func transcribe(
             fileAt path: String, language: String?, progress: @escaping @Sendable (Double) -> Void,
@@ -90,7 +96,14 @@ final class WhisperKitEngineTests: XCTestCase {
             return lock.withLock { outputs[language] ?? outputs[nil] ?? WhisperKitOutput(text: "", words: []) }
         }
 
-        func unload() async { lock.withLock { unloads += 1 } }
+        func unload() async {
+            lock.withLock { unloading = true }
+            await unloadGate?.enter()
+            lock.withLock {
+                unloading = false
+                unloads += 1
+            }
+        }
     }
 
     final class FakeBackend: WhisperKitBackend, @unchecked Sendable {
@@ -98,36 +111,56 @@ final class WhisperKitEngineTests: XCTestCase {
         private let lock = NSLock()
         private var downloads = 0
         private var loads = 0
+        private var loadsDuringUnload = 0
         private var failDownload: Bool
+        private var partialDownload = false
         let pipeline: FakePipeline
         /// When set, every load waits here until the test opens it (a first-time Core ML compile).
         let loadGate: Gate?
+        /// When set, every download waits here (after its first progress report) until the test opens it.
+        let downloadGate: Gate?
 
-        init(pipeline: FakePipeline, failDownload: Bool = false, loadGate: Gate? = nil) {
+        init(pipeline: FakePipeline, failDownload: Bool = false, loadGate: Gate? = nil, downloadGate: Gate? = nil) {
             self.pipeline = pipeline
             self.failDownload = failDownload
             self.loadGate = loadGate
+            self.downloadGate = downloadGate
         }
 
         var downloadCount: Int { lock.withLock { downloads } }
         var loadCount: Int { lock.withLock { loads } }
+        /// Loads that started while the previous pipeline was still being released (review R3-9: must stay 0).
+        var loadsStartedDuringUnload: Int { lock.withLock { loadsDuringUnload } }
         func setFailDownload(_ fail: Bool) { lock.withLock { failDownload = fail } }
+        /// Makes the next downloads stop after the encoder and return normally, as the Hugging Face snapshot does
+        /// when its task is cancelled between files (review R3-7).
+        func setPartialDownload(_ partial: Bool) { lock.withLock { partialDownload = partial } }
 
         func download(
             _ variant: WhisperKitVariant, into base: URL, progress: @escaping @Sendable (Double) -> Void
         ) async throws {
-            let fail = lock.withLock {
+            let (fail, partial) = lock.withLock {
                 downloads += 1
-                return failDownload
+                return (failDownload, partialDownload)
             }
             progress(0.25)
+            await downloadGate?.enter()
             if fail { throw URLError(.notConnectedToInternet) }
             let model = base.appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(variant.modelFolderName)")
             let tokenizer = base.appendingPathComponent("models/\(variant.tokenizerRepo)")
             for folder in [model, tokenizer] {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             }
-            try Data(repeating: 1, count: 1_000).write(to: model.appendingPathComponent("AudioEncoder.bin"))
+            // Every file a local load reads (`WhisperKitEngine.requiredModelFiles`); a partial download stops after the
+            // encoder, without an error.
+            let files = partial ? WhisperKitEngine.requiredModelFiles.prefix(3) : WhisperKitEngine.requiredModelFiles[...]
+            for file in files {
+                let url = model.appendingPathComponent(file)
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data(repeating: 1, count: 1_000).write(to: url)
+            }
+            if partial { return }
             try Data("{}".utf8).write(to: tokenizer.appendingPathComponent("tokenizer.json"))
             try Data("{}".utf8).write(to: tokenizer.appendingPathComponent("tokenizer_config.json"))
             progress(0.2)
@@ -137,7 +170,11 @@ final class WhisperKitEngineTests: XCTestCase {
         func load(
             _ variant: WhisperKitVariant, modelFolder: URL, tokenizerBase: URL
         ) async throws -> any WhisperKitTranscribing {
-            lock.withLock { loads += 1 }
+            let duringUnload = pipeline.isUnloading
+            lock.withLock {
+                loads += 1
+                if duringUnload { loadsDuringUnload += 1 }
+            }
             await loadGate?.enter()
             return pipeline
         }
@@ -168,10 +205,11 @@ final class WhisperKitEngineTests: XCTestCase {
 
     private func makeEngine(
         _ pipeline: FakePipeline = FakePipeline(outputs: [nil: hello]), variant: WhisperKitVariant = .base,
-        failDownload: Bool = false, loadGate: Gate? = nil,
+        failDownload: Bool = false, loadGate: Gate? = nil, downloadGate: Gate? = nil,
         availableMemory: any AvailableMemoryReading = FixedAvailableMemory(nil)
     ) -> (WhisperKitEngine, FakeBackend) {
-        let backend = FakeBackend(pipeline: pipeline, failDownload: failDownload, loadGate: loadGate)
+        let backend = FakeBackend(
+            pipeline: pipeline, failDownload: failDownload, loadGate: loadGate, downloadGate: downloadGate)
         return (
             WhisperKitEngine(
                 variant: variant, modelsDirectory: directory, backend: backend, availableMemory: availableMemory),
@@ -295,11 +333,12 @@ final class WhisperKitEngineTests: XCTestCase {
     }
 
     func testCancellationStopsDecodingPromptly() async throws {
-        let (engine, _) = makeEngine(FakePipeline(outputs: [:], hold: true))
+        let pipeline = FakePipeline(outputs: [:], hold: true)
+        let (engine, _) = makeEngine(pipeline)
         try await downloaded(engine)
         let file = directory!
         let job = Task { try await engine.transcribe(fileAt: file, options: .init(), progress: { _ in }) }
-        try await Task.sleep(for: .milliseconds(30))
+        await poll { pipeline.startedCount == 1 }  // decoding has started (review R3-19: a signal, not a sleep)
         job.cancel()
         do {
             _ = try await job.value
@@ -364,7 +403,7 @@ final class WhisperKitEngineTests: XCTestCase {
         let first = Task { try await engine.transcribe(fileAt: file, options: .init(), progress: { _ in }) }
         await poll { gate.enteredCount == 1 }
         let second = Task { try await engine.transcribe(fileAt: file, options: .init(), progress: { _ in }) }
-        try await Task.sleep(for: .milliseconds(30))
+        await pollAsync { await engine.queuedCallCount == 1 }  // in line for the permit (review R3-19)
         second.cancel()
 
         let outcome = Outcome()
@@ -395,7 +434,7 @@ final class WhisperKitEngineTests: XCTestCase {
         let keeper = Task { try await engine.prepare() }
         await poll { loadGate.enteredCount == 1 }
         let cancelled = Task { try await engine.prepare() }
-        try await Task.sleep(for: .milliseconds(20))
+        await pollAsync { await engine.sharedLoadWaiterCount == 2 }  // joined the shared load (review R3-19)
         cancelled.cancel()
 
         let outcome = Outcome()
@@ -434,7 +473,7 @@ final class WhisperKitEngineTests: XCTestCase {
         let session = try XCTUnwrap(made as? TailWindowPreviewSession)
         await session.append([Float](repeating: 0.1, count: 16_000))
         await session.tick()
-        try await Task.sleep(for: .milliseconds(30))
+        await pollAsync { await whisper.queuedCallCount == 1 }  // the preview pass waits behind the file job (R3-19)
 
         let finished = Outcome()
         Task {
@@ -458,7 +497,7 @@ final class WhisperKitEngineTests: XCTestCase {
         await poll { loadGate.enteredCount == 1 }
         await engine.unloadModels()
         let second = Task { try await engine.prepare() }
-        try await Task.sleep(for: .milliseconds(20))
+        await pollAsync { await engine.sharedLoadWaiterCount == 2 }  // joined the running load (review R3-19)
         loadGate.open()
         try await first.value
         try await second.value
@@ -473,7 +512,7 @@ final class WhisperKitEngineTests: XCTestCase {
         let loading = Task { try await engine.prepare() }
         await poll { loadGate.enteredCount == 1 }
         let deleting = Task { try await engine.deleteAssets() }
-        try await Task.sleep(for: .milliseconds(20))
+        await pollAsync { await engine.isDeleting }  // the delete has begun (review R3-19)
         loadGate.open()
         try await deleting.value
         do {
@@ -485,6 +524,113 @@ final class WhisperKitEngineTests: XCTestCase {
         XCTAssertTrue(pipeline.wasUnloaded, "the model loaded from deleted files is released")
         let status = await engine.assetStatus()
         XCTAssertEqual(status, .notDownloaded)
+    }
+
+    // MARK: - Review R3-7: a download is complete before it is marked complete
+
+    func testADownloadThatStopsPartWayIsNeverMarkedCompleteAndCanBeRetried() async throws {
+        let (engine, backend) = makeEngine()
+        backend.setPartialDownload(true)
+        do {
+            try await engine.downloadAssets { _ in }
+            XCTFail("a partial download must not succeed")
+        } catch {
+            XCTAssertNotNil(error as? SpeechEngineError, "\(error)")
+        }
+        let marker = engine.modelFolder.appendingPathComponent(WhisperKitEngine.completionMarker)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "no completion marker on a partial model")
+        guard case .failed(let message) = await engine.assetStatus() else { return XCTFail("expected failed") }
+        XCTAssertTrue(message.hasPrefix("Whisper Base could not be downloaded."), message)
+
+        backend.setPartialDownload(false)
+        try await engine.downloadAssets { _ in }
+        guard case .ready = await engine.assetStatus() else { return XCTFail("a retry completes it") }
+    }
+
+    /// Hugging Face's snapshot returns normally when its task is cancelled between files; the engine checks.
+    func testADownloadCancelledBetweenFilesIsNotMarkedCompleteAndIsNotAFailure() async throws {
+        let downloadGate = Gate()
+        let (engine, backend) = makeEngine(downloadGate: downloadGate)
+        backend.setPartialDownload(true)
+        let caller = Task { try await engine.downloadAssets { _ in } }
+        await poll { downloadGate.enteredCount == 1 }
+        caller.cancel()
+        downloadGate.open()
+        do {
+            try await caller.value
+            XCTFail("a cancelled download does not succeed")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        let marker = engine.modelFolder.appendingPathComponent(WhisperKitEngine.completionMarker)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        let status = await engine.assetStatus()
+        XCTAssertEqual(status, .notDownloaded, "a cancellation is not a failure")
+    }
+
+    /// A marker from an older build over a folder that lost a model file reads as not ready, and Download repairs it.
+    func testAMarkerOverAnIncompleteModelFolderIsNotReady() async throws {
+        let (engine, backend) = makeEngine()
+        try await downloaded(engine)
+        try FileManager.default.removeItem(
+            at: engine.modelFolder.appendingPathComponent("TextDecoder.mlmodelc/weights/weight.bin"))
+        let status = await engine.assetStatus()
+        XCTAssertEqual(status, .notDownloaded)
+        do {
+            try await engine.prepare()
+            XCTFail("prepare should refuse")
+        } catch {
+            XCTAssertEqual(error as? SpeechEngineError, .modelNotDownloaded("argmax.whisperkit"))
+        }
+        XCTAssertEqual(backend.loadCount, 0)
+        try await engine.downloadAssets { _ in }
+        guard case .ready = await engine.assetStatus() else { return XCTFail("Download repairs it") }
+        XCTAssertEqual(backend.downloadCount, 2)
+    }
+
+    // MARK: - Review R3-8: the Hub's resumable partial files are counted and deleted
+
+    func testDeleteRemovesThisVariantsHubDownloadCacheAndReadyCountsIt() async throws {
+        let (base, _) = makeEngine(variant: .base)
+        let (turbo, _) = makeEngine(variant: .largeV3Turbo)
+        try await downloaded(base)
+        try await downloaded(turbo)
+        let hub = directory.appendingPathComponent(
+            "models/argmaxinc/whisperkit-coreml/.cache/huggingface/download", isDirectory: true)
+        let baseCache = hub.appendingPathComponent(WhisperKitVariant.base.modelFolderName, isDirectory: true)
+        let turboCache = hub.appendingPathComponent(WhisperKitVariant.largeV3Turbo.modelFolderName, isDirectory: true)
+        for cache in [baseCache, turboCache] {
+            try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+            try Data(repeating: 2, count: 200_000).write(to: cache.appendingPathComponent("weight.bin.etag.incomplete"))
+        }
+        guard case .ready(let bytes) = await base.assetStatus() else { return XCTFail("expected ready") }
+        XCTAssertGreaterThanOrEqual(bytes, 200_000, "the Hub's partial files count toward what Delete frees")
+
+        try await base.deleteAssets()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: baseCache.path), "Delete removes this variant's Hub cache")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: turboCache.path), "the other variant's cache stays")
+        guard case .ready = await turbo.assetStatus() else { return XCTFail("the other variant stays") }
+    }
+
+    // MARK: - Review R3-9: no load while the previous pipeline is still being released
+
+    func testALoadWaitsUntilTheUnloadHasReleasedThePreviousPipeline() async throws {
+        let unloadGate = Gate()
+        let pipeline = FakePipeline(outputs: [nil: Self.hello], unloadGate: unloadGate)
+        let (engine, backend) = makeEngine(pipeline)
+        try await downloaded(engine)
+        try await engine.prepare()
+        let unloading = Task { await engine.unloadModels() }
+        await poll { unloadGate.enteredCount == 1 }
+        let preparing = Task { try await engine.prepare() }
+        await pollAsync { await engine.loadsWaitingForUnload == 1 }
+        XCTAssertEqual(backend.loadCount, 1, "no second pipeline while the first one is still being released")
+
+        unloadGate.open()
+        await unloading.value
+        try await preparing.value
+        XCTAssertEqual(backend.loadCount, 2)
+        XCTAssertEqual(backend.loadsStartedDuringUnload, 0)
     }
 
     // MARK: - Review M2: the tokenizer is never fetched at load
@@ -608,6 +754,20 @@ final class WhisperKitEngineTests: XCTestCase {
     ) async {
         let deadline = ContinuousClock.now + timeout
         while !condition() {
+            guard ContinuousClock.now < deadline else {
+                return XCTFail("condition not met within \(timeout)", file: file, line: line)
+            }
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    /// `poll` for a condition that reads the engine actor.
+    private func pollAsync(
+        timeout: Duration = .seconds(5), file: StaticString = #filePath, line: UInt = #line,
+        _ condition: @Sendable () async -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + timeout
+        while await !condition() {
             guard ContinuousClock.now < deadline else {
                 return XCTFail("condition not met within \(timeout)", file: file, line: line)
             }
