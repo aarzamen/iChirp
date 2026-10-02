@@ -308,7 +308,7 @@ public struct TranscriptExporter: Sendable {
             // the stored segments when there are none), and the engine's words: the evidence as heard, never rewritten
             // (spec/contracts/transcript-json-v1.md, transcript-corrections-v1.md).
             segments: heard.segments ?? [],
-            words: transcription.wordTimestamps ?? [],
+            words: transcription.wordTimestamps ?? [],  // text-read-guard: evidence
             corrections: corrections.isEmpty ? nil : corrections
         )
         let encoder = JSONEncoder()
