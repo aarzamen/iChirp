@@ -90,10 +90,11 @@ final class DocumentColumnsMigrationTests: XCTestCase {
         let store = GRDBTranscriptionStore(database: database)
         let row = Transcription(sourceType: .document, fileName: "Future.odt", status: .completed)
         try await store.insert(row)
+        let futurePages = #"[{"number":1,"text":"x","method":"future-method"}]"#
         try await database.writer.write { db in
             try db.execute(
                 sql: "UPDATE transcriptions SET documentFormat = 'odt', documentPages = ? WHERE rowid = 1",
-                arguments: [#"[{"number":1,"text":"x","method":"future-method"}]"#])
+                arguments: [futurePages])
         }
         let fetched = try await store.fetch(id: row.id)
         let read = try XCTUnwrap(fetched)
@@ -101,8 +102,10 @@ final class DocumentColumnsMigrationTests: XCTestCase {
         XCTAssertEqual(read.documentPages?.first?.method, .textLayer, "an unknown method stays readable")
         _ = try await store.updateFavorite(id: row.id, isFavorite: true)
         let raw = try await database.writer.read { db in
-            try String.fetchOne(db, sql: "SELECT documentFormat FROM transcriptions")
+            try Row.fetchOne(db, sql: "SELECT documentFormat, documentPages FROM transcriptions")
         }
-        XCTAssertEqual(raw, "odt", "a newer build's format survives an older build's write")
+        XCTAssertEqual(raw?["documentFormat"], "odt", "a newer build's format survives an older build's write")
+        XCTAssertEqual(
+            raw?["documentPages"], futurePages, "a newer build's page method survives an older build's write (R1-2)")
     }
 }

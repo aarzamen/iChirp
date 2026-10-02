@@ -91,9 +91,12 @@ import ──► processing ──► completed
   can't decode, and an unknown raw value reads as a safe fallback (`status` → `interrupted`, `privacyClass` →
   `clinical`, `sourceType` → `file`). Writing such a row back keeps the newer build's raw value.
 - Every other write that can race a job is field-level and atomic (`updateTitleOverride`, `updateFavorite`,
-  `transitionStatus(from:to:)`, and M3's `updateUserNotes`, `renameSpeaker`, `markAudioRemoved`): one transaction reads the current row and changes only those fields, so a rename,
-  a star or a failure mark can never overwrite a transcript that landed meanwhile. Retry moves only `failed`,
-  `cancelled` or `interrupted` rows back to `processing`.
+  `transitionStatus(from:to:)`, and M3's `updateUserNotes`, `renameSpeaker`, `markAudioRemoved`): one transaction
+  updates only those columns (and `updatedAt`), so a rename, a star or a failure mark can never overwrite a transcript
+  that landed meanwhile, and never decodes, re-encodes or rewrites another column: JSON a newer build wrote (an
+  unknown page `method`, a key this build does not know) stays byte for byte. `renameSpeaker` patches only the
+  `speakers` and `transcriptSegments` JSON, keeping unknown keys. Retry moves only `failed`, `cancelled` or
+  `interrupted` rows back to `processing`.
 - Deleting a transcript is a user action with a confirmation, and removes its `media/<id>/` folder too.
 
 ## `custom_words` and `text_snippets` (migration `v4-dictation-text`, M2)

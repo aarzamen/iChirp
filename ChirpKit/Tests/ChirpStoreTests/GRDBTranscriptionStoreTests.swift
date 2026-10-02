@@ -359,6 +359,179 @@ final class GRDBTranscriptionStoreTests: XCTestCase {
         XCTAssertEqual(fetched?.privacyClass, .clinical)
     }
 
+    // MARK: - One-field writes touch only their columns (review R1-2)
+
+    /// JSON columns as a newer build could write them, still readable here: keys this build does not know, a page
+    /// `method` it reads as `textLayer`, and spacing its encoder would not produce. A decode → encode round trip
+    /// changes every one of them.
+    private enum NewerBuildJSON {
+        static let words =
+            #"[{"word": "Hello", "startMs": 0, "endMs": 400, "confidence": 0.98, "speakerId": "S1", "isFiller": false}, "#
+            + #"{"word": "world.", "startMs": 450, "endMs": 900, "confidence": 0.91, "speakerId": "S2", "isFiller": true}]"#
+        static let speakers =
+            #"[{"id": "S1", "label": "Speaker 1", "color": "teal"}, {"id": "S2", "label": "Speaker 2", "color": "amber"}]"#
+        static let diarization =
+            #"[{"speakerId": "S1", "startMs": 0, "endMs": 420, "overlap": 0.1}, "#
+            + #"{"speakerId": "S2", "startMs": 420, "endMs": 900, "overlap": 0}]"#
+        static let segments =
+            #"[{"id": "6F1B7C2A-0000-4000-8000-000000000001", "startMs": 0, "endMs": 400, "speakerId": "S1", "#
+            + #""speakerLabel": "Speaker 1", "text": "Hello", "wordRange": {"startIndex": 0, "endIndexExclusive": 1}, "#
+            + #""anchor": true}, {"id": "6F1B7C2A-0000-4000-8000-000000000002", "startMs": 450, "endMs": 900, "#
+            + #""speakerId": "S2", "speakerLabel": "Speaker 2", "text": "world.", "#
+            + #""wordRange": {"startIndex": 1, "endIndexExclusive": 2}, "anchor": false}]"#
+        static let pages = #"[{"number": 1, "text": "Synthetic handwritten page.", "method": "handwriting"}]"#
+    }
+
+    /// Inserts a sample row whose JSON columns hold `NewerBuildJSON`.
+    private func insertRowWithNewerBuildJSON(
+        _ store: GRDBTranscriptionStore, _ database: DatabaseManager
+    ) async throws -> Transcription {
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+        try await tamper(database, id: original.id) { record in
+            record.wordTimestamps = NewerBuildJSON.words
+            record.speakers = NewerBuildJSON.speakers
+            record.diarizationSegments = NewerBuildJSON.diarization
+            record.transcriptSegments = NewerBuildJSON.segments
+            record.documentPages = NewerBuildJSON.pages
+        }
+        return original
+    }
+
+    private func jsonColumns(_ database: DatabaseManager, id: UUID) async throws -> [String?] {
+        let record = try await storedRecord(database, id: id)
+        return [
+            record?.wordTimestamps, record?.speakers, record?.diarizationSegments, record?.transcriptSegments,
+            record?.documentPages,
+        ]
+    }
+
+    func testEachOneFieldWriteSetsOnlyItsOwnColumns() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+        let recorder = UpdatedColumnsRecorder()
+        database.writer.add(transactionObserver: recorder)
+        let id = original.id
+
+        func expectOneUpdate(of columns: Set<String>, _ write: String, line: UInt = #line) {
+            XCTAssertEqual(recorder.takeUpdates(), [columns.union(["updatedAt"])], write, line: line)
+        }
+
+        _ = try await store.updateFavorite(id: id, isFavorite: false)
+        expectOneUpdate(of: ["isFavorite"], "updateFavorite")
+        _ = try await store.updateTitleOverride(id: id, titleOverride: "Synthetic rename")
+        expectOneUpdate(of: ["titleOverride"], "updateTitleOverride")
+        _ = try await store.updatePrivacyClass(id: id, privacyClass: .personal)
+        expectOneUpdate(of: ["privacyClass"], "updatePrivacyClass")
+        _ = try await store.updateUserNotes(id: id, userNotes: "Synthetic note")
+        expectOneUpdate(of: ["userNotes"], "updateUserNotes")
+        _ = try await store.renameSpeaker(id: id, speakerId: "S1", to: "Dr. Synthetic")
+        expectOneUpdate(of: ["speakers", "transcriptSegments"], "renameSpeaker")
+        _ = try await store.markAudioRemoved(id: id, at: Date(timeIntervalSinceReferenceDate: 790_000_000))
+        expectOneUpdate(of: ["mediaRelativePath", "audioRemovedAt"], "markAudioRemoved")
+        _ = try await store.transitionStatus(id: id, from: [.completed], to: .failed, errorMessage: "Synthetic")
+        expectOneUpdate(of: ["status", "errorMessage"], "transitionStatus")
+
+        // Refused writes write nothing.
+        _ = try await store.markAudioRemoved(id: id, at: Date())
+        _ = try await store.transitionStatus(id: id, from: [.processing], to: .failed, errorMessage: nil)
+        _ = try await store.renameSpeaker(id: id, speakerId: "S9", to: "Nobody")
+        _ = try await store.renameSpeaker(id: id, speakerId: "S1", to: "   ")
+        XCTAssertEqual(recorder.takeUpdates(), [], "a refused write writes nothing")
+    }
+
+    func testOneFieldWritesLeaveJSONANewerBuildWroteByteForByte() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = try await insertRowWithNewerBuildJSON(store, database)
+        let id = original.id
+        let asStored = try await jsonColumns(database, id: id)
+
+        func expectJSONUnchanged(after write: String, line: UInt = #line) async throws {
+            let now = try await jsonColumns(database, id: id)
+            XCTAssertEqual(now, asStored, "\(write) rewrote a JSON column", line: line)
+        }
+
+        _ = try await store.updateFavorite(id: id, isFavorite: false)
+        try await expectJSONUnchanged(after: "updateFavorite")
+        _ = try await store.updateTitleOverride(id: id, titleOverride: "Renamed on an older build")
+        try await expectJSONUnchanged(after: "updateTitleOverride")
+        _ = try await store.updatePrivacyClass(id: id, privacyClass: .personal)
+        try await expectJSONUnchanged(after: "updatePrivacyClass")
+        let noted = try await store.updateUserNotes(id: id, userNotes: "Synthetic note")
+        try await expectJSONUnchanged(after: "updateUserNotes")
+        _ = try await store.markAudioRemoved(id: id, at: Date(timeIntervalSinceReferenceDate: 790_000_000))
+        try await expectJSONUnchanged(after: "markAudioRemoved")
+        let failed = try await store.transitionStatus(id: id, from: [.completed], to: .failed, errorMessage: "x")
+        try await expectJSONUnchanged(after: "transitionStatus")
+
+        XCTAssertEqual(noted?.userNotes, "Synthetic note", "the returned row is the row as stored")
+        XCTAssertEqual(noted?.documentPages?.first?.method, .textLayer, "an unknown page method still reads")
+        XCTAssertEqual(failed?.status, .failed)
+        let record = try await storedRecord(database, id: id)
+        XCTAssertEqual(record?.isFavorite, false)
+        XCTAssertEqual(record?.titleOverride, "Renamed on an older build")
+        XCTAssertEqual(record?.privacyClass, "personal")
+        XCTAssertEqual(record?.userNotes, "Synthetic note")
+        XCTAssertNil(record?.mediaRelativePath)
+        XCTAssertEqual(record?.audioRemovedAt, Date(timeIntervalSinceReferenceDate: 790_000_000))
+        XCTAssertEqual(record?.status, "failed")
+        XCTAssertEqual(record?.errorMessage, "x")
+    }
+
+    func testRenameSpeakerKeepsKeysANewerBuildWroteAndTouchesOnlyTheRosterAndSegments() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = try await insertRowWithNewerBuildJSON(store, database)
+        let before = try await storedRecord(database, id: original.id)
+
+        let renamedValue = try await store.renameSpeaker(id: original.id, speakerId: "S1", to: "  Dr. Synthetic  ")
+        let renamed = try XCTUnwrap(renamedValue)
+
+        XCTAssertEqual(renamed.speakers?.map(\.label), ["Dr. Synthetic", "Speaker 2"])
+        XCTAssertEqual(renamed.transcriptSegments?.map(\.speakerLabel), ["Dr. Synthetic", "Speaker 2"])
+        let afterValue = try await storedRecord(database, id: original.id)
+        let after = try XCTUnwrap(afterValue)
+        XCTAssertEqual(after.wordTimestamps, before?.wordTimestamps)
+        XCTAssertEqual(after.diarizationSegments, before?.diarizationSegments)
+        XCTAssertEqual(after.documentPages, before?.documentPages)
+        let roster = try jsonObjects(after.speakers)
+        XCTAssertEqual(roster.map { $0["label"] as? String }, ["Dr. Synthetic", "Speaker 2"])
+        XCTAssertEqual(roster.map { $0["color"] as? String }, ["teal", "amber"], "a key a newer build wrote survives")
+        let segments = try jsonObjects(after.transcriptSegments)
+        XCTAssertEqual(segments.map { $0["speakerLabel"] as? String }, ["Dr. Synthetic", "Speaker 2"])
+        XCTAssertEqual(segments.map { $0["anchor"] as? Bool }, [true, false], "a key a newer build wrote survives")
+    }
+
+    func testMarkingARowOfAnUnknownClassClinicalKeepsItsClassAndAnotherClassLands() async throws {
+        let (store, database) = try makeStoreAndDatabase()
+        let original = makeSample(status: .completed)
+        try await store.insert(original)
+        try await tamper(database, id: original.id) { record in
+            record.privacyClass = "restricted"
+            record.status = "summarizing"
+        }
+
+        let clinical = try await store.updatePrivacyClass(id: original.id, privacyClass: .clinical)
+        XCTAssertEqual(clinical?.privacyClass, .clinical, "it reads as clinical")
+        var record = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(record?.privacyClass, "restricted", "marking it clinical keeps the newer build's class")
+
+        let interrupted = try await store.transitionStatus(
+            id: original.id, from: [.interrupted], to: .interrupted, errorMessage: nil)
+        XCTAssertEqual(interrupted?.status, .interrupted)
+        record = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(record?.status, "summarizing", "moving it to what it already reads as keeps the stored status")
+
+        _ = try await store.updatePrivacyClass(id: original.id, privacyClass: .personal)
+        record = try await storedRecord(database, id: original.id)
+        XCTAssertEqual(record?.privacyClass, "personal", "an explicit change to another class lands")
+    }
+
+    private func jsonObjects(_ json: String?) throws -> [[String: Any]] {
+        let data = try XCTUnwrap(json?.data(using: .utf8))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+    }
+
     // MARK: - Decoding: nil vs empty JSON, unknown values, unreadable rows
 
     func testNilAndEmptyJSONColumnsRoundTripDistinctly() async throws {
@@ -578,6 +751,33 @@ private struct TestTimeoutError: Error {}
 
 private enum TamperError: Error {
     case rowMissing
+}
+
+/// Records the columns each `UPDATE` of `transcriptions` sets (GRDB reports them for every statement it runs), so a
+/// test can prove which columns a write touched.
+private final class UpdatedColumnsRecorder: TransactionObserver, @unchecked Sendable {
+    // @unchecked Sendable: `updates` is only touched while `lock` is held.
+    private let lock = NSLock()
+    private var updates: [Set<String>] = []
+
+    /// The column sets recorded since the last call, in statement order; clears them.
+    func takeUpdates() -> [Set<String>] {
+        lock.withLock {
+            defer { updates.removeAll() }
+            return updates
+        }
+    }
+
+    func observes(eventsOfKind eventKind: DatabaseEventKind) -> Bool {
+        if case .update(let tableName, let columnNames) = eventKind, tableName == "transcriptions" {
+            lock.withLock { updates.append(columnNames) }
+        }
+        return false
+    }
+
+    func databaseDidChange(with event: DatabaseEvent) {}
+    func databaseDidCommit(_ db: Database) {}
+    func databaseDidRollback(_ db: Database) {}
 }
 
 /// Polls `condition` until it returns true or `timeout` elapses. Used instead of a fixed

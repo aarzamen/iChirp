@@ -201,3 +201,45 @@ extension TranscriptionRecord {
         return try JSONDecoder().decode(T.self, from: data)
     }
 }
+
+// MARK: - Renaming a speaker inside the stored JSON
+
+/// Renames one speaker inside the stored `speakers` and `transcriptSegments` JSON text through `JSONSerialization`,
+/// so every key a newer build wrote survives (review R1-2). The rule is `Transcription.renameSpeaker`'s: the roster
+/// entry whose `id` is `speakerId` gets the new `label`, and each segment of that speaker the new `speakerLabel`.
+enum StoredSpeakerRename {
+    /// The two columns after the rename, or nil when the roster has no such speaker (nothing to write). Throws when a
+    /// column is not a JSON array, as decoding it would.
+    static func renaming(
+        _ speakerId: String, to name: String, speakers: String?, segments: String?
+    ) throws -> (speakers: String, segments: String?)? {
+        guard let speakers else { return nil }
+        var roster = try jsonArray(speakers)
+        guard let index = roster.firstIndex(where: { ($0 as? [String: Any])?["id"] as? String == speakerId }),
+            var speaker = roster[index] as? [String: Any]
+        else { return nil }
+        speaker["label"] = name
+        roster[index] = speaker
+        guard let segments else { return (try jsonText(roster), nil) }
+        var list = try jsonArray(segments)
+        for position in list.indices {
+            guard var segment = list[position] as? [String: Any], segment["speakerId"] as? String == speakerId
+            else { continue }
+            segment["speakerLabel"] = name
+            list[position] = segment
+        }
+        return (try jsonText(roster), try jsonText(list))
+    }
+
+    private static func jsonArray(_ text: String) throws -> [Any] {
+        guard let array = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any] else {
+            throw DecodingError.typeMismatch(
+                [Any].self, .init(codingPath: [], debugDescription: "A JSON column is not an array."))
+        }
+        return array
+    }
+
+    private static func jsonText(_ array: [Any]) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: array), as: UTF8.self)
+    }
+}

@@ -49,11 +49,13 @@ ChirpStore depends on ChirpText.
   carry ids and counts only. Contract: `spec/contracts/structured-results-v1.md`.
 - `TranscriptionRecord.swift` — the GRDB row type for the `transcriptions`
   table, one column per `ChirpCore.Transcription` field. `wordTimestamps`,
-  `speakers`, `diarizationSegments` and `transcriptSegments` are stored as
+  `speakers`, `diarizationSegments`, `transcriptSegments` and `documentPages` are stored as
   JSON TEXT (manually encoded/decoded, not GRDB's automatic Codable-JSON
   path, so the column contents are predictable and queryable). Converts to
   and from `Transcription` via `init(_:)` / `toTranscription()`; nil is stored
-  as SQL NULL and an empty list as `[]`, and each reads back as it was.
+  as SQL NULL and an empty list as `[]`, and each reads back as it was. `StoredSpeakerRename` renames a speaker
+  inside the stored `speakers` / `transcriptSegments` JSON through `JSONSerialization`, so keys a newer build wrote
+  survive.
 - `GRDBTranscriptionStore.swift` — the `TranscriptionStoring` implementation:
   insert/update/fetch/fetchAll/delete, `savePreservingUserMetadata`, the
   field-level `updateTitleOverride` / `updateFavorite` / `updatePrivacyClass` /
@@ -76,7 +78,8 @@ ChirpStore depends on ChirpText.
   (insert, list, field-level text edit, raise-only privacy class), and the run
   ledger.
 - `GRDBTextRulesStore.swift` (M2) — custom words and snippets: sorted
-  case-insensitively, `save` inserts or replaces by id, a unique-index
+  case-insensitively, `save` inserts or replaces by id (keeping a `source` or
+  `action` a newer build wrote that this build cannot read), a unique-index
   violation becomes `TextRulesStoreError.duplicate`, deletes by id set. Private
   `CustomWordRecord` / `TextSnippetRecord` mirror the ChirpText models.
 
@@ -121,13 +124,25 @@ values this build does not know. Two rules keep the Library usable:
   errors quote the whole row, transcript text included. `fetch(id:)` still
   throws for such a row, so a screen opening it can show the error.
 
-**Writes never overwrite a value this build could not read.** Every write that
-starts from a stored row (`update`, `savePreservingUserMetadata` and the
-field-level methods) calls `TranscriptionRecord.keepingUnknownRawValues(of:)`:
-where the stored row held an unknown raw value and the outgoing row still
-carries the fallback it was read as, the stored raw value is written back
-unchanged. An explicit change (Retry moving the status to `processing`) still
-lands.
+**Writes never overwrite a value this build could not read.** The field-level
+methods write only their own columns (review R1-2): one `UPDATE … SET <their
+columns>, updatedAt` built with `updateAll(Column(...).set(to:))`, so no other
+column is decoded, re-encoded or written — a newer build's JSON (a page `method`
+this build reads as `textLayer`, a key it does not know) stays byte for byte, and
+a notes keystroke never rewrites an hour of word timings. `renameSpeaker` reads
+and writes only `speakers` and `transcriptSegments`, patched as JSON objects.
+Before writing, a field-level method reads only the raw `status` and
+`privacyClass`: moving an unknown value to the fallback it already reads as
+(`updatePrivacyClass(.clinical)` on an unknown class, `transitionStatus(to:
+.interrupted)` on an unknown status) keeps the stored value, and any other
+explicit change (Retry moving the status to `processing`) lands. Whole-row
+writes (`update`, `savePreservingUserMetadata`) call
+`TranscriptionRecord.keepingUnknownRawValues(of:)`: where the stored row held an
+unknown raw value and the outgoing row still carries the fallback it was read
+as, the stored raw value is written back unchanged. `GRDBTextRulesStore.save`
+keeps an unknown custom-word `source` and snippet `action` the same way. Each
+field-level method still decodes the one row it returns (the protocol returns
+the full `Transcription`).
 
 **`savePreservingUserMetadata` is a single write transaction.** It fetches
 the currently stored row and copies the user's fields, `titleOverride`,
@@ -144,10 +159,9 @@ nothing: it never inserts, so a deleted transcript is never resurrected
 
 **Anything that can race a job writes field-level.** `updateTitleOverride`,
 `updateFavorite` and `transitionStatus(id:from:to:errorMessage:)` each run one
-write transaction that reads the current row, changes only their fields plus
-`updatedAt`, saves, and returns the row as stored (nil when the row is gone;
-for `transitionStatus` also when the stored status is not in `from`, leaving
-the row untouched). A fetch → change → whole-row `update` from a view model or
+write transaction that changes only their columns plus `updatedAt` and returns
+the row as stored (nil when the row is gone; for `transitionStatus` also when
+the stored status is not in `from`, leaving the row untouched). A fetch → change → whole-row `update` from a view model or
 the pipeline would overwrite whatever landed in between (for example a
 completed transcript reverted to `processing` by a stale favorite write), so
 `update(_:)` is only for rows nothing else can be writing. Ports upstream's

@@ -63,45 +63,55 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
     }
 
     public func updateTitleOverride(id: UUID, titleOverride: String?) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            row.titleOverride = titleOverride
-            return true
-        }
+        try await updateColumns(id: id) { _ in [Column("titleOverride").set(to: titleOverride)] }
     }
 
     public func updateFavorite(id: UUID, isFavorite: Bool) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            row.isFavorite = isFavorite
-            return true
-        }
+        try await updateColumns(id: id) { _ in [Column("isFavorite").set(to: isFavorite)] }
     }
 
     public func updatePrivacyClass(id: UUID, privacyClass: PrivacyClass) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            row.privacyClass = privacyClass
-            return true
+        try await updateColumns(id: id) { stored in
+            // A class this build cannot read already reads as the fallback (clinical): marking it that keeps the
+            // newer build's value; any other class is an explicit change and lands.
+            let unknown = PrivacyClass(rawValue: stored.privacyClass) == nil
+            let value =
+                unknown && privacyClass == TranscriptionRecord.fallbackPrivacyClass
+                ? stored.privacyClass : privacyClass.rawValue
+            return [Column("privacyClass").set(to: value)]
         }
     }
 
     public func updateUserNotes(id: UUID, userNotes: String?) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            row.userNotes = userNotes
-            return true
-        }
+        try await updateColumns(id: id) { _ in [Column("userNotes").set(to: userNotes)] }
     }
 
+    /// Renames inside the stored `speakers` and `transcriptSegments` JSON itself (`StoredSpeakerRename`), so every key
+    /// of a newer build survives; no other column is read or written.
     public func renameSpeaker(id: UUID, speakerId: String, to label: String) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            row.renameSpeaker(speakerId, to: label)
+        guard let name = Transcription.speakerName(label) else { return nil }
+        return try await database.writer.write { db in
+            let request = TranscriptionRecord.filter(key: id)
+            guard
+                let stored = try request.select(Column("speakers"), Column("transcriptSegments"))
+                    .asRequest(of: Row.self).fetchOne(db),
+                let renamed = try StoredSpeakerRename.renaming(
+                    speakerId, to: name, speakers: stored["speakers"], segments: stored["transcriptSegments"])
+            else { return nil }
+            try request.updateAll(
+                db,
+                Column("speakers").set(to: renamed.speakers),
+                Column("transcriptSegments").set(to: renamed.segments),
+                Column("updatedAt").set(to: Date()))
+            // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
+            return try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()
         }
     }
 
     public func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            guard row.status == .completed else { return false }
-            row.mediaRelativePath = nil
-            row.audioRemovedAt = date
-            return true
+        try await updateColumns(id: id) { stored in
+            guard Transcription.Status(rawValue: stored.status) == .completed else { return nil }
+            return [Column("mediaRelativePath").set(to: nil), Column("audioRemovedAt").set(to: date)]
         }
     }
 
@@ -111,26 +121,44 @@ public final class GRDBTranscriptionStore: TranscriptionStoring {
         to: Transcription.Status,
         errorMessage: String?
     ) async throws -> Transcription? {
-        try await modify(id: id) { row in
-            guard from.contains(row.status) else { return false }
-            row.status = to
-            row.errorMessage = errorMessage
-            return true
+        try await updateColumns(id: id) { stored in
+            let known = Transcription.Status(rawValue: stored.status)
+            guard from.contains(known ?? TranscriptionRecord.fallbackStatus) else { return nil }
+            // Moving a status this build cannot read to the fallback it already reads as keeps the stored value; any
+            // other move (Retry to `processing`) is explicit and lands.
+            let value = known == nil && to == TranscriptionRecord.fallbackStatus ? stored.status : to.rawValue
+            return [Column("status").set(to: value), Column("errorMessage").set(to: errorMessage)]
         }
     }
 
-    /// One write transaction: reads the stored row, applies `change`, bumps `updatedAt`, saves and returns it as stored.
-    /// Returns nil without writing when the row is gone or `change` returns false.
-    private func modify(
+    /// The columns a one-field write may check before it writes. Never a JSON column.
+    private struct StoredRawValues: Sendable {
+        let status: String
+        let privacyClass: String
+    }
+
+    /// One write transaction that sets only the columns `assignments` returns (plus `updatedAt`) on row `id`, then
+    /// returns the row as stored. `assignments` sees the stored raw `status` and `privacyClass`, and returns nil to
+    /// write nothing. Returns nil when the row is gone or nothing was written.
+    ///
+    /// No other column is read, decoded, encoded or written (review R1-2): a newer build's JSON (a page `method`, a key
+    /// this build does not know) stays byte for byte, and a notes keystroke never rewrites an hour of word timings.
+    /// Only the returned row is decoded, once.
+    private func updateColumns(
         id: UUID,
-        _ change: @escaping @Sendable (inout Transcription) -> Bool
+        _ assignments: @escaping @Sendable (StoredRawValues) -> [ColumnAssignment]?
     ) async throws -> Transcription? {
         try await database.writer.write { db in
-            guard let record = try TranscriptionRecord.fetchOne(db, key: id) else { return nil }
-            var row = try record.toTranscription()
-            guard change(&row) else { return nil }
-            row.updatedAt = Date()
-            try TranscriptionRecord(row).keepingUnknownRawValues(of: record).update(db)
+            let request = TranscriptionRecord.filter(key: id)
+            guard
+                let stored = try request.select(Column("status"), Column("privacyClass"))
+                    .asRequest(of: Row.self).fetchOne(db),
+                let changes = assignments(
+                    StoredRawValues(
+                        status: (stored["status"] as String?) ?? "",
+                        privacyClass: (stored["privacyClass"] as String?) ?? ""))
+            else { return nil }
+            try request.updateAll(db, changes + [Column("updatedAt").set(to: Date())])
             // Re-read so the caller gets the row exactly as stored (dates at the database's precision).
             return try TranscriptionRecord.fetchOne(db, key: id)?.toTranscription()
         }
