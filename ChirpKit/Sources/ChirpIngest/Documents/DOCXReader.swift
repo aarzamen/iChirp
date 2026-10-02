@@ -2,8 +2,9 @@ import ChirpCore
 import Foundation
 
 /// Word (.docx) documents: unzips `word/document.xml` and reads its paragraphs (`w:p`) and runs of text (`w:t`), with
-/// tabs, line breaks, non-breaking hyphens and symbol-font characters (`w:sym`, and the text of a run whose font is a
-/// symbol font, through `SymbolFontMap`). Tracked deletions and moved-away text (everything inside `w:del` and
+/// tabs, line breaks, non-breaking hyphens and symbol-font characters (`w:sym`, and the text of a run Word draws in a
+/// symbol font, through `SymbolFontMap`; the run's font comes from `word/styles.xml`'s cascade and its own `w:rFonts`,
+/// see `DOCXStyles` and `DOCXRunFonts`). Tracked deletions and moved-away text (everything inside `w:del` and
 /// `w:moveFrom`: their `w:delText`, symbols, hyphens, tabs and breaks), field codes (`w:instrText`) and tab-stop
 /// definitions are skipped. Content Word writes twice for older readers (`mc:AlternateContent`: a text box's drawing
 /// and its VML copy) is read once: the first `mc:Choice`, and the `mc:Fallback` only when that choice held no text.
@@ -29,7 +30,9 @@ enum DOCXReader {
             throw DocumentExtractionError.malformed(.docx, describe(error))
         }
         try BlockingWork.checkCancellation(isCancelled)
-        let paragraphs = try BodyParser.paragraphs(in: body, isCancelled: isCancelled)
+        // Styles decide some runs' fonts; a missing, damaged or oversized styles part reads as no styles.
+        let styles = (try? archive.contents(of: "word/styles.xml")).flatMap(DOCXStyles.parse)
+        let paragraphs = try BodyParser.paragraphs(in: body, styles: styles, isCancelled: isCancelled)
         try BlockingWork.checkCancellation(isCancelled)
         let text = DocumentTextExtractor.tidy(paragraphs.joined(separator: "\n\n"))
         guard !text.isEmpty else { throw DocumentExtractionError.noText(.docx) }
@@ -65,9 +68,14 @@ enum DOCXReader {
         /// Inside `w:del` or `w:moveFrom` (tracked deletions, moved-away text): nothing there is the document's text.
         /// The empty `w:del` marker of a deleted paragraph mark opens and closes at once, so it suppresses nothing.
         private var deletedDepth = 0
-        /// One entry per open `w:r`: the fonts its own `w:rFonts` names for ASCII (`w:ascii`) and for other
-        /// characters (`w:hAnsi`); nil where it names none. A text box's runs sit inside a run, hence a stack.
-        private var runFonts: [(ascii: String?, hAnsi: String?)] = []
+        /// One entry per open `w:r`: its own font properties (`w:rFonts`, `w:rtl`, `w:cs`) and character style
+        /// (`w:rStyle`). A text box's runs sit inside a run, hence a stack.
+        private var runs: [(fonts: DOCXRunFonts, characterStyle: String?)] = []
+        /// One entry per open `w:p`: its paragraph style (`w:pStyle`), nil when it names none.
+        private var paragraphStyles: [String?] = []
+        private let styles: DOCXStyles?
+        /// Style-level fonts per paragraph and character style pair.
+        private var styleFontsCache: [String: DOCXRunFonts] = [:]
         /// The names of the open elements read (not skipped), outermost first: only `w:r/w:rPr/w:rFonts` names a
         /// run's font (not a paragraph mark's `w:pPr/w:rPr`, nor the old formatting in `w:rPrChange/w:rPr`).
         private var path: [String] = []
@@ -82,13 +90,16 @@ enum DOCXReader {
             var choiceProducedText = false
         }
 
-        private init(isCancelled: @escaping () -> Bool) {
+        private init(styles: DOCXStyles?, isCancelled: @escaping () -> Bool) {
+            self.styles = styles
             self.isCancelled = isCancelled
         }
 
-        static func paragraphs(in data: Data, isCancelled: @escaping () -> Bool) throws -> [String] {
+        static func paragraphs(
+            in data: Data, styles: DOCXStyles?, isCancelled: @escaping () -> Bool
+        ) throws -> [String] {
             let parser = XMLParser(data: data)
-            let delegate = BodyParser(isCancelled: isCancelled)
+            let delegate = BodyParser(styles: styles, isCancelled: isCancelled)
             parser.delegate = delegate
             let parsed = parser.parse()
             if delegate.wasCancelled { throw CancellationError() }
@@ -121,23 +132,36 @@ enum DOCXReader {
             emitted += text.count
         }
 
+        /// The fonts the innermost open run draws in: the styles' cascade, then the run's own properties.
+        private func currentRunFonts() -> DOCXRunFonts {
+            let run = runs.last ?? (DOCXRunFonts(), nil)
+            guard let styles else { return run.fonts }
+            let paragraphStyle = paragraphStyles.last ?? nil
+            let key = "\(paragraphStyle ?? "")\u{1F}\(run.characterStyle ?? "")"
+            let styleFonts =
+                styleFontsCache[key]
+                ?? styles.styleFonts(paragraphStyle: paragraphStyle, characterStyle: run.characterStyle)
+            styleFontsCache[key] = styleFonts
+            return styleFonts.overlaid(with: run.fonts)
+        }
+
         /// A run's `w:t` text: as written in a text font; in a symbol font (typing in Symbol stores "m" for µ, and
         /// converted .doc files store the F0xx private-use code) each character goes through `SymbolFontMap`.
         private func emitRunText(_ text: String) {
             guard deletedDepth == 0 else { return }
-            let fonts = runFonts.last ?? (nil, nil)
+            let fonts = currentRunFonts()
             let isSymbolCode: (Unicode.Scalar) -> Bool = { (0xF000...0xF0FF).contains($0.value) }
-            if fonts.ascii == nil, fonts.hAnsi == nil, !text.unicodeScalars.contains(where: isSymbolCode) {
+            if !fonts.namesASymbolFont, !text.unicodeScalars.contains(where: isSymbolCode) {
                 emit(text)
                 return
             }
             var mapped = ""
             for scalar in text.unicodeScalars {
-                // ASCII uses the ASCII font only (another slot's Symbol must not turn "mg" into "µg"); a private-use
-                // F0xx code is a symbol-font code by definition, so any symbol font the run names applies to it.
-                let font =
-                    scalar.isASCII ? fonts.ascii : (isSymbolCode(scalar) ? fonts.hAnsi ?? fonts.ascii : fonts.hAnsi)
-                if let font, SymbolFontMap.isSymbolFont(font), !scalar.properties.isWhitespace {
+                // The slot Word draws this character with (`DOCXRunFonts.fontName(for:)`): theme fonts and a
+                // complex-script run's text font never map; ASCII never takes another slot's Symbol.
+                if let font = fonts.fontName(for: scalar), SymbolFontMap.isSymbolFont(font),
+                    !scalar.properties.isWhitespace
+                {
                     let character = SymbolFontMap.character(font: font, code: String(scalar.value, radix: 16))
                     if character == SymbolFontMap.replacement { unmappedSymbols += 1 }
                     mapped.append(character)
@@ -171,11 +195,22 @@ enum DOCXReader {
             }
             path.append(elementName)
             switch elementName {
-            case "w:p": open.append("")
-            case "w:r": runFonts.append((nil, nil))
-            case "w:rFonts":
-                if path.suffix(3).elementsEqual(["w:r", "w:rPr", "w:rFonts"]), !runFonts.isEmpty {
-                    runFonts[runFonts.count - 1] = (attributeDict["w:ascii"], attributeDict["w:hAnsi"])
+            case "w:p":
+                open.append("")
+                paragraphStyles.append(nil)
+            case "w:pStyle":
+                if path.suffix(3).elementsEqual(["w:p", "w:pPr", "w:pStyle"]), !paragraphStyles.isEmpty {
+                    paragraphStyles[paragraphStyles.count - 1] = attributeDict["w:val"]
+                }
+            case "w:r": runs.append((DOCXRunFonts(), nil))
+            case "w:rFonts", "w:rStyle", "w:rtl", "w:cs":
+                // Only the run's own current properties (`w:r/w:rPr/…`): not a paragraph mark's (`w:pPr/w:rPr`) and
+                // not the old formatting of a tracked change (`w:rPrChange/w:rPr`).
+                guard path.suffix(3).elementsEqual(["w:r", "w:rPr", elementName]), !runs.isEmpty else { break }
+                switch elementName {
+                case "w:rFonts": runs[runs.count - 1].fonts.setFonts(from: attributeDict)
+                case "w:rStyle": runs[runs.count - 1].characterStyle = attributeDict["w:val"]
+                default: runs[runs.count - 1].fonts.setSwitch(elementName, value: attributeDict["w:val"])
                 }
             case "w:del", "w:moveFrom": deletedDepth += 1
             case "w:t": inText = true
@@ -218,13 +253,14 @@ enum DOCXReader {
             case "w:t":
                 inText = false
             case "w:r":
-                _ = runFonts.popLast()
+                _ = runs.popLast()
             case "w:del", "w:moveFrom":
                 deletedDepth = max(0, deletedDepth - 1)
             case "w:tabs":
                 tabStopDepth = max(0, tabStopDepth - 1)
             case "w:p":
                 paragraphs.append(open.popLast() ?? "")
+                _ = paragraphStyles.popLast()
             case "mc:Choice":
                 if !alternates.isEmpty {
                     alternates[alternates.count - 1].choiceProducedText =

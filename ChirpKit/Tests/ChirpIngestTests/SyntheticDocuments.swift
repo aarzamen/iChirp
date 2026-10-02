@@ -213,16 +213,25 @@ enum SyntheticDOCX {
         #"xmlns:w16se="http://schemas.microsoft.com/office/word/2015/wordml/symex""#,
     ].joined(separator: " ")
 
-    /// A Word document whose `w:body` is `bodyXML`, written by the test (symbols, text boxes, tab stops).
-    static func make(bodyXML: String) -> Data {
+    /// A Word document whose `w:body` is `bodyXML`, written by the test (symbols, text boxes, tab stops), with
+    /// `word/styles.xml` holding `stylesXML` (the content of `w:styles`) when given.
+    static func make(bodyXML: String, stylesXML: String? = nil) -> Data {
         let document = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <w:document \(namespaces) mc:Ignorable="w14 w16se"><w:body>\(bodyXML)</w:body></w:document>
             """
-        return SyntheticZip.make([
+        var files: [(name: String, data: Data)] = [
             ("[Content_Types].xml", Data(#"<?xml version="1.0"?><Types/>"#.utf8)),
             ("word/document.xml", Data(document.utf8)),
-        ])
+        ]
+        if let stylesXML {
+            let styles = """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <w:styles \(namespaces)>\(stylesXML)</w:styles>
+                """
+            files.append(("word/styles.xml", Data(styles.utf8)))
+        }
+        return SyntheticZip.make(files)
     }
 
     private static func escape(_ text: String) -> String {

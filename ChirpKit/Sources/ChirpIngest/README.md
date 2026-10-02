@@ -103,12 +103,21 @@
   `w:noBreakHyphen` as U+2011, and symbol-font characters `w:sym` / `w16se:symEx`); the title from
   `docProps/core.xml`. Skipped: everything inside tracked deletions and moved-away text (`w:del`, `w:moveFrom`: their
   `w:delText` and also their symbols, hyphens, tabs and breaks; a deleted paragraph mark's empty marker suppresses
-  nothing), field codes and tab-stop definitions. A run whose own `w:rFonts` is a symbol font (Symbol, Wingdings, …)
-  has its text mapped through `SymbolFontMap` (`w:ascii` for ASCII, `w:hAnsi` for the rest, either for an F0xx code;
-  `w:rPrChange`'s old fonts ignored), so typing "m" in Symbol reads "µ"; an F0xx code whose font a style sets shows
-  as U+FFFD instead of vanishing. Content Word writes twice (`mc:AlternateContent`, e.g. a text box's drawing and its
-  VML copy) is read once: the first `mc:Choice`, and the `mc:Fallback` only when that choice held no text. A text
-  box's paragraphs come out before the paragraph that anchors it. Apple's DOCX importer is macOS-only.
+  nothing), field codes and tab-stop definitions. A run Word draws in a symbol font (Symbol, Wingdings, …) has its
+  text mapped through `SymbolFontMap`, so typing "m" in Symbol reads "µ". The run's font follows Word's rules
+  (`DOCXRunFonts`): `w:ascii` for ASCII, `w:hAnsi` for the rest, either for an F0xx code; a theme attribute
+  (`w:asciiTheme`, `w:hAnsiTheme`, `w:cstheme`) overrides the name beside it and never maps; a right-to-left or
+  complex-script run (`w:rtl`, `w:cs`) uses its `w:cs` font for every character; only the run's own `w:r/w:rPr` counts
+  (not a paragraph mark's, not `w:rPrChange`'s old fonts). An F0xx code no symbol font covers shows as U+FFFD instead
+  of vanishing. Content Word writes twice (`mc:AlternateContent`, e.g. a text box's drawing and its VML copy) is read
+  once: the first `mc:Choice`, and the `mc:Fallback` only when that choice held no text. A text box's paragraphs come
+  out before the paragraph that anchors it. Apple's DOCX importer is macOS-only.
+- `Documents/DOCXStyles.swift`: `word/styles.xml` (read through the same capped ZIP reader; missing or invalid reads
+  as no styles) reduced to what decides a run's font, and the cascade Word applies: document defaults
+  (`w:docDefaults/w:rPrDefault`), the paragraph's style (`w:pStyle`, else the default paragraph style), the run's
+  character style (`w:rStyle`), each following `w:basedOn` (at most 16 styles; a cycle or a style of another type ends
+  the chain), then the run's own `w:rFonts`, `w:rtl`, `w:cs`, slot by slot. Not read: table styles, list numbering,
+  the theme part (theme fonts count as text fonts), `w:hint` and the East Asian slot.
 - `Documents/SymbolFontMap.swift`: symbol-font codes → Unicode. The Symbol font in full (so "≥", "≤", "±", "°", "µ"
   survive; slot 0x6D is the micro sign U+00B5), Wingdings only for Word's check boxes, check and cross marks and square
   bullet; any other symbol becomes U+FFFD (visible, counted in the log), never dropped.
