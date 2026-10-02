@@ -68,6 +68,19 @@ final class LinkClassifierTests: XCTestCase {
         XCTAssertFalse(UnsupportedLink.notWeb.message.contains("(https)"), "http links are accepted too")
     }
 
+    /// Review R2-19: the "YouTube page" refusal applies to youtube.com and its subdomains only, the same host rule as
+    /// the other platforms.
+    func testOnlyYouTubeHostsAreTreatedAsYouTubePages() {
+        XCTAssertEqual(
+            LinkClassifier.classify("https://notyoutube.com/some/page"),
+            .webLink(URL(string: "https://notyoutube.com/some/page")!))
+        for page in ["https://youtube.com/@somechannel", "https://music.youtube.com/channel/abc"] {
+            XCTAssertEqual(
+                LinkClassifier.classify(page),
+                .unsupported(.platform(name: "this YouTube page (open a single video and share its link)")), page)
+        }
+    }
+
     func testYouTubeVideoIdIsExtracted() {
         guard case .youtube(let id, _) = LinkClassifier.classify("youtube.com/watch?v=AAAAAAAAAAA&list=x") else {
             return XCTFail("expected YouTube")

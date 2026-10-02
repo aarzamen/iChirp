@@ -165,10 +165,10 @@ public enum LinkClassifier {
             }
             return .applePodcastShow(showID: showID, url: url)
         }
-        if let platform = unsupportedPlatforms.first(where: { host == $0.suffix || host.hasSuffix(".\($0.suffix)") }) {
+        if let platform = unsupportedPlatforms.first(where: { isHost(host, in: $0.suffix) }) {
             return .unsupported(.platform(name: platform.name))
         }
-        if host.hasSuffix("youtube.com") || host == "youtu.be" {
+        if isHost(host, in: "youtube.com") || host == "youtu.be" {
             // A channel, playlist or home page link: no single video to caption.
             return .unsupported(.platform(name: "this YouTube page (open a single video and share its link)"))
         }
@@ -206,6 +206,11 @@ public enum LinkClassifier {
             }
         }
         return nil
+    }
+
+    /// Whether `host` is `domain` or one of its subdomains ("m.youtube.com" is in "youtube.com"; "notyoutube.com" is not).
+    static func isHost(_ host: String, in domain: String) -> Bool {
+        host == domain || host.hasSuffix(".\(domain)")
     }
 
     /// A feed by its path ("/feed", "/rss", "…/podcast.rss") or its host ("feeds.example.com").
