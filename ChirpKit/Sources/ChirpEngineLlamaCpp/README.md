@@ -24,7 +24,9 @@ and without the runtime the models say "not in this build".
 
 - `LlamaCppModelCatalog.swift`: `LlamaCppModelSpec` (Hugging Face repository and revision, file, SHA-256, size,
   context window, memory estimate, prompt format, sampler), `LlamaSampling` and its chain `LlamaSamplerStage`
-  (clinical requests greedy via `sampling(for:)`; no stage ever looks at earlier tokens, review I2) and the catalog: **Qwen3.5 2B** (default) and
+  (clinical requests greedy via `sampling(for:)`, `LlamaSampling.faithful` built from ChirpCore's `FaithfulSampling`
+  like every engine's clinical profile, review R3-2; no stage ever looks at earlier tokens, review I2) and the
+  catalog: **Qwen3.5 2B** (default) and
   **Qwen3 4B Instruct 2507** (quality), both Apache-2.0, Q4_K_M. `LlamaPromptFormat` writes ChatML as control pieces
   (special tokens recognised) and content pieces (never), so transcript text cannot produce a control token or open a
   new chat turn (llama.cpp still matches user-defined tokens such as `<think>` in content; they delimit no turn).
@@ -40,7 +42,8 @@ and without the runtime the models say "not in this build".
   so Retry loads a fresh context (review I1); each run ends with one confirming decode of its last token, because
   llama.cpp reports a Metal failure one decode late. The generation
   loop: budget check (`contextTooLong` before any decoding), prompt in 512-token batches, sample until end of
-  generation, `maxOutputTokens` or a full window (`stopReason` "length"; for a **clinical** request that is an error,
+  generation, `maxOutputTokens` or a full window (`stopReason` "length", which ChirpCore reads as
+  `GenerationUsage.isLengthCapped`: not a whole document, review R3-1; for a **clinical** request it is an error,
   not a document, review minor 8: `looksRepetitive` checks the last ~600 characters for a short repeated unit and
   names the loop only when it finds one, otherwise it says plainly that the draft hit the model's length limit — a
   rewrite-style template on a long dictation can reach that honestly, with nothing to repeat, review N3); run
@@ -50,7 +53,9 @@ and without the runtime the models say "not in this build".
 - `LlamaCppModelAssets.swift`: `ModelAssetManaging` for one GGUF file: explicit download with progress, free-space
   check, size and SHA-256 before the file is kept (hashing off the cooperative pool), excluded from backup, delete
   (unloads first). Progress is passed on in 0.5% steps, never backwards (`ProgressThrottle`), and cancelling the
-  caller cancels the URLSession download (review minors 3 and 5). `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
+  caller cancels the URLSession download (review minors 3 and 5). A cancellation or a Delete during a download reads
+  as not downloaded, never as a failure, and Delete waits for the cancelled download to stop before it removes the
+  folder (review R3-6). ChirpEngineNeedle's `NeedleModelAssets` is the same lifecycle; keep the two in step. `URLSessionLlamaFileFetcher` is the only network code; it fetches model files only.
 
 ## What to know before editing
 

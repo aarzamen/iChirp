@@ -28,16 +28,19 @@ protocol and its validation are ports of MacParakeet's `Services/VoiceControl/Je
   keys).
 - `JevHTTPTransport.swift` (copy of `ChirpEngineHTTPLLM`'s transport): ephemeral, cache-free, cookie-free session;
   every redirect refused; cancellation kept as `CancellationError`; the body (answer or error) is read as it arrives
-  and refused as `invalidResponse` past 1,000,000 bytes (or a larger declared length), so it never fills memory; the
-  key-artifact scrubber.
+  and refused as `invalidResponse` past 1,000,000 bytes (or a larger declared length), so it never fills memory. The
+  bounded read and the key-artifact scrubber are ChirpCore's shared `BoundedResponseBody` and
+  `ProviderMessageScrubber` (review R3-4), the same ones the language-model and voice engines use.
 - `Registration.swift`: `JevDecisionModels` (descriptor, `make`, the `URLSessionConfiguration` test seam,
   `problem(with:)` for the address) and `testConnection()`, which sends only the fixed synthetic pangram with the
   options `animal` / `vehicle`.
 
 ## What to know before editing
 
-- **Engines do not route.** `ChirpFeatures.DecisionService` refuses clinical items before this engine is called;
-  nothing here checks the privacy class, and `privacyClass` is never sent.
+- **Engines do not route, but Jev never takes a clinical item.** `ChirpFeatures.DecisionService` routes and refuses
+  clinical items before this engine is called. As defence in depth (review R3-11, ADR-013), `decide` also refuses a
+  request whose `privacyClass` is clinical with `LanguageModelError.unavailable` before anything is encoded or sent.
+  `privacyClass` itself is never sent.
 - **Never follow redirects, never cache, never log content.** The key is a `SecretValue`, revealed only when the
   `Authorization` header is written; error text is scrubbed of key artifacts and of the key itself, shown to the user,
   and never logged or stored (log `LanguageModelError.kindName`).

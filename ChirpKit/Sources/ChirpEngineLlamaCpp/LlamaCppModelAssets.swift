@@ -113,9 +113,16 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
                 task.cancel()
             }
         } catch {
+            // A cancellation (the caller, Delete, an expiring continued-processing request) is not a failure: the
+            // model is simply not downloaded (review R3-6).
+            if Self.isCancellation(error) { throw CancellationError() }
             failure = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
             throw error
         }
+    }
+
+    static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     private func performDownload(progress: @escaping @Sendable (Double) -> Void) async throws {
@@ -158,9 +165,12 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
         downloadFraction = max(current, min(max(fraction, 0), 1))
     }
 
-    /// Settings → Delete: unloads the model, then removes its folder (it can be downloaded again).
+    /// Settings → Delete: cancels a download in flight and waits for it to stop (so nothing is written after the folder
+    /// is gone, review R3-6), unloads the model, then removes its folder (it can be downloaded again).
     public func deleteAssets() async throws {
-        download?.cancel()
+        let pending = download
+        pending?.cancel()
+        _ = await pending?.result
         failure = nil
         await willDelete()
         if FileManager.default.fileExists(atPath: directory.path) {
@@ -210,7 +220,8 @@ public actor LlamaCppModelAssets: ModelAssetManaging {
     }
 }
 
-/// Passes on a progress fraction only when it moved forward by `step` or reached the end.
+/// Passes on a progress fraction only when it moved forward by `step` or reached the end. ChirpEngineNeedle keeps a copy
+/// (an engine target depends only on ChirpCore); both test targets pin the same behavior (review R3-4, R3-5).
 final class ProgressThrottle: Sendable {
     private let last = Mutex(-1.0)
     private let step: Double

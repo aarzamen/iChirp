@@ -3,7 +3,8 @@
 // test call and native `/api/tags` listing (the `/v1/models` fallback is dropped). `num_ctx` is always sent and equals
 // the context window the planner budgets for (`HTTPProviderSettings.contextWindowTokens`, default 8192 as upstream), so
 // Ollama never silently drops the start of a long prompt; `num_predict` carries `maxOutputTokens`. `think` is always
-// false (no thinking mode in M4 core).
+// false (no thinking mode in M4 core). A clinical request also sends ChirpCore's faithful sampling (review R3-2), and
+// `done_reason` is reported as the stop word (review R3-1).
 
 import ChirpCore
 import Foundation
@@ -21,7 +22,8 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
                     let (bytes, http) = try await transport.bytes(for: urlRequest)
                     guard (200...299).contains(http.statusCode) else {
                         let body = try await bytes.collectErrorBody()
-                        throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: body)
+                        throw LLMHTTPErrorMapper.mapError(
+                            statusCode: http.statusCode, data: body, secret: settings.apiKey)
                     }
 
                     // Ollama streams NDJSON: one JSON object per line; `done: true` ends it.
@@ -34,7 +36,7 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
                         if let envelope = try? JSONDecoder().decode(StreamErrorResponse.self, from: data),
                             let error = envelope.error
                         {
-                            throw LLMHTTPErrorMapper.mapStreamingError(message: error)
+                            throw LLMHTTPErrorMapper.mapStreamingError(message: error, secret: settings.apiKey)
                         }
                         guard let chunk = try? JSONDecoder().decode(OllamaChatResponse.self, from: data) else {
                             continue
@@ -51,11 +53,16 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
                     }
                     try LLMHTTPStreamCompletionPolicy.validateStreamCompletion(
                         settings: settings, sawSentinel: sawDone, yieldedAnyContent: yieldedAnyContent)
+                    // `done_reason: "length"` (the `num_predict` cap) reaches the consumer as a length-capped usage
+                    // (review R3-1).
+                    let reason = LLMHTTPStopReason.resolved(
+                        lastChunk?.done_reason, completionTokens: lastChunk?.eval_count,
+                        maxOutputTokens: request.maxOutputTokens)
                     continuation.yield(
                         .usage(
                             GenerationUsage(
                                 promptTokens: lastChunk?.prompt_eval_count, completionTokens: lastChunk?.eval_count,
-                                model: lastChunk?.model, stopReason: lastChunk?.done_reason)))
+                                model: lastChunk?.model, stopReason: reason)))
                     continuation.yield(.finished)
                     continuation.finish()
                 } catch {
@@ -71,10 +78,10 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
         let request = try buildRequest(probe, settings: settings, stream: false)
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         if let envelope = try? JSONDecoder().decode(StreamErrorResponse.self, from: data), let error = envelope.error {
-            throw LLMHTTPErrorMapper.mapStreamingError(message: error)
+            throw LLMHTTPErrorMapper.mapStreamingError(message: error, secret: settings.apiKey)
         }
     }
 
@@ -83,7 +90,7 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
         request.httpMethod = "GET"
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         guard let tags = try? JSONDecoder().decode(OllamaTagsResponse.self, from: data) else {
             throw LanguageModelError.invalidResponse
@@ -111,15 +118,21 @@ struct OllamaLLMHTTPAdapter: LLMHTTPAdapter {
         }
         messages.append(OllamaMessage(role: "user", content: request.prompt))
 
+        var options = OllamaRequestOptions(
+            num_ctx: settings.contextWindowTokens,
+            num_predict: request.maxOutputTokens
+        )
+        // Review R3-2: a clinical request overrides Ollama's random sampling (temperature 0.8) and its repeat penalty
+        // (1.1 over the last 64 tokens), which can change a repeated digit in a dose; other requests keep the server's.
+        if request.requiresFaithfulSampling {
+            options.sampleFaithfully()
+        }
         let body = OllamaChatRequest(
             model: settings.modelName,
             messages: messages,
             stream: stream,
             think: false,
-            options: OllamaRequestOptions(
-                num_ctx: settings.contextWindowTokens,
-                num_predict: request.maxOutputTokens
-            )
+            options: options
         )
         urlRequest.httpBody = try JSONEncoder().encode(body)
         return urlRequest
@@ -157,10 +170,34 @@ struct OllamaMessage: Encodable {
     let content: String
 }
 
-/// `num_ctx` overrides Ollama's small default context window.
+/// `num_ctx` overrides Ollama's small default context window. The sampling fields are sent only for a clinical
+/// request (`sampleFaithfully()`); absent, Ollama applies its own (the model's) settings.
 struct OllamaRequestOptions: Encodable {
     let num_ctx: Int
     let num_predict: Int?
+    var temperature: Double?
+    var top_k: Int?
+    var top_p: Double?
+    var min_p: Double?
+    var repeat_penalty: Double?
+    var presence_penalty: Double?
+    var frequency_penalty: Double?
+
+    init(num_ctx: Int, num_predict: Int?) {
+        self.num_ctx = num_ctx
+        self.num_predict = num_predict
+    }
+
+    /// ChirpCore's `FaithfulSampling` (ADR-015, review R3-2): greedy, no penalty on tokens already written.
+    mutating func sampleFaithfully() {
+        temperature = FaithfulSampling.temperature
+        top_k = FaithfulSampling.topK
+        top_p = FaithfulSampling.topP
+        min_p = FaithfulSampling.minP
+        repeat_penalty = FaithfulSampling.repeatPenalty
+        presence_penalty = FaithfulSampling.presencePenalty
+        frequency_penalty = FaithfulSampling.frequencyPenalty
+    }
 }
 
 struct OllamaChatResponse: Decodable {

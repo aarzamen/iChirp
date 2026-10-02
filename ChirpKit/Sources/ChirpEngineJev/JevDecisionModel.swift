@@ -9,7 +9,8 @@ import Foundation
 /// Jev (TypeSafe AI) as a `DecisionModel`: one cloud round trip per decision, choice questions only.
 ///
 /// Holds the API key only in memory as a redacted `SecretValue`. Every request goes to `endpointHost` (redirects are
-/// refused). Engines do not route: `DecisionService` refuses clinical items before this is ever called.
+/// refused). Engines do not route: `DecisionService` refuses clinical items before this is ever called, and `decide`
+/// refuses them again itself (review R3-11).
 public actor JevDecisionModel: DecisionModel {
     /// Stable, persisted in the run ledger. Never rename or reuse.
     public static let engineID = "http.jev"
@@ -51,6 +52,11 @@ public actor JevDecisionModel: DecisionModel {
 
     public func decide(_ request: DecisionRequest) async throws -> DecisionResult {
         try Task.checkCancellation()
+        // Defence in depth (review R3-11, ADR-013): `DecisionService` refuses clinical items before this is called,
+        // and Jev has no override path, so refusing here costs nothing and catches a second caller or a refactor.
+        guard request.privacyClass != .clinical else {
+            throw LanguageModelError.unavailable(.other(JevDecisionModels.clinicalRefusalDetail))
+        }
         try request.validate()
         guard let apiKey, unavailableReason() == nil else {
             throw LanguageModelError.unavailable(
@@ -114,10 +120,11 @@ public actor JevDecisionModel: DecisionModel {
         return host
     }
 
-    /// Status → `LanguageModelError`. The provider's text is scrubbed of key artifacts (and of this key verbatim),
-    /// shown to the user only, never logged or stored.
+    /// Status → `LanguageModelError`. The provider's text is scrubbed of key artifacts (and of this key verbatim) by
+    /// ChirpCore's shared `ProviderMessageScrubber` (review R3-4), cut at 300 characters, shown to the user only, never
+    /// logged or stored.
     static func mapStatus(_ status: Int, data: Data, apiKey: SecretValue) -> LanguageModelError {
-        let message = scrubbed(providerMessage(in: data), apiKey: apiKey)
+        let message = ProviderMessageScrubber.displayable(providerMessage(in: data), secret: apiKey)
         switch status {
         case 401, 403:
             return .authenticationFailed(message.isEmpty ? nil : message)
@@ -135,7 +142,8 @@ public actor JevDecisionModel: DecisionModel {
     }
 
     /// The first readable message of an error body: `{"error": {"message"}}`, `{"error": "…"}`, `{"message": "…"}`,
-    /// `{"detail": "…"}`, else the text itself, capped at 300 characters.
+    /// `{"detail": "…"}`, else the first 2 KB of the text itself. Not yet scrubbed or shortened: `mapStatus` scrubs
+    /// first, so a key is never cut in half before it is recognized.
     static func providerMessage(in data: Data) -> String {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let candidates: [String?] = [
@@ -147,14 +155,6 @@ public actor JevDecisionModel: DecisionModel {
         let raw =
             candidates.compactMap { $0 }.first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             ?? String(decoding: data.prefix(2_048), as: UTF8.self)
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count > 300 ? String(trimmed.prefix(300)) + "…" : trimmed
-    }
-
-    static func scrubbed(_ message: String, apiKey: SecretValue) -> String {
-        var out = JevHTTPTransport.scrubAPIKeyArtifacts(from: message)
-        let key = apiKey.reveal()
-        if key.count >= 4 { out = out.replacingOccurrences(of: key, with: "<api-key>") }
-        return out
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

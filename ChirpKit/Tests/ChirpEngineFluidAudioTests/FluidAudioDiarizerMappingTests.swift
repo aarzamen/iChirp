@@ -43,6 +43,19 @@ final class FluidAudioDiarizerMappingTests: XCTestCase {
         XCTAssertEqual(output.speakers, [SpeakerInfo(id: "S1", label: "Speaker 1")])
     }
 
+    /// Review R3-18: a span whose time is not a number (or infinite) is dropped instead of trapping the app; it never
+    /// gets a speaker number of its own.
+    func testANonFiniteSpanIsDroppedInsteadOfCrashing() {
+        let output = FluidAudioDiarizer.output(from: [
+            DiarizedSpan(speakerId: "A", startSeconds: .nan, endSeconds: 1),
+            DiarizedSpan(speakerId: "B", startSeconds: 0.5, endSeconds: .infinity),
+            DiarizedSpan(speakerId: "C", startSeconds: 1, endSeconds: 2),
+            DiarizedSpan(speakerId: "A", startSeconds: 3, endSeconds: -.infinity),
+        ])
+        XCTAssertEqual(output.segments, [DiarizationSegmentRecord(speakerId: "S1", startMs: 1_000, endMs: 2_000)])
+        XCTAssertEqual(output.speakers, [SpeakerInfo(id: "S1", label: "Speaker 1")])
+    }
+
     func testMoreThanNineSpeakersKeepNumericOrder() {
         let spans = (0..<11).map {
             DiarizedSpan(speakerId: "spk\($0)", startSeconds: Float($0), endSeconds: Float($0) + 0.5)

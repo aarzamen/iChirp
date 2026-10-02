@@ -17,12 +17,20 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
 
 - `WhisperKitEngine.swift` (ports upstream `WhisperEngine`): the `SpeechEngine` and `SpeechEngineUnloading` actor.
   - **Files:** the model lives at `<dir>/models/argmaxinc/whisperkit-coreml/<folder>` and the tokenizer at
-    `<dir>/models/openai/whisper-*`. A completion marker is written after a successful download. `assetStatus` is
-    ready only when the marker, `tokenizer.json` and `tokenizer_config.json` are all present.
+    `<dir>/models/openai/whisper-*`. A completion marker is written only after the download returned, was not
+    cancelled, and every file in `requiredModelFiles` is there (the three Core ML bundles' `coremldata.bin`,
+    `model.mil` and `weights/weight.bin`, and the two configs; review R3-7: the Hugging Face snapshot returns
+    normally when cancelled between files). `assetStatus` is ready only when the marker, every required model file,
+    `tokenizer.json` and `tokenizer_config.json` are all present, so a folder that lost a file reads as not
+    downloaded and Download repairs it. The Hub keeps this variant's download metadata and resumable `.incomplete`
+    files in `<dir>/models/argmaxinc/whisperkit-coreml/.cache/huggingface/download/<folder>`
+    (`hubDownloadCacheFolder`): it counts in the ready size and Delete removes it (review R3-8).
   - **Load:** `prepare` loads once and shares the load. It refuses (`modelNotDownloaded`) while files are missing,
     and never downloads. A caller cancelled while it waits for the load (a first-time Core ML compile can take
     minutes) stops waiting at once; the load goes on for the others (`SharedTaskWait.swift`, as Parakeet's).
-    `unloadModels()` is refused while a load runs, so two pipelines are never loaded at once.
+    `unloadModels()` is refused while a load runs, and a load waits for an unload that is still releasing the
+    previous pipeline (review R3-9), so two pipelines are never loaded at once and the memory check never reads
+    memory the old one still holds.
   - **Memory fit** (fix/speech-memory-fit): right before a load starts (not when a caller joins one, not while the
     model is loaded), `SpeechEngineCapabilityRegistry.checkMemoryFit` compares the row's `memoryToLoadBytes` (the
     first-load Core ML compile peak) with the injected `AvailableMemoryReading`. A load that does not fit throws
@@ -31,8 +39,9 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
   - **Calls:** one call at a time on the loaded pipeline (`AsyncPermit`, FIFO). A call cancelled while it waits in
     line leaves at once with `CancellationError`, so a dictation's Stop or Cancel never waits behind a file job.
     Cancellation of the running call stops decoding through WhisperKit's callback.
-  - **Delete:** refused while a call runs. Otherwise new loads are refused at once, a load or download in flight is
-    waited for and its model released, and only then are the folders removed.
+  - **Delete:** refused while a call runs. Otherwise new loads are refused at once, a load, download or unload in
+    flight is waited for and its model released, and only then are this variant's folders removed (model, tokenizer
+    and its Hub download cache; never the other variant's).
   - **Language:** a forced language that yields nothing is retried with detection (upstream).
   - **Words:** trimmed, in milliseconds, with non-decreasing starts and `endMs >= startMs`. The probability is
     clamped to 0…1.
@@ -54,7 +63,10 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
     `segmentDiscoveryCallback`, in file time) over the file's length, below 1 until the engine reports the end.
     WhisperKit's own `progress` restarts for every streamed window, so it is not used.
 - `AsyncPermit.swift` and `SharedTaskWait.swift`: copies of ChirpEngineFluidAudio's cancellation-aware permit and
-  shared-task wait (an engine target depends only on ChirpCore).
+  shared-task wait (an engine target depends only on ChirpCore). `ConcurrencyHelperParityTests` runs the same tests
+  in both test targets, and ChirpEngineFluidAudioTests' copy fails when the two files' code differs (review R3-4):
+  change both together. `MonotonicFraction` (in `WhisperKitEngine.swift`) is the same helper as Apple Speech's
+  `MonotonicProgress`, pinned by `MonotonicProgressParityTests` in both targets.
 
 ## What to know before editing
 
@@ -88,6 +100,11 @@ exact **1.1.0** (MIT), and only its `WhisperKit` product is linked. Contract:
     job ends at once when the dictation stops (through `SpeechEngineRouter` and `TailWindowPreviewSession`);
   - review M3: an unload during a load starts no second load; a delete during a load waits for it and releases its
     model; review M1: progress is the share of audio covered, below 1 until the end;
+  - review R3-7: a download that stops part-way (or is cancelled between files and returns normally) is never marked
+    complete, and a marker over an incomplete folder is not ready; review R3-8: Delete removes only this variant's Hub
+    cache, and the ready size counts it; review R3-9: a load waits for an unload still releasing the pipeline;
+    review R3-19: tests wait on signals (`queuedCallCount`, `sharedLoadWaiterCount`, `loadsWaitingForUnload`,
+    `isDeleting`), never on sleeps; the downloaded folder is excluded from backups;
   - fix/speech-memory-fit: `testALoadThatDoesNotFitTheMemoryIOSAllowsIsRefusedNamesBothNumbersAndLoadsNothing`
     (and Retry loads once there is room), `testALoadThatFitsProceedsAndALoadedModelIsNotCheckedAgain`,
     `testAnUnknownReadingDoesNotRefuse`.

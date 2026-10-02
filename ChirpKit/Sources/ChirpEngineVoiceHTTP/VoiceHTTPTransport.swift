@@ -1,8 +1,9 @@
 // Ported from Readback (owner's project): Sources/TTS/TTSProvider.swift (`TTSHTTP`) @ 696cef6
 // Changes: an ephemeral, cache-free session with a delegate that refuses every redirect (Readback used
 // `URLSession.shared`); status mapping onto ChirpCore's `SpeechSynthesisError`; provider messages are read from the
-// usual JSON error shapes and scrubbed of the key before they reach an error (patterns as in ChirpEngineHTTPLLM's
-// `LLMHTTPErrorMapper`, ported from MacParakeet). Cancellation stays `CancellationError`.
+// usual JSON error shapes, scrubbed of the key and cut at 300 characters before they reach an error, and bodies are read
+// up to a size limit (ChirpCore's shared `ProviderMessageScrubber` and `BoundedResponseBody`, review R3-4).
+// Cancellation stays `CancellationError`.
 
 import ChirpCore
 import Foundation
@@ -30,21 +31,37 @@ struct VoiceHTTPTransport: Sendable {
         return configuration
     }
 
-    /// The body and response of any HTTP status except a redirect (refused: `redirectRefused`). Connection failures
+    /// The most one answer may be: about four times the longest speech either provider returns for its largest
+    /// request (xAI mp3 of 15,000 characters, the companion's WAV of 4,000), far below what could fill memory.
+    static let responseByteLimit = 64 * 1_024 * 1_024
+
+    /// The body and response of any HTTP status except a redirect (refused: `redirectRefused`). The body is read as it
+    /// arrives and refused past `limit` bytes (review R3-4, ChirpCore `BoundedResponseBody`). Connection failures
     /// become `connectionFailed`; cancellation stays `CancellationError`.
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let result: (Data, URLResponse)
+    func data(for request: URLRequest, limit: Int = Self.responseByteLimit) async throws -> (Data, HTTPURLResponse) {
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
         do {
-            result = try await session.data(for: request, delegate: VoiceRedirectRefuser.shared)
+            (bytes, response) = try await session.bytes(for: request, delegate: VoiceRedirectRefuser.shared)
         } catch {
             throw Self.map(error)
         }
-        guard let http = result.1 as? HTTPURLResponse else {
+        guard let http = response as? HTTPURLResponse else {
             throw SpeechSynthesisError.connectionFailed("The server did not answer over HTTP.")
         }
         // A refused redirect completes the task with the 3xx response itself.
         if (300...399).contains(http.statusCode) { throw SpeechSynthesisError.redirectRefused }
-        return (result.0, http)
+        do {
+            let body = try await BoundedResponseBody.collect(
+                bytes, expectedLength: http.expectedContentLength, limit: limit)
+            return (body, http)
+        } catch is BoundedResponseBody.TooLarge {
+            throw SpeechSynthesisError.server(
+                status: http.statusCode,
+                message: "The answer was larger than \(limit / 1_048_576) MB, so it was not read.")
+        } catch {
+            throw Self.map(error)
+        }
     }
 
     static func map(_ error: Error) -> Error {
@@ -84,9 +101,10 @@ enum VoiceHTTPErrors {
     }
 
     /// The provider's error sentence: `{"error": {"message": …}}`, `{"error": "…"}`, FastAPI's `{"detail": "…"}`, or
-    /// the body's first 300 characters. Always scrubbed of `secret` and key-like strings.
+    /// the body's text. Always scrubbed of `secret` and key-like strings, then cut at 300 characters (ChirpCore's
+    /// shared `ProviderMessageScrubber`, review R3-4).
     static func message(from data: Data, secret: SecretValue?) -> String {
-        scrub(rawMessage(from: data), secret: secret)
+        ProviderMessageScrubber.displayable(rawMessage(from: data), secret: secret)
     }
 
     /// `{"error": {"code": …}}` when the provider sends one (the companion does).
@@ -106,27 +124,7 @@ enum VoiceHTTPErrors {
             if let detail = object["detail"] as? String { return detail }
             if let message = object["message"] as? String { return message }
         }
-        let text = String(decoding: data.prefix(300), as: UTF8.self)
+        let text = String(decoding: data.prefix(2_048), as: UTF8.self)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Removes the key itself and anything key-shaped (xAI `xai-…`, `sk-…`, `Bearer …`, `key=…`). Conservative: a
-    /// missed pattern is acceptable, masking the real error is not.
-    static func scrub(_ message: String, secret: SecretValue?) -> String {
-        var out = message
-        if let secret, !secret.isEmpty {
-            out = out.replacingOccurrences(of: secret.reveal(), with: "<api-key>")
-        }
-        let patterns: [(String, String)] = [
-            (#"\bxai-[A-Za-z0-9_\-]{8,}"#, "<api-key>"),
-            (#"\bsk-[A-Za-z0-9_\-]{8,}"#, "<api-key>"),
-            (#"\bBearer\s+[A-Za-z0-9._%\-+=/]{8,}"#, "Bearer <token>"),
-            (#"(?i)\bapi[_-]?key=[A-Za-z0-9._%\-+=/]{8,}"#, "api-key=<token>"),
-            (#"(?i)\bkey=[A-Za-z0-9._%\-+=/]{16,}"#, "key=<token>"),
-        ]
-        for (pattern, replacement) in patterns {
-            out = out.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
-        }
-        return out
     }
 }

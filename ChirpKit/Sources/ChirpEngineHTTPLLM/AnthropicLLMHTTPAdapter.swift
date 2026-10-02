@@ -23,7 +23,8 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
                     let (bytes, http) = try await transport.bytes(for: urlRequest)
                     guard (200...299).contains(http.statusCode) else {
                         let body = try await bytes.collectErrorBody()
-                        throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: body)
+                        throw LLMHTTPErrorMapper.mapError(
+                            statusCode: http.statusCode, data: body, secret: settings.apiKey)
                     }
 
                     var yieldedAnyContent = false
@@ -59,19 +60,25 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
                                 completionTokens = usage["output_tokens"] as? Int ?? completionTokens
                             }
                         case "message_stop":
+                            if let refusal = LLMHTTPStopReason.refusal(stopReason) { throw refusal }
                             try LLMHTTPStreamCompletionPolicy.validateStreamCompletion(
                                 settings: settings, sawSentinel: true, yieldedAnyContent: yieldedAnyContent)
+                            // `max_tokens` / `model_context_window_exceeded` reach the consumer as a length-capped
+                            // usage (review R3-1): the stream finished, the document did not.
+                            let reason = LLMHTTPStopReason.resolved(
+                                stopReason, completionTokens: completionTokens,
+                                maxOutputTokens: request.maxOutputTokens ?? Self.defaultMaxTokens)
                             continuation.yield(
                                 .usage(
                                     GenerationUsage(
                                         promptTokens: promptTokens, completionTokens: completionTokens, model: model,
-                                        stopReason: stopReason)))
+                                        stopReason: reason)))
                             continuation.yield(.finished)
                             continuation.finish()
                             return
                         case "error":
                             if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
-                                throw LLMHTTPErrorMapper.mapStreamingError(message: message)
+                                throw LLMHTTPErrorMapper.mapStreamingError(message: message, secret: settings.apiKey)
                             }
                             throw LanguageModelError.streamingError("the provider reported an error")
                         default:
@@ -95,7 +102,7 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
         let request = try buildRequest(probe, settings: settings, stream: false)
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
     }
 
@@ -112,7 +119,7 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
         }
         let (data, http) = try await transport.data(for: request)
         guard (200...299).contains(http.statusCode) else {
-            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data)
+            throw LLMHTTPErrorMapper.mapError(statusCode: http.statusCode, data: data, secret: settings.apiKey)
         }
         guard let list = try? JSONDecoder().decode(ModelsListResponse.self, from: data) else {
             throw LanguageModelError.invalidResponse

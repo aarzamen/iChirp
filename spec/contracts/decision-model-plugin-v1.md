@@ -69,6 +69,8 @@ counts when it reports them (metadata only).
   any stricter deliverable, so a personal transcript with a clinical SOAP note is clinical) and, in v1, **refuses
   every clinical item outright** (no per-run override for decision engines), writing a `refused` ledger row, reading
   no API key and sending nothing. It checks again just before sending; a transcript deleted meanwhile is not sent.
+  As defence in depth, a cloud decision engine also refuses a clinical `DecisionRequest` itself
+  (`LanguageModelError.unavailable`, nothing encoded or sent; review R3-11).
 
 **Ledger**: every `DecisionService` run writes exactly one `llm_runs` row with `feature = "decision"`,
 `engineId = "http.jev"`, the locality, class, latency, `inputCharacters` (the excerpt's length), the provider's
@@ -93,7 +95,8 @@ and migrate every conformer and fake in the same change.
 - `DecisionModelContractTests` (ChirpStoreTests): `Feature.decision` persists through `LanguageModelRunRecord`.
 - `JevDecisionModelTests` (ChirpEngineJevTests, `URLProtocol` stub): request URL, method, headers and body shape;
   every validation branch; status mapping; redirect refused with nothing forwarded; oversize request never sent;
-  missing key sends nothing; key never in text; `testConnection` payload; cancellation.
+  missing key sends nothing; a clinical request sends nothing (review R3-11); key never in text; `testConnection`
+  payload; cancellation.
 - `DecisionServiceTests` and `JevSettingsStoreTests` (ChirpFeaturesTests): clinical refusal with zero engine calls,
   the window, the recipes, the gate boundaries, one content-free ledger row per run, key storage.
 - App tests (`DecisionModelAppTests`): only `AppDecisionModelFactory.swift` imports `ChirpEngineJev`; the Jev menu

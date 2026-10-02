@@ -202,9 +202,15 @@ public actor FluidAudioDiarizer: SpeakerDiarizing {
     }
 
     /// Sorts segments by start time, then renumbers speakers "S1…Sn" in order of first speech, so "S1" is the
-    /// first speaker to talk rather than whatever FluidAudio's (undocumented) segment order implies.
+    /// first speaker to talk rather than whatever FluidAudio's (undocumented) segment order implies. A span whose start
+    /// or end is not a finite number is dropped first (review R3-18): it cannot be placed, it would trap the
+    /// conversion to milliseconds, and it would break the sort; clamping it to 0 would credit its speaker with speech
+    /// at the start of the file.
     static func output(from spans: [DiarizedSpan]) -> DiarizationOutput {
-        let chronological = spans.sorted { $0.startSeconds < $1.startSeconds }
+        let chronological =
+            spans
+            .filter { $0.startSeconds.isFinite && $0.endSeconds.isFinite }
+            .sorted { $0.startSeconds < $1.startSeconds }
 
         var idMapping: [String: String] = [:]
         var stableIDs: [String] = []

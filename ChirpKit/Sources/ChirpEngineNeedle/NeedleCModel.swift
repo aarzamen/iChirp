@@ -108,15 +108,6 @@ final class NeedleCModel {
         #endif
     }
 
-    /// Transformer blocks in the loaded depth.
-    var layerCount: Int {
-        #if canImport(NeedleC)
-        needle_v3_num_layers(handle)
-        #else
-        0
-        #endif
-    }
-
     /// needle-c's thread-local last error, copied (it is borrowed and valid only until the next call).
     static func lastError() -> String? {
         #if canImport(NeedleC)

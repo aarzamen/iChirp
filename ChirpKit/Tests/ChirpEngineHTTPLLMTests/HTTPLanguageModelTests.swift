@@ -35,6 +35,10 @@ final class HTTPLanguageModelTests: XCTestCase {
         events.compactMap { if case .text(let text) = $0 { text } else { nil } }.joined()
     }
 
+    private func usage(_ events: [GenerationEvent]) -> GenerationUsage? {
+        events.lazy.compactMap { if case .usage(let usage) = $0 { usage } else { nil } }.first
+    }
+
     private func expectError(
         _ stream: AsyncThrowingStream<GenerationEvent, Error>,
         file: StaticString = #filePath,
@@ -330,6 +334,342 @@ final class HTTPLanguageModelTests: XCTestCase {
         XCTAssertEqual((json["messages"] as? [[String: String]])?.first?["content"], "Hi")
     }
 
+    // MARK: - Review R3-4: one scrubber and one response cap for every HTTP engine
+
+    func testAGeminiOrGroqKeyEchoNeverReachesTheScreen() async {
+        let gemini = SecretValue("AIzaSyTESTKEY0123456789abcdefghijkl")
+        StubURLProtocol.reset { _ in
+            .body(
+                #"[{"error":{"code":400,"message":"API key not valid: AIzaSyTESTKEY0123456789abcdefghijkl, gsk_TESTKEY0123456789"}}]"#,
+                status: 400, contentType: "application/json")
+        }
+        let engine = model(
+            .openAICompatible, "https://generativelanguage.googleapis.com/v1beta/openai", modelName: "gemini-flash",
+            key: gemini)
+        let error = await expectError(engine.generate(request))
+        let text = "\(String(describing: error)) \((error as? LocalizedError)?.errorDescription ?? "")"
+        XCTAssertFalse(text.contains("AIzaSyTESTKEY"), text)
+        XCTAssertFalse(text.contains("gsk_TESTKEY"), text)
+    }
+
+    func testTheLiteralKeyNeverReachesTheScreenWhateverItsShape() async {
+        let custom = SecretValue("lan-server-SECRET-0123456789")
+        StubURLProtocol.reset { _ in
+            .body(
+                #"{"error":{"message":"unknown key lan-server-SECRET-0123456789"}}"#, status: 401,
+                contentType: "application/json")
+        }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1", key: custom)
+        let error = await expectError(engine.generate(request))
+        guard case .authenticationFailed(let message) = error as? LanguageModelError else {
+            return XCTFail("expected authenticationFailed, got \(String(describing: error))")
+        }
+        XCTAssertFalse(message?.contains("SECRET") ?? true, message ?? "")
+    }
+
+    func testALongErrorBodyIsShortenedForTheScreen() async {
+        StubURLProtocol.reset { _ in
+            .body(
+                "<html>" + String(repeating: "gateway trouble ", count: 2_000) + "</html>", status: 502,
+                contentType: "text/html")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434")
+        let error = await expectError(engine.generate(request))
+        guard case .providerError(let message) = error as? LanguageModelError else {
+            return XCTFail("expected providerError, got \(String(describing: error))")
+        }
+        XCTAssertLessThanOrEqual(message.count, 301, "at most 300 characters and an ellipsis")
+    }
+
+    func testANonStreamingBodyPastTheLimitIsRefusedAsItArrives() async {
+        StubURLProtocol.reset { _ in .body(String(repeating: "x", count: 4_096), contentType: "application/json") }
+        let transport = LLMHTTPTransport(configuration: StubURLProtocol.configuration())
+        let url = URL(string: "http://mac-studio.local:11434/api/tags")!
+        do {
+            _ = try await transport.data(for: URLRequest(url: url), limit: 1_024)
+            XCTFail("a body past the limit must be refused")
+        } catch {
+            XCTAssertEqual(error as? LanguageModelError, .invalidResponse)
+        }
+        XCTAssertGreaterThanOrEqual(LLMHTTPTransport.responseByteLimit, 8 * 1_024 * 1_024, "room for a long model list")
+    }
+
+    func testTheSessionCachesNothingAndKeepsNoCookies() {
+        let configuration = LLMHTTPTransport.privateConfiguration()
+        XCTAssertNil(configuration.urlCache)
+        XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+    }
+
+    // MARK: - Review R3-12: listing models checks the address and key like generate
+
+    func testListingModelsOverPlainHTTPToACloudHostIsRefusedAndSendsNothing() async {
+        StubURLProtocol.reset { _ in .body(#"{"data":[{"id":"gpt-4o"}]}"#, contentType: "application/json") }
+        let engine = model(.openAICompatible, "http://api.openai.com/v1", modelName: "", key: key)
+        do {
+            let models = try await engine.listModels()
+            XCTFail("the key would travel in clear text; listed \(models)")
+        } catch {
+            guard case .unavailable(.notConfigured)? = error as? LanguageModelError else {
+                return XCTFail("expected notConfigured, got \(error)")
+            }
+        }
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty, "nothing, and no key, may leave the phone")
+    }
+
+    func testListingModelsWithoutTheCloudKeyIsRefusedAndSendsNothing() async {
+        StubURLProtocol.reset { _ in .body(#"{"data":[{"id":"claude-test"}]}"#, contentType: "application/json") }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", modelName: "", key: nil)
+        do {
+            _ = try await engine.listModels()
+            XCTFail("expected notConfigured")
+        } catch {
+            guard case .unavailable(.notConfigured)? = error as? LanguageModelError else {
+                return XCTFail("expected notConfigured, got \(error)")
+            }
+        }
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty)
+    }
+
+    func testListingModelsNeedsNoModelNameYet() async throws {
+        StubURLProtocol.reset { _ in
+            .body(#"{"models":[{"name":"llama3.1:8b"},{"name":"nomic-embed-text"}]}"#, contentType: "application/json")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "")
+        let models = try await engine.listModels()
+        XCTAssertEqual(models, ["llama3.1:8b"], "listing is how the model name gets chosen")
+        XCTAssertEqual(StubURLProtocol.requests.map { $0.url.absoluteString }, ["http://mac-studio.local:11434/api/tags"])
+    }
+
+    // MARK: - Review R3-1: an answer cut off at the output limit says so
+
+    func testAnthropicMaxTokensStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"message_start","message":{"model":"claude-test-1","usage":{"input_tokens":42,"output_tokens":1}}}"#,
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Plan: amoxicillin 500"}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":256}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "max_tokens", "the provider's word is kept")
+        XCTAssertEqual(usage.normalizedStopReason, .outputLimit)
+        XCTAssertTrue(usage.isLengthCapped, "cut off at max_tokens: not a whole document")
+        XCTAssertEqual(events.last, .finished)
+    }
+
+    func testAnthropicContextWindowStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Assessment:"}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"model_context_window_exceeded"}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.normalizedStopReason, .contextWindowFull)
+        XCTAssertTrue(usage.isLengthCapped)
+    }
+
+    func testAnthropicRefusalStopIsARefusalNotADocument() async {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Synthetic part"}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"refusal"}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let engine = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        let error = await expectError(engine.generate(request))
+        guard case .refused = error as? LanguageModelError else {
+            return XCTFail("expected refused, got \(String(describing: error))")
+        }
+    }
+
+    func testOpenAICompatibleLengthStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"qwen","choices":[{"delta":{"content":"Plan: amoxicillin 500"}}]}"#,
+                #"data: {"model":"qwen","choices":[{"delta":{},"finish_reason":"length"}]}"#,
+                "data: [DONE]",
+            ])
+        }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length")
+        XCTAssertTrue(usage.isLengthCapped)
+        XCTAssertEqual(events.last, .finished)
+    }
+
+    func testOpenAICompatibleWithNoFinishReasonButTheWholeAllowanceUsedIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"qwen","choices":[{"delta":{"content":"Plan: amoxicillin 500"}}]}"#,
+                #"data: {"model":"qwen","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":256}}"#,
+            ])
+        }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length", "no finish_reason, but all 256 requested tokens were used")
+        XCTAssertTrue(usage.isLengthCapped)
+    }
+
+    func testOpenAIContentFilterStopIsARefusalNotADocument() async {
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"gpt-4o","choices":[{"delta":{"content":"Synthetic part"}}]}"#,
+                #"data: {"model":"gpt-4o","choices":[{"delta":{},"finish_reason":"content_filter"}]}"#,
+                "data: [DONE]",
+            ])
+        }
+        let engine = model(.openAICompatible, "https://api.openai.com/v1", modelName: "gpt-4o", key: key)
+        let error = await expectError(engine.generate(request))
+        guard case .refused = error as? LanguageModelError else {
+            return XCTFail("expected refused, got \(String(describing: error))")
+        }
+    }
+
+    func testOllamaLengthStopIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines(
+                [
+                    #"{"model":"llama3.1:8b","message":{"role":"assistant","content":"Plan: amoxicillin 500"},"done":false}"#,
+                    #"{"model":"llama3.1:8b","message":{"role":"assistant","content":""},"done":true,"done_reason":"length","prompt_eval_count":30,"eval_count":256}"#,
+                ], contentType: "application/x-ndjson")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length")
+        XCTAssertTrue(usage.isLengthCapped)
+        XCTAssertEqual(events.last, .finished)
+    }
+
+    func testOllamaWithNoDoneReasonButTheWholeAllowanceUsedIsLengthCapped() async throws {
+        StubURLProtocol.reset { _ in
+            .lines(
+                [
+                    #"{"model":"llama3.1:8b","message":{"content":"Plan: amoxicillin 500"},"done":false}"#,
+                    #"{"model":"llama3.1:8b","message":{"content":""},"done":true,"eval_count":256}"#,
+                ], contentType: "application/x-ndjson")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.stopReason, "length", "an older Ollama without done_reason that used all 256 tokens")
+        XCTAssertTrue(usage.isLengthCapped)
+    }
+
+    func testAProviderThatSaysItStoppedNaturallyIsBelievedEvenAtTheAllowance() async throws {
+        StubURLProtocol.reset { _ in
+            .lines(
+                [
+                    #"{"model":"llama3.1:8b","message":{"content":"Heron notes."},"done":false}"#,
+                    #"{"model":"llama3.1:8b","message":{"content":""},"done":true,"done_reason":"stop","eval_count":256}"#,
+                ], contentType: "application/x-ndjson")
+        }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        let events = try await collect(engine.generate(request))
+        let usage = try XCTUnwrap(usage(events))
+        XCTAssertEqual(usage.normalizedStopReason, .completed)
+        XCTAssertFalse(usage.isLengthCapped)
+    }
+
+    // MARK: - Review R3-2: clinical requests sample faithfully where the provider lets the app choose
+
+    private let clinicalRequest = GenerationRequest(
+        system: "You write documents.", prompt: "Synthetic SOAP note: amoxicillin 500 mg twice a day.",
+        privacyClass: .clinical, maxOutputTokens: 256)
+
+    /// Every field the faithful profile sends (ADR-015: greedy, no penalty on tokens already written).
+    private static let faithfulKeys: Set<String> = [
+        "temperature", "top_k", "top_p", "min_p", "repeat_penalty", "presence_penalty", "frequency_penalty",
+    ]
+
+    private func assertFaithful(_ fields: [String: Any], file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(fields["temperature"] as? Double, 0, "always the most likely token", file: file, line: line)
+        XCTAssertEqual(fields["top_k"] as? Int, 1, file: file, line: line)
+        XCTAssertEqual(fields["top_p"] as? Double, 1, file: file, line: line)
+        XCTAssertEqual(fields["min_p"] as? Double, 0, file: file, line: line)
+        XCTAssertEqual(
+            fields["repeat_penalty"] as? Double, 1, "the servers' default 1.1 penalizes a repeated digit", file: file,
+            line: line)
+        XCTAssertEqual(fields["presence_penalty"] as? Double, 0, file: file, line: line)
+        XCTAssertEqual(fields["frequency_penalty"] as? Double, 0, file: file, line: line)
+    }
+
+    func testOllamaClinicalRequestSamplesGreedilyWithNoPenaltyAndOthersKeepTheServersSettings() async throws {
+        let done = #"{"model":"llama3.1:8b","message":{"content":"Plan noted."},"done":true,"done_reason":"stop"}"#
+        StubURLProtocol.reset { _ in .lines([done], contentType: "application/x-ndjson") }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        _ = try await collect(engine.generate(clinicalRequest))
+        let options = try XCTUnwrap(StubURLProtocol.requests.first?.json?["options"] as? [String: Any])
+        assertFaithful(options)
+        XCTAssertEqual(options["num_ctx"] as? Int, 8_192, "the window is still the budgeted one")
+        XCTAssertEqual(options["num_predict"] as? Int, 256)
+
+        StubURLProtocol.reset { _ in .lines([done], contentType: "application/x-ndjson") }
+        _ = try await collect(engine.generate(request))
+        let personal = try XCTUnwrap(StubURLProtocol.requests.first?.json?["options"] as? [String: Any])
+        XCTAssertTrue(Set(personal.keys).isDisjoint(with: Self.faithfulKeys), "\(personal.keys.sorted())")
+    }
+
+    func testAClinicalRequestToALANOpenAICompatibleServerSamplesGreedilyWithNoPenalty() async throws {
+        let lines = [
+            #"data: {"model":"qwen","choices":[{"delta":{"content":"Plan noted."},"finish_reason":"stop"}]}"#,
+            "data: [DONE]",
+        ]
+        StubURLProtocol.reset { _ in .lines(lines) }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1", modelName: "qwen")
+        _ = try await collect(engine.generate(clinicalRequest))
+        let body = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        assertFaithful(body)
+        XCTAssertEqual(body["max_tokens"] as? Int, 256)
+
+        StubURLProtocol.reset { _ in .lines(lines) }
+        _ = try await collect(engine.generate(request))
+        let personal = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        XCTAssertTrue(Set(personal.keys).isDisjoint(with: Self.faithfulKeys), "\(personal.keys.sorted())")
+    }
+
+    func testCloudProvidersKeepTheirDefaultsForAClinicalRequest() async throws {
+        // Ruling (review R3-2): OpenAI's GPT-5 and o-series models reject a non-default temperature and every
+        // provider rejects unknown fields such as `repeat_penalty`; current Claude models reject `temperature`. A
+        // clinical request reaches a cloud engine only after a per-run confirmation.
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"gpt-5.5","choices":[{"delta":{"content":"Plan noted."},"finish_reason":"stop"}]}"#,
+                "data: [DONE]",
+            ])
+        }
+        let openAI = model(.openAICompatible, "https://api.openai.com/v1", modelName: "gpt-5.5", key: key)
+        _ = try await collect(openAI.generate(clinicalRequest))
+        let openAIBody = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        XCTAssertTrue(Set(openAIBody.keys).isDisjoint(with: Self.faithfulKeys), "\(openAIBody.keys.sorted())")
+
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Plan noted."}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let anthropic = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        _ = try await collect(anthropic.generate(clinicalRequest))
+        let anthropicBody = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        XCTAssertTrue(Set(anthropicBody.keys).isDisjoint(with: Self.faithfulKeys), "\(anthropicBody.keys.sorted())")
+    }
+
     // MARK: Pure parsing
 
     func testSSELineParsing() {
@@ -344,8 +684,9 @@ final class HTTPLanguageModelTests: XCTestCase {
     }
 
     func testKeyScrubbing() {
-        let scrubbed = LLMHTTPErrorMapper.scrubAPIKeyArtifacts(
-            from: "bad sk-proj-ABCDEFGH12345 and Bearer abcdefgh12345678 and key=AAAAAAAAAAAAAAAAAAAA")
+        // The shared scrubber (ChirpCore `ProviderMessageScrubber`, review R3-4); `EngineHTTPSupportTests` has the rest.
+        let scrubbed = ProviderMessageScrubber.scrubbed(
+            "bad sk-proj-ABCDEFGH12345 and Bearer abcdefgh12345678 and key=AAAAAAAAAAAAAAAAAAAA")
         XCTAssertFalse(scrubbed.contains("ABCDEFGH12345"))
         XCTAssertFalse(scrubbed.contains("abcdefgh12345678"))
         XCTAssertFalse(scrubbed.contains("AAAAAAAAAAAAAAAAAAAA"))

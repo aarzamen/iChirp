@@ -13,6 +13,7 @@ import Foundation
 /// <root>/parakeet-tdt-0.6b-v3/        Parakeet v3
 /// <root>/parakeet-tdt-0.6b-v2/        Parakeet v2
 /// <root>/speaker-diarization/         offline diarizer
+/// <root>/silero-vad/                  Silero voice activity (meetings)
 /// ```
 ///
 /// Folder names come from FluidAudio's `Repo.folderName`, never hard-coded here.
@@ -44,6 +45,11 @@ enum FluidAudioModelLocations {
     /// root/<diarizer repo folder>
     static func diarizerDirectory(in root: URL) -> URL {
         root.appendingPathComponent(Repo.diarizer.folderName, isDirectory: true)
+    }
+
+    /// root/<Silero VAD repo folder>
+    static func voiceActivityDirectory(in root: URL) -> URL {
+        root.appendingPathComponent(Repo.vad.folderName, isDirectory: true)
     }
 
     /// `ModelHub.download`'s `variant` for Parakeet, as `AsrModels.download` passes it (default int8 encoder on v3).
@@ -89,6 +95,15 @@ enum FluidAudioModelLocations {
         let directory = diarizerDirectory(in: root)
         return incompleteFiles(in: directory, requiredFiles: ModelNames.OfflineDiarizer.requiredModels).isEmpty
             && cacheMatchesPinnedRevision(directory, repo: .diarizer)
+    }
+
+    /// Upstream `MeetingVADService.makeIfModelCached`'s check, made strict like the diarizer's (review R3-3): the
+    /// Silero bundle whole (`coremldata.bin`, no `*.partial`) and from the pinned revision. A partial cache reads as
+    /// not downloaded, and the next Download resumes it.
+    static func voiceActivityModelsExist(in root: URL) -> Bool {
+        let directory = voiceActivityDirectory(in: root)
+        return incompleteFiles(in: directory, requiredFiles: ModelNames.VAD.requiredModels).isEmpty
+            && cacheMatchesPinnedRevision(directory, repo: .vad)
     }
 
     /// Mirrors FluidAudio's internal `ModelCache.incompleteFiles` (issue #819): a `.mlmodelc` bundle counts only

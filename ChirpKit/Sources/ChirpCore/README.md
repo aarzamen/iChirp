@@ -99,12 +99,21 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   Contract: `spec/contracts/speech-synthesis-plugin-v1.md`; conformers arrive in plan 020.
 - `Engines/LanguageModel.swift`: the M4 text-generation contract (`LanguageModel` with `endpointHost`,
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
-  `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). Conformers: `ChirpEngineAppleFM`,
-  `ChirpEngineHTTPLLM`. Contract: `spec/contracts/language-model-plugin-v1.md`.
+  `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). `GenerationStopReason` and
+  `GenerationUsage.isLengthCapped` say, the same way for every provider, that a finished stream was cut off at a
+  length limit and is not a whole document (review R3-1). `FaithfulSampling` and
+  `GenerationRequest.requiresFaithfulSampling` are the clinical sampling every engine that can choose uses (greedy,
+  no penalty; review R3-2, ADR-015). Conformers: `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM`,
+  `ChirpEngineLlamaCpp`. Contract: `spec/contracts/language-model-plugin-v1.md`.
 - `Engines/DecisionModel.swift` (M6a): the typed-decision contract (`DecisionModel` with `endpointHost`,
   `availability()` and `decide`; `DecisionQuestion` with 2…250 options and `validate()`, `DecisionState`,
   `DecisionRequest`, `DecisionAnswer`, `DecisionResult`, `DecisionRequestError`). Reuses `LanguageModelAvailability`
   and `LanguageModelError`. Conformer: `ChirpEngineJev`. Contract: `spec/contracts/decision-model-plugin-v1.md`.
+- `Engines/EngineHTTPSupport.swift` (review R3-4): what the HTTP engine targets share instead of drifting copies.
+  `ProviderMessageScrubber` removes the request's key and every key shape the engines meet (`sk-`, `xai-`, `gsk_`,
+  `AIza`, Bearer, `x-api-key:`, `key=` echoes) from a provider message and cuts it at 300 characters;
+  `BoundedResponseBody` reads a response body as it arrives and throws `TooLarge` past an engine's byte limit.
+  Users: `ChirpEngineHTTPLLM`, `ChirpEngineJev`, `ChirpEngineVoiceHTTP`.
 - `Models/Deliverable.swift`: M4 templates, versions, deliverables and the `LanguageModelRun` ledger row; M6a adds the
   `decision` feature value, plan 022 the `edit` value (no schema change).
 - `Models/DeliverableVersion.swift` and `Pipeline/DeliverableVersionStoring.swift` (plan 022): a generated document's

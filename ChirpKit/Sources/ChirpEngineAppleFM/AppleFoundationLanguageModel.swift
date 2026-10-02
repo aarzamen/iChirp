@@ -50,23 +50,25 @@ public struct AppleFoundationLanguageModel: LanguageModel {
                     }
                     let instructions = request.system.flatMap { $0.isEmpty ? nil : $0 }
                     let session = LanguageModelSession(model: model, instructions: instructions)
-                    let options = GenerationOptions(maximumResponseTokens: request.maxOutputTokens)
-                    let stream = session.streamResponse(to: request.prompt, options: options)
+                    let stream = session.streamResponse(to: request.prompt, options: Self.options(for: request))
 
-                    // Snapshots carry the whole text so far; forward only what is new.
-                    var emitted = ""
+                    // Snapshots carry the whole text so far; forward only what is new (review R3-10).
+                    var deltas = SnapshotDeltas()
                     for try await snapshot in stream {
                         try Task.checkCancellation()
-                        let delta = Self.delta(from: emitted, to: snapshot.content)
+                        let delta = try deltas.next(snapshot.content)
                         if !delta.isEmpty {
                             continuation.yield(.text(delta))
                         }
-                        emitted = snapshot.content
                     }
-                    guard !emitted.isEmpty else {
+                    let tail = try deltas.finish()
+                    if !tail.isEmpty {
+                        continuation.yield(.text(tail))
+                    }
+                    guard !deltas.emitted.isEmpty else {
                         throw LanguageModelError.streamingError("the on-device model returned no text")
                     }
-                    continuation.yield(.usage(GenerationUsage(model: "apple-on-device")))
+                    continuation.yield(.usage(Self.finishedUsage))
                     continuation.yield(.finished)
                     continuation.finish()
                 } catch {
@@ -76,6 +78,25 @@ public struct AppleFoundationLanguageModel: LanguageModel {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    // MARK: - Options (internal for tests)
+
+    /// The options for one request.
+    ///
+    /// - A clinical request samples greedily (review R3-2, ADR-015's faithful sampling: always the most likely token,
+    ///   so a random draw never changes a dose or a vital, and Retry gives the same draft). Apple's model has no
+    ///   penalty setting. Other requests keep Apple's default sampling.
+    /// - `maximumResponseTokens` is never set (review R3-1): FoundationModels ends a response at that cap early with
+    ///   no error and no signal (Apple's documentation), so a cut-off answer would pass as finished. Uncapped, the
+    ///   answer is bounded by the context window, and one that outgrows it throws `exceededContextWindowSize`
+    ///   (`contextTooLong`: the planner re-plans with smaller parts). So here `request.maxOutputTokens` is the
+    ///   planner's estimate, not a cap.
+    static func options(for request: GenerationRequest) -> GenerationOptions {
+        GenerationOptions(sampling: request.requiresFaithfulSampling ? .greedy : nil)
+    }
+
+    /// What a finished stream reports. Apple gives no stop word; uncapped, a response that finishes ended on its own.
+    static let finishedUsage = GenerationUsage(model: "apple-on-device", stopReason: "stop")
 
     // MARK: - Mapping (internal for tests)
 
@@ -127,14 +148,48 @@ public struct AppleFoundationLanguageModel: LanguageModel {
         }
     }
 
-    /// The new text in `current` after `previous`. When the model revised earlier text (a snapshot that no longer
-    /// starts with what was sent), the whole snapshot is not re-sent; only the suffix past the common prefix is.
-    static func delta(from previous: String, to current: String) -> String {
-        if current.hasPrefix(previous) {
-            return String(current.dropFirst(previous.count))
+    /// The new text in `current` after `previous`, compared Unicode scalar by Unicode scalar (review R3-10), so the
+    /// deltas always add up to exactly the model's text: a snapshot that merges the last character (an emoji skin-tone
+    /// modifier, a combining accent, a flag's second half) still extends what was sent. Nil when the snapshot rewrote
+    /// text already sent: no delta can express that, and the stream fails instead of storing a hybrid.
+    static func delta(from previous: String, to current: String) -> String? {
+        let sent = previous.unicodeScalars
+        let now = current.unicodeScalars
+        guard now.starts(with: sent) else { return nil }
+        return String(String.UnicodeScalarView(now.dropFirst(sent.count)))
+    }
+}
+
+/// Turns FoundationModels' cumulative snapshots into deltas that add up to exactly the model's text (review R3-10).
+///
+/// A trailing run of U+FFFD is held back: a byte-level tokenizer shows a multi-byte character it has only partly
+/// generated ("°", "µ") as that placeholder and replaces it once the character is complete, so sending it would either
+/// store the placeholder or make the next snapshot look like a rewrite. Anything else that changes text already sent
+/// fails the stream (`streamingError`): no delta can take it back.
+struct SnapshotDeltas {
+    /// The text forwarded so far.
+    private(set) var emitted = ""
+    private var latest = ""
+
+    /// The new settled text of `snapshot`.
+    mutating func next(_ snapshot: String) throws -> String {
+        latest = snapshot
+        var settled = snapshot.unicodeScalars
+        while settled.last == "\u{FFFD}" { settled.removeLast() }
+        return try advance(to: String(settled))
+    }
+
+    /// Once the stream has ended: a trailing character that never completed is sent as the model left it.
+    mutating func finish() throws -> String {
+        try advance(to: latest)
+    }
+
+    private mutating func advance(to text: String) throws -> String {
+        guard let delta = AppleFoundationLanguageModel.delta(from: emitted, to: text) else {
+            throw LanguageModelError.streamingError("the on-device model rewrote text it had already sent")
         }
-        let common = zip(previous, current).prefix { $0 == $1 }.count
-        return String(current.dropFirst(max(common, previous.count)))
+        emitted = text
+        return delta
     }
 }
 

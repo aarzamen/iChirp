@@ -21,6 +21,25 @@ final class ParakeetEngineDescriptorTests: XCTestCase {
         XCTAssertTrue(descriptor.supportedLanguages.contains("uk"))
     }
 
+    /// Review R3-16: each descriptor is pinned to its registry row (the contract asks for it, and WhisperKit's and
+    /// Apple Speech's tests already do it), and the engine reads the registry's id and languages instead of copies.
+    func testDescriptorsMatchTheirRegistryRows() throws {
+        XCTAssertEqual(ParakeetEngine.engineID, SpeechEngineCapabilityRegistry.parakeetEngineID)
+        for variant in [ParakeetVariant.v3, .v2] {
+            let descriptor = ParakeetEngine.descriptor(for: variant)
+            let row = try XCTUnwrap(
+                SpeechEngineCapabilityRegistry.capabilitiesIfPresent(
+                    for: SpeechEngineVariantKey(engineID: descriptor.id, variant: variant.rawValue)))
+            XCTAssertEqual(row.providesWordTimestamps, descriptor.providesWordTimestamps, variant.rawValue)
+            XCTAssertEqual(
+                row.modelLifecycle.approximateDownloadBytes, descriptor.approximateDownloadBytes, variant.rawValue)
+            XCTAssertEqual(
+                row.supportedLanguages.supportedLanguageCodes, descriptor.supportedLanguages, variant.rawValue)
+        }
+        XCTAssertEqual(
+            ParakeetEngine.descriptor(for: .v3).supportedLanguages, SpeechEngineCapabilityRegistry.parakeetV3Languages)
+    }
+
     func testV2DescriptorIsEnglishOnlyWithTheSameID() {
         let descriptor = ParakeetEngine(variant: .v2).descriptor
 

@@ -18,14 +18,18 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
 - `HTTPLanguageModel.swift`: the engine, its descriptor (`http.anthropic`, `http.openai-compatible`,
   `http.ollama`; locality derived from the base URL's host), `availability()` (validation and a missing key make it
   `notConfigured`, and `generate` then sends nothing), `testConnection()` (one "Hi" token, no user content),
-  `listModels()`, and the default context windows (Anthropic 200K, OpenAI cloud 128K, LAN OpenAI-compatible 4K,
-  Ollama 8K).
+  `listModels()` (the same address and key checks, review R3-12, so a key never goes to a cloud host over plain
+  http; only the model name may still be empty), and the default context windows (Anthropic 200K, OpenAI cloud
+  128K, LAN OpenAI-compatible 4K, Ollama 8K).
 - `LLMHTTPTransport.swift`: one ephemeral, cache-free, cookie-free `URLSession`; a task delegate that refuses every
   redirect (the 3xx becomes `LanguageModelError.redirectRefused`); error mapping that keeps cancellation as
-  `CancellationError`.
-- `LLMHTTPErrorMapper.swift`: HTTP status and mid-stream error mapping onto `LanguageModelError`, API-key scrubbing
-  of provider messages, context-overflow detection, and the stream-sentinel policy (Anthropic `message_stop` and
-  OpenAI/OpenRouter `[DONE]` are required; EOF without them is a truncation error).
+  `CancellationError`; non-streaming bodies (model lists, the connection test) read as they arrive and refused past
+  16 MB (`responseByteLimit`, ChirpCore's shared `BoundedResponseBody`, review R3-4).
+- `LLMHTTPErrorMapper.swift`: HTTP status and mid-stream error mapping onto `LanguageModelError` (provider messages
+  scrubbed of key shapes and of the request's own key by ChirpCore's shared `ProviderMessageScrubber`, then cut at 300
+  characters for the screen; review R3-4), context-overflow detection, the stream-sentinel policy (Anthropic `message_stop` and
+  OpenAI/OpenRouter `[DONE]` are required; EOF without them is a truncation error) and `LLMHTTPStopReason` (review
+  R3-1): the stop word a finished stream reports, and the safety stops that fail it.
 - `AnthropicLLMHTTPAdapter.swift`, `OpenAICompatibleLLMHTTPAdapter.swift`, `OllamaLLMHTTPAdapter.swift`: request
   bodies and SSE / NDJSON stream parsing for each wire protocol.
 
@@ -36,6 +40,17 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
 - **`num_ctx` equals the budgeted window.** Ollama silently drops the start of a prompt longer than its context.
   The engine reports `contextWindowTokens()` and sends the same number as `num_ctx`, so the planner in ChirpFeatures
   splits long input instead of Ollama truncating it. Do not remove `num_ctx`.
+- **Clinical requests sample faithfully on the owner's network (review R3-2).** When
+  `request.requiresFaithfulSampling`, Ollama's `options` and the body for an OpenAI-compatible server on the local
+  network carry ChirpCore's `FaithfulSampling` (temperature 0, top-k 1, top-p 1, min-p 0, repeat penalty 1,
+  presence / frequency penalty 0), overriding Ollama's temperature 0.8 and repeat penalty 1.1 and LM Studio's preset.
+  Other requests send no sampling field. Cloud hosts never get them: OpenAI's GPT-5 and o-series reject a
+  non-default temperature, cloud APIs reject `repeat_penalty`, and current Claude models reject `temperature`.
+- **A cut-off answer says so (review R3-1).** Every finished stream reports the provider's stop word in
+  `GenerationUsage.stopReason`: Anthropic `max_tokens` or `model_context_window_exceeded`, OpenAI-compatible and
+  Ollama `length` read as `isLengthCapped` in ChirpCore (the text is not a whole document). A provider that sends no
+  word but used the whole `maxOutputTokens` allowance reports `length`. A safety stop mid-answer (Anthropic
+  `refusal`, OpenAI `content_filter`) fails the stream with `refused` instead of finishing it.
 - **The key is a `SecretValue`.** It is revealed only when a header is written. Never log a request, its headers or
   its body; log ids, the engine id and `LanguageModelError.kindName`.
 - **Provider messages can echo the prompt.** `LanguageModelError` associated strings may be shown to the user but

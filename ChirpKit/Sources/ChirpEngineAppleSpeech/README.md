@@ -17,9 +17,14 @@ language. The app registers it in `SpeechEngineRouter` (`App/Sources/SpeechEngin
   - **Status:** `assetStatus` maps `AssetInventory.status` (`installed` → ready, `supported` → not downloaded). It
     returns `.failed` with a sentence when `SpeechTranscriber.isAvailable` is false (the Simulator) or the language
     is not supported. Review M10: an installed model reads as not downloaded until Speech Recognition has been asked
-    (Download asks), and as `.failed` with where to allow it when it was refused.
+    (Download asks), and as `.failed` with where to allow it when it was refused; review R3-13: a model not
+    installed also reads as `.failed` with that sentence while permission is refused (read live, so it clears once
+    allowed).
   - **Download and delete:** `downloadAssets` asks for the locale with `assetInstallationRequest`, which also
-    reserves it for this app. `deleteAssets` releases the reservation.
+    reserves it for this app. With permission refused, already or just now at the prompt, it installs nothing and
+    throws the permission sentence (review R3-13: the model could not run, so nothing is fetched). `deleteAssets`
+    releases the reservation; it is refused with the in-use sentence while a transcription runs, and a transcription
+    that starts during a delete is refused like a missing model (review R3-13, as Parakeet and WhisperKit do).
   - **Transcribe:** `prepare` and `transcribe` never download and never ask for permission, so no prompt appears
     from a background file, a dictation or a live preview. They throw `modelNotDownloaded` while the model is missing
     or iOS has never asked, and the permission sentence when it was refused. `needsPermissionPrompt()` lets the DEBUG
@@ -27,7 +32,9 @@ language. The app registers it in `SpeechEngineRouter` (`App/Sources/SpeechEngin
     (review N7), instead of waiting on a prompt or downloading a model it cannot use.
   - **Result:** `makeResult` joins the final results and maps word runs to milliseconds, with non-decreasing starts,
     `endMs >= startMs` and confidence clamped to 0…1 (1 when missing). Empty text throws `emptyTranscript`.
-  - `MonotonicProgress` keeps progress in 0…1 and never lets it go backwards.
+  - `MonotonicProgress` keeps progress in 0…1 and never lets it go backwards; the first value, 0 too, is forwarded.
+    It is the same helper as WhisperKit's `MonotonicFraction`; `MonotonicProgressParityTests` pins one behavior for
+    both (review R3-4).
 - `AppleSpeechBackend.swift`: the test seam (`AppleSpeechBackend`, asset state, authorization, word and segment
   values).
 - `LiveAppleSpeechBackend.swift`: the backend on the real framework.
@@ -56,6 +63,8 @@ language. The app registers it in `SpeechEngineRouter` (`App/Sources/SpeechEngin
   available", no implicit download, monotonic download progress, a single permission request, delete releases the
   reservation, word mapping and clamping, `emptyTranscript`, the language hint, a refused permission and prompt
   cancellation; review M10: an installed model without permission is not ready and a job never asks, only Download
-  does; a refused permission shows in the status.
+  does; a refused permission shows in the status; review R3-13: Delete is refused while a job runs, and Download
+  with permission refused (already, or at the prompt) installs nothing; review R3-19: the cancellation test waits for
+  the job to start instead of sleeping.
 - `AppleSpeechEngineIntegrationTests`: opt-in with `CHIRP_APPLE_SPEECH_TESTS=1`. It runs the real engine on a `say`
   recording on a Mac with macOS 26, and skips where `SpeechTranscriber` is unavailable.

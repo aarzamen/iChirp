@@ -228,6 +228,44 @@ final class XAIVoiceTests: XCTestCase {
             .connectionFailed(URLError(.cannotConnectToHost).localizedDescription))
     }
 
+    // MARK: - Review R3-4: one scrubber and one response cap for every HTTP engine
+
+    func testEveryKeyShapeIsScrubbedAndLongMessagesAreShortened() {
+        let echo = VoiceHTTPErrors.message(
+            from: Data(#"{"error":"x-api-key: abcdefgh12345678 and AIzaSyTESTKEY0123456789abcdefghijkl"}"#.utf8),
+            secret: nil)
+        XCTAssertFalse(echo.contains("abcdefgh12345678"), echo)
+        XCTAssertFalse(echo.contains("AIzaSyTESTKEY"), echo)
+        let long = VoiceHTTPErrors.message(
+            from: Data(#"{"detail":"\#(String(repeating: "y", count: 1_000))"}"#.utf8), secret: nil)
+        XCTAssertLessThanOrEqual(long.count, 301, "at most 300 characters and an ellipsis")
+    }
+
+    func testAnAnswerPastTheLimitIsRefusedAsItArrives() async {
+        StubURLProtocol.reset { _ in .audio(Data(repeating: 1, count: 4_096)) }
+        let transport = VoiceHTTPTransport(configuration: StubURLProtocol.configuration())
+        do {
+            _ = try await transport.data(for: URLRequest(url: URL(string: "https://api.x.ai/v1/tts")!), limit: 1_024)
+            XCTFail("a body past the limit must be refused")
+        } catch {
+            guard case .server(status: 200, _)? = error as? SpeechSynthesisError else {
+                return XCTFail("expected server, got \(error)")
+            }
+        }
+        XCTAssertGreaterThanOrEqual(
+            VoiceHTTPTransport.responseByteLimit, 32 * 1_024 * 1_024, "room for 4,000 characters of speech")
+    }
+
+    func testTheSessionCachesNothingAndKeepsNoCookies() {
+        let configuration = VoiceHTTPTransport.privateConfiguration()
+        XCTAssertNil(configuration.urlCache)
+        XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+    }
+
     func testMessageShapes() {
         XCTAssertEqual(
             VoiceHTTPErrors.message(from: Data(#"{"detail":"Model not loaded"}"#.utf8), secret: nil), "Model not loaded"

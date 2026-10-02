@@ -69,6 +69,7 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         XCTAssertEqual(result.usage?.completionTokens, 3)
         XCTAssertEqual(result.usage?.model, "test-model")
         XCTAssertEqual(result.usage?.stopReason, "stop")
+        XCTAssertEqual(result.usage?.normalizedStopReason, .completed)
         XCTAssertGreaterThan(result.usage?.promptTokens ?? 0, 0)
         XCTAssertEqual(loader.log.resets, 1, "each request starts from an empty cache")
     }
@@ -113,6 +114,10 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         XCTAssertNil(result.error)
         XCTAssertEqual(result.usage?.completionTokens, 5)
         XCTAssertEqual(result.usage?.stopReason, "length")
+        // Review R3-1: a personal draft cut off at the limit still streams `.finished`, but its usage says the text is
+        // not a whole document (a clinical one fails instead, below).
+        XCTAssertEqual(result.usage?.normalizedStopReason, .outputLimit)
+        XCTAssertEqual(result.usage?.isLengthCapped, true)
         XCTAssertTrue(result.finished)
     }
 
@@ -195,13 +200,11 @@ final class LlamaCppLanguageModelTests: XCTestCase {
             if case .text = event { received += 1 }
             if received == 3 { break }
         }
-        let stopped = await LlamaTestSupport.waitUntil {
-            let before = loader.log.decodeCalls
-            try? await Task.sleep(for: .milliseconds(50))
-            return loader.log.decodeCalls == before
-        }
-        XCTAssertTrue(stopped, "decoding stopped after the consumer left")
-        XCTAssertLessThan(loader.log.decodeCalls, 500)
+        // `run` holds the engine's serial queue until it stops, so the next call on the engine returns only after the
+        // cancelled run has ended: the decode count is final then (review R3-19: a signal, not a sleep).
+        _ = await engine.lastRunMetrics
+        let decoded = loader.log.decodeCalls
+        XCTAssertLessThan(decoded, 500, "decoding stopped after the consumer left")
 
         // The engine is free for the next request, with the model still loaded.
         loader.script(.text(["Next."]))
@@ -212,20 +215,20 @@ final class LlamaCppLanguageModelTests: XCTestCase {
     }
 
     func testCancellingTheConsumersTaskEndsTheStreamWithoutADocument() async throws {
-        let (model, _, loader) = try await make()
+        let (model, engine, loader) = try await make()
         loader.script(.forever("word ", onDecode: { _ in Thread.sleep(forTimeInterval: 0.002) }))
         let stream = model.generate(request())
         let task = Task { await LlamaTestSupport.collect(stream) }
-        try await Task.sleep(for: .milliseconds(50))
+        let decoding = await LlamaTestSupport.waitUntil { loader.log.decodeCalls > 3 }  // the run is generating
+        XCTAssertTrue(decoding)
         task.cancel()
         let result = await task.value
         XCTAssertFalse(result.finished, "a cancelled run never reports .finished")
-        let stopped = await LlamaTestSupport.waitUntil {
-            let before = loader.log.decodeCalls
-            try? await Task.sleep(for: .milliseconds(50))
-            return loader.log.decodeCalls == before
-        }
-        XCTAssertTrue(stopped)
+        // The engine answers only once the cancelled run has left its queue (review R3-19).
+        _ = await engine.lastRunMetrics
+        let decoded = loader.log.decodeCalls
+        _ = await engine.lastRunMetrics
+        XCTAssertEqual(loader.log.decodeCalls, decoded, "nothing decodes after the run stopped")
     }
 
     func testACancelledRunThrowsCancellationError() async throws {
@@ -240,7 +243,8 @@ final class LlamaCppLanguageModelTests: XCTestCase {
         let task = Task {
             try await engine.run(spec: spec, modelURL: assets.modelURL, request: request) { _ in }
         }
-        try await Task.sleep(for: .milliseconds(50))
+        let decoding = await LlamaTestSupport.waitUntil { loader.log.decodeCalls > 3 }  // generating (review R3-19)
+        XCTAssertTrue(decoding)
         task.cancel()
         let result = await task.result
         XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError, "got \($0)") }

@@ -30,14 +30,30 @@ struct LLMHTTPTransport: Sendable {
         return configuration
     }
 
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let result: (Data, URLResponse)
+    /// The most a non-streaming answer (a model list, the connection test) may be: far above OpenRouter's list of
+    /// every model, far below what could fill memory (review R3-4).
+    static let responseByteLimit = 16 * 1_024 * 1_024
+
+    /// The whole body, read as it arrives and refused as `invalidResponse` past `limit` bytes (or a larger declared
+    /// length), so a misbehaving server cannot fill memory (review R3-4, ChirpCore `BoundedResponseBody`).
+    func data(for request: URLRequest, limit: Int = Self.responseByteLimit) async throws -> (Data, HTTPURLResponse) {
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
         do {
-            result = try await session.data(for: request, delegate: RedirectRefuser.shared)
+            (bytes, response) = try await session.bytes(for: request, delegate: RedirectRefuser.shared)
         } catch {
             throw Self.map(error)
         }
-        return (result.0, try Self.httpResponse(result.1))
+        let http = try Self.httpResponse(response)
+        do {
+            let body = try await BoundedResponseBody.collect(
+                bytes, expectedLength: http.expectedContentLength, limit: limit)
+            return (body, http)
+        } catch is BoundedResponseBody.TooLarge {
+            throw LanguageModelError.invalidResponse
+        } catch {
+            throw Self.map(error)
+        }
     }
 
     func bytes(for request: URLRequest) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {

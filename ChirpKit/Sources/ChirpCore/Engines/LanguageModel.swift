@@ -16,6 +16,29 @@ public struct GenerationRequest: Sendable, Equatable {
         self.privacyClass = privacyClass
         self.maxOutputTokens = maxOutputTokens
     }
+
+    /// Clinical requests sample with `FaithfulSampling` on every engine whose provider lets the app choose (review
+    /// R3-2, ADR-015).
+    public var requiresFaithfulSampling: Bool {
+        privacyClass == .clinical
+    }
+}
+
+/// The sampling of a clinical request on every engine whose provider lets the app choose (ADR-015, review R3-2):
+/// always the most likely token, and no penalty on tokens already written. A random draw can pick a digit that is not
+/// the model's first choice, and a repeat, presence or frequency penalty punishes the second "0" of "500" or a dose
+/// restated in the Plan (measured on the Mac: 2 of 5 synthetic SOAP notes lost a dose or rewrote "1 1/2" with a
+/// token-history penalty). llama.cpp's `LlamaSampling.faithful`, Apple's greedy mode and the clinical fields the HTTP
+/// engines send all follow it.
+public enum FaithfulSampling {
+    public static let temperature: Double = 0
+    public static let topK = 1
+    public static let topP: Double = 1
+    public static let minP: Double = 0
+    /// 1 means no repeat penalty (llama.cpp, Ollama and LM Studio default to 1.1).
+    public static let repeatPenalty: Double = 1
+    public static let presencePenalty: Double = 0
+    public static let frequencyPenalty: Double = 0
 }
 
 /// Metadata about one finished call. Never content: token counts, the model the provider reported, why it stopped.
@@ -24,7 +47,10 @@ public struct GenerationUsage: Sendable, Equatable {
     public var completionTokens: Int?
     /// The model id the provider reported, when it differs from or refines the configured one.
     public var model: String?
-    /// Provider stop reason, e.g. "end_turn", "stop", "length".
+    /// The provider's own stop word, kept verbatim: "end_turn", "max_tokens", "stop", "length". An engine with no
+    /// provider word (Apple's model, llama.cpp) reports "stop" or "length" itself, and an HTTP engine whose provider
+    /// sent none reports "length" when the answer used the whole `maxOutputTokens` allowance. Read
+    /// `normalizedStopReason` or `isLengthCapped` rather than matching these strings.
     public var stopReason: String?
 
     public init(promptTokens: Int? = nil, completionTokens: Int? = nil, model: String? = nil, stopReason: String? = nil)
@@ -34,12 +60,66 @@ public struct GenerationUsage: Sendable, Equatable {
         self.model = model
         self.stopReason = stopReason
     }
+
+    /// `stopReason` in the same words for every provider; nil when the engine reported none.
+    public var normalizedStopReason: GenerationStopReason? {
+        GenerationStopReason(providerReason: stopReason)
+    }
+
+    /// True when the text was cut off at a length limit (the output allowance, or a context window that filled while
+    /// the model wrote). Such a stream still ends with `.finished`, but its text is **not a whole document**: a
+    /// consumer must not store it as finished (review R3-1).
+    public var isLengthCapped: Bool {
+        normalizedStopReason?.isLengthCapped ?? false
+    }
+}
+
+/// Why a generation ended, in the same words for every provider (review R3-1). Derived from the provider's raw
+/// `GenerationUsage.stopReason`, which stays the one source of truth.
+public enum GenerationStopReason: Sendable, Equatable {
+    /// The model ended its answer on its own: Anthropic `end_turn` / `stop_sequence`; OpenAI-compatible servers,
+    /// Ollama, llama.cpp and Apple's model `stop`.
+    case completed
+    /// The answer was cut off at the output-token limit (`GenerationRequest.maxOutputTokens` or the provider's own
+    /// cap): Anthropic `max_tokens`; OpenAI-compatible servers, Ollama and llama.cpp `length`. Not a whole document.
+    case outputLimit
+    /// The answer was cut off because the model's context window filled up while it wrote: Anthropic
+    /// `model_context_window_exceeded`, Mistral `model_length`. Not a whole document.
+    case contextWindowFull
+    /// Any other provider word, verbatim (a tool call, a word this build does not know).
+    case other(String)
+
+    /// Normalizes a provider's stop word (case and surrounding spaces ignored); nil for nil or a blank word.
+    public init?(providerReason: String?) {
+        guard let raw = providerReason?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        switch raw.lowercased() {
+        case "end_turn", "stop_sequence", "stop", "eos":
+            self = .completed
+        case "max_tokens", "length", "max_output_tokens":
+            self = .outputLimit
+        case "model_context_window_exceeded", "model_length":
+            self = .contextWindowFull
+        default:
+            self = .other(raw)
+        }
+    }
+
+    /// True for the two cut-offs: `outputLimit` and `contextWindowFull`.
+    public var isLengthCapped: Bool {
+        switch self {
+        case .outputLimit, .contextWindowFull: true
+        case .completed, .other: false
+        }
+    }
 }
 
 /// Streamed output of `LanguageModel.generate`.
 ///
 /// Order: zero or more `.text` deltas, then at most one `.usage`, then `.finished` exactly once on success. A
 /// stream that ends without `.finished` (or throws) did not complete; its text must not be treated as a document.
+/// Neither is a finished stream whose `.usage` says `isLengthCapped`: it stopped cleanly, at a length limit.
 public enum GenerationEvent: Sendable, Equatable {
     /// The next piece of generated text (a delta, not the text so far).
     case text(String)

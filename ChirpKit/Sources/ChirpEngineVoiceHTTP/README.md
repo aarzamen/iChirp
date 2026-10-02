@@ -14,9 +14,11 @@ ported from the owner's macOS read-aloud app **Readback** (`~/readback`, `Source
 ## What's here
 
 - `VoiceHTTPTransport.swift`: one ephemeral, cache-free, cookie-free `URLSession`; a task delegate that refuses
-  every redirect (`SpeechSynthesisError.redirectRefused`); `VoiceHTTPErrors` maps HTTP statuses onto
-  `SpeechSynthesisError`, reads the provider's message from the usual JSON shapes and scrubs the key (and anything
-  key-shaped) out of it.
+  every redirect (`SpeechSynthesisError.redirectRefused`); answers read as they arrive and refused past 64 MB
+  (`responseByteLimit`); `VoiceHTTPErrors` maps HTTP statuses onto `SpeechSynthesisError`, reads the provider's
+  message from the usual JSON shapes, scrubs the key (and anything key-shaped) out of it and cuts it at 300
+  characters. The bounded read and the scrubber are ChirpCore's shared `BoundedResponseBody` and
+  `ProviderMessageScrubber` (review R3-4), the same ones the language-model and Jev engines use.
 - `XAIVoice.swift`: `POST https://api.x.ai/v1/tts` (Bearer key from `SecretStoring`, account
   `voice.xai.api-key`), mp3 44.1 kHz 128 kbps, stock voices eve/ara/rex/sal/leo, `validateKey()` via
   `GET /v1/api-key`, `availability()` = a key is stored (no network).
