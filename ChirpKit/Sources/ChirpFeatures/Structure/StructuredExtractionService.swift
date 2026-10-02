@@ -115,22 +115,31 @@ public actor StructuredExtractionService {
     private let results: any StructuredResultStoring
     private let settings: any StructureSettingsStoring
     private let engines: StructureEngines
+    private let deliverables: any DeliverableStoring
     private let logger = Log.logger("structure")
 
     public init(
         transcripts: any TranscriptionStoring, results: any StructuredResultStoring,
-        settings: any StructureSettingsStoring, engines: StructureEngines
+        settings: any StructureSettingsStoring, engines: StructureEngines, deliverables: any DeliverableStoring
     ) {
         self.transcripts = transcripts
         self.results = results
         self.settings = settings
         self.engines = engines
+        self.deliverables = deliverables
     }
 
     /// Whether `engine` may read content of `privacyClass`: the router's answer, and on-device only for clinical.
     public static func mayRun(_ engine: EngineDescriptor, on privacyClass: PrivacyClass) -> Bool {
         guard PrivacyRoutingPolicy().allows(engine, for: privacyClass) else { return false }
         return privacyClass != .clinical || engine.locality == .onDevice
+    }
+
+    private func refuseUnlessAllowed(_ engine: any StructureModel, on privacyClass: PrivacyClass) throws {
+        guard Self.mayRun(engine.descriptor, on: privacyClass) else {
+            logger.error("structure_refused engine=\(engine.descriptor.id, privacy: .public)")
+            throw ExtractionError.privacyRoutingRefused(engine.descriptor.displayName)
+        }
     }
 
     /// Runs `soap-meds.v1` over the transcript and saves the run. `progress(done, total)` reports sentences.
@@ -142,10 +151,8 @@ public actor StructuredExtractionService {
         }
         let settingsValue = settings.load()
         let (engine, fallbackReason) = await engines.resolve(settingsValue.engine)
-        guard Self.mayRun(engine.descriptor, on: transcription.privacyClass) else {
-            logger.error("structure_refused engine=\(engine.descriptor.id, privacy: .public)")
-            throw ExtractionError.privacyRoutingRefused(engine.descriptor.displayName)
-        }
+        // Review R5-14: routing uses the effective class (the transcript's, raised by its documents'), "the one rule".
+        try refuseUnlessAllowed(engine, on: try await EffectivePrivacyClass.of(transcription, in: deliverables))
         let source = StructuredSourceText(transcription: transcription)
         let sentences = source.sentenceRanges()
         guard !sentences.isEmpty else { throw ExtractionError.noText }
@@ -160,10 +167,17 @@ public actor StructuredExtractionService {
         var offsets: [Int] = []
         for (index, sentenceRange) in sentences.enumerated() {
             try Task.checkCancellation()
+            // ...and again before every sentence, as a voice reading re-checks before every chunk: a clinical document
+            // made meanwhile stops the next sentence from leaving the phone.
+            guard
+                let privacy = try await EffectivePrivacyClass.current(
+                    transcriptionID: transcriptionID, transcripts: transcripts, deliverables: deliverables)
+            else { throw ExtractionError.transcriptNotFound }
+            try refuseUnlessAllowed(engine, on: privacy)
             let sentence = NumericNormalizer.normalize(source.substring(sentenceRange))
             offsets.append(sentenceRange.lowerBound + Self.leadingTrim(in: source, range: sentenceRange))
             let outcome = await Self.extract(
-                sentence: sentence, engine: engine, catalog: catalog, privacy: transcription.privacyClass)
+                sentence: sentence, engine: engine, catalog: catalog, privacy: privacy)
             if let hash = outcome.modelSHA256 { run.modelSHA256 = hash }
             answered.append(SentenceCalls(sentence: sentence, calls: outcome.items, confidence: outcome.confidence))
             progress(index + 1, sentences.count)

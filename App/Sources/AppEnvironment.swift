@@ -196,8 +196,10 @@ import Observation
         self.structureEval = StructureEvalViewModel(
             engines: structureEngines, settings: structureStore, store: structuredResults,
             appBuild: BuildIdentity.current.summary, runtime: "needle-rs \(NeedleRuntimeInfo.pinnedCommit.prefix(8))")
+        // Review R5-14: extraction routes on the effective class, so it reads the documents too.
         self.structuredExtraction = StructuredExtractionService(
-            transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines)
+            transcripts: store, results: structuredResults, settings: structureStore, engines: structureEngines,
+            deliverables: GRDBDeliverableStore(database: database))
         // "Read back" speaks through plan 020's voice player; the relay is connected once the player exists (below).
         let readBackRelay = ReadBackRelay()
         let dictationVoiceCommands = DictationVoiceCommands(

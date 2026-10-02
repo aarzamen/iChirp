@@ -444,7 +444,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   `StructuredExtractionService` actor: sentence by sentence → normalizer → engine (`soap-meds.v1`) → validator; then
   the gate's one `review` of the whole run (allow-list proof, thresholds, STUB cap, a correction in the next
   sentence) → one run with its fields saved to the ledger. **Clinical items only reach `.onDevice` engines**
-  (`mayRun`); engine failures become needs-review items, never silent gaps.
+  (`mayRun`), judged on the `EffectivePrivacyClass` (review R5-14: the app passes the deliverable store) at the start
+  and again before every sentence; engine failures become needs-review items, never silent gaps.
 - `Structure/ExtractFieldsViewModel.swift`: `DraftItem` (with the whole evidence sentence and the value's highlight,
   editable values, edited flag) / `DraftSections` (vitals, medications, allergies, problems, plan, the needs-review
   bin, skipped sentences), `SOAPDraftHandoff` (**only reviewed fields** as `{{userNotes}}` for the SOAP template,
