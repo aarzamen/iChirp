@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpText
+import Synchronization
 import XCTest
 
 @testable import ChirpFeatures
@@ -16,15 +17,18 @@ final class ASRBenchmarkTests: XCTestCase {
         private(set) var prepares = 0
         private(set) var transcribes = 0
         private(set) var downloads = 0
+        /// Runs inside every `transcribe`, while the benchmark's samplers are running (see `FakeFootprint`).
+        private let duringTranscribe: (@Sendable () async -> Void)?
 
         init(
             id: String, text: String, status: ModelAssetStatus = .ready(bytesOnDisk: 1),
-            locality: EngineLocality = .onDevice
+            locality: EngineLocality = .onDevice, duringTranscribe: (@Sendable () async -> Void)? = nil
         ) {
             self.descriptor = EngineDescriptor(
                 id: id, kind: .speech, provider: "Test", displayName: id, locality: locality, license: "MIT")
             self.text = text
             self.status = status
+            self.duringTranscribe = duringTranscribe
         }
 
         func unloadModels() async { unloads += 1 }
@@ -39,6 +43,7 @@ final class ASRBenchmarkTests: XCTestCase {
             fileAt url: URL, options: SpeechTranscriptionOptions, progress: @escaping @Sendable (Double) -> Void
         ) async throws -> SpeechResult {
             transcribes += 1
+            await duringTranscribe?()
             try await Task.sleep(for: .milliseconds(5))
             return SpeechResult(text: text, words: [], language: "en", engineID: descriptor.id, engineVariant: nil)
         }
@@ -124,29 +129,46 @@ final class ASRBenchmarkTests: XCTestCase {
     }
 
     func testPeakMemoryIsTheHighestSampleDuringTheRun() async throws {
-        let samples = LockedLog<UInt64>()
-        let engine = UnloadingSpeech(id: "fake.a", text: "hello")
+        // The reader answers from the engine's state, never from how many samplers asked. It used to return values from
+        // one call counter shared by every reader, so a read taken by the load sampler or by the pre-load footprint could
+        // take the 90 and the pass's sampler saw only 80 (red CI, R8-1). Here the footprint is 50, spikes to 90 inside
+        // the pass and is 60 again once the pass ends; the engine holds the spike until a sampler has read it. The peak
+        // is the spike: neither the first reading (50) nor the last one (60).
+        let footprint = FakeFootprint(50)
+        let spikeSeen = expectation(description: "a sampler read the spike")
+        spikeSeen.assertForOverFulfill = false  // the sampler keeps reading 90 while the engine waits
+        let engine = UnloadingSpeech(id: "fake.a", text: "hello") {
+            footprint.set(90)
+            let outcome = await XCTWaiter().fulfillment(of: [spikeSeen], timeout: 10)
+            XCTAssertEqual(outcome, .completed, "no sampler read the spike within 10 s")
+            footprint.set(60)
+        }
         let results = try await runner(memory: {
-            let next = UInt64(samples.values.count % 5) * 10 + 50
-            samples.append(next)
-            return next
+            let reading = footprint.read()
+            if reading == 90 { spikeSeen.fulfill() }
+            return reading
         }).run(
             engines: [ASRBenchmarkEngine(key: .init(engineID: "fake.a"), name: "A", engine: engine)],
             items: [item("a", reference: "hello")])
-        XCTAssertEqual(results.first?.peakMemoryBytes, samples.values.max())
+        XCTAssertEqual(results.first?.peakMemoryBytes, 90, "the spike inside the pass, not the first or last reading")
     }
 
     // MARK: - fix/speech-memory-fit: the device numbers for the first-load peak
 
-    /// An engine whose load raises the footprint (a Core ML compile) or refuses as not fitting.
+    /// An engine whose load raises the footprint (a Core ML compile) or refuses as not fitting. The footprint is the
+    /// engine's own state (`FakeFootprint`), so what the benchmark's samplers read never depends on when they wake: the
+    /// compile's peak is still in force when the load returns (the load sampler takes a last reading after that and
+    /// before the pass starts), and the pass then sits at a higher footprint than the load ever reached. The old fake
+    /// raised the footprint, slept 20 ms and lowered it again, so a sampler that did not wake inside those 20 ms read
+    /// 300 and the test failed intermittently (R4-18).
     fileprivate actor LoadingSpeech: SpeechEngine, SpeechEngineUnloading {
         nonisolated let descriptor = EngineDescriptor(
             id: "fake.loading", kind: .speech, provider: "Test", displayName: "Loading", locality: .onDevice,
             license: "MIT")
-        private let footprint: LockedLog<UInt64>
+        private let footprint: FakeFootprint
         private let refusal: SpeechEngineError?
 
-        init(footprint: LockedLog<UInt64>, refusal: SpeechEngineError? = nil) {
+        init(footprint: FakeFootprint, refusal: SpeechEngineError? = nil) {
             self.footprint = footprint
             self.refusal = refusal
         }
@@ -157,25 +179,23 @@ final class ASRBenchmarkTests: XCTestCase {
         func deleteAssets() async throws {}
         func prepare() async throws {
             if let refusal { throw refusal }
-            footprint.append(900)  // the compile's peak
-            try await Task.sleep(for: .milliseconds(20))
-            footprint.append(300)  // the loaded model
+            footprint.set(900)  // the compile's peak
         }
         func transcribe(
             fileAt url: URL, options: SpeechTranscriptionOptions, progress: @escaping @Sendable (Double) -> Void
         ) async throws -> SpeechResult {
+            footprint.set(1_200)  // the pass: the compile's memory is released, the audio's working memory is not
             try await Task.sleep(for: .milliseconds(5))
             return SpeechResult(text: "hello", words: [], language: "en", engineID: descriptor.id, engineVariant: nil)
         }
     }
 
     func testTheAvailableMemoryBeforeTheLoadAndTheLoadsOwnPeakAreRecorded() async throws {
-        let footprint = LockedLog<UInt64>()
-        footprint.append(100)
+        let footprint = FakeFootprint(100)
         let engine = LoadingSpeech(footprint: footprint)
         let runner = ASRBenchmarkRunner(
             scheduler: SpeechJobScheduler(), normalizer: FakeNormalizer(),
-            memory: { footprint.values.last }, availableMemory: { 5_000_000_000 }, workDirectory: folder,
+            memory: { footprint.read() }, availableMemory: { 5_000_000_000 }, workDirectory: folder,
             sampleInterval: .milliseconds(1))
         let results = try await runner.run(
             engines: [ASRBenchmarkEngine(key: .init(engineID: "fake.loading"), name: "Loading", engine: engine)],
@@ -184,6 +204,8 @@ final class ASRBenchmarkTests: XCTestCase {
         XCTAssertEqual(results[0].availableMemoryBeforeLoadBytes, 5_000_000_000)
         XCTAssertEqual(results[0].loadPeakMemoryBytes, 900, "the compile's peak, sampled during the load alone")
         XCTAssertEqual(results[0].footprintBeforeLoadBytes, 100, "the rise the registry's peak stands for: 800")
+        XCTAssertEqual(
+            results[0].peakMemoryBytes, 1_200, "the whole pass's peak, which the load-only number never absorbs")
         XCTAssertNil(results[1].availableMemoryBeforeLoadBytes, "no load on the second pass")
         XCTAssertNil(results[1].loadPeakMemoryBytes)
         let run = ASRBenchmarkRun(startedAt: Date(), device: "d", appBuild: "b", results: results)
@@ -197,7 +219,7 @@ final class ASRBenchmarkTests: XCTestCase {
         let turbo = SpeechEngineVariantKey(
             engineID: SpeechEngineCapabilityRegistry.whisperKitEngineID, variant: "large-v3-turbo")
         let refusal = SpeechEngineError.insufficientMemory(turbo, needed: 3_500_000_000, available: 2_100_000_000)
-        let engine = LoadingSpeech(footprint: LockedLog(), refusal: refusal)
+        let engine = LoadingSpeech(footprint: FakeFootprint(100), refusal: refusal)
         let runner = ASRBenchmarkRunner(
             scheduler: SpeechJobScheduler(), normalizer: FakeNormalizer(), memory: { 100 },
             availableMemory: { 2_100_000_000 }, workDirectory: folder, sampleInterval: .milliseconds(1))
@@ -376,12 +398,12 @@ final class ASRBenchmarkTests: XCTestCase {
     }
 }
 
-/// Thread-safe append-only log for values sampled from `@Sendable` closures.
-private final class LockedLog<Element: Sendable>: @unchecked Sendable {
-    // @unchecked Sendable: `storage` is only touched while `lock` is held.
-    private let lock = NSLock()
-    private var storage: [Element] = []
+/// The footprint a fake engine "has": set by the engine's own steps, read by the benchmark's samplers from their own
+/// tasks. The answer is the engine's current state; it never depends on how many samplers asked or when they woke.
+private final class FakeFootprint: Sendable {
+    private let bytes: Mutex<UInt64>
 
-    func append(_ element: Element) { lock.withLock { storage.append(element) } }
-    var values: [Element] { lock.withLock { storage } }
+    init(_ initial: UInt64) { bytes = Mutex(initial) }
+    func set(_ value: UInt64) { bytes.withLock { $0 = value } }
+    func read() -> UInt64 { bytes.withLock { $0 } }
 }
