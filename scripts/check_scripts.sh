@@ -430,6 +430,18 @@ if cc -w -c -o "$SANDBOX/pm/bin/stat.o" "$SANDBOX/pm/src/stat.c" 2>"$SANDBOX/pm/
 else
   fail "cc or ar could not build the static test libraries: $(head -1 "$SANDBOX/pm/cc.err")"
 fi
+# A universal library whose arm64 slice is clean and whose x86_64 slice imports mach_absolute_time: `nm` alone reads only
+# one slice of a universal file, and the CI app build (the generic simulator destination) makes arm64 + x86_64 files.
+if cc -w -arch arm64 -c -o "$SANDBOX/pm/bin/clean-arm64.o" "$SANDBOX/pm/src/clean.c" 2>"$SANDBOX/pm/cc.err" \
+  && cc -w -arch x86_64 -c -o "$SANDBOX/pm/bin/boot-x86_64.o" "$SANDBOX/pm/src/boot.c" 2>>"$SANDBOX/pm/cc.err" \
+  && ar rcs "$SANDBOX/pm/bin/libclean-arm64.a" "$SANDBOX/pm/bin/clean-arm64.o" 2>>"$SANDBOX/pm/cc.err" \
+  && ar rcs "$SANDBOX/pm/bin/libboot-x86_64.a" "$SANDBOX/pm/bin/boot-x86_64.o" 2>>"$SANDBOX/pm/cc.err" \
+  && lipo -create "$SANDBOX/pm/bin/libclean-arm64.a" "$SANDBOX/pm/bin/libboot-x86_64.a" \
+    -output "$SANDBOX/pm/bin/libfat.a" 2>>"$SANDBOX/pm/cc.err"; then
+  :
+else
+  fail "cc, ar or lipo could not build the universal test library: $(head -1 "$SANDBOX/pm/cc.err")"
+fi
 
 # The real manifest against the real sources and, when they are built, the real vendored runtimes (a fresh checkout
 # has none, and CI builds them after this script runs, so there it reads the sources only).
@@ -452,6 +464,9 @@ privacy_case "the same import inside a static library, the shape of the vendored
 privacy_case "the x86_64 spelling stat\$INODE64 counts as stat" \
   1 'FileTimestamp is used \(.*/libinode64\.a imports _stat\$INODE64\) but the manifest does not declare it' \
   --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/libinode64.a"
+privacy_case "every slice of a universal library is read (the import is only in its x86_64 slice)" \
+  1 'SystemBootTime is used \(.*/libfat\.a imports _mach_absolute_time\) but the manifest does not declare it' \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/libfat.a"
 privacy_case "statfs imported by a program is Disk Space" \
   1 'DiskSpace is used \(.*/bin/statfs imports _statfs\) but the manifest does not declare it' \
   --manifest "$SANDBOX/pm/no-disk-space.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/statfs"

@@ -5,7 +5,8 @@
 # Evidence it reads:
 #   - the first-party Swift sources (ChirpKit/Sources, App/Sources, App/Shared, Widgets), comment lines ignored;
 #   - the vendored runtimes built by scripts/build_needle.sh and scripts/build_llamacpp.sh, when they exist: their
-#     undefined symbols (`nm -u`), because the Rust standard library inside needle-c imports stat, fstat and lstat;
+#     undefined symbols (`nm -u`, every slice of a universal file), because the Rust standard library inside needle-c
+#     imports stat, fstat and lstat;
 #   - a built app (--app): every Mach-O file in it except the test frameworks, by imported symbols and Objective-C
 #     selector names. A static library can hide imports from `nm` (FluidAudio's NeMo library keeps its Rust standard
 #     library as bitcode, which is where `fstatat` comes from), so only the linked binary shows everything it pulled in.
@@ -53,7 +54,7 @@ while [ "$#" -gt 0 ]; do
     *) echo "error: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
-for tool in plutil nm strings python3; do
+for tool in plutil nm lipo strings python3; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is needed and was not found" >&2; exit 2; }
 done
 if [ "${#SOURCES[@]}" -eq 0 ]; then
@@ -167,12 +168,22 @@ def is_binary(path):
         return False
 
 
+def slices(path):
+    # `nm` alone reads one slice of a universal file; the CI app build (generic simulator destination) is arm64 + x86_64.
+    result = subprocess.run(["lipo", "-archs", path], capture_output=True, text=True)
+    return result.stdout.split() if result.returncode == 0 and result.stdout.split() else [None]
+
+
 def scan_binary(path, label):
-    result = subprocess.run(["nm", "-u", path], capture_output=True, text=True)
-    if result.returncode != 0:
-        first = (result.stderr.strip().splitlines() or ["no message"])[0]
-        notes.append(f"nm could not read {label} ({first}); its imports are not in this scan")
-    symbols = {line.split()[-1] for line in result.stdout.splitlines() if line.split() and line.split()[-1].startswith("_")}
+    symbols = set()
+    for arch in slices(path):
+        result = subprocess.run(
+            ["nm", "-u"] + (["-arch", arch] if arch else []) + [path], capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            first = (result.stderr.strip().splitlines() or ["no message"])[0]
+            notes.append(f"nm could not read {label} ({first}); its imports are not in this scan")
+        symbols |= {line.split()[-1] for line in result.stdout.splitlines() if line.split() and line.split()[-1].startswith("_")}
     for symbol in sorted(symbols):
         for category, pattern in SYMBOL_PATTERNS:
             if re.match(pattern, symbol):
