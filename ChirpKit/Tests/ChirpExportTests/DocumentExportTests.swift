@@ -333,6 +333,21 @@ final class DocumentExportTests: XCTestCase {
         """,
     ]
 
+    /// Fix round 2: a bare URL inside brackets is text to Foundation, so the PDF and Word files print every
+    /// character of it (it used to print ".../dose/2550", "?q=234", ".com//").
+    func testABareURLInsideBracketsPrintsEveryCharacter() {
+        for text in [
+            "[Source: https://www.cdc.gov/~dose/25~50]", "[ref https://example.com/?q=2*3*4]",
+            "[https://example.com/___/___]", "[Note: see https://example.com/~a~b",
+        ] {
+            let document = ExportDocument.text(title: "Note", body: text)
+            XCTAssertEqual(document.blocks, [.paragraph(text)], text)
+            XCTAssertTrue(PDFDocumentRenderer.attributedText(for: document).string.contains(text), "PDF: \(text)")
+            XCTAssertTrue(
+                DOCXDocumentWriter.documentXML(document).contains(DOCXDocumentWriter.escape(text)), "Word: \(text)")
+        }
+    }
+
     /// Fix round 1: PDF and Word never show the "**" or "_" of emphasized words separated only by punctuation.
     func testEmphasisSeparatedByPunctuationPrintsWithoutMarkers() {
         let document = ExportDocument.text(title: "Note", body: Self.templateShapes[8])

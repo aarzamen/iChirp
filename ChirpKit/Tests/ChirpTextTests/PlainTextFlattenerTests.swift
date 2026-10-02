@@ -260,6 +260,13 @@ final class PlainTextFlattenerTests: XCTestCase {
             "- Fever, chills, and cough for 3 days\n- Pain 8/10 → 3/10")
     }
 
+    /// Fix round 2: a bare URL inside brackets is text to Foundation, so Copy keeps every character of it.
+    func testBareURLInsideBracketsCopiesExactly() {
+        for text in MarkdownInlineTests.bracketedURLs {
+            XCTAssertEqual(PlainTextFlattener.flatten("Synthetic note.\n\n\(text)"), "Synthetic note.\n\n\(text)", text)
+        }
+    }
+
     /// Review R2-8: a dose range written with tildes copies exactly as written, never as a strikethrough.
     func testTildeDoseRangeCopiesExactly() {
         XCTAssertEqual(

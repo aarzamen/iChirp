@@ -100,11 +100,16 @@ pipeline directly.
     - inline code and links are never touched (CommonMark reads no escapes inside them, so an added one would show
       its backslash): angle autolinks (`<https://…>`) and, since fix round 1, the links Foundation makes without
       brackets (GitHub's extended autolinks) — a bare `http(s)://`, `ftp://` or `www.` address with its whole
-      space-delimited token, and email addresses, found after the other spans as Foundation does. An escape the
-      source already wrote is kept. A Markdown link around a bare URL is still rewritten to "label (url)": Foundation
-      lets the link win and would drop the address. Known limit: a delimiter pair entirely inside a link's trailing
-      punctuation (`…/a_b)~.~`) is left to the parser, because GitHub trims that tail by its characters and an added
-      backslash would join the link.
+      space-delimited token, except while a "[" is open (fix round 2: Foundation links no bare URL inside a link
+      label, bracket or image, so there it is text and escaped as usual), and email addresses, found after the other
+      spans as Foundation does (also inside brackets). An escape the source already wrote is kept. A Markdown link
+      around a bare URL is still rewritten to "label (url)": Foundation lets the link win and would drop the
+      address. Known limit: a delimiter pair *touching* a verbatim link or email address is left to the parser and
+      can lose both delimiters, because a backslash added inside a link's token would join the link and Foundation
+      pairs an address's delimiters before it finds the address — a pair inside a link's trailing punctuation
+      (`~~www./a_b~~)~.~` shows `~~www./a_b~~).`), a pair with one delimiter there and the other after the link
+      (`https://example.com/a.*. /*` shows `…/a.. /`), and a letter-free pair inside an address's local part
+      (`_._@x.com` shows `.@x.com`); pinned in `MarkdownInlineTests.testDelimiterPairsTouchingALinkOrAddressAreLeftToTheParser`.
     HTML entity references (`&lt;`, `&#8805;`) are decoded, as CommonMark requires, so the screen, Copy and the
     exports all show the same character (known item K3, ruling: keep decoding).
   - `PlainTextFlattener.swift`: `flatten(_:)` — what Copy puts on the clipboard. A heading's text on its own line

@@ -116,19 +116,22 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
     }
 
     /// Fix round 1, a differential check of `MarkdownInline`'s link detection against Foundation's parser: over
-    /// random lines of URL and email fragments, tildes and delimiters, what the person sees never holds a backslash
-    /// the source did not write (an escape added inside a link shows), and never loses a "~" outside a link (a
+    /// random lines of URL and email fragments, brackets, tildes and delimiters, what the person sees never holds a
+    /// backslash the source did not write (an escape added inside a link shows), and never loses a "~" (a
     /// strikethrough). Spaces never disappear, so the k-th space-separated piece shown comes from the k-th piece of
-    /// the source. Inside a link's own piece a "~" may drop: GitHub trims a link's trailing punctuation by its
-    /// characters, so a pair entirely in that tail (")~.~") cannot be escaped without the backslash joining the
-    /// link — a documented limit.
+    /// the source. Fix round 2 added "[" and "]" (Foundation links no bare URL inside an open bracket) and narrowed
+    /// the excuse that had hidden that regression (any "~" dropped in a link's piece) to exactly the documented
+    /// limit: a "~" after the last letter or digit of a link's piece, i.e. in the trailing punctuation GitHub leaves
+    /// outside the link, where a pair cannot be escaped without the backslash joining the link. A "~" lost inside a
+    /// link's body ("[(_www./~a~/a_b" before the fix) is still a failure. 10,000 lines: at 2,000 this seed never
+    /// produced the bracket regression's shape; at 20,000 it found it (iteration 6576).
     func testNoBackslashIsAddedAndNoTildeIsLostAroundLinks() {
         let pieces = [
             "https://", "http://", "HTTPS://", "www.", "example.com", "my_host.com", "/~a", "~", "~~", "/a_b", "_", "*",
-            "**", "x*y", "?q=1", ")", "(", ".", ",", " ", " ", " ", "user@", "mail.com", "a", "8", ":", "x",
+            "**", "x*y", "?q=1", ")", "(", ".", ",", " ", " ", " ", "user@", "mail.com", "a", "8", ":", "x", "[", "]",
         ]
         var generator = SeededGenerator(seed: 0x11_4C_2A)
-        for iteration in 0..<2_000 {
+        for iteration in 0..<10_000 {
             let line = (0..<Int.random(in: 2...10, using: &generator))
                 .map { _ in pieces.randomElement(using: &generator)! }.joined()
             let shown = MarkdownInline.plain(line)
@@ -137,14 +140,33 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
             let sourcePieces = line.split(separator: " ", omittingEmptySubsequences: false)
             let shownPieces = shown.split(separator: " ", omittingEmptySubsequences: false)
             XCTAssertEqual(sourcePieces.count, shownPieces.count, context)
-            for (source, piece) in zip(sourcePieces, shownPieces) {
+            for (source, piece) in zip(sourcePieces.map(String.init), shownPieces.map(String.init)) {
                 let isLinkPiece = source.contains("://") || source.contains("www.")
-                XCTAssertTrue(
-                    Self.isSubsequence(
-                        String(piece), of: String(source), droppingOnly: isLinkPiece ? ["*", "_", "~"] : ["*", "_"]),
-                    context)
+                let lastWordCharacter = source.lastIndex { $0.isLetter || $0.isNumber }
+                let tailStart =
+                    isLinkPiece
+                    ? lastWordCharacter.map { source.distance(from: source.startIndex, to: $0) + 1 } ?? 0 : Int.max
+                let kept = Self.isSubsequence(piece, of: source) { position, character in
+                    character == "*" || character == "_" || (character == "~" && position >= tailStart)
+                }
+                XCTAssertTrue(kept, context)
             }
         }
+    }
+
+    /// True when `shown` is `source` with some characters removed, each one allowed by `mayDrop` (its position in
+    /// `source` and the character), and nothing else changed.
+    private static func isSubsequence(_ shown: String, of source: String, mayDrop: (Int, Character) -> Bool) -> Bool {
+        let shownCharacters = Array(shown)
+        var shownIndex = 0
+        for (position, character) in source.enumerated() {
+            if shownIndex < shownCharacters.count, shownCharacters[shownIndex] == character {
+                shownIndex += 1
+            } else if !mayDrop(position, character) {
+                return false
+            }
+        }
+        return shownIndex == shownCharacters.count
     }
 
     /// True when `shown` is `source` with some of the `droppable` characters removed and nothing else changed.

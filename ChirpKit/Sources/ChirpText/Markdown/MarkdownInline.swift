@@ -302,11 +302,15 @@ public enum MarkdownInline {
     /// (`<https://…>`, `<name@example.com>`), whichever starts first, as CommonMark decides; a backslash-escaped
     /// backtick or "<" opens neither. One deliberate difference: a backtick run between two Latin letters or digits
     /// never opens a code span. With `bareLinks`, also GitHub's extended autolinks, which Foundation links without
-    /// angle brackets (fix round 1): a bare URL with all of its space-delimited token (`bareLinkEnd`), and then, in
-    /// the text those spans leave, email addresses (`emailEnd`) — Foundation finds addresses last, after its inline
-    /// parsing, so a URL or inline code wins over an address it touches ("user@www.http://…" links the URL).
+    /// angle brackets (fix round 1): a bare URL with all of its space-delimited token (`bareLinkEnd`), but not while
+    /// a "[" is open (fix round 2), and then, in the text those spans leave, email addresses (`emailEnd`) —
+    /// Foundation finds addresses last, after its inline parsing (inside brackets too), so a URL or inline code wins
+    /// over an address it touches ("user@www.http://…" links the URL). Known limit: Foundation pairs an address's
+    /// own delimiters before it finds the address, so a letter-free pair inside its local part ("_._@x.com") is left
+    /// to the parser.
     private static func verbatimSpans(in chars: [Character], bareLinks: Bool) -> [Range<Int>] {
         var spans: [Range<Int>] = []
+        var openBrackets = 0
         var index = 0
         while index < chars.count {
             if chars[index] == "\\", index + 1 < chars.count, isASCIIPunctuation(chars[index + 1]) {
@@ -318,7 +322,20 @@ public enum MarkdownInline {
                 index = end
                 continue
             }
-            if bareLinks, let end = bareLinkEnd(in: chars, at: index) {
+            // Foundation links no bare URL while a "[" is open (a link label, a bracket, an image) — there the URL is
+            // ordinary text and needs its escapes (fix round 2: "[Source: https://www.cdc.gov/~dose/25~50]" lost
+            // its tildes). Each "]" closes the latest open "[", whether or not a link forms.
+            if chars[index] == "[" {
+                openBrackets += 1
+                index += 1
+                continue
+            }
+            if chars[index] == "]" {
+                openBrackets = max(0, openBrackets - 1)
+                index += 1
+                continue
+            }
+            if bareLinks, openBrackets == 0, let end = bareLinkEnd(in: chars, at: index) {
                 spans.append(index..<end)
                 index = end
                 continue
@@ -361,7 +378,9 @@ public enum MarkdownInline {
     /// with a letter or digit and has no "_" in its last two labels ("my_host.com" is not one). The span runs to the
     /// next space or "<", including the trailing punctuation GitHub leaves outside the link (`…/a~`, `…/b.`, a
     /// closing ")"): GitHub trims that tail by its characters, and a backslash added in it would stop the trim and
-    /// become part of the link.
+    /// become part of the link. Known limit (fix round 2): so a delimiter pair touching the link — inside that tail,
+    /// or one delimiter there and the other after the link — is left to the parser and can lose both delimiters
+    /// (`MarkdownInlineTests.testDelimiterPairsTouchingALinkOrAddressAreLeftToTheParser`).
     private static func bareLinkEnd(in chars: [Character], at start: Int) -> Int? {
         var hostStart: Int?
         let scheme = ["https://", "http://", "ftp://"].first { matches($0, in: chars, at: start, ignoringCase: true) }

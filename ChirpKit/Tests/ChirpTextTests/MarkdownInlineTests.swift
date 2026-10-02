@@ -181,6 +181,49 @@ final class MarkdownInlineTests: XCTestCase {
         }
     }
 
+    /// Fix round 2: Foundation does not link a bare URL after an unclosed "[" (a link label, a bracket, an image), so
+    /// there it is ordinary text and still needs its escapes (measured: "[Source: https://www.cdc.gov/~dose/25~50]"
+    /// struck "dose/25" through and Copy gave ".../dose/2550").
+    static let bracketedURLs = [
+        "[Source: https://www.cdc.gov/~dose/25~50]", "[ref https://example.com/?q=2*3*4]",
+        "[https://example.com/___/___]", "[Note: see https://example.com/~a~b",
+    ]
+
+    func testABareURLInsideBracketsIsTextAndKeepsEveryCharacter() {
+        for text in Self.bracketedURLs {
+            let screen = MarkdownInline.attributed(text)
+            XCTAssertEqual(String(screen.characters), text, text)
+            XCTAssertTrue(screen.runs.allSatisfy { $0.inlinePresentationIntent == nil }, "no emphasis or strike: \(text)")
+        }
+        XCTAssertEqual(
+            MarkdownInline.plain("![img https://example.com/~a~b] [a [b] https://example.com/~c~d]"),
+            "![img https://example.com/~a~b] [a [b] https://example.com/~c~d]", "an image and nested brackets")
+    }
+
+    /// Once its "]" closes the bracket, a bare URL is a link again and nothing in it may gain a backslash.
+    func testABareURLAfterAClosedBracketIsStillALink() {
+        for text in [
+            "[see] https://example.com/~a~b", "- [x] Review https://example.com/~a_b",
+            "] https://example.com/~a~b", "\\[ https://example.com/~a~b",
+            "[a [b] c] https://example.com/~a~b",
+        ] {
+            XCTAssertEqual(MarkdownInline.plain(text), text.replacingOccurrences(of: "\\[", with: "["), text)
+        }
+    }
+
+    /// Known limit, worded precisely in fix round 2: a delimiter pair *touching* a verbatim link or email address is
+    /// left to the parser, which can then drop both delimiters. A backslash added inside a link's token stops GitHub's
+    /// trim and joins the link, and Foundation pairs an address's delimiters before it finds the address. Pinned as
+    /// today's behavior so the limit stays visible — each output below has lost characters.
+    func testDelimiterPairsTouchingALinkOrAddressAreLeftToTheParser() {
+        // A pair entirely inside a link's trailing punctuation: the tildes of ")~.~" go.
+        XCTAssertEqual(MarkdownInline.plain("~~www./a_b~~)~.~"), "~~www./a_b~~).")
+        // (a) One delimiter in a link's trailing punctuation, the other after the link: both "*" go, ". /" is italic.
+        XCTAssertEqual(MarkdownInline.plain("https://example.com/a.*. /*"), "https://example.com/a.. /")
+        // (b) A letter-free pair inside an address's local part: both "_" go.
+        XCTAssertEqual(MarkdownInline.plain("_._@x.com"), ".@x.com")
+    }
+
     /// A Markdown link still becomes "label (address)" when its label or address is a bare URL: Foundation lets the
     /// link win and would drop the address.
     func testLinksAroundBareURLsKeepTheirAddress() {

@@ -83,7 +83,7 @@ Markdown syntax and clinical shorthand, the person's reading wins (plan 024 ruli
 | `2*3`, `2**10`, `x*2`, `` 5`10 `` | Text | A delimiter between two letters or digits paired across the words and merged the numbers |
 | `BP: ___/___`, `Date: __/__/____` | Text | The parser paired the blanks as emphasis around "/"; delimiters it would pair around content with no letter or digit stay (decided by CommonMark's own pairing, so `**Fever**, **chills**` still renders) |
 | `&lt;`, `&amp;`, `&#8805;` | The character named (`<`, `&`, `≥`) (K3) | CommonMark decodes entities; the screen shows that character, so Copy and the exports do too |
-| `https://example.com/~ward`, `www.example.com/a_b`, `name@example.com` | A link, every character as written | Foundation links bare addresses and shows any backslash added inside them, so nothing in them is escaped |
+| `https://example.com/~ward`, `www.example.com/a_b`, `name@example.com` | A link; nothing in it is escaped (inside an open `[` a bare URL is text and is escaped as usual) | Foundation links bare addresses (no bare URL while a `[` is open) and shows any backslash added inside them. Limit: a delimiter pair touching a link or address is left to the parser and can lose both delimiters (`…/a.*. /*`, `_._@x.com`) |
 
 Copy writes a heading's text on its own line, `- ` for every bullet (`-`, `*`, `•`), each numbered item's own marker,
 and code as plain text; the PDF and Word files use real heading styles, bullets and nesting.
