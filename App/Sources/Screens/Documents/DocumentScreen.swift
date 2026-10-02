@@ -460,11 +460,14 @@ struct DocumentScreen: View {
         }
     }
 
+    /// TXT, Markdown, SRT, VTT or JSON for the share sheet (written off the main actor, review R4-20).
     private func share(_ format: ExportFormat) {
-        do {
-            shareItem = ShareItem(url: try model.exportFile(format))
-        } catch {
-            actionError = Formatting.message(for: error)
+        Task {
+            do {
+                shareItem = ShareItem(url: try await model.exportFile(format))
+            } catch {
+                actionError = Formatting.message(for: error)
+            }
         }
     }
 

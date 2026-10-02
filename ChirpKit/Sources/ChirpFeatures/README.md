@@ -141,8 +141,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   its `media/<id>/` folder and any `ExportTempFiles` export folder for it; its documents leave the list at once),
   favorite, and `loadError` / `dismissLoadError()`.
 - `TranscriptViewModel.swift`: one row. Paragraphs come from `TranscriptParagraphBuilder`; without words there is one
-  `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` into
-  `<tmp>/export-<id>/`, rename and favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
+  `displayText` paragraph. Also speaker labels, `mediaURL` for the player, `plainText` for Copy, `exportFile` (async,
+  review R4-20: written off the main actor into `ExportTempFiles.directory(for:)`, `<tmp>/export-<id>/`), rename and
+  favorite. `exportDocument` (PDF, Word) marks the file "Privacy: Clinical" by the
   item's `EffectivePrivacyClass` when the app passes `deliverables` (plan 022 review M5: a personal transcript with a
   clinical SOAP note counts as clinical; an unreadable store counts as clinical).
 - `SpeechSettingsViewModel.swift`: the speech and diarizer model status, download with progress (an optional

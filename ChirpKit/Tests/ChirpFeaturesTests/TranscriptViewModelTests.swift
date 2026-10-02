@@ -114,15 +114,20 @@ final class TranscriptViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.mediaURL)
     }
 
+    /// Review R4-20: the folder is `ExportTempFiles.directory(for:)` itself (the one the Library's delete and the launch
+    /// sweep remove), and the file is written off the main actor.
     func testExportFileWritesIntoPerTranscriptTemporaryFolder() async throws {
         let row = completedRow()
         let (viewModel, _, _) = await makeViewModel(row)
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("export-\(row.id.uuidString)", isDirectory: true)
+        let folder = ExportTempFiles.directory(for: row.id)
+        XCTAssertEqual(
+            folder.standardizedFileURL,
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent("export-\(row.id.uuidString)", isDirectory: true).standardizedFileURL)
         addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
 
         for format in ExportFormat.allCases {
-            let url = try viewModel.exportFile(format)
+            let url = try await viewModel.exportFile(format)
             XCTAssertEqual(url.deletingLastPathComponent().standardizedFileURL, folder.standardizedFileURL)
             XCTAssertEqual(url.pathExtension, format.fileExtension)
             let contents = try String(contentsOf: url, encoding: .utf8)
@@ -229,6 +234,11 @@ final class TranscriptViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.transcription)
         XCTAssertTrue(viewModel.paragraphs.isEmpty)
         XCTAssertEqual(viewModel.plainText, "")
-        XCTAssertThrowsError(try viewModel.exportFile(.txt))
+        do {
+            _ = try await viewModel.exportFile(.txt)
+            XCTFail("expected notLoaded")
+        } catch {
+            XCTAssertEqual(error as? TranscriptViewModel.TranscriptError, .notLoaded)
+        }
     }
 }

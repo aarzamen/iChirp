@@ -73,14 +73,18 @@ import Observation
         }
     }
 
-    /// Writes the transcript as `format` into `<tmp>/export-<id>/` and returns the file, for the share sheet.
-    public func exportFile(_ format: ExportFormat) throws -> URL {
+    /// Writes the transcript as `format` into `<tmp>/export-<id>/` and returns the file, for the share sheet. The folder
+    /// is `ExportTempFiles.directory(for:)`, the one the Library's delete and the launch sweep remove, and the text is
+    /// rendered and written off the main actor, like `exportDocument` (review R4-20: a long transcript's JSON with
+    /// every word timing is large).
+    public func exportFile(_ format: ExportFormat) async throws -> URL {
         guard let transcription else { throw TranscriptError.notLoaded }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("export-\(transcription.id.uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try TranscriptExporter(cleanupMode: settings.load().cleanupMode)
-            .write(transcription, as: format, to: directory)
+        let cleanupMode = settings.load().cleanupMode
+        let directory = ExportTempFiles.directory(for: transcription.id)
+        return try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return try TranscriptExporter(cleanupMode: cleanupMode).write(transcription, as: format, to: directory)
+        }.value
     }
 
     /// Plan 022 Step 6: a PDF or Word copy of the item (title, facts, speakers and timestamps, every paragraph) in the
