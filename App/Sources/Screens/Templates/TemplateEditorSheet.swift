@@ -85,7 +85,8 @@ struct TemplateEditorSheet: View {
             }
         }
         .tint(AppColor.accentText)
-        .task { await model.load() }
+        // Once: the task runs again when a pushed page (Earlier versions) pops, and must not reset typed fields.
+        .task { if !model.isLoaded { await model.load() } }
         .discardInputConfirmation(
             TemplateWords.discardTitle, message: TemplateWords.discardMessage, hasInput: model.hasChanges,
             isAsking: $isConfirmingDiscard

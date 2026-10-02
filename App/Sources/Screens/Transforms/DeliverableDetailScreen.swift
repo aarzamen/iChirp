@@ -41,9 +41,11 @@ struct DeliverableDetailScreen: View {
     /// Plan 026: "Show the instructions used".
     @State private var instructionsUsed: TemplateInstructions?
 
-    init(id: UUID, environment: AppEnvironment) {
+    /// - Parameter showsDetails: opens with "Details" unfolded (plan 026's review renders; the app passes nothing).
+    init(id: UUID, environment: AppEnvironment, showsDetails: Bool = false) {
         self.id = id
         _document = State(initialValue: environment.makeDocumentViewModel(id: id))
+        _isShowingDetails = State(initialValue: showsDetails)
     }
 
     var body: some View {
