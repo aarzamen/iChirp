@@ -125,23 +125,32 @@ import Observation
             saveError = problem.sentence
             return nil
         }
+        let saved: PromptTemplate
         do {
-            let saved: PromptTemplate
             switch mode {
             case .new:
                 saved = try await store.createUserTemplate(draft)
             case .edit(let template):
                 saved = try await store.updateUserTemplate(id: template.id, with: draft)
             }
-            saveError = nil
-            mode = .edit(saved)
-            try await refresh()
-            await didSave(saved)
-            return saved
         } catch {
             saveError = error.localizedDescription
             return nil
         }
+        // Saved. From here on nothing may report the save as failed: a failed re-read is a load problem.
+        saveError = nil
+        let savedDraft = draft
+        mode = .edit(saved)
+        baseline = savedDraft
+        savedInstructions = savedDraft.cleanedInstructions
+        do {
+            try await refresh()
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+        await didSave(saved)
+        return saved
     }
 
     public func dismissSaveError() { saveError = nil }

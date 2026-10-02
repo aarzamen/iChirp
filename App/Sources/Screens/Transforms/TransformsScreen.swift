@@ -12,6 +12,10 @@ struct TransformsScreen: View {
     /// Switches tabs (RootTabView); nil hides "See all in Library".
     var openTab: ((AppTab) -> Void)?
     @State private var launching: PromptTemplate?
+    /// Plan 026: the template editor (New template, Duplicate and edit, Edit).
+    @State private var editing: TemplateEditorRequest?
+    /// Plan 026 polish: why a Hide from this tab failed.
+    @State private var hideError: String?
 
     var body: some View {
         let library = environment.deliverableLibrary
@@ -39,8 +43,11 @@ struct TransformsScreen: View {
                             .padding(.top, 12)
                     }
                     recentSection(library.recent, hasMore: library.hasMore)
-                    templateSection("Documents", library.documentTemplates)
-                    templateSection("Rewrites", library.transformTemplates)
+                    // Plan 026: the shown templates under a "Templates · Edit" header; hidden ones are in Templates.
+                    templatesHeader
+                    templateSection(TemplateWords.documentsSection, library.visibleDocumentTemplates)
+                    templateSection(TemplateWords.rewritesSection, library.visibleRewriteTemplates)
+                    templatesFooter(hidden: library.hiddenTemplateCount)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -58,6 +65,66 @@ struct TransformsScreen: View {
         .sheet(item: $launching, onDismiss: { Task { await library.load() } }) { template in
             TemplateLaunchSheet(template: template, environment: environment)
         }
+        .templateEditor($editing)
+        .alert(
+            TemplateWords.hideFailedTitle,
+            isPresented: Binding(get: { hideError != nil }, set: { if !$0 { hideError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(hideError ?? "")
+        }
+    }
+
+    /// "Templates" with "Edit" (the Templates screen), separating the templates from Recent documents.
+    private var templatesHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(TemplateWords.screenTitle)
+                .chirpTitleFont(20, .heavy)
+                .foregroundStyle(Tokens.Color.ink)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            NavigationLink {
+                TemplatesScreen()
+            } label: {
+                Text(TemplateWords.headerEdit)
+                    .chirpFont(15, .semibold)
+                    .foregroundStyle(AppColor.accentText)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit templates")
+            .accessibilityHint("Make, hide, reorder or delete templates")
+        }
+        .padding(.leading, 4)
+        .padding(.top, 28)
+    }
+
+    /// "New template", and how many are hidden.
+    @ViewBuilder private func templatesFooter(hidden: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                editing = .new()
+            } label: {
+                Label(TemplateWords.newTemplate, systemImage: "plus")
+            }
+            .buttonStyle(.chirp(.tinted, size: .compact))
+            .fixedSize()
+            if hidden > 0 {
+                NavigationLink {
+                    TemplatesScreen()
+                } label: {
+                    Text(TemplateWords.hiddenNote(hidden))
+                        .chirpFont(13)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 12)
     }
 
     @ViewBuilder private func recentSection(_ recent: [Deliverable], hasMore: Bool) -> some View {
@@ -137,6 +204,28 @@ struct TransformsScreen: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Choose a transcript to run it on")
+                    .contextMenu {
+                        // Plan 026: the quick template actions; the rest are in Templates.
+                        if template.isBuiltIn {
+                            Button(TemplateWords.actionTitle(.duplicateAndEdit), systemImage: "plus.square.on.square") {
+                                editing = .new(startingFrom: template)
+                            }
+                        } else {
+                            Button(TemplateWords.actionTitle(.edit), systemImage: "pencil") {
+                                editing = .edit(template)
+                            }
+                        }
+                        Button(TemplateWords.actionTitle(.hide), systemImage: "eye.slash") {
+                            Task {
+                                let library = environment.templateLibrary
+                                // The Templates screen shows its own errors; here the failure needs a word too.
+                                if !(await library.setVisible(template, false)) {
+                                    hideError = library.actionError
+                                    library.dismissActionError()
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

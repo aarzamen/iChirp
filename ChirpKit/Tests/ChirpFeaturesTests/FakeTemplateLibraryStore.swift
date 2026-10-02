@@ -8,6 +8,7 @@ import Foundation
 /// write throw before it changes anything.
 extension FakeDeliverableStore: TemplateLibraryStoring {
     func failNextWrite(with error: any Error) { pendingTemplateFailure = error }
+    func failNextRead(with error: any Error) { pendingReadFailure = error }
 
     private func checkFailure() throws {
         if let failure = pendingTemplateFailure {
@@ -95,7 +96,11 @@ extension FakeDeliverableStore: TemplateLibraryStoring {
     }
 
     func countDeliverables(promptID: UUID) async throws -> Int {
-        deliverables.values.filter { $0.promptID == promptID }.count
+        if let failure = pendingReadFailure {
+            pendingReadFailure = nil
+            throw failure
+        }
+        return deliverables.values.filter { $0.promptID == promptID }.count
     }
 
     // MARK: Helpers
