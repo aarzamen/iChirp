@@ -83,7 +83,12 @@ write them, ChirpCore, ChirpStore and the device smoke.
   enabled learned rules to its `.heard` lines (`LearnedRuleMatcher`: custom-word matching, no chaining, never over a
   word already corrected) as `rule` corrections with the rule's `ruleID`, visible and revertible like any other, in Raw
   and Clean. Clean and the meeting applier get manual words only (`enabledManualCustomWords()`), so manual custom words
-  behave exactly as before. A rule that fails never fails the job.
+  behave exactly as before. A rule that fails never fails the job. Fix round 1: no rule may hold a number (refused
+  when offered or saved, never applied: a dose is never changed automatically); rules are matched outside the store's
+  transaction and skipped when the words or corrections changed meanwhile; a transcript with a correction history gets
+  no rules, so a reverted fix is never re-applied. Replace skips matches touching another batch's correction, keeps an
+  untrimmed query's edge spacing, and a match starts and ends on Character boundaries (half of a folded "ß" is no
+  match).
 
 ## Clean-up pipeline (`TextRefinement`, Clean mode only)
 
