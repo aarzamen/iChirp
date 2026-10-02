@@ -155,17 +155,21 @@ public struct TranscriptionSummary: TranscriptionRowFields, Identifiable, Equata
 
 /// The Library's search rule, shared by the store's query and every fallback, so all of them find the same items.
 public enum TranscriptionSearch {
-    /// Whether `query` (already trimmed) appears, ignoring case, in the display title, the display text, the file name
-    /// or a speaker's label. `speakerLabels` is read only when nothing else matched.
+    /// Whether `query` (already trimmed) appears, ignoring case, in the display title, the display text, the
+    /// transcript as the person corrected it (plan 025: `correctedText`, nil when it has no corrections; the words as
+    /// heard stay findable through the display text), the file name or a speaker's label. `correctedText` and
+    /// `speakerLabels` are read only when nothing before them matched.
     public static func matches(
         query: String,
         displayTitle: String,
         displayText: String,
+        correctedText: () -> String? = { nil },
         fileName: String,
         speakerLabels: () -> [String]
     ) -> Bool {
         displayTitle.localizedCaseInsensitiveContains(query)
             || displayText.localizedCaseInsensitiveContains(query)
+            || correctedText()?.localizedCaseInsensitiveContains(query) == true
             || fileName.localizedCaseInsensitiveContains(query)
             || speakerLabels().contains { $0.localizedCaseInsensitiveContains(query) }
     }

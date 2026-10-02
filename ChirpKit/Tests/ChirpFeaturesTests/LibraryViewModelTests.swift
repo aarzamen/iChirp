@@ -408,4 +408,9 @@ final class ListRecordingStore: TranscriptionStoring {
     func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription? {
         try await inner.markAudioRemoved(id: id, at: date)
     }
+    func updateTextCorrections(
+        id: UUID, _ change: @escaping @Sendable (inout Transcription) throws -> Bool
+    ) async throws -> Transcription? {
+        try await inner.updateTextCorrections(id: id, change)
+    }
 }

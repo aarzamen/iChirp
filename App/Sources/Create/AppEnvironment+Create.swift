@@ -57,7 +57,8 @@ extension AppEnvironment {
                 },
                 retryItem: { [unowned self] id in await retryForCreate(id) },
                 deliverables: deliverables,
-                makeVoiceMessage: { [unowned self] in makeVoiceMessageExporter() }))
+                makeVoiceMessage: { [unowned self] in makeVoiceMessageExporter() },
+                cleanupMode: { [settings] in settings.load().cleanupMode }, textContext: textContext))
     }
 
     /// Speak: the ordinary dictation (the Dictating screen, its final pass, its clipboard copy and its row), followed

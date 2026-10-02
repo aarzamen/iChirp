@@ -168,4 +168,8 @@ contract that proves no content or identifiers leave the device.
   phone. Excluding clinical items' `media/` from backup would trade a wording problem for data loss when a phone is
   replaced, so it is the owner's decision, not a default.
 - Deleting a transcript removes its row and its `media/<id>/` folder.
+- **Corrections (plan 025).** The person's corrections of a transcript, and a dictation's voice commands, live in its
+  own row (`textCorrections`): same privacy class, same delete, same backup; nothing about them leaves the iPhone, and
+  the text a model or voice receives is the transcript as corrected, routed exactly as before. Logs carry ids, counts
+  and origin names only, never heard or corrected text.
 - Downloaded models are excluded from backups because they can be downloaded again.

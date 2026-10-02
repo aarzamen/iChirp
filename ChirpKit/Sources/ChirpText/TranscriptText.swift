@@ -1,13 +1,17 @@
 // New for iChirp (plan 024 Task 8, review R2-1 / R4-1 / R1-3; the read seam of plan 025 "The shared accessor"). The
 // one place that says which text of a transcript a consumer gets: the words as heard (the timed Transcript screen,
 // subtitles) or the text the person sees (Copy, model input, Ask, Jev, the text exports). It stores nothing.
+// Plan 025 Part A: the person's corrections (`Transcription.textCorrections`) enter the word stream here, in
+// `TranscriptTokens.of`, and nowhere else (semantics from MacParakeet ADR-031: one effective projection every
+// consumer uses; edited text keeps only the time envelope of the words it replaced).
 
 import ChirpCore
 import Foundation
 
 /// Which text a consumer needs.
 public enum TranscriptTextView: Sendable, Hashable {
-    /// The words as heard: what the timed Transcript screen shows (ADR-009), SRT/VTT and JSON segments.
+    /// The words as heard (plus the person's corrections): what the timed Transcript screen shows (ADR-009), SRT/VTT
+    /// and JSON segments.
     case heard
     /// What Copy, Share's text, model input (Transform, Ask, Create), Jev and the TXT/Markdown/PDF/Word exports use:
     /// the person's clean-up mode (`TranscriptTextBuilder.shownText(of:view:)` says which stored text that is).
@@ -15,13 +19,16 @@ public enum TranscriptTextView: Sendable, Hashable {
 }
 
 /// The clean-up rules a Clean view computed over the word stream needs (plan 025 R6). Unedited rows use the clean text
-/// stored when the item was transcribed, so nothing here reads these rules yet; plan 025 Part A applies them to edited
-/// streams. `.none` means no custom words or snippets.
+/// stored when the item was transcribed and read none of these; a row with corrections runs the deterministic
+/// clean-up over its corrected stream with them (R4). The app builds it from Settings
+/// (`TranscriptTextContext.current(textRules:settings:)` in ChirpFeatures). `.none` means no custom words or snippets
+/// and the default filler rule.
 public struct TranscriptTextContext: Sendable {
-    /// Manual custom words only.
+    /// Manual, enabled custom words only (learned rules act only as corrections, plan 025 D8).
     public var customWords: [CustomWord]
-    /// Used for dictation rows only, as the dictation pipeline does.
+    /// Enabled snippets; used for dictation rows only, as the dictation pipeline does.
     public var snippets: [TextSnippet]
+    /// The person's "remove um" setting (`TranscriptionSettings.removeUmFiller`).
     public var removeUmFiller: Bool
 
     public init(customWords: [CustomWord] = [], snippets: [TextSnippet] = [], removeUmFiller: Bool = true) {
@@ -33,7 +40,7 @@ public struct TranscriptTextContext: Sendable {
     public static let none = TranscriptTextContext()
 }
 
-/// One unit of the word stream: an engine word (plan 025 Part A adds edits that replace a run of them).
+/// One unit of the word stream: an engine word, or one correction that replaced a run of them.
 public struct TranscriptToken: Sendable, Equatable {
     public var text: String
     public var startMs: Int
@@ -57,10 +64,12 @@ public struct TranscriptToken: Sendable, Equatable {
 }
 
 /// One reading paragraph of a view. Boundaries come from the engine's words (`TranscriptParagraphBuilder`), so a
-/// line's `id` is the same in every view and stays stable: it is the Transcript screen's paragraph index.
+/// line's `id` is the same in every view and stays stable, corrected or not: it is the Transcript screen's paragraph
+/// index.
 public struct TranscriptTextLine: Sendable, Equatable, Identifiable {
     /// The reading-paragraph index (0-based). A view may leave out a line that has no text (a Clean line that held
-    /// only fillers), so ids can skip numbers; they never move.
+    /// only fillers, or a line whose words a correction that starts on an earlier line covers), so ids can skip
+    /// numbers; they never move.
     public var id: Int
     /// Nil without word timings.
     public var startMs: Int?
@@ -72,12 +81,15 @@ public struct TranscriptTextLine: Sendable, Equatable, Identifiable {
     public var text: String
     /// The engine's words this line spans; empty for untimed rows.
     public var wordRange: Range<Int>
-    /// Into `TranscriptText.tokens`; empty for untimed rows.
+    /// Into `TranscriptText.tokens`: the tokens that start in `wordRange`. Empty for untimed rows.
     public var tokenRange: Range<Int>
+    /// Plan 025: where each token of `tokenRange` sits in `text` (UTF-16 offsets), for the correction marks. Empty when
+    /// `text` is not the tokens joined (a Clean line carries the clean text) and for untimed rows.
+    public var tokenUTF16Ranges: [Range<Int>]
 
     public init(
         id: Int, startMs: Int?, endMs: Int?, speakerId: String?, speakerLabel: String?, text: String,
-        wordRange: Range<Int>, tokenRange: Range<Int>
+        wordRange: Range<Int>, tokenRange: Range<Int>, tokenUTF16Ranges: [Range<Int>] = []
     ) {
         self.id = id
         self.startMs = startMs
@@ -87,6 +99,7 @@ public struct TranscriptTextLine: Sendable, Equatable, Identifiable {
         self.text = text
         self.wordRange = wordRange
         self.tokenRange = tokenRange
+        self.tokenUTF16Ranges = tokenUTF16Ranges
     }
 }
 
@@ -103,10 +116,21 @@ public struct TranscriptText: Sendable, Equatable {
     public var hasSpeakers: Bool
     /// The row has word timings: lines carry times.
     public var hasWordTimings: Bool
+    /// Plan 025: the stream as word timings (subtitles, Extract fields): an engine word keeps its own time and
+    /// confidence; a correction is one word with the envelope of the words it replaced, confidence 1, line breaks
+    /// flattened to spaces. Empty without word timings.
+    public var words: [WordTimestamp]
+    /// Plan 025: the row's stored segments; with corrections, stored segments a correction straddles merge into one
+    /// (the first's id, start and speaker, the last's end, the union of their word ranges), and a segment that holds a
+    /// correction carries the corrected text and `isTextEdited`. Its `wordRange` still indexes the engine's words.
+    public var segments: [TranscriptSegmentRecord]?
+    /// Plan 025: the corrections applied, in order (empty on the fast path).
+    public var edits: [TranscriptCorrection]
 
     public init(
         view: TranscriptTextView, tokens: [TranscriptToken], lines: [TranscriptTextLine], plainText: String,
-        hasSpeakers: Bool, hasWordTimings: Bool
+        hasSpeakers: Bool, hasWordTimings: Bool, words: [WordTimestamp] = [],
+        segments: [TranscriptSegmentRecord]? = nil, edits: [TranscriptCorrection] = []
     ) {
         self.view = view
         self.tokens = tokens
@@ -114,31 +138,85 @@ public struct TranscriptText: Sendable, Equatable {
         self.plainText = plainText
         self.hasSpeakers = hasSpeakers
         self.hasWordTimings = hasWordTimings
+        self.words = words
+        self.segments = segments
+        self.edits = edits
+    }
+
+    /// Plan 025: the words as heard of the engine-word range `range`, from this view's own tokens (an engine token's
+    /// text, a correction token's `heard`), for a range of whole tokens (`CorrectionPlanner`): each word trimmed,
+    /// joined by single spaces, as `TranscriptCorrection.heard` and `Transcription.heardText(_:)` are.
+    public func heardText(_ range: Range<Int>) -> String {
+        tokens.filter { $0.wordRange.overlaps(range) }
+            .map { token in
+                guard let editID = token.editID, let edit = edits.first(where: { $0.id == editID }) else {
+                    return token.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return edit.heard
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 
-/// R1: the one place the word stream is made. Today it maps the engine's words 1:1; plan 025 Part A applies the
-/// person's corrections here, and nowhere else.
+/// R1: the one place the word stream is made: the engine's words, with each valid correction
+/// (`TranscriptCorrections.validItems(in:)`) replacing its run of words by one token. Nothing else applies corrections.
 public enum TranscriptTokens {
     public static func of(_ transcription: Transcription) -> [TranscriptToken] {
-        (transcription.wordTimestamps ?? []).enumerated().map { index, word in
-            TranscriptToken(
-                text: word.word, startMs: word.startMs, endMs: word.endMs, speakerId: word.speakerId,
-                wordRange: index..<(index + 1))
-        }
+        tokens(words: transcription.wordTimestamps ?? [], edits: edits(of: transcription))
     }
 
-    /// The stream as word timings (subtitles): an engine word keeps its confidence.
+    /// The corrections the stream applies: the valid items, in order. None for a row without word timings, a newer
+    /// build's envelope or detached items.
+    public static func edits(of transcription: Transcription) -> [TranscriptCorrection] {
+        guard let corrections = transcription.textCorrections, !corrections.items.isEmpty,
+            let words = transcription.wordTimestamps, !words.isEmpty
+        else { return [] }
+        return corrections.validItems(in: words)
+    }
+
+    /// The stream as word timings (subtitles): an engine word keeps its confidence; a correction has confidence 1 and
+    /// its line breaks flattened to spaces (a cue or a word never holds one).
     public static func words(of transcription: Transcription) -> [WordTimestamp] {
-        let engineWords = transcription.wordTimestamps ?? []
-        return of(transcription).map { token in
-            let confidence =
-                token.editID == nil && token.wordRange.count == 1
-                    && engineWords.indices.contains(token.wordRange.lowerBound)
-                ? engineWords[token.wordRange.lowerBound].confidence : 1
+        words(of: of(transcription), engine: transcription.wordTimestamps ?? [])
+    }
+
+    static func tokens(words: [WordTimestamp], edits: [TranscriptCorrection]) -> [TranscriptToken] {
+        var tokens: [TranscriptToken] = []
+        tokens.reserveCapacity(words.count)
+        var index = 0
+        func appendWords(upTo end: Int) {
+            while index < end {
+                let word = words[index]
+                tokens.append(
+                    TranscriptToken(
+                        text: word.word, startMs: word.startMs, endMs: word.endMs, speakerId: word.speakerId,
+                        wordRange: index..<(index + 1)))
+                index += 1
+            }
+        }
+        for edit in edits {
+            let range = edit.range
+            appendWords(upTo: range.lowerBound)
+            tokens.append(
+                TranscriptToken(
+                    text: edit.text, startMs: words[range.lowerBound].startMs, endMs: words[range.upperBound - 1].endMs,
+                    speakerId: words[range.lowerBound].speakerId, wordRange: range, editID: edit.id))
+            index = range.upperBound
+        }
+        appendWords(upTo: words.count)
+        return tokens
+    }
+
+    static func words(of tokens: [TranscriptToken], engine: [WordTimestamp]) -> [WordTimestamp] {
+        tokens.map { token in
+            guard
+                token.editID != nil || token.wordRange.count != 1
+                    || !engine.indices.contains(token.wordRange.lowerBound)
+            else { return engine[token.wordRange.lowerBound] }
             return WordTimestamp(
-                word: token.text, startMs: token.startMs, endMs: token.endMs, confidence: confidence,
-                speakerId: token.speakerId)
+                word: token.text.split(whereSeparator: \.isWhitespace).joined(separator: " "),
+                startMs: token.startMs, endMs: token.endMs, confidence: 1, speakerId: token.speakerId)
         }
     }
 }
@@ -150,15 +228,54 @@ extension Transcription {
     }
 
     /// The whole text of `view`, without building lines (Library search, titles; plan 025 R3). Equal to
-    /// `text(view, context:).plainText`.
+    /// `text(view, context:).plainText`. A row without corrections returns its stored text at once.
     public func plainText(_ view: TranscriptTextView, context: TranscriptTextContext = .none) -> String {
-        TranscriptTextBuilder.plainText(self, view: view)
+        TranscriptTextBuilder.plainText(self, view: view, context: context)
+    }
+
+    /// Plan 025: the fingerprint of the engine's words (`TranscriptFingerprint`). A screen keeps the one it loaded; a
+    /// correction write is refused when the stored words no longer have it.
+    public var wordsFingerprint: String {
+        TranscriptFingerprint.of(wordTimestamps ?? [])
+    }
+
+    /// Plan 025: the row has engine word timings, which corrections need (D1).
+    public var hasWordTimings: Bool {
+        wordTimestamps?.isEmpty == false
+    }
+
+    /// Plan 025: applies `plan` to `textCorrections` against the engine's words (`TranscriptCorrections.applying`) and
+    /// returns its inverse. Only `TranscriptCorrectionService` calls it, inside the store's one-row transaction.
+    public mutating func applyCorrections(_ plan: TranscriptCorrectionPlan, now: Date) throws
+        -> TranscriptCorrectionPlan
+    {
+        let (corrections, inverse) = try (textCorrections ?? .empty).applying(
+            plan, words: wordTimestamps ?? [], now: now)
+        textCorrections = corrections
+        return inverse
+    }
+
+    /// Plan 025: the text a derived title and snippet come from. Without corrections it is the pipelines' own source
+    /// (the clean text when there is one, else the raw), so reverting every correction restores their title exactly;
+    /// with corrections it is the corrected text in the row's own mode (`.shown(.clean)` when it has clean text, else
+    /// `.shown(.raw)`).
+    public func titleSource(context: TranscriptTextContext) -> String? {
+        guard !TranscriptTokens.edits(of: self).isEmpty else { return cleanTranscript ?? rawTranscript }
+        return plainText(.shown(cleanTranscript == nil ? .raw : .clean), context: context)
+    }
+
+    /// The engine's words of `wordRange` as heard (each trimmed, joined by single spaces): Show Original, and what a
+    /// correction's `heard` holds. Empty outside the words.
+    public func heardText(_ wordRange: Range<Int>) -> String {
+        let words = wordTimestamps ?? []
+        let range = wordRange.clamped(to: 0..<words.count)
+        return TranscriptCorrections.heardText(of: words, in: range)
     }
 }
 
 /// Builds `TranscriptText`. Internal: consumers go through `Transcription.text(_:context:)`.
 enum TranscriptTextBuilder {
-    /// The stored text a view shows when the row is read as a whole:
+    /// The stored text a view shows when the row is read as a whole (the fast path, a row without corrections):
     /// - `.heard`: a timed row's engine text (the raw transcript; the clean one only when raw is missing), the words
     ///   its lines show; an untimed row's clean text when there is one, else its raw text (what the Transcript screen
     ///   shows for it).
@@ -181,8 +298,32 @@ enum TranscriptTextBuilder {
         }
     }
 
-    static func plainText(_ transcription: Transcription, view: TranscriptTextView) -> String {
-        shownText(of: transcription, view: view)
+    static func plainText(_ transcription: Transcription, view: TranscriptTextView, context: TranscriptTextContext)
+        -> String
+    {
+        let edits = TranscriptTokens.edits(of: transcription)
+        guard !edits.isEmpty, let words = transcription.wordTimestamps else {
+            return shownText(of: transcription, view: view)
+        }
+        return editedText(
+            transcription, view: view, context: context, tokens: TranscriptTokens.tokens(words: words, edits: edits))
+    }
+
+    /// The whole text of a corrected stream (plan 025 D2): the tokens joined with upstream's separators
+    /// (`FileTranscriptSegments.joinedText`); where the view would show the stored clean text, the deterministic
+    /// clean-up over that joined text with the context's rules instead (R4: the stored clean text has no word mapping).
+    /// A row that never had clean text gets no fresh clean-up, as it had none before its first correction.
+    private static func editedText(
+        _ transcription: Transcription, view: TranscriptTextView, context: TranscriptTextContext,
+        tokens: [TranscriptToken]
+    ) -> String {
+        let joined = FileTranscriptSegments.joinedText(tokens.map(\.text))
+        guard showsCleanText(transcription, view: view) else { return joined }
+        return TextProcessingPipeline().process(
+            text: joined, customWords: context.customWords,
+            snippets: transcription.sourceType == .dictation ? context.snippets : [],
+            removeUmFiller: context.removeUmFiller
+        ).text
     }
 
     private static func hasCleanText(_ transcription: Transcription) -> Bool {
@@ -190,8 +331,8 @@ enum TranscriptTextBuilder {
         return !clean.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// True when the view's text is the stored clean text rather than the words: its lines then carry that text,
-    /// placed on the word lines it came from (`CleanTextAligner`).
+    /// True when the view's text is the clean text rather than the words: its lines then carry that text, placed on
+    /// the word lines it came from (`CleanTextAligner`).
     private static func showsCleanText(_ transcription: Transcription, view: TranscriptTextView) -> Bool {
         guard hasCleanText(transcription) else { return false }
         switch view {
@@ -204,10 +345,15 @@ enum TranscriptTextBuilder {
     static func build(_ transcription: Transcription, view: TranscriptTextView, context: TranscriptTextContext)
         -> TranscriptText
     {
-        let tokens = TranscriptTokens.of(transcription)
+        let words = transcription.wordTimestamps ?? []
+        let edits = TranscriptTokens.edits(of: transcription)
+        let tokens = TranscriptTokens.tokens(words: words, edits: edits)
         let roster = transcription.speakers ?? []
         let hasSpeakers = !roster.isEmpty
-        let plain = plainText(transcription, view: view)
+        let plain =
+            edits.isEmpty
+            ? shownText(of: transcription, view: view)
+            : editedText(transcription, view: view, context: context, tokens: tokens)
         guard !tokens.isEmpty else {
             let lines =
                 plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -219,26 +365,95 @@ enum TranscriptTextBuilder {
                 ]
             return TranscriptText(
                 view: view, tokens: [], lines: lines, plainText: plain, hasSpeakers: hasSpeakers,
-                hasWordTimings: false)
+                hasWordTimings: false, segments: transcription.transcriptSegments)
         }
 
         let labels = Dictionary(roster.map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
-        let words = tokens.map {
-            WordTimestamp(word: $0.text, startMs: $0.startMs, endMs: $0.endMs, confidence: 1, speakerId: $0.speakerId)
-        }
-        var lines = TranscriptParagraphBuilder.buildWithWordRanges(from: words).enumerated().map { index, built in
-            let speakerId = built.paragraph.speakerId
-            return TranscriptTextLine(
-                id: index, startMs: built.paragraph.startMs, endMs: built.paragraph.endMs, speakerId: speakerId,
-                speakerLabel: hasSpeakers ? speakerId.map { labels[$0] ?? $0 } : nil, text: built.paragraph.text,
-                // No edits yet (plan 025 Part A): token i is engine word i.
-                wordRange: built.wordRange, tokenRange: built.wordRange)
-        }
+        var lines = heardLines(
+            words: words, tokens: tokens,
+            label: { speakerId in
+                hasSpeakers ? speakerId.map { labels[$0] ?? $0 } : nil
+            })
         if showsCleanText(transcription, view: view) {
             lines = CleanTextAligner.place(plain, on: lines, tokens: tokens)
         }
         return TranscriptText(
-            view: view, tokens: tokens, lines: lines, plainText: plain, hasSpeakers: hasSpeakers, hasWordTimings: true)
+            view: view, tokens: tokens, lines: lines, plainText: plain, hasSpeakers: hasSpeakers, hasWordTimings: true,
+            words: TranscriptTokens.words(of: tokens, engine: words),
+            segments: edits.isEmpty
+                ? transcription.transcriptSegments
+                : correctedSegments(transcription.transcriptSegments, tokens: tokens, edits: edits),
+            edits: edits)
+    }
+
+    /// The reading paragraphs of the engine's words (stable boundaries, R2), each holding the tokens that start in it,
+    /// joined by single spaces, with where each token sits. A paragraph left with no token (a correction from an
+    /// earlier line covers all its words) is left out.
+    private static func heardLines(
+        words: [WordTimestamp], tokens: [TranscriptToken], label: (String?) -> String?
+    ) -> [TranscriptTextLine] {
+        var lines: [TranscriptTextLine] = []
+        var next = 0
+        for (index, built) in TranscriptParagraphBuilder.buildWithWordRanges(from: words).enumerated() {
+            let first = next
+            while next < tokens.count, built.wordRange.contains(tokens[next].wordRange.lowerBound) {
+                next += 1
+            }
+            guard next > first else { continue }
+            var text = ""
+            var ranges: [Range<Int>] = []
+            ranges.reserveCapacity(next - first)
+            for token in tokens[first..<next] {
+                if !text.isEmpty { text += " " }
+                let start = text.utf16.count
+                text += token.text
+                ranges.append(start..<text.utf16.count)
+            }
+            let paragraph = built.paragraph
+            lines.append(
+                TranscriptTextLine(
+                    id: index, startMs: paragraph.startMs, endMs: paragraph.endMs, speakerId: paragraph.speakerId,
+                    speakerLabel: label(paragraph.speakerId), text: text, wordRange: built.wordRange,
+                    tokenRange: first..<next, tokenUTF16Ranges: ranges))
+        }
+        return lines
+    }
+
+    /// The stored segments with corrections applied (see `TranscriptText.segments`).
+    private static func correctedSegments(
+        _ stored: [TranscriptSegmentRecord]?, tokens: [TranscriptToken], edits: [TranscriptCorrection]
+    ) -> [TranscriptSegmentRecord]? {
+        guard let stored else { return nil }
+        func range(_ segment: TranscriptSegmentRecord) -> Range<Int> {
+            segment.wordRange.startIndex..<max(segment.wordRange.startIndex, segment.wordRange.endIndexExclusive)
+        }
+        var result: [TranscriptSegmentRecord] = []
+        var first = 0
+        while first < stored.count {
+            var last = first
+            while last + 1 < stored.count,
+                edits.contains(where: {
+                    $0.range.overlaps(range(stored[last])) && $0.range.overlaps(range(stored[last + 1]))
+                })
+            {
+                last += 1
+            }
+            let union = range(stored[first]).lowerBound..<range(stored[last]).upperBound
+            if edits.contains(where: { $0.range.overlaps(union) }) {
+                var merged = stored[first]
+                merged.endMs = stored[last].endMs
+                merged.wordRange = TranscriptSegmentWordRange(
+                    startIndex: union.lowerBound, endIndexExclusive: union.upperBound)
+                merged.text = FileTranscriptSegments.joinedText(
+                    tokens.filter { union.contains($0.wordRange.lowerBound) }.map(\.text))
+                merged.isTextEdited = true
+                result.append(merged)
+            } else {
+                result.append(contentsOf: stored[first...last])
+            }
+            first = last + 1
+        }
+        return result
     }
 }
 
@@ -345,6 +560,7 @@ enum CleanTextAligner {
             guard !texts[position].isEmpty else { return nil }
             var placed = line
             placed.text = texts[position].joined(separator: " ")
+            placed.tokenUTF16Ranges = []
             return placed
         }
     }

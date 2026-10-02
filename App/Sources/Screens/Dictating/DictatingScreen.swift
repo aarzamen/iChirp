@@ -141,7 +141,7 @@ struct DictatingScreen: View {
         case .recording: "Dictating"
         case .paused: "Paused"
         case .pendingStop, .stopping: "Finishing"
-        case .done: "Copied"
+        case .done: everythingScratched ? "Nothing copied" : "Copied"
         case .failed: "Not copied"
         case .cancelled: "Discarded"
         }
@@ -150,7 +150,7 @@ struct DictatingScreen: View {
     private var statusDotColor: Color {
         switch dictation.state {
         case .recording: Tokens.Color.recordRed
-        case .done: Tokens.Color.success
+        case .done: everythingScratched ? .white.opacity(0.4) : Tokens.Color.success
         case .paused, .failed: Tokens.Color.dictationAccent
         default: .white.opacity(0.4)
         }
@@ -264,7 +264,33 @@ struct DictatingScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var finalText: some View {
+    /// Plan 025 fix round 2: the voice commands scratched every sentence, so nothing was copied.
+    private var everythingScratched: Bool {
+        if case .everythingScratched = dictation.voiceCommandsNotSaved { true } else { false }
+    }
+
+    @ViewBuilder private var finalText: some View {
+        if everythingScratched {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Everything was scratched", systemImage: "eraser")
+                    .chirpFont(15, .semibold)
+                    .foregroundStyle(.white)
+                captureNoticeText
+                Text(
+                    "Nothing was copied or sent. The words as heard are still in your Library, in this dictation's "
+                        + "transcript."
+                )
+                .chirpFont(13)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(.white.opacity(0.72))
+            }
+            .accessibilityElement(children: .combine)
+        } else {
+            copiedFinalText
+        }
+    }
+
+    private var copiedFinalText: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Copied to your clipboard", systemImage: "checkmark.circle.fill")
                 .chirpFont(15, .semibold)

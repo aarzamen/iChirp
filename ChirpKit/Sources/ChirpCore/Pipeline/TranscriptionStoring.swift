@@ -8,8 +8,11 @@ import Foundation
 /// Pipeline output goes through `savePreservingUserMetadata`; everything else through the field-level methods.
 public protocol TranscriptionStoring: Sendable {
     func insert(_ transcription: Transcription) async throws
-    /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite, privacyClass, and since M3
-    /// userNotes) from the stored row, in one transaction. Returns the merged row, or nil when the row no longer
+    /// Saves pipeline output while preserving user-edited fields (titleOverride, isFavorite, privacyClass, since M3
+    /// userNotes, and since plan 025 textCorrections) from the stored row, in one transaction. Corrections stay
+    /// attached, with the stored derivedTitle and derivedSnippet, while the output's words are the words they were
+    /// made against; when the words changed they move to `detached` (`TranscriptCorrections.preserved`). The output's
+    /// own `textCorrections` is ignored. Returns the merged row, or nil when the row no longer
     /// exists (deleted while the job ran). It never inserts, so a deleted row is never resurrected.
     func savePreservingUserMetadata(_ transcription: Transcription) async throws -> Transcription?
     /// Atomically sets only `titleOverride` (and `updatedAt`). Returns the updated row, or nil when it no longer exists.
@@ -59,6 +62,17 @@ public protocol TranscriptionStoring: Sendable {
     /// Retention: atomically clears `mediaRelativePath` and sets `audioRemovedAt`, only on a `.completed` row. Returns
     /// the updated row, or nil when the row is gone or not completed (nothing written). Does not touch files.
     func markAudioRemoved(id: UUID, at date: Date) async throws -> Transcription?
+
+    // Plan 025: transcript corrections (contract spec/contracts/transcript-corrections-v1.md).
+
+    /// Atomically applies `change` to the stored row (one transaction: read, change, save) and returns the row as
+    /// stored; nil when the row is gone, `change` returns false, or the row's corrections come from a newer build
+    /// (nothing written). An error `change` throws reaches the caller, nothing written. Only `textCorrections`,
+    /// `derivedTitle`, `derivedSnippet` (and `updatedAt`) are written, so a correction never overwrites anything else.
+    /// Only `TranscriptCorrectionService` calls it.
+    func updateTextCorrections(
+        id: UUID, _ change: @escaping @Sendable (inout Transcription) throws -> Bool
+    ) async throws -> Transcription?
 }
 
 extension TranscriptionStoring {
@@ -82,6 +96,8 @@ extension TranscriptionStoring {
     public func searchTranscriptions(matching query: String) async throws -> Set<UUID> {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return [] }
+        // A fake without the accessor (ChirpText) finds the text as stored; `GRDBTranscriptionStore` also finds a
+        // transcript's corrected words (plan 025).
         return Set(try await fetchAll().filter { $0.matchesSearch(needle) }.map(\.id))
     }
 }

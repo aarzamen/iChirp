@@ -56,6 +56,8 @@ enum FakeStoreError: Error {
 actor FakeStore: TranscriptionStoring {
     enum Call: Hashable, Sendable {
         case savePreservingUserMetadata, update, updateTitleOverride, updateFavorite, updatePrivacyClass, transitionStatus
+        /// `updateTextCorrections` (plan 025), parked before it reads the row.
+        case updateTextCorrections
         /// `fetch(id:)` (plan 022 review M1: park a route check).
         case fetch
         /// `insert(_:)`, parked after its cancellation check: like a GRDB write that already started, it lands even
@@ -108,6 +110,15 @@ actor FakeStore: TranscriptionStoring {
         merged.isFavorite = current.isFavorite
         merged.privacyClass = current.privacyClass
         merged.userNotes = current.userNotes
+        // Plan 025 D7, as the GRDB store: corrections stay attached (with the corrected title and snippet) while the
+        // words are the same, and are detached when they changed; a newer build's are kept as they are.
+        merged.textCorrections = current.textCorrections.map {
+            $0.preserved(acrossNewWords: transcription.wordTimestamps ?? [], now: Date())
+        }
+        if merged.textCorrections?.isFromNewerBuild == false, merged.textCorrections?.items.isEmpty == false {
+            merged.derivedTitle = current.derivedTitle
+            merged.derivedSnippet = current.derivedSnippet
+        }
         rows[merged.id] = merged
         recordClass(of: merged)
         publish()
@@ -239,6 +250,35 @@ actor FakeStore: TranscriptionStoring {
         try await update(row)
         return row
     }
+
+    /// Plan 025, as the GRDB store: the change runs on the current row; only `textCorrections`, `derivedTitle`,
+    /// `derivedSnippet` and `updatedAt` land; a newer build's corrections are never replaced.
+    func updateTextCorrections(
+        id: UUID, _ change: @escaping @Sendable (inout Transcription) throws -> Bool
+    ) async throws -> Transcription? {
+        await parkIfHeld(.updateTextCorrections)
+        try Task.checkCancellation()
+        if let error = nextTextCorrectionError {
+            nextTextCorrectionError = nil
+            throw error
+        }
+        guard let stored = rows[id], stored.textCorrections?.isFromNewerBuild != true else { return nil }
+        var changed = stored
+        guard try change(&changed), changed.textCorrections?.isFromNewerBuild != true else { return nil }
+        textCorrectionWrites += 1
+        return modify(id) { row in
+            row.textCorrections = changed.textCorrections
+            row.derivedTitle = changed.derivedTitle
+            row.derivedSnippet = changed.derivedSnippet
+            return true
+        }
+    }
+
+    /// How many `updateTextCorrections` calls wrote.
+    private(set) var textCorrectionWrites = 0
+    private var nextTextCorrectionError: FakeError?
+    /// The next `updateTextCorrections` throws `error` (once), before it reads the row.
+    func failNextTextCorrectionWrite(with error: FakeError?) { nextTextCorrectionError = error }
 
     // MARK: Test helpers
 

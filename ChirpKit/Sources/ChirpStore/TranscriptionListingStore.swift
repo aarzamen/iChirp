@@ -2,6 +2,7 @@
 // only the columns a row shows, like `DeliverableListingStore` does for documents. No schema change.
 
 import ChirpCore
+import ChirpText
 import Foundation
 import GRDB
 
@@ -63,12 +64,14 @@ enum TranscriptionListingQueries {
 
     /// What the list observation tracks: every column a row shows or counts from (`documentPages`, and the text of a
     /// document or text item for its word count), plus `speakers`, because a rename changes what the Library's search
-    /// finds and the Library searches again when its rows change. Not `userNotes`, `updatedAt`, word timings,
+    /// finds and the Library searches again when its rows change, and `textCorrections` (plan 025: a correction changes
+    /// what search finds). Not `userNotes`, `updatedAt`, word timings,
     /// diarization or segments: a write of only those (a notes keystroke) never re-reads the list.
     static let observedRegions: [any DatabaseRegionConvertible] = [
         SQLRequest<Row>(
-            sql: "SELECT \((rowColumns + ["cleanTranscript", "rawTranscript", "speakers"]).joined(separator: ", ")) "
-                + "FROM transcriptions")
+            sql: "SELECT "
+                + (rowColumns + ["cleanTranscript", "rawTranscript", "speakers", "textCorrections"])
+                .joined(separator: ", ") + " FROM transcriptions")
     ]
 
     /// `observedRegions` as one region (tests).
@@ -162,14 +165,16 @@ enum TranscriptionListingQueries {
     }
 
     /// Ids of rows that match `needle` by `TranscriptionSearch`'s rule (the one `Transcription.matchesSearch` uses):
-    /// the title as shown, the text as shown, the file name, then the speakers' labels. Only those columns are read;
-    /// speakers this build cannot read count as none, and a row whose id or file name cannot be read is skipped.
+    /// the title as shown, the text as shown, the corrected text (plan 025), the file name, then the speakers' labels.
+    /// Only those columns are read, and word timings only for a row with corrections; speakers this build cannot read
+    /// count as none, and a row whose id or file name cannot be read is skipped.
     static func search(_ db: Database, needle: String) throws -> Set<UUID> {
         var ids = Set<UUID>()
         let cursor = try Row.fetchCursor(
             db,
             sql: """
-                SELECT id, titleOverride, sourceTitle, derivedTitle, fileName, cleanTranscript, rawTranscript, speakers
+                SELECT id, titleOverride, sourceTitle, derivedTitle, fileName, cleanTranscript, rawTranscript, speakers,
+                       textCorrections, CASE WHEN textCorrections IS NOT NULL THEN wordTimestamps END
                 FROM transcriptions
                 """)
         while let row = try cursor.next() {
@@ -184,12 +189,29 @@ enum TranscriptionListingQueries {
                 cleanTranscript: String.fromDatabaseValue(row[5] as DatabaseValue),
                 rawTranscript: String.fromDatabaseValue(row[6] as DatabaseValue))
             let speakers = String.fromDatabaseValue(row[7] as DatabaseValue)
+            let corrections = String.fromDatabaseValue(row[8] as DatabaseValue)
+            let words = String.fromDatabaseValue(row[9] as DatabaseValue)
             let found = TranscriptionSearch.matches(
-                query: needle, displayTitle: title, displayText: text, fileName: fileName,
+                query: needle, displayTitle: title, displayText: text,
+                correctedText: { correctedText(id: id, corrections: corrections, words: words) }, fileName: fileName,
                 speakerLabels: { speakerLabels(speakers) })
             if found { ids.insert(id) }
         }
         return ids
+    }
+
+    /// The transcript with the person's corrections (`Transcription.plainText(.heard)`, the one accessor), or nil when
+    /// it has none that apply (or its columns cannot be read: the text as stored is still searched).
+    private static func correctedText(id: UUID, corrections: String?, words: String?) -> String? {
+        guard let corrections, let words,
+            let envelope = TranscriptionRecord.decodeCorrections(corrections, id: id), !envelope.items.isEmpty,
+            let timings = try? JSONDecoder().decode([WordTimestamp].self, from: Data(words.utf8))
+        else { return nil }
+        var row = Transcription(id: id, fileName: "")
+        row.wordTimestamps = timings
+        row.textCorrections = envelope
+        guard !TranscriptTokens.edits(of: row).isEmpty else { return nil }
+        return row.plainText(.heard)
     }
 
     private struct SpeakerLabel: Decodable {

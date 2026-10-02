@@ -762,6 +762,49 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(wholeRowUpdates, 0)
     }
 
+    /// Plan 025 D7: the one path that re-runs the engine over a completed row (a status a newer build wrote reads as
+    /// interrupted, which offers Retry) keeps the person's corrections when the words come back the same, and detaches
+    /// them (kept, listed, never applied) when they do not.
+    func testRetryOfACorrectedRowKeepsOrDetachesCorrections() async throws {
+        let h = try PipelineHarness(testCase: self)
+        let id = try await h.importSample()
+        let completed = await h.pipeline.process(id: id)
+        let words = try XCTUnwrap(completed?.wordTimestamps)
+        let now = Date(timeIntervalSinceReferenceDate: 790_000_000)
+        let corrected = try await h.store.updateTextCorrections(id: id) { row in
+            row.textCorrections = try (row.textCorrections ?? .empty).applying(
+                TranscriptCorrectionPlan(add: [
+                    TranscriptCorrection(
+                        wordRange: 0..<1, heard: "", text: "Howdy", origin: .edit, createdAt: now, updatedAt: now)
+                ]), words: row.wordTimestamps ?? [], now: now
+            ).corrections
+            row.derivedTitle = "Corrected title"
+            return true
+        }
+        let items = try XCTUnwrap(corrected?.textCorrections?.items)
+        XCTAssertEqual(items.count, 1)
+
+        _ = try await h.store.transitionStatus(id: id, from: [.completed], to: .interrupted, errorMessage: nil)
+        let same = await h.pipeline.retry(id: id)
+        XCTAssertEqual(same?.status, .completed)
+        XCTAssertEqual(same?.wordTimestamps, words)
+        XCTAssertEqual(same?.textCorrections?.items, items, "same words: the corrections stay applied")
+        XCTAssertEqual(same?.derivedTitle, "Corrected title")
+
+        _ = try await h.store.transitionStatus(id: id, from: [.completed], to: .interrupted, errorMessage: nil)
+        await h.speech.setTranscript(
+            text: "Different words.",
+            words: [
+                WordTimestamp(word: "Different", startMs: 0, endMs: 300, confidence: 0.9),
+                WordTimestamp(word: "words.", startMs: 300, endMs: 700, confidence: 0.9),
+            ])
+        let changed = await h.pipeline.retry(id: id)
+        XCTAssertEqual(changed?.status, .completed)
+        XCTAssertEqual(changed?.textCorrections?.items, [], "other words: nothing applied")
+        XCTAssertEqual(changed?.textCorrections?.detached, items, "and nothing is lost")
+        XCTAssertNotEqual(changed?.derivedTitle, "Corrected title")
+    }
+
     // MARK: - Orphaned temporary audio
 
     func testSweepDeletesOnlyOrphanedNormalizedAudio() async throws {

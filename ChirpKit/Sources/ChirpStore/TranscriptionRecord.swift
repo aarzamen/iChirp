@@ -48,6 +48,9 @@ struct TranscriptionRecord: Codable, Equatable, Sendable {
     var sourceTitle: String?
     var documentFormat: String?
     var documentPages: String?
+    /// Added by migration `v11-transcript-corrections` (plan 025); NULL on every earlier row. JSON TEXT
+    /// (`TranscriptCorrections`), written only by `updateTextCorrections` and kept by `savePreservingUserMetadata`.
+    var textCorrections: String?
 }
 
 extension TranscriptionRecord: FetchableRecord, PersistableRecord {
@@ -92,6 +95,7 @@ extension TranscriptionRecord {
         sourceTitle = transcription.sourceTitle
         documentFormat = transcription.documentFormat?.rawValue
         documentPages = try Self.encodeJSON(transcription.documentPages)
+        textCorrections = try Self.encodeCorrections(transcription.textCorrections)
     }
 
     /// Decodes this row back into a `Transcription`.
@@ -149,7 +153,45 @@ extension TranscriptionRecord {
         // An unknown format (a newer build wrote it) reads as nil; writing the row back keeps the stored value.
         transcription.documentFormat = documentFormat.flatMap(DocumentFormat.init(rawValue:))
         transcription.documentPages = try Self.decodeJSON([DocumentPage].self, from: documentPages)
+        transcription.textCorrections = Self.decodeCorrections(textCorrections, id: id)
         return transcription
+    }
+
+    // MARK: Corrections (plan 025)
+
+    /// The column for `corrections`. A newer build's envelope (a placeholder here) is never encoded: every write path
+    /// keeps the stored text instead (`preservedCorrections`, `GRDBTranscriptionStore.updateTextCorrections`).
+    static func encodeCorrections(_ corrections: TranscriptCorrections?) throws -> String? {
+        guard let corrections, !corrections.isFromNewerBuild else { return nil }
+        return try encodeJSON(corrections)
+    }
+
+    /// Reads the column. One that cannot be decoded never hides the row: it reads as a placeholder that applies
+    /// nothing and that no write replaces (like a newer build's), and is logged by row id only.
+    static func decodeCorrections(_ json: String?, id: UUID) -> TranscriptCorrections? {
+        guard let json else { return nil }
+        do {
+            return try decodeJSON(TranscriptCorrections.self, from: json)
+        } catch {
+            logger.error("corrections_unreadable id=\(id, privacy: .public)")
+            return TranscriptCorrections(
+                schema: TranscriptCorrections.currentSchema + 1, baseline: "", changedAt: .distantPast)
+        }
+    }
+
+    /// What a pipeline save stores in the column (plan 025 D7): the stored corrections, kept attached while
+    /// `newWords` are the words they were made against and detached when the words changed; the stored text byte for
+    /// byte when nothing changed or this build cannot read it. `stillApplied` is true when items remain attached, so
+    /// the stored (corrected) title and snippet stay.
+    static func preservedCorrections(stored: String?, newWords: [WordTimestamp], id: UUID, now: Date) throws -> (
+        column: String?, stillApplied: Bool
+    ) {
+        guard let corrections = decodeCorrections(stored, id: id), !corrections.isFromNewerBuild else {
+            return (stored, false)
+        }
+        let preserved = corrections.preserved(acrossNewWords: newWords, now: now)
+        let column = preserved == corrections ? stored : try encodeCorrections(preserved)
+        return (column, !preserved.items.isEmpty)
     }
 
     // MARK: Unknown enum values

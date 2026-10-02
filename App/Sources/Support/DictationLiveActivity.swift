@@ -28,8 +28,13 @@ import Foundation
         self.modelName = modelName
     }
 
-    func update(for state: DictationFlowState, recordedSeconds: TimeInterval, notice: String? = nil) {
-        switch Self.update(for: state, recordedSeconds: recordedSeconds, notice: notice, now: Date()) {
+    func update(
+        for state: DictationFlowState, recordedSeconds: TimeInterval, notice: String? = nil,
+        voiceCommands: VoiceCommandsNotSaved? = nil
+    ) {
+        switch Self.update(
+            for: state, recordedSeconds: recordedSeconds, notice: notice, voiceCommands: voiceCommands, now: Date())
+        {
         case .show(let content): show(content)
         case .end(let content, let seconds): end(content, after: seconds)
         case .none: break
@@ -43,8 +48,14 @@ import Foundation
     /// full disk, a microphone that could not restart), reaches the outcome here too. It takes the place of "Copied to
     /// your clipboard" (the title already says Copied) and comes before a failure's own words, so the two-line detail
     /// never cuts it off.
+    ///
+    /// Plan 025 fix round 2: `voiceCommands` (the coordinator's `voiceCommandsNotSaved`) keeps the outcome honest. A
+    /// dictation whose every sentence was scratched copied nothing, so it ends as Not copied ("Everything was
+    /// scratched — nothing copied"); one whose commands could not be saved to the transcript still copied and says
+    /// so.
     static func update(
-        for state: DictationFlowState, recordedSeconds: TimeInterval, notice: String? = nil, now: Date
+        for state: DictationFlowState, recordedSeconds: TimeInterval, notice: String? = nil,
+        voiceCommands: VoiceCommandsNotSaved? = nil, now: Date
     ) -> Update {
         let timerStart = now.addingTimeInterval(-recordedSeconds)
         func content(_ phase: DictationActivityAttributes.ContentState.Phase, _ detail: String?)
@@ -62,7 +73,16 @@ import Foundation
         case .stopping, .pendingStop:
             return .show(content(.finishing, "Transcribing on this iPhone"))
         case .done:
-            return .end(content(.copied, notice ?? "Copied to your clipboard"), after: 5)
+            switch voiceCommands {
+            case .everythingScratched:
+                let detail = "Everything was scratched — nothing copied"
+                return .end(content(.failed, notice.map { "\($0) \(detail)" } ?? detail), after: 5)
+            case .notSaved:
+                let detail = "Copied · voice commands not saved to the transcript"
+                return .end(content(.copied, notice.map { "\($0) \(detail)" } ?? detail), after: 5)
+            case nil:
+                return .end(content(.copied, notice ?? "Copied to your clipboard"), after: 5)
+            }
         case .failed(let message):
             return .end(content(.failed, notice.map { "\($0) \(message)" } ?? message), after: 8)
         case .cancelled, .idle:

@@ -1,6 +1,7 @@
 // Ported from MacParakeet (GPL-3.0): Sources/MacParakeetCore/Models/Transcription.swift @ bbae9e0e
-// Changes: L255–L360 only; dropped isTextEdited, anchorTranscriptSegmentIDs, updatingSpeakerLabels and
-// carriesAutomaticLabel (M1 has no transcript corrections or speaker renaming prompts).
+// Changes: L255–L360 only; dropped anchorTranscriptSegmentIDs, updatingSpeakerLabels and carriesAutomaticLabel (no
+// speaker renaming prompts). `isTextEdited` is re-ported as an optional (plan 025): only the corrected segments the
+// accessor projects for the JSON export set it; stored segments never do.
 
 import Foundation
 
@@ -65,6 +66,8 @@ public struct TranscriptSegmentRecord: Codable, Sendable, Equatable, Identifiabl
     public var speakerLabel: String
     public var text: String
     public var wordRange: TranscriptSegmentWordRange
+    /// True when a correction lies inside the segment (plan 025). Nil (omitted from JSON) otherwise.
+    public var isTextEdited: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -73,7 +76,8 @@ public struct TranscriptSegmentRecord: Codable, Sendable, Equatable, Identifiabl
         speakerId: String?,
         speakerLabel: String,
         text: String,
-        wordRange: TranscriptSegmentWordRange
+        wordRange: TranscriptSegmentWordRange,
+        isTextEdited: Bool? = nil
     ) {
         self.id = id
         self.startMs = startMs
@@ -82,5 +86,6 @@ public struct TranscriptSegmentRecord: Codable, Sendable, Equatable, Identifiabl
         self.speakerLabel = speakerLabel
         self.text = text
         self.wordRange = wordRange
+        self.isTextEdited = isTextEdited
     }
 }

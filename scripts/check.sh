@@ -11,3 +11,6 @@ if [ "$#" -ge 1 ]; then
 fi
 
 swift format lint --strict --recursive ChirpKit/Sources App/Sources App/Shared Widgets
+
+# Plan 025 R1: no consumer reads the baseline text fields outside the one accessor.
+scripts/check_transcript_text_reads.sh

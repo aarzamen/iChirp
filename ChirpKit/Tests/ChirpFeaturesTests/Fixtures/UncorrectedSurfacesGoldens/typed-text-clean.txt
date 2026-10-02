@@ -1,0 +1,34 @@
+=== heard lines ===
+#0 untimed words 0..<0: Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== heard text ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== heard text without lines ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== shown lines ===
+#0 untimed words 0..<0: Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== shown text ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== shown text without lines ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== tokens ===
+
+
+=== screen paragraphs ===
+0-0 -: Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
+
+=== extract fields source ===
+Typed note: BP 120/80.
+Follow up in 2 weeks with labs.
