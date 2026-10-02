@@ -78,9 +78,10 @@ final class VoicePlayerTests: XCTestCase {
         XCTAssertEqual(output.enqueued, [0])
         engine.releaseNext()
         await eventually("chunk 1 queued") { output.enqueued == [0, 1] }
-        // Chunk 0 still plays: chunk 2 would be two ahead, so it waits.
-        try? await Task.sleep(for: .milliseconds(30))
-        XCTAssertEqual(engine.requests.count, 2, "never more than one chunk ahead")
+        // Chunk 0 still plays: chunk 2 would be two ahead, so it waits. Queuing chunk 1 and deciding not to start
+        // chunk 2 happen in one main-actor step, so this holds with no clock (review R5-19).
+        XCTAssertFalse(player.isSynthesizing, "never more than one chunk ahead")
+        XCTAssertEqual(engine.requests.count, 2)
 
         output.emit(.chunkStarted(1))
         await eventually("chunk 2 requested once chunk 1 plays") { engine.requests.count == 3 }
@@ -93,9 +94,12 @@ final class VoicePlayerTests: XCTestCase {
         await player.speak(text: Self.threeParagraphs, privacyClass: .general, source: .transcript(id: UUID()))
         await eventually("chunk 0 requested") { engine.waiting == 1 }
 
+        let pending = player.lastSynthesisTask
         player.stop()
         await eventually("synthesis cancelled") { engine.cancelled == 1 }
-        try? await Task.sleep(for: .milliseconds(30))
+        // The cancelled synthesis has ended: anything it could still have sent is in the count now (review R5-19).
+        if engine.cancelled == 1 { await pending?.value }
+        XCTAssertFalse(player.isSynthesizing)
         XCTAssertEqual(player.state, .idle)
         XCTAssertEqual(output.enqueued, [])
         XCTAssertEqual(output.calls.last, .stop)
@@ -132,7 +136,9 @@ final class VoicePlayerTests: XCTestCase {
         player.declinePendingSpeech()
         XCTAssertEqual(player.state, .idle)
         player.confirmPendingSpeech(requestID: request.id)  // a late tap after Cancel does nothing
-        try? await Task.sleep(for: .milliseconds(30))
+        // A confirmation starts synthesis at once (in the same step); none started, and none ever did.
+        XCTAssertFalse(player.isSynthesizing)
+        XCTAssertNil(player.lastSynthesisTask)
         XCTAssertTrue(engine.requests.isEmpty)
     }
 
@@ -193,7 +199,8 @@ final class VoicePlayerTests: XCTestCase {
 
         routing.policy = PrivacyRoutingPolicy()
         output.emit(.chunkStarted(1))
-        try? await Task.sleep(for: .milliseconds(30))
+        // That event started chunk 3's synthesis; it asks instead of sending, then ends (review R5-19: no clock).
+        await player.lastSynthesisTask?.value
         XCTAssertEqual(engine.requests.count, 2, "chunk 3 is not sent once the Mac is no longer trusted")
         // An untrusted Mac is asked about, like at the start of a reading; the audio stops meanwhile.
         guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
@@ -215,10 +222,9 @@ final class VoicePlayerTests: XCTestCase {
 
         classes.current = .clinical  // the owner marks the transcript clinical while it is read
         output.emit(.chunkStarted(1))
-        await eventually("the question") {
-            if case .needsConfirmation = player.state { return true } else { return false }
-        }
-        try? await Task.sleep(for: .milliseconds(30))
+        // That event started chunk 3's synthesis; it asks instead of sending, then ends (review R5-19: no clock).
+        await player.lastSynthesisTask?.value
+        guard case .needsConfirmation = player.state else { return XCTFail("\(player.state)") }
         XCTAssertEqual(engine.requests.count, 2, "chunk 3 is not sent without the confirmation")
         XCTAssertEqual(output.calls.last, .stop, "the reading stops while the question is up")
         guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
@@ -247,8 +253,11 @@ final class VoicePlayerTests: XCTestCase {
         }
         guard case .needsConfirmation(let request) = player.state else { return XCTFail("\(player.state)") }
         XCTAssertTrue(request.message.contains("studio.local"), "an untrusted Mac asks too")
+        let asking = player.lastSynthesisTask
         player.declinePendingSpeech()
-        try? await Task.sleep(for: .milliseconds(30))
+        // The synthesis that asked has ended and nothing new started (review R5-19: no clock).
+        await asking?.value
+        XCTAssertFalse(player.isSynthesizing)
         XCTAssertEqual(player.state, .idle)
         XCTAssertEqual(engine.requests.count, 2)
     }
@@ -305,7 +314,8 @@ final class VoicePlayerTests: XCTestCase {
         await eventually("the question") {
             if case .needsConfirmation = player.state { return true } else { return false }
         }
-        try? await Task.sleep(for: .milliseconds(30))
+        // The synthesis that asked (instead of retrying) has ended (review R5-19: no clock).
+        await player.lastSynthesisTask?.value
         XCTAssertEqual(
             engine.texts.filter { $0.hasPrefix("Second") }.count, 1, "the retry is not sent without the confirmation")
         XCTAssertEqual(output.enqueued, [0])
@@ -323,7 +333,8 @@ final class VoicePlayerTests: XCTestCase {
         XCTAssertNotEqual(first.id, second.id)
 
         player.confirmPendingSpeech(requestID: first.id)
-        try? await Task.sleep(for: .milliseconds(30))
+        // A confirmation starts synthesis in the same step: none started (review R5-19: no clock).
+        XCTAssertFalse(player.isSynthesizing)
         XCTAssertTrue(engine.requests.isEmpty, "the stale answer confirms nothing")
         XCTAssertEqual(player.state, .needsConfirmation(second))
         player.confirmPendingSpeech(requestID: second.id)
@@ -418,7 +429,8 @@ final class VoicePlayerTests: XCTestCase {
         await player.speak(text: Self.threeParagraphs, privacyClass: .general, source: .voiceTest)
 
         await eventually("three attempts at chunk 2") { engine.texts.filter { $0.hasPrefix("Second") }.count == 3 }
-        try? await Task.sleep(for: .milliseconds(20))
+        // Its synthesis has given up (review R5-19: awaited, not slept on).
+        await player.lastSynthesisTask?.value
         XCTAssertEqual(player.state, .speaking(chunk: 1, of: 3), "chunk 1 keeps playing")
         output.emit(.drained)
         guard case .failed(let message) = player.state else { return XCTFail("\(player.state)") }
