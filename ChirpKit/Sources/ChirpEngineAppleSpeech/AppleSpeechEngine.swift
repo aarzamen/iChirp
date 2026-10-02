@@ -39,11 +39,17 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
     static let permissionMessage =
         "Parakeet needs permission to use speech recognition for Apple Speech. Allow it in Settings → Privacy & "
         + "Security → Speech Recognition, or pick another engine in Settings → Speech engines."
+    /// The in-use sentence every engine's Delete gives while a job holds its model (review R3-13).
+    static let inUseMessage = "Apple Speech is in use by a running job. Delete it after the job finishes."
 
     private let backend: any AppleSpeechBackend
     private let preferredLocale: Locale
     private var downloadFraction: Double?
     private var lastFailure: String?
+    /// Transcriptions running now: Delete is refused while any runs (review R3-13), as for every engine.
+    private var runningJobs = 0
+    /// A Delete is releasing the model: a job that starts meanwhile is refused like a missing model.
+    private var deleting = false
 
     /// - Parameter locale: the language to transcribe when a job gives no hint (default: this device's).
     public init(locale: Locale = .current) {
@@ -100,6 +106,9 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
         case .downloading:
             return .downloading(fraction: 0)
         case .notInstalled:
+            // Refused permission: Download installs nothing, so say where to allow it (review R3-13). Read live, so the
+            // status clears as soon as the person allows it.
+            if backend.authorizationStatus() == .denied { return .failed(message: Self.permissionMessage) }
             return lastFailure.map { .failed(message: $0) } ?? .notDownloaded
         case .unsupported:
             return .failed(message: Self.unsupportedMessage(preferredLocale))
@@ -113,6 +122,11 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
         }
         if backend.authorizationStatus() == .notDetermined {
             _ = await backend.requestAuthorization()
+        }
+        // Refused (already, or just now at the prompt): the model could not run, so nothing is fetched over the
+        // network (review R3-13). The status says where to allow it.
+        if backend.authorizationStatus() == .denied {
+            throw SpeechEngineError.underlying(Self.permissionMessage)
         }
         lastFailure = nil
         downloadFraction = 0
@@ -133,7 +147,12 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
         reported.report(1)
     }
 
+    /// Refused while a job runs (review R3-13: releasing the reservation could let iOS remove the model under a
+    /// running `SpeechAnalyzer`). Otherwise releases this app's reservation; a job that starts meanwhile is refused.
     public func deleteAssets() async throws {
+        guard runningJobs == 0 else { throw SpeechEngineError.underlying(Self.inUseMessage) }
+        deleting = true
+        defer { deleting = false }
         guard backend.isAvailable, let locale = await backend.supportedLocale(equivalentTo: preferredLocale) else {
             return
         }
@@ -152,6 +171,10 @@ public actor AppleSpeechEngine: SpeechEngine, SpeechEngineAvailabilityReporting,
         options: SpeechTranscriptionOptions,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> SpeechResult {
+        // Counted before the first suspension, so a Delete can never slip in between (review R3-13).
+        guard !deleting else { throw SpeechEngineError.modelNotDownloaded(Self.engineID) }
+        runningJobs += 1
+        defer { runningJobs -= 1 }
         let locale = try await readyLocale(hint: options.languageHint)
         try Task.checkCancellation()
         let reported = MonotonicProgress(progress)

@@ -17,7 +17,10 @@ final class AppleSpeechEngineTests: XCTestCase {
         private var installs: [String] = []
         private var releases: [String] = []
         private var authorizationRequests = 0
+        private var startedTranscriptions = 0
         var holdTranscription = false
+        /// When set, the permission prompt is answered "Don't Allow".
+        var deniesRequest = false
         let supported: Set<String>
 
         init(
@@ -35,6 +38,8 @@ final class AppleSpeechEngineTests: XCTestCase {
         var installCalls: [String] { lock.withLock { installs } }
         var releaseCalls: [String] { lock.withLock { releases } }
         var authorizationRequestCount: Int { lock.withLock { authorizationRequests } }
+        /// Transcriptions that reached the backend (tests wait on this instead of sleeping, review R3-19).
+        var transcriptionStartCount: Int { lock.withLock { startedTranscriptions } }
 
         func supportedLocale(equivalentTo locale: Locale) async -> Locale? {
             let id = locale.identifier.replacingOccurrences(of: "-", with: "_")
@@ -65,7 +70,7 @@ final class AppleSpeechEngineTests: XCTestCase {
         func requestAuthorization() async -> AppleSpeechAuthorization {
             lock.withLock {
                 authorizationRequests += 1
-                if authorization == .notDetermined { authorization = .authorized }
+                if authorization == .notDetermined { authorization = deniesRequest ? .denied : .authorized }
                 return authorization
             }
         }
@@ -73,6 +78,7 @@ final class AppleSpeechEngineTests: XCTestCase {
         func transcribe(
             fileAt url: URL, locale: Locale, progress: @escaping @Sendable (Double) -> Void
         ) async throws -> [AppleSpeechSegment] {
+            lock.withLock { startedTranscriptions += 1 }
             if holdTranscription {
                 while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
                 throw CancellationError()
@@ -283,13 +289,82 @@ final class AppleSpeechEngineTests: XCTestCase {
         let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
         let file = self.file
         let job = Task { try await engine.transcribe(fileAt: file, options: .init(), progress: { _ in }) }
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitUntil { backend.transcriptionStartCount == 1 }  // the job is running (review R3-19)
         job.cancel()
         do {
             _ = try await job.value
             XCTFail("expected cancellation")
         } catch {
             XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+    }
+}
+
+extension AppleSpeechEngineTests {
+    // MARK: - Review R3-13: Delete waits for running jobs; Download never installs without permission
+
+    func testDeleteIsRefusedWhileAJobRunsAndWorksOnceItEnds() async throws {
+        let backend = FakeBackend(segments: Self.twoSegmentsForTests)
+        backend.holdTranscription = true
+        let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
+        let file = URL(fileURLWithPath: "/tmp/nonexistent-16k.wav")
+        let job = Task { try await engine.transcribe(fileAt: file, options: .init(), progress: { _ in }) }
+        await waitUntil { backend.transcriptionStartCount == 1 }
+        do {
+            try await engine.deleteAssets()
+            XCTFail("Delete must be refused while a job uses the model")
+        } catch {
+            XCTAssertEqual(error as? SpeechEngineError, .underlying(AppleSpeechEngine.inUseMessage))
+        }
+        XCTAssertEqual(backend.releaseCalls, [], "iOS keeps the model while the analysis runs")
+
+        job.cancel()
+        _ = await job.result
+        try await engine.deleteAssets()
+        XCTAssertEqual(backend.releaseCalls, ["en_US"])
+    }
+
+    func testDownloadWithPermissionAlreadyRefusedInstallsNothingAndSaysWhereToAllowIt() async {
+        let backend = FakeBackend(state: .notInstalled, authorization: .denied)
+        let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
+        do {
+            try await engine.downloadAssets { _ in }
+            XCTFail("expected the permission sentence")
+        } catch {
+            XCTAssertEqual(error as? SpeechEngineError, .underlying(AppleSpeechEngine.permissionMessage))
+        }
+        XCTAssertEqual(backend.installCalls, [], "nothing is fetched over the network for a model that cannot run")
+        XCTAssertEqual(backend.authorizationRequestCount, 0, "iOS will not ask again")
+        let status = await engine.assetStatus()
+        XCTAssertEqual(status, .failed(message: AppleSpeechEngine.permissionMessage))
+    }
+
+    func testDownloadWhoseNewPromptIsRefusedInstallsNothing() async {
+        let backend = FakeBackend(state: .notInstalled, authorization: .notDetermined)
+        backend.deniesRequest = true
+        let engine = AppleSpeechEngine(locale: Locale(identifier: "en_US"), backend: backend)
+        do {
+            try await engine.downloadAssets { _ in }
+            XCTFail("expected the permission sentence")
+        } catch {
+            XCTAssertEqual(error as? SpeechEngineError, .underlying(AppleSpeechEngine.permissionMessage))
+        }
+        XCTAssertEqual(backend.authorizationRequestCount, 1)
+        XCTAssertEqual(backend.installCalls, [])
+    }
+
+    private static var twoSegmentsForTests: [AppleSpeechSegment] {
+        [AppleSpeechSegment(text: "Synthetic words.", words: [.init(text: "Synthetic", startSeconds: 0, endSeconds: 0.5)])]
+    }
+
+    /// Polls until `condition` holds; fails (instead of hanging) after five seconds.
+    func waitUntil(file: StaticString = #filePath, line: UInt = #line, _ condition: @Sendable () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition() {
+            guard ContinuousClock.now < deadline else {
+                return XCTFail("condition not met within 5 s", file: file, line: line)
+            }
+            try? await Task.sleep(for: .milliseconds(2))
         }
     }
 }
