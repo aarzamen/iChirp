@@ -128,31 +128,41 @@ public struct TranscriptCorrectionService: Sendable {
     }
 
     /// Plan 025 D8: applies the enabled learned rules to a transcript a pipeline just saved, as `rule` corrections
-    /// (`LearnedRuleMatcher`, planned inside the store's transaction against the row as stored). Returns the row as
-    /// saved, or nil when nothing was written: no rules, no word timings, not completed, nothing matched, or a failure,
-    /// which is logged by id and swallowed (a rule never fails a job).
+    /// (`LearnedRuleMatcher`). Returns the row as saved, or nil when nothing was written: no rules, no word timings, not
+    /// completed, nothing matched, or a failure, which is logged by id and swallowed (a rule never fails a job).
+    ///
+    /// Fix round 1: the heard text is built and the rules are matched outside the store's transaction (M7); inside, the
+    /// write only checks that the words and corrections are still the ones planned against, and skips without failing
+    /// when they are not. A transcript that already has a correction history (an envelope: the person corrected or
+    /// reverted something, or an earlier run applied rules) gets no rules (M8), so a place the person reverted is never
+    /// fixed again, for example by a Retry of a row a newer build marked interrupted.
     public func applyLearnedRules(_ id: UUID) async -> Transcription? {
         let rules = await learnedRules().filter(\.isEnabled)
         guard !rules.isEmpty else { return nil }
         let context = await self.context()
         let now = self.now()
-        let count = Mutex(0)
         do {
+            guard let row = try await store.fetch(id: id), row.status == .completed, row.hasWordTimings,
+                row.textCorrections == nil
+            else { return nil }
+            let plan = LearnedRuleMatcher.plan(row.text(.heard, context: context), rules: rules, now: now)
+            guard !plan.isEmpty else { return nil }
+            let fingerprint = row.wordsFingerprint
             let saved = try await write(id) { row in
-                guard row.status == .completed, row.hasWordTimings, row.textCorrections?.isFromNewerBuild != true else {
+                // Planned against these words and no corrections: anything else meanwhile, skip.
+                guard row.status == .completed, row.wordsFingerprint == fingerprint, row.textCorrections == nil else {
                     return false
                 }
-                let plan = LearnedRuleMatcher.plan(row.text(.heard, context: context), rules: rules, now: now)
-                guard !plan.isEmpty else { return false }
-                _ = try row.applyCorrections(plan, now: now)
+                guard (try? row.applyCorrections(plan, now: now)) != nil else { return false }
                 Self.derive(&row, context: context)
-                count.withLock { $0 = plan.add.count }
                 return true
             }
             if saved != nil {
                 Self.logger.notice(
-                    "corrections_saved id=\(id, privacy: .public) added=\(count.withLock { $0 }, privacy: .public) removed=0 origin=rule"
+                    "corrections_saved id=\(id, privacy: .public) added=\(plan.add.count, privacy: .public) removed=0 origin=rule"
                 )
+            } else {
+                Self.logger.notice("learned_rules_skipped id=\(id, privacy: .public) reason=changed_meanwhile")
             }
             return saved
         } catch {

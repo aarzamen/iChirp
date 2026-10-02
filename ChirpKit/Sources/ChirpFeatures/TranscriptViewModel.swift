@@ -221,7 +221,9 @@ import Observation
         let (service, heard) = try correctionInputs()
         var texts: [Int: String] = [:]
         var replaced: [(text: String, range: NSRange)] = []
+        var changed = 0
         var skipped = 0
+        var inCorrections = 0
         let byBlock = Dictionary(grouping: matches, by: \.blockIndex)
         for (blockIndex, blockMatches) in byBlock {
             guard heard.lines.indices.contains(blockIndex) else {
@@ -231,23 +233,51 @@ import Observation
             let line = heard.lines[blockIndex]
             // The places the query matches in the line now; a stale match is skipped.
             let current = Set(TranscriptSearchIndex(blocks: [line.text]).matches(for: query).map(\.range))
-            let valid = blockMatches.filter { current.contains($0.range) }
-            skipped += blockMatches.count - valid.count
+            let fresh = blockMatches.filter { current.contains($0.range) }
+            skipped += blockMatches.count - fresh.count
+            // Fix round 1, I2: a match in a passage corrected earlier (another batch) is left alone, so reverting
+            // this replace never takes that correction with it.
+            let valid = fresh.filter {
+                !LearnedRuleMatcher.touchesCorrection($0.range, line: line, tokens: heard.tokens)
+            }
+            inCorrections += fresh.count - valid.count
             guard !valid.isEmpty else { continue }
             let text = NSMutableString(string: line.text)
+            let original = line.text as NSString
             for match in valid.sorted(by: { $0.range.location > $1.range.location }) {
+                let matched = original.substring(with: match.range)
+                let newText = Self.keepingEdgeSpacing(of: matched, in: replacement)
                 replaced.append((line.text, match.range))
-                text.replaceCharacters(in: match.range, with: replacement)
+                if matched != newText { changed += 1 }
+                text.replaceCharacters(in: match.range, with: newText)
             }
             texts[line.id] = text as String
         }
-        guard !texts.isEmpty else { return ReplaceOutcome(undo: .init(), count: 0, skipped: skipped) }
+        skipped += inCorrections
+        guard !texts.isEmpty, changed > 0 else {
+            return ReplaceOutcome(undo: .init(), count: 0, skipped: skipped, skippedInCorrections: inCorrections)
+        }
         let outcome = try await service.correct(
             id, lines: texts, in: heard, baseline: baseline, origin: origin, batchID: batchID)
         apply(outcome.row)
+        // Fix round 1, M2: the changes the write made; a replace that created nothing changed nothing.
+        guard !outcome.created.isEmpty else {
+            return ReplaceOutcome(undo: .init(), count: 0, skipped: skipped, skippedInCorrections: inCorrections)
+        }
         return ReplaceOutcome(
-            undo: outcome.undo, count: replaced.count, skipped: skipped,
-            ruleSuggestion: LearnedRuleSuggestion.make(query: query, replacement: replacement, replaced: replaced))
+            undo: outcome.undo, count: changed, skipped: skipped, skippedInCorrections: inCorrections,
+            ruleSuggestion: LearnedRuleSuggestion.make(query: query, replacement: replacement, replaced: replaced),
+            ruleWithheld: LearnedRuleSuggestion.withheldReason(query: query, replacement: replacement))
+    }
+
+    /// Fix round 1, M6: an untrimmed query (" the ") replaced by a word without spaces keeps the match's edge spacing,
+    /// so the words around it never run together.
+    static func keepingEdgeSpacing(of matched: String, in replacement: String) -> String {
+        let leading = matched.prefix(while: \.isWhitespace)
+        let trailing = matched.reversed().prefix(while: \.isWhitespace).reversed()
+        let startsWithSpace = replacement.first?.isWhitespace ?? false
+        let endsWithSpace = replacement.last?.isWhitespace ?? false
+        return (startsWithSpace ? "" : String(leading)) + replacement + (endsWithSpace ? "" : String(trailing))
     }
 
     /// The class the privacy rules use for this item now (its documents' raise it): the find bar's rule offer adds

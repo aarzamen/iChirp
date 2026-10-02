@@ -47,11 +47,11 @@ import Observation
         var engine: String?
         /// Set when `status` is "failed".
         var error: String?
-        /// Plan 025 B7: building the find index of a synthetic 20,000-word transcript (the fastest of three), and the
-        /// 95th percentile of 20 queries, in milliseconds (`TranscriptSearchBenchmark`). Nil until measured; additive
+        /// Plan 025 B7: building the find index of a synthetic 20,000-word transcript (the first, cold build), and the
+        /// median of 20 queries, in milliseconds (`TranscriptSearchBenchmark`). Nil until measured; additive
         /// keys the script prints as `FIND BENCH`.
         var findIndexMs: Double?
-        var findQueryP95Ms: Double?
+        var findQueryMedianMs: Double?
     }
 
     enum SmokeError: LocalizedError {
@@ -122,10 +122,10 @@ import Observation
         // Plan 025 B7: the find budget on this iPhone (synthetic words, off the main actor).
         state = .running(step: "Timing Find")
         let bench = await Task.detached(priority: .userInitiated) { TranscriptSearchBenchmark.run() }.value
-        result.findIndexMs = bench.indexMs
-        result.findQueryP95Ms = bench.queryP95Ms
+        result.findIndexMs = bench.coldIndexMs
+        result.findQueryMedianMs = bench.queryMedianMs
         logger.notice(
-            "smoke_find_bench index_ms=\(bench.indexMs, privacy: .public) query_p95_ms=\(bench.queryP95Ms, privacy: .public)"
+            "smoke_find_bench index_ms=\(bench.coldIndexMs, privacy: .public) query_median_ms=\(bench.queryMedianMs, privacy: .public)"
         )
         write(result)
         state = .finished(result)

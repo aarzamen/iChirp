@@ -14,7 +14,7 @@ import Foundation
 /// to the smallest span by `CorrectionPlanner` (`origin: .rule`, the rule's `ruleID`, one batch per rule). Unlike Clean,
 /// rules do not chain: every rule sees the words as heard. A match that touches a word the person (or an earlier rule)
 /// already corrected is left alone, and a match whose span would overlap an earlier one is skipped, so the plan never
-/// removes a correction.
+/// removes a correction. A rule with a number in either text is never applied (`containsNumber`).
 public enum LearnedRuleMatcher {
     public static func plan(_ heard: TranscriptText, rules: [CustomWord], now: Date) -> TranscriptCorrectionPlan {
         guard heard.hasWordTimings, !heard.tokens.isEmpty else { return TranscriptCorrectionPlan() }
@@ -22,6 +22,8 @@ public enum LearnedRuleMatcher {
             guard rule.isEnabled,
                 let replacement = rule.replacement?.trimmingCharacters(in: .whitespacesAndNewlines),
                 !replacement.isEmpty,
+                // C1, defense in depth for rules saved before the number ruling: never applied.
+                !containsNumber(rule.word), !containsNumber(replacement),
                 let regex = regex(for: rule.word)
             else { return nil }
             return (rule, regex, replacement)
@@ -73,7 +75,12 @@ public enum LearnedRuleMatcher {
         return regex.matches(in: text, range: NSRange(location: 0, length: length)).contains { $0.range == range }
     }
 
-    public static func containsNumber(_ text: String) -> Bool { false }  // STUB
+    /// Fix round 1, C1: a learned rule may not hold a number in what it finds or what it writes, so a dose ("0.5 mg"
+    /// → "5 mg") is never changed automatically in a later transcript. Any Character Unicode calls a number counts
+    /// ("5", "½", "²").
+    public static func containsNumber(_ text: String) -> Bool {
+        text.contains(where: \.isNumber)
+    }
 
     /// `CustomWordReplacer`'s pattern for one word.
     private static func regex(for word: String) -> NSRegularExpression? {
@@ -84,7 +91,7 @@ public enum LearnedRuleMatcher {
     }
 
     /// The match overlaps a token that is already a correction.
-    private static func touchesCorrection(_ range: NSRange, line: TranscriptTextLine, tokens: [TranscriptToken]) -> Bool
+    public static func touchesCorrection(_ range: NSRange, line: TranscriptTextLine, tokens: [TranscriptToken]) -> Bool
     {
         let matchRange = range.location..<(range.location + range.length)
         for (offset, tokenRange) in line.tokenUTF16Ranges.enumerated() where tokenRange.overlaps(matchRange) {

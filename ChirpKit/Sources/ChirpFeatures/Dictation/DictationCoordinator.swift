@@ -147,8 +147,14 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
     @ObservationIgnored private let voiceCommands: (any DictationVoiceCommanding)?
     /// Plan 025 D8: the person's learned rules, applied as corrections right after the final pass saves.
     @ObservationIgnored private let applyLearnedRules: @Sendable (UUID) async -> Transcription?
-    public private(set) var learnedRuleFixes = 0  // STUB
-    public static func learnedRuleFixesText(_ count: Int) -> String { "" }  // STUB
+    /// Fix round 1, I1: how many places the person's learned rules fixed in the last dictation's copied text (its
+    /// `rule` corrections as stored after the voice commands), so the Done screen can say so; 0 when none.
+    public private(set) var learnedRuleFixes = 0
+
+    /// "2 words fixed by your rules" (a count only: never the words, so VoiceOver hears no transcript text).
+    public static func learnedRuleFixesText(_ count: Int) -> String {
+        count == 1 ? "1 word fixed by your rules" : "\(count) words fixed by your rules"
+    }
     @ObservationIgnored private let logger = Log.logger("dictation")
 
     /// The current recording: its row id, WAV and class. Set when recording starts, kept after a failure for Retry.
@@ -318,6 +324,7 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
         finalPassProgress = nil
         copiedText = nil
         voiceCommandsNotSaved = nil
+        learnedRuleFixes = 0
         transcriptionID = nil
         isBusyNoticeVisible = false
         resumeError = nil
@@ -589,6 +596,7 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
 
     private func finalize(row: Transcription, url: URL, generation: Int, copy: Bool) async {
         finalPassProgress = 0
+        learnedRuleFixes = 0
         let outcome = await runFinalPass(row: row, url: url)
         finalPassProgress = nil
         switch outcome {
@@ -624,6 +632,12 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
                         if saved.row != nil { voiceCommandsNotSaved = .notSaved(droppedSendOn: sendOn) }
                     }
                 }
+                // I1: the rule fixes still in the copied text (a scratched sentence takes its fix with it).
+                if saved.ruleFixes > 0 {
+                    let store = self.store
+                    let stored = try? await Self.detached { try await store.fetch(id: row.id) }
+                    learnedRuleFixes = stored?.textCorrections?.items.filter { $0.origin == .rule }.count ?? 0
+                }
                 voiceCommands?.perform(actions, copiedText: copied, transcriptionID: row.id)
             }
             if saved.row == nil {
@@ -650,6 +664,8 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
     private struct FinalText {
         var text: String
         var row: Transcription?
+        /// How many `rule` corrections the learned rules made (fix round 1, I1).
+        var ruleFixes = 0
     }
 
     /// Stores the final pass's voice commands (`commanded` → `result`, the copied text) as `voiceCommand`
@@ -772,16 +788,18 @@ public enum VoiceCommandsNotSaved: Sendable, Equatable {
             // Plan 025 D8: the learned rules become corrections before anything is copied or commanded, so the copied
             // text is the row's shown text with them (and the voice commands see the fixed words).
             var copiedText = text
+            var ruleFixes = 0
             if let stored = saved, stored.status == .completed {
                 let applyLearnedRules = self.applyLearnedRules
                 if let corrected = await Task(operation: { await applyLearnedRules(stored.id) }).value {
                     saved = corrected
+                    ruleFixes = corrected.textCorrections?.items.filter { $0.origin == .rule }.count ?? 0
                     let shown = corrected.plainText(.shown(.raw), context: await shownTextContext())
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     if !shown.isEmpty { copiedText = shown }
                 }
             }
-            outcome = .success(FinalText(text: copiedText, row: saved))
+            outcome = .success(FinalText(text: copiedText, row: saved, ruleFixes: ruleFixes))
         } catch {
             logger.error("dictation_final_pass_failed error_type=\(error.logTypeName, privacy: .public)")
             // Review I2: a missing model names the engine this pass resolved and what to do.

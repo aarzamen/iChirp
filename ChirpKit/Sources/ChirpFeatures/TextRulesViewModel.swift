@@ -65,6 +65,17 @@ import Observation
             lastError = "Type the word Parakeet should write."
             return false
         }
+        if edited.source == .learned {
+            // Fix round 1: a learned rule always writes something (M4) and never holds a number (C1).
+            guard let replacement = edited.replacement else {
+                lastError = Self.learnedRuleNeedsReplacement
+                return false
+            }
+            if let reason = LearnedRuleSuggestion.withheldReason(query: edited.word, replacement: replacement) {
+                lastError = reason
+                return false
+            }
+        }
         return await save(edited)
     }
 
@@ -84,7 +95,8 @@ import Observation
         case alreadyExists(String)
         /// The rule could not be saved; the message says why.
         case failed(String)
-        case refused(String)  // STUB
+        /// The rule breaks a safety ruling (C1: it holds a number); the message says why. Nothing was saved.
+        case refused(String)
     }
 
     /// Saves "Also fix `word` in future transcripts" as a learned rule (`CustomWord.Source.learned`) replacing it with
@@ -93,6 +105,9 @@ import Observation
         let trimmedWord = word.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedWord.isEmpty, let trimmedReplacement = Self.nonBlank(replacement) else {
             return .failed("A rule needs the words to find and what to write instead.")
+        }
+        if let reason = LearnedRuleSuggestion.withheldReason(query: trimmedWord, replacement: trimmedReplacement) {
+            return .refused(reason)
         }
         do {
             try await store.save(CustomWord(word: trimmedWord, replacement: trimmedReplacement, source: .learned))
@@ -106,6 +121,10 @@ import Observation
             return .failed((error as? any LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }
+
+    /// M4: editing a learned rule cannot empty its replacement (it would silently stop fixing anything).
+    public static let learnedRuleNeedsReplacement =
+        "A fix needs what Parakeet writes instead. To stop it, delete the rule."
 
     /// "“met for men” already has a rule in Settings → Text rules."
     public static func alreadyHasRule(_ word: String) -> String {

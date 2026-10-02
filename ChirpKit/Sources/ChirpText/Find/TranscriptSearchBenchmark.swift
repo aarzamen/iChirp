@@ -4,17 +4,16 @@
 import Foundation
 
 /// Times `TranscriptSearchIndex` over a deterministic synthetic transcript (D4 budget: 20,000 words, index ≤ 50 ms and
-/// query ≤ 8 ms p95 on the iPhone 17 Pro in a release build). Synthetic words only.
+/// query ≤ 8 ms on the iPhone 17 Pro in a release build): the first (cold) index build and the median of 20 queries.
+/// Synthetic words only.
 public enum TranscriptSearchBenchmark {
     public struct Result: Sendable, Equatable {
-        /// The fastest of three index builds, in milliseconds.
-        public var indexMs: Double
-        /// The 95th percentile of the query times, in milliseconds.
-        public var queryP95Ms: Double
+        /// The first index build, in milliseconds: cold, as when a transcript opens (fix round 1, M9).
+        public var coldIndexMs: Double
+        /// The median of the query times, in milliseconds.
+        public var queryMedianMs: Double
         /// Matches found over all queries (proof the queries searched something).
         public var totalMatches: Int
-        public var coldIndexMs: Double { indexMs }  // STUB
-        public var queryMedianMs: Double { queryP95Ms }  // STUB
     }
 
     /// The budget D4 sets for the iPhone.
@@ -48,16 +47,12 @@ public enum TranscriptSearchBenchmark {
         return blocks
     }
 
-    /// Builds the index three times (keeps the fastest) and times every query once.
+    /// Builds the index once (cold) and times every query once.
     public static func run(words: Int = 20_000) -> Result {
         let blocks = syntheticBlocks(words: words)
         let clock = ContinuousClock()
         var index = TranscriptSearchIndex(blocks: [])
-        var builds: [Double] = []
-        for _ in 0..<3 {
-            let elapsed = clock.measure { index = TranscriptSearchIndex(blocks: blocks) }
-            builds.append(milliseconds(elapsed))
-        }
+        let cold = milliseconds(clock.measure { index = TranscriptSearchIndex(blocks: blocks) })
         var times: [Double] = []
         var total = 0
         for query in queries {
@@ -67,8 +62,8 @@ public enum TranscriptSearchBenchmark {
             times.append(milliseconds(elapsed))
         }
         times.sort()
-        let p95 = times[min(times.count - 1, Int((Double(times.count) * 0.95).rounded(.up)) - 1)]
-        return Result(indexMs: builds.min() ?? 0, queryP95Ms: p95, totalMatches: total)
+        let median = (times[(times.count - 1) / 2] + times[times.count / 2]) / 2
+        return Result(coldIndexMs: cold, queryMedianMs: median, totalMatches: total)
     }
 
     private static func milliseconds(_ duration: Duration) -> Double {

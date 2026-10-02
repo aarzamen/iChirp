@@ -394,16 +394,17 @@ final class TranscriptCorrectionServiceTests: XCTestCase {
             original.id, line: 0, in: original.text(.heard), baseline: baseline(original),
             text: "The patient takes met for men twice daily. She feels well today.")
         XCTAssertEqual(mine.row.textCorrections?.items.map(\.text), ["men twice"])
-        // A rule that would cover the person's correction leaves it alone; one elsewhere still applies.
+        // Fix round 1, M8: a transcript the person already corrected gets no rules at all (the matcher also leaves
+        // corrected words alone: LearnedRuleMatcherTests.testCorrectedWordsAreLeftAlone).
         let rules = [
             CustomWord(word: "met for men", replacement: "metformin", source: .learned),
             CustomWord(word: "feels well", replacement: "feels fine", source: .learned),
         ]
         let saved = await service(store, rules: rules).applyLearnedRules(original.id)
-        XCTAssertEqual(
-            saved?.textCorrections?.items.map(\.text), ["men twice", "fine"],
-            "the smallest span: \"well\" becomes \"fine\"")
-        XCTAssertEqual(saved?.textCorrections?.items.map(\.origin), [.edit, .rule])
+        XCTAssertNil(saved)
+        let stored = await store.row(original.id)
+        XCTAssertEqual(stored?.textCorrections?.items.map(\.text), ["men twice"])
+        XCTAssertEqual(stored?.textCorrections?.items.map(\.origin), [.edit])
     }
 
     func testApplyLearnedRulesWithoutRulesOrWordsWritesNothingAndNeverThrows() async throws {

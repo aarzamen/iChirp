@@ -156,7 +156,11 @@ pipeline's `Task`s and publishes its progress to the UI.
   (the line texts a `TranscriptFindMatch.blockIndex` indexes), `timeMs(of:)` (the start of the token a match starts
   in), `canReplace` / `replaceUnavailableReason`, `replace(_:query:with:)` and `replaceAll(_:query:with:)` (a stale
   match whose text no longer matches the query is skipped; Replace all is one plan, one write, one `batchID`; both
-  return a `ReplaceOutcome` with the undo plan, the count and the D8 `LearnedRuleSuggestion`) and
+  return a `ReplaceOutcome` with the undo plan, the count and the D8 `LearnedRuleSuggestion`). Fix round 1: a match
+  that touches a correction from another batch is skipped and counted (`skippedInCorrections`, I2), so reverting the
+  replace never takes the person's correction with it; the count is the places that actually changed, and a replace
+  that created nothing returns count 0 with no undo and no offer (M2); an untrimmed query keeps the match's edge
+  spacing (`keepingEdgeSpacing`, M6); `ruleWithheld` says why there is no offer when a number is involved (C1) and
   `effectivePrivacyClassNow()` (the rule offer's clinical note); the injected text context
   (`TranscriptTextContext.current`) reaches Copy and the exports. Also speaker labels, `mediaURL` for the player, `plainText` for
   Copy (`Transcription.plainText(.shown(mode))`, the text the exports and the models use; plan 024 Task 8),
@@ -264,7 +268,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   `DictationTextRules.enabled(in:)` reads the enabled manual words and snippets for a dictation. Plan 025 D8:
   `manualWords` (Clean and meetings use only these) and `learnedRules` ("Fixes from your corrections"), and
   `addLearnedRule(word:replacement:)` → `.added`, `.alreadyExists("“met for men” already has a rule in Settings → Text
-  rules.")` or `.failed`, which never sets `lastError` (the Transcript screen shows it).
+  rules.")`, `.refused` (fix round 1, C1: a number in either text, "Rules can’t contain numbers, so a dose is never
+  changed automatically.") or `.failed`, which never sets `lastError` (the Transcript screen shows it). Editing a
+  learned rule refuses a number too, and an empty replacement (M4: delete the rule instead).
 - `SettingsStore.swift`: `SettingsStoring` and `UserDefaultsSettingsStore`, a JSON blob under
   `ichirp.transcriptionSettings` that falls back to the defaults when missing or unreadable.
 - `LanguageModelProviderStore.swift`: `LanguageModelProviderStoring` and `UserDefaultsLanguageModelProviderStore`
@@ -393,7 +399,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   baseline:origin:batchID:)` plans several lines in one write (Replace all), and `applyLearnedRules(_:)` applies the
   enabled learned rules (the `learnedRules` provider) to a transcript a pipeline just saved, as `rule` corrections
   planned inside the transaction (`LearnedRuleMatcher`); it never throws: no rules, no timings or a failure return nil
-  (the failure logged by id), so a rule never fails a job.
+  (the failure logged by id), so a rule never fails a job. Fix round 1: it fetches the row and matches the rules
+  outside the transaction (M7); the write only re-checks the words' fingerprint and that no correction appeared, and
+  skips otherwise. A transcript that already has a correction history gets no rules (M8), so a place the person
+  reverted is never fixed again.
 
 ## Find in transcript (plan 025 Part B, `Find/`)
 
@@ -411,7 +420,8 @@ pipeline's `Task`s and publishes its progress to the UI.
   `MeetingFinalizer` (in `saveAndSettle`, after a completed meeting is saved), `DictationCoordinator` (after the final
   pass saves, **before** the voice commands and the copy: the copied text is then the row's `.shown(.raw)` text, and
   the commands' corrections are planned over the token stream, `VoiceCommandCorrections.plan(tokens:...)`, so a
-  scratched sentence's rule correction is replaced whole) and `LinkIngestService.importCaptions` (after insert) take
+  scratched sentence's rule correction is replaced whole; `learnedRuleFixes` counts the rule fixes still in the copied
+  text for the Done screen, fix round 1, I1) and `LinkIngestService.importCaptions` (after insert) take
   `applyLearnedRules: @Sendable (UUID) async -> Transcription?` (default: none). The app wires all four to one
   `TranscriptCorrectionService` with `enabledLearnedRules()`, and gives Clean and the meeting applier
   `enabledManualCustomWords()` only, so manual words behave exactly as before and learned rules act only as

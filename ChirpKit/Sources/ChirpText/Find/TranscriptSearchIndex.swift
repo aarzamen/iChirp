@@ -24,9 +24,10 @@ public struct TranscriptFindMatch: Equatable, Hashable, Sendable {
 ///
 /// Every Character of every block is folded with `String.folding(options: [.caseInsensitive, .diacriticInsensitive],
 /// locale: nil)` (ASCII letters are lowercased directly, the fast path) and each folded UTF-16 unit remembers the
-/// UTF-16 start and end of the Character it came from. The query is folded the same way. A match therefore always
-/// covers whole Characters of the original text ("e" + a combining accent is one Character: a match covers both units),
-/// matches never overlap, never cross a block, and come back in reading order. A query that is blank after trimming
+/// UTF-16 start and end of the Character it came from. The query is folded the same way. A match starts on a
+/// Character's first folded unit and ends on its last, so it always covers whole Characters of the original text ("e"
+/// + a combining accent is one Character: a match covers both units; half of a folded "ß" is no match). Matches never
+/// overlap, never cross a block, and come back in reading order. A query that is blank after trimming
 /// matches nothing; otherwise the untrimmed query is searched (upstream: " the " finds the word, not the "the" in
 /// "other").
 public struct TranscriptSearchIndex: Sendable {
@@ -90,17 +91,20 @@ public struct TranscriptSearchIndex: Sendable {
                                     position += 1
                                     continue
                                 }
-                                // Widen to whole Characters: from the start of the first unit's Character to the end
-                                // of the last unit's.
-                                let start = Int(starts[position])
-                                let end = Int(ends[position + length - 1])
-                                if let previous = result.last, previous.blockIndex == blockIndex,
-                                    start < previous.range.location + previous.range.length
-                                {
-                                    // Inside the Character the previous match ended in: never overlap.
+                                // Fix round 1, M1: a match starts on a Character's first folded unit and ends on its
+                                // last, as upstream's NSString search does ("as" is no match in "Straße", whose "ß"
+                                // folds to "ss").
+                                let endUnit = position + length - 1
+                                let startsCharacter =
+                                    position == range.lowerBound || starts[position] != starts[position - 1]
+                                let endsCharacter =
+                                    endUnit + 1 == range.upperBound || starts[endUnit + 1] != starts[endUnit]
+                                guard startsCharacter, endsCharacter else {
                                     position += 1
                                     continue
                                 }
+                                let start = Int(starts[position])
+                                let end = Int(ends[endUnit])
                                 result.append(
                                     TranscriptFindMatch(
                                         blockIndex: blockIndex, range: NSRange(location: start, length: end - start)))
