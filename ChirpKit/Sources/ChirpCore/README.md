@@ -62,7 +62,10 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   - `SpeechRoute`: `.live` is display-only text; `.final` is every kept transcript.
   - `SpeechRouteSelection` decodes forgivingly.
   - `SpeechEngineRouter` is a `SpeechEngine` for the final route and a `LiveSpeechSessionProviding` for the live
-    route. A live engine without its own live mode gets a tail preview over a temporary WAV.
+    route. A live engine without its own live mode gets a tail preview over a temporary WAV. Review R1-5: each window
+    is written into `<tmp>/live-preview/` only after the engine is prepared and deleted after its pass, and
+    `sweepStaleLivePreviewAudio()` (the app calls it at launch) deletes the windows a killed launch left there, never
+    one this router is transcribing.
   - Leases block route changes during a meeting.
   - Memory (review I3): `select` returns the routes it changed. Two different engines on the routes must fit the
     model budget together (`SpeechEngineCapabilityRegistry.combinedRuntimeMemoryBytes`); a Transcripts choice that

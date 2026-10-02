@@ -404,6 +404,7 @@ import Observation
         ExportTempFiles.sweepStale()
         VoiceMessageExporter.sweepStaleWork()  // plan 022: chunks a killed voice message left in tmp
         SpokenInstructionRecorder.sweepStaleRecordings()  // plan 022 review M3: a killed Edit by voice's recording
+        speechRouter.sweepStaleLivePreviewAudio()  // review R1-5: live-preview windows of speech a kill left in tmp
         logger.notice("launch build=\(BuildIdentity.current.summary, privacy: .public)")
         await library.start()
         await capture.start()
