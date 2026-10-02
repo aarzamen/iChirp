@@ -136,6 +136,8 @@ final class ContrastTests: XCTestCase {
     private static let dictationAccent = Paint("dictationAccent", P.dictationAccent)
     private static let placeholder = Paint("placeholder", P.placeholder)
     private static let selectedSegment = Paint("selectedSegment", P.selectedSegment)
+    private static let findMatchFill = Paint("findMatchFill", P.findMatchFill)
+    private static let findCurrentFill = Paint("findCurrentFill", P.findCurrentFill)
     /// iOS's grouped-list row (`secondarySystemGroupedBackground`) behind the Form rows in Settings subscreens, which
     /// hide only the scroll background. Not a token: the system draws it.
     private static let systemRow = Paint(
@@ -168,6 +170,9 @@ final class ContrastTests: XCTestCase {
         table += pairs(accentInk, on: [ground, surface, systemRow], .text, "accent text, links, the app tint")
         table += pairs(
             accentInkPressed, on: [tint], .text, "accent text on tint chips (AppColor.accentTextOnTint, badges)")
+        table += pairs(
+            ink, on: [findMatchFill, findCurrentFill], .text,
+            "plan 025 B5: transcript text on a Find match and on the current match")
         table += pairs(successInk, on: [ground, surface, systemRow], .text, "green status text")
         table += pairs(
             errorInk, on: [ground, surface, quietFill, systemRow], .text,
@@ -218,6 +223,9 @@ final class ContrastTests: XCTestCase {
         table += pairs(onAccent, on: [night], .glyph, "link cover glyph; Dictating's Stop square")
         table += pairs(ground, on: [ink], .glyph, "Ask's Stop answering glyph")
         table += pairs(accentInk, on: [tint], .glyph, "icon tiles")
+        table += pairs(
+            ink, on: [findMatchFill, findCurrentFill], .glyph,
+            "plan 025 B5: the dotted correction underline inside a Find match (drawn in ink there)")
         table += pairs(success, on: [ground, surface], .glyph, "switch tint, ready dots, check glyphs")
         table += pairs(favorite, on: [ground, surface], .glyph, "the favorite star")
         table += pairs(mutedText, on: [ground, surface], .glyph, "chevrons, the unfavorited star, placeholders")
@@ -346,6 +354,28 @@ final class ContrastTests: XCTestCase {
                 XCTAssertGreaterThan(rgb.red, rgb.blue, "\(name) is not warm (red above blue)")
                 XCTAssertGreaterThanOrEqual(rgb.red, rgb.green, "\(name) is not warm (red at least green)")
             }
+        }
+    }
+
+    /// Plan 025 fix round 1, I4: a Find match reads on the dark ground (1.5:1), both fills have Increase Contrast
+    /// values that step further from the ground, and the current match is not told apart by colour alone: it is bold
+    /// with a solid underline (`TranscriptFindAppTests.testCurrentMatchIsBoldAndUnderlined`), because the light fills
+    /// cannot be 3:1 apart while ink stays 4.5:1 on both.
+    func testFindFillsReadOnTheGroundAndHaveIncreaseContrastValues() {
+        for appearance in [Appearance.dark, .darkHighContrast] {
+            XCTAssertGreaterThanOrEqual(
+                Self.contrastRatio(P.findMatchFill.hex(in: appearance), P.ground.hex(in: appearance)), 1.5,
+                "match fill on ground in \(appearance.rawValue)")
+        }
+        for fill in [P.findMatchFill, P.findCurrentFill] {
+            // Both have Increase Contrast values. In light mode ink is the same with Increase Contrast, so a darker
+            // fill would lower ink's contrast (testIncreaseContrastNeverLowersContrast): the light variant is a more
+            // saturated amber instead. In dark mode it steps further from the ground.
+            XCTAssertNotEqual(fill.lightHighContrast, fill.light)
+            XCTAssertNotEqual(fill.darkHighContrast, fill.dark)
+            XCTAssertGreaterThan(
+                Self.contrastRatio(fill.darkHighContrast, P.ground.darkHighContrast),
+                Self.contrastRatio(fill.dark, P.ground.dark))
         }
     }
 

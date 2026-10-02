@@ -2,6 +2,7 @@
 import ChirpAudio
 import ChirpCore
 import ChirpFeatures
+import ChirpText
 import Foundation
 import Observation
 
@@ -46,6 +47,11 @@ import Observation
         var engine: String?
         /// Set when `status` is "failed".
         var error: String?
+        /// Plan 025 B7: building the find index of a synthetic 20,000-word transcript (the first, cold build), and the
+        /// median of 20 queries, in milliseconds (`TranscriptSearchBenchmark`). Nil until measured; additive
+        /// keys the script prints as `FIND BENCH`.
+        var findIndexMs: Double?
+        var findQueryMedianMs: Double?
     }
 
     enum SmokeError: LocalizedError {
@@ -113,6 +119,14 @@ import Observation
         }
         peakSampler.cancel()
         result.peakMemoryMB = MemoryProbe.megabytes(await peakSampler.value)
+        // Plan 025 B7: the find budget on this iPhone (synthetic words, off the main actor).
+        state = .running(step: "Timing Find")
+        let bench = await Task.detached(priority: .userInitiated) { TranscriptSearchBenchmark.run() }.value
+        result.findIndexMs = bench.coldIndexMs
+        result.findQueryMedianMs = bench.queryMedianMs
+        logger.notice(
+            "smoke_find_bench index_ms=\(bench.coldIndexMs, privacy: .public) query_median_ms=\(bench.queryMedianMs, privacy: .public)"
+        )
         write(result)
         state = .finished(result)
         logger.notice(

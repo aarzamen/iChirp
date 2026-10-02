@@ -57,17 +57,22 @@ public enum TranscriptCorrectionError: Error, Equatable, LocalizedError {
 public struct TranscriptCorrectionService: Sendable {
     private let store: any TranscriptionStoring
     private let context: @Sendable () async -> TranscriptTextContext
+    private let learnedRules: @Sendable () async -> [CustomWord]
     private let now: @Sendable () -> Date
     private static let logger = Log.logger("corrections")
 
     /// - Parameter context: the person's clean-up rules (`TranscriptTextContext.current(textRules:settings:)`), read at
     ///   every write for the derived title of a row with clean text.
+    /// - Parameter learnedRules: the enabled learned rules (`TextRulesStoring.enabledLearnedRules()`, plan 025 D8), read
+    ///   by `applyLearnedRules(_:)`; none by default.
     public init(
         store: any TranscriptionStoring, context: @escaping @Sendable () async -> TranscriptTextContext,
+        learnedRules: @escaping @Sendable () async -> [CustomWord] = { [] },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.store = store
         self.context = context
+        self.learnedRules = learnedRules
         self.now = now
     }
 
@@ -94,6 +99,86 @@ public struct TranscriptCorrectionService: Sendable {
         } catch TranscriptCorrectionError.correctedAgain {
             // A new edit over words another write corrected meanwhile: the screen's text is out of date.
             throw TranscriptCorrectionError.transcriptChanged
+        }
+    }
+
+    /// Several lines of `loaded` edited at once (Replace all), saved as one plan in one write: every line's smallest
+    /// spans (`CorrectionPlanner`), sharing `origin` and `batchID`. Lines whose text did not change add nothing.
+    public func correct(
+        _ id: UUID, lines texts: [Int: String], in loaded: TranscriptText, baseline: String,
+        origin: TranscriptCorrection.Origin, batchID: UUID? = nil
+    ) async throws -> CorrectionOutcome {
+        var plan = TranscriptCorrectionPlan()
+        let now = self.now()
+        for (lineID, text) in texts.sorted(by: { $0.key < $1.key }) {
+            guard let target = loaded.lines.first(where: { $0.id == lineID }) else {
+                throw TranscriptCorrectionError.transcriptChanged
+            }
+            do {
+                let linePlan = try CorrectionPlanner.plan(
+                    line: target, tokens: loaded.tokens, heard: { loaded.heardText($0) }, editedText: text,
+                    origin: origin, batchID: batchID, now: now)
+                plan.remove.formUnion(linePlan.remove)
+                plan.add += linePlan.add
+            } catch let error as TranscriptCorrectionsError {
+                throw Self.map(error)
+            }
+        }
+        return try await apply(id, plan: plan, baseline: baseline)
+    }
+
+    /// Plan 025 D8: applies the enabled learned rules to a transcript a pipeline just saved, as `rule` corrections
+    /// (`LearnedRuleMatcher`). Returns the row as saved, or nil when nothing was written: no rules, no word timings, not
+    /// completed, nothing matched, or a failure, which is logged by id and swallowed (a rule never fails a job).
+    ///
+    /// Fix round 1: the heard text is built and the rules are matched outside the store's transaction (M7); inside, the
+    /// write only checks that the words and corrections are still the ones planned against, and skips without failing
+    /// when they are not. A transcript that already has a correction history (an envelope: the person corrected or
+    /// reverted something, or an earlier run applied rules) gets no rules (M8), so a place the person reverted is never
+    /// fixed again, for example by a Retry of a row a newer build marked interrupted.
+    public func applyLearnedRules(_ id: UUID) async -> Transcription? {
+        let rules = await learnedRules().filter(\.isEnabled)
+        guard !rules.isEmpty else { return nil }
+        let context = await self.context()
+        let now = self.now()
+        do {
+            guard let row = try await store.fetch(id: id), row.status == .completed, row.hasWordTimings,
+                row.textCorrections == nil
+            else { return nil }
+            let plan = LearnedRuleMatcher.plan(row.text(.heard, context: context), rules: rules, now: now)
+            guard !plan.isEmpty else { return nil }
+            let fingerprint = row.wordsFingerprint
+            let applyFailed = Mutex(false)
+            let saved = try await write(id) { row in
+                // Planned against these words and no corrections: anything else meanwhile, skip.
+                guard row.status == .completed, row.wordsFingerprint == fingerprint, row.textCorrections == nil else {
+                    return false
+                }
+                do {
+                    _ = try row.applyCorrections(plan, now: now)
+                } catch {
+                    // Fix round 2, N6: its own reason in the log (the error's case only, never content).
+                    Self.logger.notice(
+                        "learned_rules_skipped id=\(id, privacy: .public) reason=apply_failed error=\(String(describing: error), privacy: .public)"
+                    )
+                    applyFailed.withLock { $0 = true }
+                    return false
+                }
+                Self.derive(&row, context: context)
+                return true
+            }
+            if saved != nil {
+                Self.logger.notice(
+                    "corrections_saved id=\(id, privacy: .public) added=\(plan.add.count, privacy: .public) removed=0 origin=rule"
+                )
+            } else if !applyFailed.withLock({ $0 }) {
+                Self.logger.notice("learned_rules_skipped id=\(id, privacy: .public) reason=changed_meanwhile")
+            }
+            return saved
+        } catch {
+            Self.logger.error(
+                "learned_rules_failed id=\(id, privacy: .public) error_type=\(error.logTypeName, privacy: .public)")
+            return nil
         }
     }
 
@@ -222,6 +307,14 @@ public struct TranscriptCorrectionService: Sendable {
         case .overlapping: .correctedAgain
         case .baselineChanged, .invalidRange, .mixedSpeakers: .transcriptChanged
         }
+    }
+}
+
+extension Transcription {
+    /// Plan 025 fix round 1, I1: how many places the person's learned rules fixed (`rule` corrections), for the
+    /// summaries that show a dictation's text (a count only, never the words).
+    public var learnedRuleFixCount: Int {
+        textCorrections?.items.filter { $0.origin == .rule }.count ?? 0
     }
 }
 

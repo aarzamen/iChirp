@@ -45,6 +45,39 @@ final class MeetingFinalizerTests: XCTestCase {
         XCTAssertEqual(h.progress.progress(for: id).last?.stage, .finishing)
     }
 
+    // MARK: - Learned rules (plan 025 B4)
+
+    func testLearnedRulesAreCorrectionsNotTokenRewrites() async throws {
+        let rule = CustomWord(word: "kenobi", replacement: "Kenobee", source: .learned)
+        let h = try MeetingHarness(learnedRules: [rule])
+        harness = h
+        await h.speech.setTranscript(text: "um Hello there. General Kenobi.", words: FakeSpeech.helloWords)
+        let id = try await insertStoppedMeeting(h)
+
+        let saved = await h.finalizer.finalize(id: id)
+
+        XCTAssertEqual(saved?.status, .completed)
+        XCTAssertEqual(saved?.rawTranscript, "um Hello there. General Kenobi.", "the words as heard are kept")
+        XCTAssertEqual(saved?.wordTimestamps?.map(\.word), FakeSpeech.helloWords.map(\.word))
+        XCTAssertEqual(saved?.textCorrections?.items.map(\.origin), [.rule])
+        XCTAssertEqual(saved?.textCorrections?.items.map(\.text), ["Kenobee."])
+        XCTAssertEqual(saved?.text(.heard).lines.last?.text.hasSuffix("General Kenobee."), true)
+        XCTAssertFalse(h.lockStore.hasLockFile(sessionId: id))
+    }
+
+    func testManualWordsStillRewriteMeetingTokens() async throws {
+        let h = try MeetingHarness(customWords: [CustomWord(word: "kenobi", replacement: "Kenobee")])
+        harness = h
+        await h.speech.setTranscript(text: "um Hello there. General Kenobi.", words: FakeSpeech.helloWords)
+        let id = try await insertStoppedMeeting(h)
+
+        let saved = await h.finalizer.finalize(id: id)
+
+        XCTAssertEqual(saved?.rawTranscript, "um Hello there. General Kenobee.")
+        XCTAssertEqual(saved?.wordTimestamps?.last?.word, "Kenobee.")
+        XCTAssertNil(saved?.textCorrections, "manual words are no corrections")
+    }
+
     func testPrivacyRoutingRefusesACloudEngineForClinicalMeetingsAndKeepsEverything() async throws {
         let h = try MeetingHarness(speech: FakeSpeech(locality: .cloud))
         harness = h

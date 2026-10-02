@@ -391,6 +391,15 @@ struct CreateRunView: View {
                 .foregroundStyle(Tokens.Color.ink)
                 .lineLimit(10)
                 .textSelection(.enabled)
+            // Plan 025 fix round 1, I1: the person's learned rules changed this text; a count only, and Open transcript
+            // below shows each fix marked.
+            if item.learnedRuleFixCount > 0 {
+                Label(
+                    DictationCoordinator.learnedRuleFixesText(item.learnedRuleFixCount), systemImage: "wand.and.stars"
+                )
+                .chirpFont(13)
+                .foregroundStyle(Tokens.Color.secondary)
+            }
             resultActions(
                 openLabel: item.isTextOnly ? "Open" : "Open transcript", destination: .item(item.id),
                 text: flow.itemShownText)

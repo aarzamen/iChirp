@@ -230,6 +230,15 @@ final class AppScreenLogicTests: XCTestCase {
             JSONSerialization.jsonObject(with: SmokeTestRunner.encode(failed)) as? [String: Any])
         XCTAssertEqual(failedObject["error"] as? String, "boom")
         XCTAssertEqual(SmokeTestRunner.placeholderResult(build: build).status, "running")
+
+        // Plan 025 B7: the find benchmark's two additive keys, printed by the script as FIND BENCH.
+        var benched = result
+        benched.findIndexMs = 12.5
+        benched.findQueryMedianMs = 1.25
+        let benchedObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: SmokeTestRunner.encode(benched)) as? [String: Any])
+        XCTAssertEqual(benchedObject["findIndexMs"] as? Double, 12.5)
+        XCTAssertEqual(benchedObject["findQueryMedianMs"] as? Double, 1.25)
     }
 
     func testBundledSampleIsInTheApp() {

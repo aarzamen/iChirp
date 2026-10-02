@@ -447,6 +447,48 @@ final class FileTranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText)
     }
 
+    // MARK: - Learned rules (plan 025 B4)
+
+    func testLearnedRuleBecomesACorrectionInRawMode() async throws {
+        let rule = CustomWord(word: "kenobi", replacement: "Kenobi-sama", source: .learned)
+        let h = try PipelineHarness(testCase: self, learnedRules: [rule])
+        let id = try await h.importSample()
+
+        let result = await h.pipeline.process(id: id)
+        let stored = await h.store.row(id)
+        let row = try XCTUnwrap(stored)
+
+        XCTAssertEqual(result, row, "the job returns the row with its rule corrections")
+        XCTAssertEqual(row.status, .completed)
+        XCTAssertEqual(row.rawTranscript, FakeSpeech.helloText, "the words as heard are kept")
+        XCTAssertEqual(row.wordTimestamps?.map(\.word), FakeSpeech.helloWords.map(\.word))
+        XCTAssertNil(row.cleanTranscript, "Raw mode: no clean text")
+        XCTAssertEqual(row.textCorrections?.items.map(\.origin), [.rule])
+        XCTAssertEqual(row.textCorrections?.items.map(\.ruleID), [rule.id])
+        XCTAssertEqual(row.textCorrections?.items.map(\.heard), ["Kenobi."])
+        XCTAssertEqual(row.plainText(.shown(.raw)), "Hello there. General Kenobi-sama.")
+        XCTAssertEqual(row.text(.heard).lines.map(\.text).joined(separator: " "), "Hello there. General Kenobi-sama.")
+    }
+
+    func testManualWordsStillApplyOnlyInClean() async throws {
+        let manual = [CustomWord(word: "Kenobi", replacement: "Kenobi-sama")]
+        let raw = try PipelineHarness(testCase: self, customWords: manual)
+        let rawID = try await raw.importSample()
+        let rawRow = await raw.pipeline.process(id: rawID)
+        XCTAssertNil(rawRow?.cleanTranscript, "Raw: manual words do nothing")
+        XCTAssertNil(rawRow?.textCorrections, "manual words never become corrections")
+        XCTAssertEqual(rawRow?.plainText(.shown(.raw)), FakeSpeech.helloText)
+
+        var settings = TranscriptionSettings()
+        settings.cleanupMode = .clean
+        let clean = try PipelineHarness(testCase: self, settings: settings, customWords: manual)
+        let cleanID = try await clean.importSample()
+        let cleanRow = await clean.pipeline.process(id: cleanID)
+        XCTAssertEqual(cleanRow?.cleanTranscript?.contains("Kenobi-sama"), true)
+        XCTAssertNil(cleanRow?.textCorrections)
+        XCTAssertEqual(cleanRow?.text(.heard).lines.map(\.text).joined(separator: " "), FakeSpeech.helloText)
+    }
+
     // MARK: - Concurrency with the user and the job owner
 
     func testUserTitleEditedDuringProcessingIsPreserved() async throws {

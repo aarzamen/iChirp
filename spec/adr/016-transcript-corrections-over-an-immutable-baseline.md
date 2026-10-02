@@ -33,7 +33,18 @@ that") changed only the copied text, so Send to SOAP read the scratched words (r
 - **Pipelines never drop corrections:** they are a user field. A save with the same words keeps them; different words
   detach them (kept, listed, never applied, deleted only on request).
 - **Voice commands are corrections** (`origin: voiceCommand`), stored before Send to SOAP / Transform opens.
-- Learned rules (plan 025 Part B) will be corrections too (`origin: rule`), never a silent rewrite.
+- Learned rules (plan 025 Part B, built 2026-10-02) are corrections too (`origin: rule`, `ruleID`), applied by the
+  pipelines right after they save a completed transcript, never a silent rewrite; Find's Replace and Replace all are
+  corrections (`replace`, `replaceAll` with one `batchID`).
+- Fix round 1 (2026-10-02): a learned rule never holds a number (no offer, refused on save and edit, never applied),
+  so a dose is never changed automatically; fix round 2 adds dose and measurement unit words (one closed list in
+  `LearnedRuleMatcher.doseUnitWords`: mass, volume, units, percent, dose-frequency abbreviations; whole words, any
+  case), because "mg" → "mcg" or "bid" → "tid" changes a dose's meaning without a digit. Turning a rule on or off is
+  never refused. Rules between drug names stay allowed (an owner decision to revisit); a Replace never replaces inside another batch's correction (skipped and
+  counted), so reverting it never takes the person's correction with it; rules are matched outside the store's
+  transaction and the write is skipped when the words or corrections changed meanwhile; a transcript that already has
+  a correction history gets no rules. **Known limit:** that last rule means a transcript re-saved with different words
+  (the newer-build Retry back door) gets no rules either; its old corrections are detached and kept as before.
 
 ## Consequences
 

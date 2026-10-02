@@ -142,6 +142,20 @@ public enum Tokens {
         public static let tintBorderSelected = ColorValue(
             light: 0xF1C9B6, dark: 0x7C4B36, lightHighContrast: 0xD98F6E, darkHighContrast: 0xA8705A)
 
+        // MARK: Find (plan 025 Part B)
+
+        /// The fill behind every match of Find in transcript: a light amber (a deep one in dark mode, 1.5:1 or more on
+        /// `ground`), so matches read apart from the coral `tint` of the playhead paragraph. `ink` is text-safe on it; a
+        /// correction's dotted underline inside a match is drawn in `ink` (`ContrastTests`). Increase Contrast: a more
+        /// saturated amber in light mode (ink contrast never lower) and one further from the dark ground in dark mode.
+        public static let findMatchFill = ColorValue(
+            light: 0xFBEBC0, dark: 0x4A3A12, lightHighContrast: 0xFEEDB0, darkHighContrast: 0x544014)
+        /// The fill behind the current match: a deeper amber than `findMatchFill`. `ink` is text-safe on it. Colour is
+        /// not the only cue (fix round 1, I4): the light fills cannot be 3:1 apart while ink stays 4.5:1 on both, so the
+        /// current match is also bold with a solid `ink` underline (`TranscriptLineText`).
+        public static let findCurrentFill = ColorValue(
+            light: 0xF5C451, dark: 0x7A5C14, lightHighContrast: 0xFAC63A, darkHighContrast: 0x806016)
+
         // MARK: Status
 
         /// "On" switches, ready dots, check glyphs — a glyph color, not text (use `successInk`). Light is `#32A553`
@@ -233,7 +247,8 @@ public enum Tokens {
             ("privacyBadgeInk", privacyBadgeInk),
             ("partialAudioFill", partialAudioFill), ("partialAudioInk", partialAudioInk), ("night", night),
             ("coverNight", coverNight), ("seedStrokeDim", seedStrokeDim), ("seedStrokeBright", seedStrokeBright),
-            ("dictationAccent", dictationAccent),
+            ("dictationAccent", dictationAccent), ("findMatchFill", findMatchFill),
+            ("findCurrentFill", findCurrentFill),
         ]
     }
 
@@ -280,6 +295,13 @@ public enum Tokens {
         public static let tint = color(Palette.tint)
         public static let tintBorder = color(Palette.tintBorder)
         public static let tintBorderSelected = color(Palette.tintBorderSelected)
+
+        // MARK: Find (plan 025 Part B)
+
+        /// Behind every Find match (`ink` text on it). See `Palette.findMatchFill`.
+        public static let findMatchFill = color(Palette.findMatchFill)
+        /// Behind the current Find match (`ink` text on it).
+        public static let findCurrentFill = color(Palette.findCurrentFill)
 
         // MARK: Status
 

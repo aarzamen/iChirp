@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpIngest
+import ChirpText
 import Foundation
 import Synchronization
 import XCTest
@@ -134,11 +135,17 @@ final class LinkIngestServiceTests: XCTestCase {
 
     private func makeService(
         downloader: any MediaDownloading, podcasts: FakePodcasts = FakePodcasts(),
-        captions: FakeCaptions = FakeCaptions(result: .success(FakeCaptions.sample))
+        captions: FakeCaptions = FakeCaptions(result: .success(FakeCaptions.sample)), learnedRules: [CustomWord] = []
     ) -> LinkIngestService {
-        LinkIngestService(
+        let store = self.store
+        return LinkIngestService(
             paths: paths, store: store, http: IngestHTTPClient(configuration: .ephemeral), downloader: downloader,
-            podcasts: podcasts, captions: captions, preferredLanguages: { ["en"] }, onProgress: log.handler)
+            podcasts: podcasts, captions: captions, preferredLanguages: { ["en"] },
+            applyLearnedRules: { id in
+                await TranscriptCorrectionService(store: store, context: { .none }, learnedRules: { learnedRules })
+                    .applyLearnedRules(id)
+            },
+            onProgress: log.handler)
     }
 
     func testPodcastEpisodeResolvesCreatesARowAndDownloadsIntoItsFolder() async throws {
@@ -297,6 +304,24 @@ final class LinkIngestServiceTests: XCTestCase {
         let result = await LinkIngestService.downloadThenTranscribe(.ended(ended), transcribe: transcribe)
         XCTAssertEqual(result, ended)
         XCTAssertEqual(calls.withLock { $0 }, 1)
+    }
+
+    /// Plan 025 B4: a caption row gets the learned rules as corrections right after it is inserted.
+    func testCaptionsGetLearnedRuleCorrections() async throws {
+        let rule = CustomWord(word: "synthetic talk", replacement: "Synthetic Talk", source: .learned)
+        let service = makeService(
+            downloader: FakeMediaDownloader(.fail(FakeError(message: "never used"))), learnedRules: [rule])
+        let id = try await service.importCaptions(
+            videoID: "AAAAAAAAAAA", link: URL(string: "https://youtu.be/AAAAAAAAAAA")!)
+        let stored = await store.row(id)
+        let row = try XCTUnwrap(stored)
+        XCTAssertEqual(
+            row.rawTranscript, "hello and welcome to the synthetic talk today we test captions thanks",
+            "the captions as fetched are kept")
+        XCTAssertEqual(row.textCorrections?.items.map(\.origin), [.rule])
+        XCTAssertEqual(row.textCorrections?.items.map(\.heard), ["synthetic talk"])
+        XCTAssertEqual(
+            row.plainText(.shown(.raw)), "hello and welcome to the Synthetic Talk today we test captions thanks")
     }
 
     func testYouTubeCaptionsBecomeACompletedURLRowWithTimedWords() async throws {

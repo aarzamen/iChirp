@@ -193,7 +193,8 @@ struct MeetingHarness {
 
     init(
         speech: FakeSpeech = FakeSpeech(), voiceActivity: FakeVoiceActivity? = nil,
-        freeBytes: Int64? = 50_000_000_000, customWords: [CustomWord] = [], engine: (any SpeechEngine)? = nil
+        freeBytes: Int64? = 50_000_000_000, customWords: [CustomWord] = [], learnedRules: [CustomWord] = [],
+        engine: (any SpeechEngine)? = nil
     ) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MeetingTests-\(UUID().uuidString)", isDirectory: true)
@@ -210,6 +211,10 @@ struct MeetingHarness {
         finalizer = MeetingFinalizer(
             paths: paths, store: store, normalizer: normalizer, speech: engine ?? speech, diarizer: diarizer,
             scheduler: scheduler, settings: settings, lockStore: lockStore, customWords: { customWords },
+            applyLearnedRules: { [store] id in
+                await TranscriptCorrectionService(store: store, context: { .none }, learnedRules: { learnedRules })
+                    .applyLearnedRules(id)
+            },
             onProgress: progress.handler)
         recorder = FakeMeetingRecorder()
         let lockStore = self.lockStore

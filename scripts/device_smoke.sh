@@ -107,6 +107,13 @@ if data.get("status") == "completed" and not engine.startswith("fluidaudio.parak
 print(f"text:          {text}")
 for key in ("engine", "elapsedMs", "modelLoadMs", "speakerCount", "peakMemoryMB", "wordCount", "build"):
     print(f"{key + ':':<15}{data.get(key, 'n/a')}")
+# Plan 025 B7: the find budget (20,000 synthetic words). Reported only; it never changes SMOKE PASS or the exit code.
+index_ms, query_ms = data.get("findIndexMs"), data.get("findQueryMedianMs")
+if isinstance(index_ms, (int, float)) and isinstance(query_ms, (int, float)):
+    print(f"FIND BENCH index_cold={index_ms:.1f}ms query_median={query_ms:.2f}ms")
+    print("FIND BENCH PASS" if index_ms <= 50 and query_ms <= 8 else "FIND BENCH FAIL (budget: cold index <= 50 ms, median query <= 8 ms)")
+else:
+    print("FIND BENCH n/a (this build did not measure it)")
 if problems:
     for problem in problems:
         print(f"SMOKE FAIL: {problem}", file=sys.stderr)

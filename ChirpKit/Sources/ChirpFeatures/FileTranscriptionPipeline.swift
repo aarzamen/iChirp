@@ -119,6 +119,7 @@ public actor FileTranscriptionPipeline {
     private let settings: any SettingsStoring
     private let privacyRouting: PrivacyRoutingPolicy
     private let customWords: @Sendable () async -> [CustomWord]
+    private let applyLearnedRules: @Sendable (UUID) async -> Transcription?
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     /// Where an import's copy and journal wait until the copy is complete and its row exists (review R4-8).
     private let stagingDirectory: URL
@@ -136,6 +137,9 @@ public actor FileTranscriptionPipeline {
     ///     local-network host.
     ///   - customWords: read once per job, only when the clean-up mode is `.clean` (M2: the app reads the enabled words
     ///     from `TextRulesStoring`).
+    ///   - applyLearnedRules: plan 025 D8: applies the person's learned rules to a transcript just saved as completed, as
+    ///     visible, revertible corrections (`TranscriptCorrectionService.applyLearnedRules`); returns the row as saved, or
+    ///     nil when nothing changed. It never throws: a rule never fails a job.
     ///   - onProgress: called from this actor and from engine callbacks, on no particular thread. UI owners hop
     ///     to their actor (see `TranscriptionJobCenter.progressHandler`).
     ///   - trackProbe: lists a file's audio tracks so a multi-track file can ask for a choice before import (M1.5).
@@ -154,6 +158,7 @@ public actor FileTranscriptionPipeline {
         settings: any SettingsStoring,
         privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
         customWords: @escaping @Sendable () async -> [CustomWord] = { [] },
+        applyLearnedRules: @escaping @Sendable (UUID) async -> Transcription? = { _ in nil },
         stagingDirectory: URL = FileManager.default.temporaryDirectory,
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void
     ) {
@@ -167,6 +172,7 @@ public actor FileTranscriptionPipeline {
         self.settings = settings
         self.privacyRouting = privacyRouting
         self.customWords = customWords
+        self.applyLearnedRules = applyLearnedRules
         self.stagingDirectory = stagingDirectory
         self.onProgress = onProgress
     }
@@ -641,9 +647,14 @@ public actor FileTranscriptionPipeline {
             removeMediaDirectoryIfEmpty(for: id)
             return nil
         }
+        // Plan 025 D8: the person's learned rules, as corrections of the words just saved.
+        let applyLearnedRules = self.applyLearnedRules
+        let corrected =
+            saved.status == .completed
+            ? await Task { await applyLearnedRules(id) }.value : nil
         onProgress(id, JobProgress(stage: .finishing, fraction: 1))
         logger.info("process_completed id=\(id, privacy: .public)")
-        return saved
+        return corrected ?? saved
     }
 
     /// Moves the row from `.processing` to a terminal `.failed` / `.cancelled` status through the shared terminal write

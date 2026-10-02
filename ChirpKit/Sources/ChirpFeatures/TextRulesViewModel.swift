@@ -8,6 +8,8 @@ import Observation
 /// Custom words fix how Parakeet writes a word ("Kubernetes", a colleague's name); a replacement is optional (without
 /// one the word only fixes capitalization). Snippets expand a spoken trigger into longer text. Both apply when Clean
 /// runs: dictation's "Polish after", or the Clean clean-up mode for files. Every change is saved at once.
+/// Plan 025 D8: learned rules ("Fixes from your corrections", saved from a Replace) live in the same list with
+/// `source == .learned`; they never run in Clean, only as corrections of new transcripts.
 @MainActor @Observable public final class TextRulesViewModel {
     public private(set) var words: [CustomWord] = []
     public private(set) var snippets: [TextSnippet] = []
@@ -63,7 +65,74 @@ import Observation
             lastError = "Type the word Parakeet should write."
             return false
         }
+        // Fix round 2, N2: only a change of text is checked; turning a rule on or off is never refused, even for a
+        // rule saved before the checks existed.
+        let stored = words.first { $0.id == edited.id }
+        let textChanged = stored.map { $0.word != edited.word || $0.replacement != edited.replacement } ?? true
+        if edited.source == .learned, textChanged {
+            // Fix round 1: a learned rule always writes something (M4) and never holds a number or dose unit (C1, U1).
+            guard let replacement = edited.replacement else {
+                lastError = Self.learnedRuleNeedsReplacement
+                return false
+            }
+            if let reason = LearnedRuleSuggestion.withheldReason(query: edited.word, replacement: replacement) {
+                lastError = reason
+                return false
+            }
+        }
         return await save(edited)
+    }
+
+    // MARK: - Learned rules (plan 025 D8)
+
+    /// The words the person typed here: Clean applies them (files and dictation) and meetings rewrite with them.
+    public var manualWords: [CustomWord] { words.filter { $0.source == .manual } }
+
+    /// "Fixes from your corrections": rules saved from a Replace ("Also fix future transcripts"). New transcripts get
+    /// them as corrections the person can see and undo, in Raw and Clean.
+    public var learnedRules: [CustomWord] { words.filter { $0.source == .learned } }
+
+    /// What saving a learned rule did.
+    public enum LearnedRuleOutcome: Sendable, Equatable {
+        case added
+        /// A word or rule with that text already exists (case-insensitive); the message says so.
+        case alreadyExists(String)
+        /// The rule could not be saved; the message says why.
+        case failed(String)
+        /// The rule breaks a safety ruling (C1: it holds a number); the message says why. Nothing was saved.
+        case refused(String)
+    }
+
+    /// Saves "Also fix `word` in future transcripts" as a learned rule (`CustomWord.Source.learned`) replacing it with
+    /// `replacement`. Does not set `lastError`: the Transcript screen shows the outcome.
+    public func addLearnedRule(word: String, replacement: String) async -> LearnedRuleOutcome {
+        let trimmedWord = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedWord.isEmpty, let trimmedReplacement = Self.nonBlank(replacement) else {
+            return .failed("A rule needs the words to find and what to write instead.")
+        }
+        if let reason = LearnedRuleSuggestion.withheldReason(query: trimmedWord, replacement: trimmedReplacement) {
+            return .refused(reason)
+        }
+        do {
+            try await store.save(CustomWord(word: trimmedWord, replacement: trimmedReplacement, source: .learned))
+            words = try await store.customWords()
+            logger.notice("learned_rule_added")
+            return .added
+        } catch TextRulesStoreError.duplicate {
+            return .alreadyExists(Self.alreadyHasRule(trimmedWord))
+        } catch {
+            logger.error("learned_rule_failed error_type=\(error.logTypeName, privacy: .public)")
+            return .failed((error as? any LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
+
+    /// M4: editing a learned rule cannot empty its replacement (it would silently stop fixing anything).
+    public static let learnedRuleNeedsReplacement =
+        "A fix needs what Parakeet writes instead. To stop it, delete the rule."
+
+    /// "“met for men” already has a rule in Settings → Text rules."
+    public static func alreadyHasRule(_ word: String) -> String {
+        "“\(word)” already has a rule in Settings → Text rules."
     }
 
     public func deleteWords(_ ids: Set<UUID>) async {
@@ -152,9 +221,10 @@ import Observation
 }
 
 extension DictationTextRules {
-    /// The enabled words and snippets from `store` (empty when it cannot be read: clean-up still runs).
+    /// The enabled manual words and the enabled snippets from `store` (empty when it cannot be read: clean-up still
+    /// runs). Learned rules are left out: they act only as corrections (plan 025 D8).
     public static func enabled(in store: any TextRulesStoring) async -> DictationTextRules {
-        let words = (try? await store.enabledCustomWords()) ?? []
+        let words = (try? await store.enabledManualCustomWords()) ?? []
         let snippets = (try? await store.enabledSnippets()) ?? []
         return DictationTextRules(customWords: words, snippets: snippets)
     }

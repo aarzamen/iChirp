@@ -22,6 +22,18 @@ extension TextRulesStoring {
         try await customWords().filter(\.isEnabled)
     }
 
+    /// Plan 025 D8: the enabled words the person typed (`source == .manual`), the only ones Clean and the meeting
+    /// applier use. Learned rules act only as corrections.
+    public func enabledManualCustomWords() async throws -> [CustomWord] {
+        try await customWords().filter { $0.isEnabled && $0.source == .manual }
+    }
+
+    /// Plan 025 D8: the enabled learned rules ("Also fix future transcripts"), applied to new transcripts as
+    /// corrections (`LearnedRuleMatcher`).
+    public func enabledLearnedRules() async throws -> [CustomWord] {
+        try await customWords().filter { $0.isEnabled && $0.source == .learned }
+    }
+
     /// The enabled snippets.
     public func enabledSnippets() async throws -> [TextSnippet] {
         try await snippets().filter(\.isEnabled)

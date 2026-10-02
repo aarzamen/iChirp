@@ -35,6 +35,29 @@ public enum VoiceCommandCorrections {
         var result: Int
     }
 
+    /// Plan 025 B4: the same over a row's word stream (`TranscriptTokens.of`), for a dictation whose learned-rule
+    /// corrections were stored before its commands ran. Each token counts as one word; each planned span is then mapped
+    /// to the engine words its tokens cover, so it covers whole corrections and replaces the ones it touches. Without
+    /// corrections the tokens are the words and the plan is the words' plan.
+    public static func plan(
+        tokens: [TranscriptToken], commandedText: String, resultText: String, batchID: UUID, now: Date
+    ) -> TranscriptCorrectionPlan? {
+        let words = TranscriptTokens.words(of: tokens, engine: [])
+        guard
+            var plan = plan(
+                words: words, commandedText: commandedText, resultText: resultText, batchID: batchID, now: now)
+        else { return nil }
+        plan.add = plan.add.map { add in
+            var mapped = add
+            let range = add.range
+            mapped.wordRange = TranscriptSegmentWordRange(
+                startIndex: tokens[range.lowerBound].wordRange.lowerBound,
+                endIndexExclusive: tokens[range.upperBound - 1].wordRange.upperBound)
+            return mapped
+        }
+        return plan
+    }
+
     public static func plan(
         words: [WordTimestamp], commandedText: String, resultText: String, batchID: UUID, now: Date
     ) -> TranscriptCorrectionPlan? {

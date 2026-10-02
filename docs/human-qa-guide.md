@@ -1148,6 +1148,46 @@ the DEBUG launch argument `-ChirpSeedCorrectionsSample` adds one synthetic trans
 - [ ] VoiceOver: the paragraph's actions rotor offers Correct, Show Original and Listen from Here; a corrected line's
       value is "Corrected". At the largest text size nothing is cut off or broken mid-word.
 
+## Find in transcript checklist (plan 025 Part B)
+
+> Preconditions: a build of `main` that includes the plan 025 Part B lane; a synthetic meeting of about an hour (macOS
+> `say`), never a patient recording. On the simulator, `-ChirpSeedCorrectionsSample` adds a short synthetic transcript;
+> the UI tour is `UITests/TranscriptFindTourUITests`.
+
+Happy path
+- [ ] Find in Transcript (magnifying glass, or More → Find…), type a word → "1 of N"; Next and Previous step and scroll;
+      the current match has the deeper amber fill.
+- [ ] Play from the match's time plays that moment.
+- [ ] Replace one: the word changes with a dotted underline and "Corrected"; Replace All asks first; Undo reverts the
+      whole batch at once.
+- [ ] After replacing a whole word, "Also fix … in future transcripts?" → Add Rule; a new recording with the same
+      mishearing shows it corrected and marked (Show Original shows what was heard); the rule is under Settings →
+      Custom words & snippets → Fixes from your corrections, where its switch turns it off.
+
+Guardrails and edge cases
+- [ ] Typing in Find on the long meeting never stutters (and `scripts/device_smoke.sh` prints FIND BENCH PASS).
+- [ ] VoiceOver: Next says "2 of N, at mm:ss" and moves to the line; typing says how many matches.
+- [ ] Hardware keyboard: ⌘F, ⌥⌘F, ⌘G, ⇧⌘G, Return, Esc.
+- [ ] Largest accessibility text size: the bar wraps, the counter sits under the field, every button can be reached
+      (the panel scrolls) and tapped.
+- [ ] A clinical transcript's rule offer warns against patient names.
+- [ ] Replace "met for men" with "metformin 500", and "mg" with "mcg": no rule offer; the banner says "Rules can’t
+      contain numbers or dose units, so a dose is never changed automatically.". In Settings, editing a fix to add a
+      number or a dose unit, or to empty what it writes, is refused; turning a fix off always works. A drug-name fix
+      ("metoprolol" → "metformin") is offered.
+- [ ] Correct a passage, then Replace All a word inside it: that place is left alone ("in a corrected passage"), and
+      reverting the Replace All keeps your correction.
+- [ ] With a fix saved, dictate the misheard word: Done says "1 word fixed by your rules"; Show in transcript shows it
+      marked; VoiceOver hears the count, not the word.
+- [ ] A transcript without word timings: Find works, Replace says it needs word timings.
+
+Regression
+- [ ] Manual custom words still apply only when Clean runs (files, dictation) and still rewrite meetings; a learned
+      rule never changes Clean text by itself.
+
+Screenshots to attach
+- [ ] The find bar with matches, the post-replace banner, the Fixes from your corrections section.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

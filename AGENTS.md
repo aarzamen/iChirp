@@ -40,7 +40,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/test.sh` | Full package suite, then simulator build plus app-hosted tests (the clinical-confirmation tests among them) |
 | `scripts/run_sim.sh [launch args]` | Build, install and launch in the iPhone simulator |
 | `scripts/run_device.sh [launch args]` | Build Debug, install and launch on the paired iPhone (`devicectl`) |
-| `scripts/device_smoke.sh` | On the phone: transcribes the bundled synthetic sample with Parakeet and asserts the words (`SMOKE PASS`) |
+| `scripts/device_smoke.sh` | On the phone: transcribes the bundled synthetic sample with Parakeet and asserts the words (`SMOKE PASS`); also prints the find budget (`FIND BENCH PASS`, report only) |
 | `scripts/device_llm_smoke.sh [model]` | On the phone: measures a small language model (`qwen3.5-2b`, `qwen3-4b`) on a synthetic SOAP note and asserts every number survived (`LLM SMOKE PASS`) |
 | `scripts/device_benchmark.sh [engines]` | On the phone: DEBUG ASR benchmark over the synthetic reference set (downloads missing models), prints WER, speed, load and peak memory per engine, plus the memory available before each model load and the load's own peak |
 | `scripts/build_needle.sh`, `scripts/build_llamacpp.sh` | Optional runtimes built from pinned source into `vendor/` (needs Rust; needs CMake or `uv`). Without them Settings says Needle and the small language models are "not in this build"; CI runs both |

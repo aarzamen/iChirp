@@ -89,7 +89,11 @@ inside it resolves to its dark value in either system scheme).
 **Text, fills and glyphs are separate roles.** In dark mode accent *text* is a light coral that a white label cannot
 sit on, so filled buttons read `accentFill` (with `onAccent` white), not `accentInk`; error *text* is `errorInk` (light
 red in dark mode) while destructive *fills* are `stopRed`; `success` is a glyph green and `successInk` its text green;
-accent text on a `tint` fill is `accentInkPressed`. Adding a token means adding its `Palette` entry (with a dark value),
+accent text on a `tint` fill is `accentInkPressed`. Plan 025 Part B's `findMatchFill` and `findCurrentFill` are amber
+fills behind Find in transcript's matches (ink text on both; a correction's dotted underline inside a match is drawn in
+`ink`, because `secondary` is below 3:1 on the dark current fill). Fix round 1: both have Increase Contrast values,
+the dark match fill is 1.5:1 or more on `ground`, and the current match is also bold with a solid ink underline, so
+colour is not its only cue (`ContrastTests.testFindFillsReadOnTheGroundAndHaveIncreaseContrastValues`). Adding a token means adding its `Palette` entry (with a dark value),
 its `Color` line, and its name to `Palette.named` — `ContrastTests` fails for a named token that no pair measures.
 
 **Shared controls come from here (plan 024 Task 11).** A primary button, a bottom bar, a card, a segmented control,

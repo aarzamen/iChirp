@@ -67,7 +67,29 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
   words (case and edge punctuation ignored) and the result to the commanded text (exact, line breaks included);
   between stable points the changed stretch of heard words becomes one correction with the result's text there (a
   scratched sentence or a paragraph break takes the word before it). Falls back to one correction over every word;
-  nil when the change cannot be stored (the caller then sends nothing on).
+  nil when the change cannot be stored (the caller then sends nothing on). `plan(tokens:...)` (plan 025 B4) plans over a
+  row's word stream (each token one word, spans mapped back to engine words), so a dictation's learned-rule corrections,
+  stored first, are covered whole.
+- `Find/TranscriptSearchIndex.swift` (plan 025 B1, semantics from upstream `TranscriptFindModel`): the Transcript
+  screen's find matcher. Built once per text change from the lines' texts (blocks); every Character is folded
+  (case- and diacritic-insensitive, ASCII fast path) and each folded UTF-16 unit remembers its Character's original
+  UTF-16 start and end, so `matches(for:)` is one scan per keystroke and every `TranscriptFindMatch` (`blockIndex`,
+  UTF-16 `NSRange`) covers whole Characters of the shown text: it must start on a Character's first folded unit and
+  end on its last (fix round 1, M1: "as" is no match in "Straße", as with upstream's NSString search). Blank queries match nothing; the untrimmed query is
+  searched; matches never overlap or cross a block. Budget (D4): 20,000 words, index ≤ 50 ms and median query ≤ 8 ms on
+  the iPhone (the device smoke's `FIND BENCH` line); `TranscriptSearchIndexPerformanceTests` checks a looser Mac debug
+  bound. `Find/TranscriptSearchBenchmark.swift` (B7) is the one measurement both use: deterministic synthetic lines
+  of 80 words, the first (cold) index build and the median of 20 typed queries (fix round 1, M9).
+- `Corrections/LearnedRuleMatcher.swift` (plan 025 B3, D8): learned rules ("Also fix future transcripts",
+  `CustomWord.Source.learned`) as `rule` corrections of a transcript's `.heard` lines: each enabled rule with a
+  replacement matches as a custom word does (`\b<word>\b`, case-insensitive), each match goes through
+  `CorrectionPlanner` (one batch per rule, `ruleID` set). Rules do not chain; a match touching a corrected word, or
+  overlapping an earlier match, is skipped, so a plan never removes a correction. `isWholeWord(_:in:word:)` is the
+  check behind the rule offer after a Replace. Fix round 1 (C1): a rule with a number in either text
+  (`containsNumber`, any Unicode number) or a dose unit (fix round 2, U1: `doseUnitWords`, one closed list of mass,
+  volume and unit words, percent and dose-frequency abbreviations, whole words in any case, `containsDoseUnit`) is
+  never applied, so a dose is never changed automatically, even by a rule saved before those rulings. Drug names are
+  not on the list. `touchesCorrection` is shared with Replace (I2).
 - `TranscriptSegmenter.swift`: kept for upstream parity and its ported tests; **no production code calls it**
   (review R2-17). Groups words into presentation segments (punctuation / long gap / speaker change / 40-word cap) and
   `TranscriptSegmentRecord`s; also speaker turns, per-speaker stats, and `sanitizedExportStem(from:)` (exports name
@@ -196,6 +218,8 @@ mode-aware wrapper the pipelines use instead of the pipeline directly.
 - `Models/`: `CustomWord`, `TextSnippet`, `KeyAction`, `DictationInsertionStyle`, `TextProcessingResult`
   — ported with their upstream fields, minus GRDB persistence conformances (ChirpStore owns persistence).
   `Models/TextRulesStoring.swift` (M2) is the persistence contract for words and snippets (`enabledCustomWords()`,
+  plan 025's `enabledManualCustomWords()` for Clean and the meeting applier and `enabledLearnedRules()` for the
+  correction service,
   `enabledSnippets()`, `TextRulesStoreError.duplicate`), implemented by `ChirpStore.GRDBTextRulesStore`.
 
 - `MeetingTranscriptVocabularyApplier.swift` (M3): the only text step meetings run (upstream rule): the person's

@@ -51,6 +51,7 @@ public actor MeetingFinalizer {
     private let privacyRouting: PrivacyRoutingPolicy
     private let lockStore: MeetingSessionLockStore
     private let customWords: @Sendable () async -> [CustomWord]
+    private let applyLearnedRules: @Sendable (UUID) async -> Transcription?
     private let onProgress: @Sendable (UUID, JobProgress) -> Void
     private var running: Set<UUID> = []
     private let logger = Log.logger("meeting-finalize")
@@ -66,6 +67,7 @@ public actor MeetingFinalizer {
         lockStore: MeetingSessionLockStore,
         privacyRouting: PrivacyRoutingPolicy = PrivacyRoutingPolicy(),
         customWords: @escaping @Sendable () async -> [CustomWord] = { [] },
+        applyLearnedRules: @escaping @Sendable (UUID) async -> Transcription? = { _ in nil },
         onProgress: @escaping @Sendable (UUID, JobProgress) -> Void = { _, _ in }
     ) {
         self.paths = paths
@@ -78,6 +80,7 @@ public actor MeetingFinalizer {
         self.lockStore = lockStore
         self.privacyRouting = privacyRouting
         self.customWords = customWords
+        self.applyLearnedRules = applyLearnedRules
         self.onProgress = onProgress
     }
 
@@ -279,11 +282,17 @@ public actor MeetingFinalizer {
     private func saveAndSettle(_ transcription: Transcription) async throws -> Transcription? {
         let id = transcription.id
         let store = self.store
-        let saved = try await Self.detached { try await store.savePreservingUserMetadata(transcription) }
-        guard let saved else {
+        var saved = try await Self.detached { try await store.savePreservingUserMetadata(transcription) }
+        guard let stored = saved else {
             logger.notice("meeting_row_deleted_during_finalize id=\(id, privacy: .public)")
             return nil
         }
+        if stored.status == .completed {
+            // Plan 025 D8: the person's learned rules, as corrections (manual words already rewrote the tokens).
+            let applyLearnedRules = self.applyLearnedRules
+            saved = await Task { await applyLearnedRules(id) }.value ?? stored
+        }
+        guard let saved else { return nil }
         if saved.status == .completed, saved.sourceType == .meeting {
             do {
                 try lockStore.delete(sessionId: id)
