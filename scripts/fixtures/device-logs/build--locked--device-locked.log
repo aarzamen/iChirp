@@ -1,0 +1,6 @@
+PhaseScriptExecution Stamp\ Build\ Identity /path/to/iChirp/.build/xcode/Build/Intermediates.noindex/iChirp.build/Debug-iphoneos/iChirpWidgets.build/Script-0000000000000000.sh (in target 'iChirpWidgets' from project 'iChirp')
+    cd /path/to/iChirp
+    export CODE_SIGNING_ALLOWED\=YES
+Stamped 0123456789ab (main, dirty=0) build 202610011730
+
+xcodebuild: error: Failed to prepare the device "Test iPhone" for development: the device is locked. Unlock it and try again.

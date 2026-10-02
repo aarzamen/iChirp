@@ -1,8 +1,8 @@
 """The HTTP API (spec/contracts/mac-companion-v1.md).
 
-Every request except `GET /v1/companion` needs `Authorization: Bearer <pairing token>`; the guard runs before any
-route, so a new route cannot forget it. The request log carries method, a known path (else "other"), status, byte
-counts and milliseconds, and nothing else: never text, voices' input, links or titles.
+Every request except `GET /v1/companion` needs `Authorization: Bearer <pairing token>` (a websocket handshake too);
+the guard runs before any route, so a new route cannot forget it. The request log carries method, a known path
+(else "other"), status, byte counts and milliseconds, and nothing else: never text, voices' input, links or titles.
 """
 
 from __future__ import annotations
@@ -243,7 +243,10 @@ class GuardAndLog:
         self.logger = logger
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] == "websocket":
+            await self._guard_websocket(scope, receive, send)
+            return
+        if scope["type"] != "http":  # the lifespan (startup and shutdown): no request, nothing to guard
             await self.app(scope, receive, send)
             return
         started = time.perf_counter()
@@ -294,6 +297,20 @@ class GuardAndLog:
                 state["sent"],
                 int((time.perf_counter() - started) * 1000),
             )
+
+
+    async def _guard_websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """A websocket needs the same `Authorization: Bearer <pairing token>` header as any request. There is no
+        websocket route today; this keeps a future one from being reachable without the token (uvicorn serves
+        websockets whenever `websockets` or `wsproto` is installed). Without the token the handshake is refused by
+        closing before accepting (code 1008, policy violation) and no route runs."""
+        if is_authorized(Headers(scope=scope).get("authorization"), self.settings.token):
+            await self.app(scope, receive, send)
+            return
+        self.logger.info("websocket_refused reason=token")
+        message = await receive()  # the connect message; a close in answer to it rejects the handshake
+        if message["type"] == "websocket.connect":
+            await send({"type": "websocket.close", "code": 1008})
 
 
 def _declared_length(headers: Headers) -> int:

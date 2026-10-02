@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from .fakes import TOKEN
 
@@ -105,3 +106,60 @@ def test_health_reports_youtube_off_with_the_reason_when_deno_is_missing(auth) -
 
 def test_health_has_no_youtube_reason_when_ready(client) -> None:
     assert client.get("/v1/companion").json()["youtube"] == {"reason": None}
+
+
+# MARK: Websockets and the lifespan (review R8-20): the guard runs before any route, whatever the connection type.
+
+
+@pytest.fixture
+def socket_client(client):
+    """The client with a websocket route the real companion does not have (yet): what a future route would face.
+
+    `WebSocket` is imported at module level on purpose: with `from __future__ import annotations` FastAPI resolves
+    the route's annotations from the module's globals, and an unresolved one turns the parameter into a required
+    query field, which closes the socket with 1008 for the wrong reason.
+    """
+
+    @client.app.websocket("/v1/test-socket")
+    async def socket_route(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_text("connected")
+        await websocket.close()
+
+    return client
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [{}, {"Authorization": "Bearer wrong"}, {"Authorization": "Basic " + TOKEN}, {"Authorization": TOKEN}],
+)
+def test_a_websocket_without_the_right_token_is_refused_before_any_route_runs(socket_client, headers) -> None:
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with socket_client.websocket_connect("/v1/test-socket", headers=headers):
+            pass
+    assert refused.value.code == 1008
+    assert refused.value.reason == ""  # the route never ran, and nothing says why beyond the close code
+
+
+def test_a_websocket_with_the_token_reaches_its_route(socket_client, auth) -> None:
+    with socket_client.websocket_connect("/v1/test-socket", headers=auth) as socket:
+        assert socket.receive_text() == "connected"
+
+
+def test_a_refused_websocket_is_logged_without_content(socket_client, caplog) -> None:
+    caplog.set_level("INFO", logger="parakeet_companion")
+    with pytest.raises(WebSocketDisconnect):
+        with socket_client.websocket_connect("/v1/test-socket?note=SYNTHETIC-SECRET-7731"):
+            pass
+    assert "websocket_refused" in caplog.text
+    assert "SYNTHETIC-SECRET-7731" not in caplog.text
+
+
+def test_the_lifespan_still_passes_through_the_guard() -> None:
+    from fastapi.testclient import TestClient
+
+    from parakeet_companion.app import create_app
+    from parakeet_companion.config import CompanionSettings
+
+    with TestClient(create_app(CompanionSettings(token=TOKEN))) as started:  # runs startup and shutdown
+        assert started.get("/v1/companion").status_code == 200

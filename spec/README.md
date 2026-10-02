@@ -20,7 +20,7 @@ Every spec starts with a `> Status:` line. **ACTIVE** means it governs code that
 | 02 | [Features](02-features.md) | Feature behavior by milestone; honest placeholders | ACTIVE |
 | 03 | [Architecture](03-architecture.md) | Modules, dependency rules, composition root, concurrency | ACTIVE |
 | 04 | [UI](04-ui.md) | Tokens, tabs, screens, components, copy rules | ACTIVE |
-| 05 | [Audio pipeline](05-audio-pipeline.md) | Decoding, storage, later capture and background audio | ACTIVE (M1 decode); later sections PROPOSAL |
+| 05 | [Audio pipeline](05-audio-pipeline.md) | Decoding, storage, capture for dictation and meetings, background audio | ACTIVE (M1 decoding, M1.5 continued processing, M2 capture); the M3 meeting section is built, device checks pending |
 | 06 | [Speech engines](06-speech-engines.md) | Engine plug-ins, Parakeet via FluidAudio, scheduler, diarization, pin discipline | ACTIVE |
 | 07 | [Text processing](07-text-processing.md) | Deterministic clean-up, words, segments, paragraphs, cues, titles | ACTIVE |
 | 08 | [Language and structure models](08-language-and-structure-models.md) | LLM/SLM providers, deliverable templates, Needle/Jev/Laya | ACTIVE for language models (M4 core and screens), the M6 Needle slice and the Jev trial (M6a); Laya PROPOSAL |
@@ -75,8 +75,9 @@ Feature flags. An implemented flag-gated surface is not a shipped feature.
 | Flag | Kind | Value | Notes |
 |---|---|---|---|
 | `-ChirpSmoke transcribe-sample` | DEBUG launch argument | Off unless passed | Runs the smoke transcription and writes `Documents/smoke-result.json`. Compiled out of Release builds. |
-| `CHIRP_MODEL_TESTS=1` | Test environment variable | Unset | Enables the real-model tests that download Parakeet. Not an app flag. |
-| `CHIRP_ENABLE_<PLUGIN>=1` | Build flag pattern ([ADR-010](adr/010-plugin-license-gate.md)) | None defined | License-gated plug-ins (Needle, Cactus) are compiled only when their flag is set, in personal builds. |
+| `CHIRP_*=1` test switches | Test environment variables | Unset | Enable the real-model and live-service tests (`CHIRP_MODEL_TESTS` downloads Parakeet; eleven more are listed). Not app flags; the full table is in [`09-testing.md`](09-testing.md#opt-in-test-switches). |
+| `CHIRP_ENABLE_<PLUGIN>=1` | Build flag pattern ([ADR-010](adr/010-plugin-license-gate.md)) | None defined | Plug-ins whose license or binary-only runtime conflicts with GPL-3.0 (Cactus's engine and its binary `libneedle.a`) are compiled only when their flag is set, in personal builds. Needle 3 built from needle-rs source is not one of them ([ADR-012](adr/012-needle-from-needle-rs-source.md)). |
+| `vendor/NeedleC.xcframework`, `vendor/llama.xcframework` | Build-time presence, not a flag | Absent until built | `ChirpKit/Package.swift` links Needle and llama.cpp only when these exist (made by `scripts/build_needle.sh` and `scripts/build_llamacpp.sh`; CI builds both). Without them Settings says "not in this build". Not license-gated ([ADR-012](adr/012-needle-from-needle-rs-source.md), [ADR-015](adr/015-on-device-llm-llama-cpp.md)). |
 
 No runtime product flags exist yet. When the first one is needed, add it as a `static let` in a `ChirpCore`
 `AppFeatures` enum (the upstream pattern: DEBUG builds may honor a launch argument; Release ignores it) and add a
@@ -100,7 +101,9 @@ section; never delete its history.
 | [ADR-009](adr/009-deterministic-cleanup-raw-default.md) | Deterministic clean-up pipeline with Raw as the default |
 | [ADR-010](adr/010-plugin-license-gate.md) | License gate for plug-ins that conflict with GPL-3.0 |
 | [ADR-011](adr/011-language-model-providers-direct-ports.md) | Language models via direct ports (`ChirpEngineHTTPLLM`, `ChirpEngineAppleFM`), not AnyLanguageModel |
+| [ADR-012](adr/012-needle-from-needle-rs-source.md) | Needle 3 on the iPhone built from needle-rs source (MIT) with Apache-2.0 weights; the ADR-010 gate does not apply to it |
 | [ADR-013](adr/013-jev-decision-model.md) | Jev as an opt-in cloud decision model (`ChirpEngineJev`, `DecisionModel` contract); clinical items never sent |
+| [ADR-014](adr/014-mac-companion.md) | The Parakeet companion on the owner's Mac (voices and YouTube audio) over the home network, with a pairing token |
 | [ADR-015](adr/015-on-device-llm-llama-cpp.md) | Small language models on the iPhone through llama.cpp built from source (`ChirpEngineLlamaCpp`); Qwen3.5 2B default, Qwen3 4B Instruct quality tier; MLX Swift not adopted |
 
 ## Milestones
@@ -109,19 +112,25 @@ Each later milestone has an executor-ready plan; the [plans board](../docs/plans
 
 | Milestone | Scope | Status | Plan |
 |---|---|---|---|
-| M0 | Foundation: restructure, XcodeGen project, ChirpKit targets, scripts, CI, specs and agent docs | Implemented (branch `ichirp/foundation`, `e232b62d`) | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
-| M1 | Parakeet v3 file transcription: import, normalize, transcribe, speaker labels, Library, Transcript with player, export, model management, device smoke | Implemented (branch `ichirp/foundation`): device smoke PASS on iPhone 17 Pro and iPhone 15 Pro; final review fix round merged, `a6cd8f2d`: 381 package tests, 18 app tests, lint clean, smoke PASS | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
-| M1.5 | `BGContinuedProcessingTask` for long files and model downloads, Share-sheet import ("Open in Parakeet"; the share extension plus App Group is gated), Voice Memos, audio-track choice | IN PROGRESS (built and simulator-tested; device checks pending) | [010](../docs/plans/2026-09-22-010-m1.5-share-and-background.md) |
-| M2 | Dictation: audio session, live preview, final Parakeet pass, clean-up, copy, Action Button intent with a Live Activity | IN PROGRESS (built on `m2/dictation`; device checks pending) | [011](../docs/plans/2026-09-22-011-m2-dictation.md) |
-| M3 | Meeting recording: background audio, crash-safe recording plus `recording.lock` recovery, live chunks, final pass plus diarization, Notes tab | IN PROGRESS (built on `m3/meetings`: focused package tests, 25 app tests, simulator record/kill/recover verified; device checks pending) | [012](../docs/plans/2026-09-22-012-m3-meetings.md) |
-| M4 | Language models and deliverables: providers, Keychain keys, templates (summary, meeting notes, agenda, SOAP, action items, Transforms), Ask with citations, privacy router | In progress: core (Steps 1–5) merged; screens (Step 6) on `m4/language-models-ui`, simulator-verified; owner device QA pending | [013](../docs/plans/2026-09-22-013-m4-language-models-and-deliverables.md) |
-| M5 | Ingest breadth: podcasts, direct media links, YouTube strategy, PDF (text plus OCR), TXT/MD/RTF/DOCX import | IN PROGRESS (built; open items finished by plan 019 on `lane/companion`: YouTube audio via the Mac companion; device checks pending) | [014](../docs/plans/2026-09-22-014-m5-ingest.md) |
-| M6 | Structure models: Needle 3 (from needle-rs source, ADR-012), Jev (opt-in, non-clinical), Laya research; confidence gating | IN PROGRESS — merged on `ichirp/foundation`: Needle slice (SOAP fields and medications, voice commands, gate + evidence ledger, Eval; Needle experimental at 44.6% argument accuracy) and the Jev trial (021; live eval waits on the owner's Jev key); Laya not started | [015](../docs/plans/2026-09-22-015-m6-structure-models.md), [021](../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md) |
-| M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | IN PROGRESS — merged on `ichirp/foundation`: speech routes, Apple Speech, WhisperKit and the ASR benchmark; small language models on the iPhone through llama.cpp (ADR-015; Qwen3.5 2B default, Qwen3 4B Instruct quality; MLX not adopted). iPhone measurements pending; streaming not built | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
-| M8 | Polish: PDF/DOCX export, keyboard extension, Transforms share extension, widgets, accessibility, iPad, localization | NOT STARTED | [017](../docs/plans/2026-09-22-017-m8-polish.md) |
+All of M0–M7 and the part of M8 listed below are merged on `main` (every lane branch is an ancestor of it; the SHAs
+are the lane tips). "Device checks pending" means the owner's checklist in
+[`human-qa-guide.md`](../docs/human-qa-guide.md) has not been walked on the phone.
 
-Status words match the plans board. When a milestone lands, update this row, the board and the root `README.md` status table in the same commit, with
-the commit SHA and what was verified (package suite, simulator, device smoke).
+| Milestone | Scope | Status | Plan |
+|---|---|---|---|
+| M0 | Foundation: restructure, XcodeGen project, ChirpKit targets, scripts, CI, specs and agent docs | Implemented on `main` (`e232b62d`) | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
+| M1 | Parakeet v3 file transcription: import, normalize, transcribe, speaker labels, Library, Transcript with player, export, model management, device smoke | Implemented on `main`: device smoke PASS on iPhone 17 Pro and iPhone 15 Pro; final review fix round merged, `a6cd8f2d`: 381 package tests, 18 app tests, lint clean, smoke PASS | [003](../docs/plans/2026-09-22-003-feat-m0-m1-implementation-plan.md) |
+| M1.5 | `BGContinuedProcessingTask` for long files and model downloads, Share-sheet import ("Open in Parakeet"; the share extension plus App Group is gated), Voice Memos, audio-track choice | IN PROGRESS: built and merged on `main` (`1ad81930`), simulator-tested; device checks pending | [010](../docs/plans/2026-09-22-010-m1.5-share-and-background.md) |
+| M2 | Dictation: audio session, live preview, final Parakeet pass, clean-up, copy, Action Button intent with a Live Activity | IN PROGRESS: built and merged on `main` (`085d13f7`); device checks pending | [011](../docs/plans/2026-09-22-011-m2-dictation.md) |
+| M3 | Meeting recording: background audio, crash-safe recording plus `recording.lock` recovery, live chunks, final pass plus diarization, Notes tab | IN PROGRESS: built and merged on `main` (`78211054`: focused package tests, app tests, simulator record/kill/recover verified); device checks pending | [012](../docs/plans/2026-09-22-012-m3-meetings.md) |
+| M4 | Language models and deliverables: providers, Keychain keys, templates (summary, meeting notes, agenda, SOAP, action items, Transforms), Ask with citations, privacy router | IN PROGRESS: core (`dd2ddb29`) and screens (`5db5fd30`) built and merged on `main`, simulator-verified; owner device QA pending | [013](../docs/plans/2026-09-22-013-m4-language-models-and-deliverables.md) |
+| M5 | Ingest breadth: podcasts, direct media links, YouTube strategy, PDF (text plus OCR), TXT/MD/RTF/DOCX import | IN PROGRESS: built and merged on `main` (`b49d8bd6`); open items finished by plan 019 (`d40ab48b`: YouTube audio via the Mac companion); device checks pending | [014](../docs/plans/2026-09-22-014-m5-ingest.md) |
+| M6 | Structure models: Needle 3 (from needle-rs source, ADR-012), Jev (opt-in, non-clinical), Laya research; confidence gating | IN PROGRESS: merged on `main`: the Needle slice (`a9bca61e`; SOAP fields and medications, voice commands, an allow-list clinical gate `a27dd43a`, evidence ledger, Eval; Needle experimental at 44.6% argument accuracy) and the Jev trial (`41de1e3b`, plan 021; its live eval waits on the owner's Jev key); Needle round 4 (clinical safety) is open: do not use Extract fields on real clinical dictation until it lands; Laya not started | [015](../docs/plans/2026-09-22-015-m6-structure-models.md), [021](../docs/plans/2026-09-22-021-m6a-jev-decision-trial.md) |
+| M7 | Engine breadth and on-device benchmarks: Apple SpeechTranscriber, WhisperKit, streaming Parakeet/Nemotron, MLX and llama.cpp | IN PROGRESS: merged on `main`: speech routes, Apple Speech, WhisperKit and the ASR benchmark (`287ae725`); small language models on the iPhone through llama.cpp (`4dc07f0e`, ADR-015; Qwen3.5 2B default, Qwen3 4B Instruct quality; MLX not adopted). iPhone measurements partly pending; streaming not built | [016](../docs/plans/2026-09-22-016-m7-engine-breadth.md) |
+| M8 | Polish: PDF/DOCX export, keyboard extension, Transforms share extension, widgets, accessibility, iPad, localization | IN PROGRESS: PDF and Word export shipped with Create (plan 022, `08dccd2b`); the UX-audit polish (accessibility floor, Dynamic Type, 44 pt targets, contrast, honest privacy labels) and the dark palette (`7e5ac64b`) are merged; keyboard, Transforms share extension, home-screen widgets, iPad and localization are not started | [017](../docs/plans/2026-09-22-017-m8-polish.md), [022](../docs/plans/2026-09-22-022-create-anything-in-anything-out.md), [023](../docs/plans/2026-09-23-023-owner-design-decisions.md) |
+
+Status words match the plans board. When a milestone lands, update this row, the board and the root `README.md` status
+table in the same commit, with the commit SHA and what was verified (package suite, simulator, device smoke).
 
 ## For coding agents
 

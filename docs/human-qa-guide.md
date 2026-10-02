@@ -15,8 +15,18 @@ Automated tests prove the paths they exercise; QA adds what they cannot:
 ## The loop
 
 1. Every feature hand-off (plan result or PR) includes a **Human QA checklist** (template below).
-2. Install the build on the phone (below) and open **Settings → About**: confirm the commit matches the one the
-   checklist names.
+2. Install the build on the phone (below) and open **Settings → About**: it shows the `main` commit the build was made
+   from. Check that this build includes the commit the checklist names (the last commit of the lane that added the
+   feature); the About commit is normally newer than that one:
+
+   ```bash
+   cd /Users/ama/Documents/GitHub/iChirp
+   git merge-base --is-ancestor <checklist sha> <About commit> && echo OK
+   ```
+
+   `OK` means the build has the feature. Nothing printed means the build is older than the feature: install current
+   `main` instead (never the checklist's commit itself, see below). An error saying git does not know the About commit
+   means the build came from a clone other than this one.
 3. Walk the checklist top to bottom; tick what passes.
 4. For anything that fails, write down what you did, what you expected, what happened, and a screenshot. That is
    enough; you do not need to diagnose the code.
@@ -25,13 +35,21 @@ Automated tests prove the paths they exercise; QA adds what they cannot:
 
 ```bash
 cd /Users/ama/Documents/GitHub/iChirp
-git switch <branch-to-test>
+git switch main
 scripts/run_device.sh
 ```
 
-The phone must be unlocked, paired, and in Developer Mode. If the script prints a signing message, follow it (it
-never changes your Apple Developer account by itself); details in [`distribution.md`](distribution.md). For a quick
-look without the phone: `scripts/run_sim.sh`.
+`main` is the working branch and every milestone below is merged into it, so you test `main`. Each checklist names
+the last commit of the lane that added its feature ("a build of `main` that includes `<sha>`"); a newer build of
+`main` includes it too, and step 2 of the loop shows how to check. Test a different branch only when a hand-off names
+one that is not merged yet. **Never install an older commit over
+the Library you use every day**: the store has no downgrade guard, so an old build can misread rows that a newer build
+wrote. To look at old behavior, use the simulator (`scripts/run_sim.sh`) or a throwaway install.
+
+The phone must be unlocked, paired, and in Developer Mode. If the script prints "Signing failed", follow that message
+(it never changes your Apple Developer account by itself); details in [`distribution.md`](distribution.md). Any other
+failure it prints ("That is not a signing problem") is a build error in the code: do not start the Xcode signing
+flow; send the error lines to whoever is making the change. For a quick look without the phone: `scripts/run_sim.sh`.
 
 **Your data.** A development build uses the same bundle id as your everyday Parakeet install, so it shares the same
 Library. For destructive checks (delete, recovery, discard), first import a throwaway file (the bundled synthetic
@@ -39,8 +57,9 @@ sample or a scratch Voice Memo) and test on that row only. Never test deletion o
 
 ## M1 checklist (file transcription)
 
-> Preconditions: the build's commit matches Settings → About; the phone has at least 2 GB free; you have a real Voice
-> Memo of 1–5 minutes with two people talking, and a short throwaway file.
+> Preconditions: a build of `main` that includes `a6cd8f2d` (the last commit of the M0 + M1 plan, plan 003; Settings →
+> About shows your build's commit and step 2 of the loop checks it); the phone has at least 2 GB free; you have a real
+> Voice Memo of 1–5 minutes with two people talking, and a short throwaway file.
 
 Model management
 - [ ] Settings → Speech model shows "Not downloaded" on a fresh install; Download shows real progress and ends with
@@ -74,8 +93,8 @@ Screenshots to attach
 
 ## M1.5 checklist (Share sheet, locked-phone transcription, audio tracks)
 
-> Preconditions: the iPhone 17 Pro runs the `m1.5/share-and-background` build (Settings → About shows its commit;
-> install and file-making commands are in plan 010, Step 3.1–3.2); the speech model is downloaded; Console.app is
+> Preconditions: the iPhone 17 Pro runs a build of `main` that includes `1ad81930` (the last commit of `m1.5/share-and-background`; Settings → About shows its commit; install and file-making commands are in plan 010, Step 3.1–3.2); the
+> speech model is downloaded; Console.app is
 > streaming the phone with the filter `subsystem:com.aarzamen.ichirp`; `long-20min.m4a` and `Two Tracks.mov` are in
 > Files (made with `say` and ffmpeg, synthetic); a throwaway, non-clinical Voice Memo of about 30 seconds exists.
 
@@ -116,8 +135,9 @@ Screenshots to attach
 
 ## M2 checklist (dictation)
 
-> Preconditions: the iPhone 17 Pro runs the `m2/dictation` build (Settings → About shows its commit; install with
-> `scripts/run_device.sh`); the speech model is downloaded; Console.app streams the phone with the filter
+> Preconditions: the iPhone 17 Pro runs a build of `main` that includes `085d13f7` (the last commit of `m2/dictation`; Settings →
+> About shows its commit; install with `scripts/run_device.sh`); the speech model is downloaded; Console.app streams
+> the phone with the filter
 > `subsystem:com.aarzamen.ichirp`. Use throwaway, non-clinical sentences only (never dictate PHI while testing).
 
 Dictating screen
@@ -181,8 +201,9 @@ Background (Step 8 research note)
 
 ## M3 checklist (meetings)
 
-> Preconditions: the iPhone 17 Pro runs the `m3/meetings` build (Settings → About shows its commit; install with
-> `scripts/run_device.sh`); the speech model and the speaker model are downloaded; Console.app streams the phone with
+> Preconditions: the iPhone 17 Pro runs a build of `main` that includes `78211054` (the last commit of `m3/meetings`; Settings →
+> About shows its commit; install with `scripts/run_device.sh`); the speech model and the speaker model are
+> downloaded; Console.app streams the phone with
 > the filter `subsystem:com.aarzamen.ichirp`. Talk to yourself or play a podcast out loud: never record a real
 > clinical conversation or anyone who has not agreed, while testing.
 
@@ -242,7 +263,8 @@ Storage and retention
 
 ## Mac companion checklist (plan 019: voices host and YouTube audio)
 
-> Preconditions: the iPhone runs the `lane/companion` build (or later); the iPhone and the Mac are on the same Wi-Fi;
+> Preconditions: the iPhone runs a build of `main` that includes `d40ab48b` (the last commit of `lane/companion`); the iPhone and
+> the Mac are on the same Wi-Fi;
 > on the Mac, `scripts/companion.sh --download qwen3-tts-1.7b` has run once. Use public, non-personal links only.
 > Console.app streams the phone with `subsystem:com.aarzamen.ichirp`.
 
@@ -278,8 +300,9 @@ Screenshots to attach
 
 ## M5 checklist (links and documents)
 
-> Preconditions: the iPhone 17 Pro runs the `m5/ingest` build (Settings → About shows its commit); the speech model
-> is downloaded; Console.app streams the phone with `subsystem:com.aarzamen.ichirp`; in Files: a short PDF you made,
+> Preconditions: the iPhone 17 Pro runs a build of `main` that includes `b49d8bd6` (the last commit of `m5/ingest`; Settings →
+> About shows its commit); the speech model is downloaded; Console.app streams the phone with
+> `subsystem:com.aarzamen.ichirp`; in Files: a short PDF you made,
 > a scanned PDF (Files → ⋯ → Scan Documents on a page of printed, non-clinical text), a DOCX, and a Markdown file.
 > Use public, non-personal links only.
 
@@ -316,8 +339,9 @@ Screenshots to attach
 
 ## M4 checklist (language models: Transform, Ask, Settings → Models)
 
-> Preconditions: the iPhone 17 Pro runs the `m4/language-models-ui` build (Settings → About shows its commit);
-> Apple Intelligence is on (iPhone Settings → Apple Intelligence & Siri) and its model has finished downloading; the
+> Preconditions: the iPhone 17 Pro runs a build of `main` that includes `5db5fd30` (the last commit of `m4/language-models-ui`;
+> Settings → About shows its commit); Apple Intelligence is on (iPhone Settings → Apple Intelligence & Siri) and its
+> model has finished downloading; the
 > Mac runs Ollama with a small model pulled (`ollama pull llama3.2:3b`, then `OLLAMA_HOST=0.0.0.0 ollama serve` so the
 > phone can reach it) or LM Studio's server with "Serve on Local Network" on; the phone and Mac are on the same Wi-Fi;
 > a throwaway cloud API key is at hand (optional). Use only synthetic recordings (make one with `say`, below).
@@ -380,8 +404,8 @@ iChirpUITour -destination 'platform=iOS Simulator,name=iPhone 17 Pro'` walks eve
 
 ## M6a checklist (Jev decision model trial, plan 021)
 
-> Preconditions: the phone runs the `m6a/jev-decision-trial` build (Settings → About shows its commit); you have a Jev
-> API key from TypeSafe at hand; the phone is online. Use only synthetic recordings (the M4 `say` recording above,
+> Preconditions: the phone runs a build of `main` that includes `41de1e3b` (the last commit of `m6a/jev-decision-trial`; Settings →
+> About shows its commit); you have a Jev API key from TypeSafe at hand; the phone is online. Use only synthetic recordings (the M4 `say` recording above,
 > plus a synthetic meeting: `say -o ~/Desktop/synthetic-meeting.m4a --data-format=aac "Welcome everyone. Let's
 > review the launch plan. Sam will send the agenda by Friday. We agreed to ship next Tuesday. Any questions?"`).
 > Jev is a **cloud** service: an excerpt of a transcript (up to 3,000 characters) goes to TypeSafe; clinical items
@@ -435,8 +459,8 @@ walks the Jev screens and saves the screenshots.
 
 ## Voice checklist (plan 020: Listen, Speak answers, Settings → Voices)
 
-> Preconditions: the phone runs the `lane/voice` build merged with plan 019's Mac companion (Settings → About shows
-> the commit); the Mac runs the companion (`scripts/companion.sh`, which prints the address and pairing token) with a
+> Preconditions: the phone runs a build of `main` that includes `8a08b2f4` (the last commit of `lane/voice`, which needs plan
+> 019's Mac companion, `d40ab48b`; Settings → About shows the commit); the Mac runs the companion (`scripts/companion.sh`, which prints the address and pairing token) with a
 > voice model loaded; the phone and Mac are on the same Wi-Fi; for Grok voices, your xAI key (and, if you want it,
 > your cloned voice's id from your xAI account). Use only synthetic text (the M4 checklist's `synthetic-visit.m4a`, or
 > a text document you type). Console.app filter: `subsystem:com.aarzamen.ichirp category:voice`.
@@ -519,7 +543,9 @@ TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/voice-screens" xcodebuild test -pr
 
 ## M6 checklist (Needle 3: SOAP fields and medications, dictation voice commands, Eval)
 
-> Preconditions: the Mac ran `scripts/build_needle.sh` before the build (Settings → Structure models shows a Needle 3
+> Preconditions: a build of `main` that includes `a27dd43a` (the last commit of `fix/needle-allowlist`, the clinical
+> allow-list gate this checklist tests; it comes after `lane/needle`'s last commit `a9bca61e`, so it includes that one
+> too); the Mac ran `scripts/build_needle.sh` before the build (Settings → Structure models shows a Needle 3
 > row with Download, not "Needle is not in this build"); the phone has Wi-Fi for the one-time 35 MB model download.
 > Use only synthetic speech (the `say` file below). Needle 3's base model scored low on the synthetic eval (see
 > `docs/research/2026-09-22-needle-eval.md`): expect most of its fields in **Needs review**; that is the gate working.
@@ -569,7 +595,8 @@ Simulator (agents): DEBUG launch arguments open the screens without taps: `-Chir
 
 ## M7 checklist (small language models on this iPhone: Qwen through llama.cpp, ADR-015)
 
-> Preconditions: the Mac ran `scripts/build_llamacpp.sh` before the build (Settings → Models → Small models on this
+> Preconditions: a build of `main` that includes `4dc07f0e` (the last commit of `lane/on-device-llm`); the Mac ran
+> `scripts/build_llamacpp.sh` before the build (Settings → Models → Small models on this
 > iPhone shows two rows with Download, not "…is not in this build"); Wi-Fi and about 1.5 GB free for Qwen3.5 2B (2.7 GB
 > more for Qwen3 4B Instruct). Use only the synthetic visit below. Keep Parakeet on screen while a small model writes:
 > iOS stops GPU work in the background.
@@ -626,7 +653,7 @@ note on a synthetic document (llama.cpp runs on the CPU there, so it proves wiri
 
 ## M7 checklist (speech engines: routes, Apple Speech, WhisperKit, benchmark)
 
-> Preconditions: a build from `ichirp/foundation` at or after the M7 speech-engine merge on the test iPhone; Wi-Fi for the Whisper downloads
+> Preconditions: a build of `main` that includes `287ae725` (the last commit of `lane/asr-engines`) on the test iPhone; Wi-Fi for the Whisper downloads
 > (Base about 150 MB, Large v3 Turbo about 650 MB); only synthetic speech (the bundled reference set or a `say` file).
 
 Speech engines and routes
@@ -683,7 +710,7 @@ Apple Speech shows "permission-needed" there until Speech Recognition was allowe
 
 ## Create checklist (plan 022: text items, Create, Edit by voice, voice messages, PDF and Word)
 
-> Preconditions: the test iPhone runs a build at or after the Create merge on `ichirp/foundation` (Settings → About shows its commit); the speech model is
+> Preconditions: the test iPhone runs a build of `main` that includes `08dccd2b` (the last commit of `lane/create`; Settings → About shows its commit); the speech model is
 > downloaded. Use only synthetic text and `say` audio. For Summary, Document and Edit by voice a model is set up in
 > Settings → Models; for voice messages a voice in Settings → Voices.
 >
@@ -764,7 +791,7 @@ Voice messages (Step 5; Settings → Voices has a voice)
 
 ## Polish wave 3 checklist (lane u3: Transcript, Library, Ask, Notes, Dictating, Meeting)
 
-> Preconditions: a build of `polish/u3-transcript` (or later); one synthetic transcript with two speakers (the bundled
+> Preconditions: a build of `main` that includes `fb701bbb` (the last commit of `polish/u3-transcript`); one synthetic transcript with two speakers (the bundled
 > sample through Create → File → Transcript). Settings app → Accessibility → Display & Text Size → Larger Text: check
 > the default size and the largest size. Use throwaway, non-clinical sentences only.
 
@@ -809,7 +836,7 @@ Meeting (largest text size)
 
 ## Create and Transforms polish checklist (polish lane u2, UX audit 2b9ad612)
 
-> Preconditions: a build at or after the polish/u2-create merge (Settings → About shows its commit). Synthetic text
+> Preconditions: a build of `main` that includes `acd6224b` (the last commit of `polish/u2-create`; Settings → About shows its commit). Synthetic text
 > only. Screenshots from the simulator run are in `.superpowers/sdd/milestones/polish-u2-create-screens/`.
 
 Nothing typed is lost (F19, F24, F38)
@@ -852,7 +879,7 @@ Screens (F11, F16, F18, F20, F34–F37, F41, F43, F47, F69, F90)
 
 ## Wave 4 formatted-docs checklist (UX audit F23, plan 023: formatted view, plain copy)
 
-> Preconditions: a build at or after the wave4/formatted-docs merge. Synthetic text only (a SOAP note works well —
+> Preconditions: a build of `main` that includes `268deb09` (the last commit of `wave4/formatted-docs`). Synthetic text only (a SOAP note works well —
 > it exercises headings, bullets and a numbered list in one document). Screenshots from the simulator run are in
 > `.superpowers/sdd/milestones/w4-formatted-docs-screens/`.
 
@@ -888,7 +915,7 @@ what a real tap on Copy puts on the clipboard (`App/Sources/Debug/TransformsPrev
 
 ## Documents in the Library checklist (wave 4 lane docs-library, plan 023 F43)
 
-> Preconditions: a build at or after the wave4/docs-library merge (Settings → About shows its commit), with at least
+> Preconditions: a build of `main` that includes `9b852186` (the last commit of `wave4/docs-library`; Settings → About shows its commit), with at least
 > two recordings or text items that each have two or more documents (Transform → SOAP note, Summary). Synthetic text
 > only. Simulator screenshots (default and largest text size) are in
 > `.superpowers/sdd/milestones/w4-docs-library-screens/`.
@@ -930,7 +957,7 @@ Largest text size (Settings → Accessibility → Larger Text, the largest size)
 
 ## Capture recipes checklist (wave 4 lane capture-recipes, plan 023 F14 "Create + recipes")
 
-> Preconditions: a build at or after the wave4/capture-recipes merge (Settings → About shows its commit). Synthetic
+> Preconditions: a build of `main` that includes `fda69e17` (the last commit of `wave4/capture-recipes`; Settings → About shows its commit). Synthetic
 > speech and text only. Screenshots from the simulator tour (`UITests/RecipesTourUITests.swift`) are in
 > `.superpowers/sdd/milestones/w4-capture-recipes-screens/`. The Speak steps need the phone (the simulator never
 > records).
@@ -964,7 +991,7 @@ Accessibility
 
 ## Dark palette checklist (plan 023 F6, wave-4 lane dark-palette)
 
-> Preconditions: a build at or after the wave4/dark-palette merge. Light and dark screenshots of every main screen,
+> Preconditions: a build of `main` that includes `7e5ac64b` (the last commit of `wave4/dark-palette`). Light and dark screenshots of every main screen,
 > with the contact sheet, are in `.superpowers/sdd/milestones/w4-dark-palette-screens/index.html`. Synthetic data only.
 > Switch schemes in Settings → Display & Brightness; Increase Contrast is Settings → Accessibility → Display & Text
 > Size.
@@ -1004,8 +1031,14 @@ Screenshots to attach
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo
 → the Recent row reaches 100% and the transcript shows two speakers"), never "the code path runs".
 
+Name the build as "a build of `main` that includes `<sha>`", where `<sha>` is the last commit of the lane that added the
+feature (an ancestor of `main`; not the merge commit that brought it in, because a lane merged by fast-forward has none;
+the loop's `git merge-base --is-ancestor` command checks it against the commit Settings → About shows). Never name a
+lane branch to install: lane branches are merged and left behind within days, and installing one over the real Library
+is a downgrade.
+
 ```text
-> Preconditions: <build/commit, data, settings>
+> Preconditions: <build of main that includes sha, data, settings>
 
 Happy path
 - [ ] <action> → <result>

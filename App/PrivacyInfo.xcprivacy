@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Parakeet's privacy manifest (R8-22). It declares the "required reason" APIs the app uses.
+	scripts/check_privacy_manifest.sh compares it with the first-party sources (App/ and ChirpKit/), with the vendored
+	Needle and llama.cpp runtimes and, in CI, with every binary of the built app. A new use that this file does not
+	declare fails that check. A category declared here that the scan does not see is only printed as a note (a scan
+	without the vendored runtimes or a built app cannot prove non-use), so remove a declaration only after a scan with
+	every runtime finds no use. A file the check cannot read stops it (exit 2); it is never counted as scanned. Packages
+	that ship a manifest of their own (GRDB does, in its resource bundle, and Xcode merges it) need nothing here. Code
+	that ships none (FluidAudio, WhisperKit, needle-c, llama.cpp) is covered by what the linked binary imports. Not
+	checked: Apple frameworks loaded at run time, which are Apple's own.
+	Not used (none found in the sources, the vendored runtimes or the built app): system boot time (systemUptime,
+	mach_absolute_time) and active keyboards. clock_gettime, which the Rust and llama.cpp code imports, is not on Apple's
+	list.
+	NSPrivacyCollectedDataTypes is empty: the app has no account and no server of its own. Text the person sends to a
+	cloud model or voice they chose goes to that provider; what that means for the App Store privacy answers is the
+	owner's call when an App Store Connect record exists (docs/distribution.md).
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- UserDefaults, CA92.1 (information only the app itself reads): the app's own settings stores, on the standard
+		defaults, never an app group (ChirpFeatures: SettingsStore, SpeechRouteStore, LanguageModelProviderStore,
+		CompanionSettingsStore, JevSettingsStore, VoiceSettings, StructuredResultGate, CreateChoices, CreateRecipe). -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<!-- Disk space, E174.1 (check there is room before writing files): a model download refuses when the volume
+		lacks room (LlamaCppModelAssets) and a meeting refuses to start when the iPhone is almost full
+		(MeetingCoordinator). 85F4.1 (show it to the person): the meeting screen shows how many minutes of audio fit. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
+				<string>85F4.1</string>
+			</array>
+		</dict>
+		<!-- File timestamp, C617.1 (metadata of files inside the app container). Not first-party code: the Swift sources
+		read file sizes only (attributesOfItem [.size], size and free-space resource keys), never a date, and nothing
+		shows a file date to the person. The stat, fstat, lstat and fstatat imports come from the Rust standard library
+		inside two statically linked libraries that ship no manifest. needle-c (Needle 3, scripts/build_needle.sh): the
+		Swift code calls eight needle-c functions (ChirpEngineNeedle/NeedleCModel.swift) and needle_v3_load is the only one
+		that takes a path; it reads the model, <Application Support>/Models/needle3/needle3.cact, with std::fs::read
+		(fstat). At the pinned needle-rs (4de50494) every file access outside its tests reads a model, weights or
+		vocabulary file at a path the caller passes. FluidAudio's NeMo text-processing library: its C API takes text,
+		never a path (nemo_normalize and the rest of nemo_text_processing.h), so the app cannot point it at a file. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

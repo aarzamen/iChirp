@@ -17,6 +17,7 @@ Start with [`AGENTS.md`](../AGENTS.md) (commands, boundaries, rules) and the [sp
 | Keeping agent instructions lean | [Agent memory governance](agent-memory-governance.md), [research behind it](research/coding-agent-instructions-2026-06.md) |
 | Planned and in-progress work | [Plans board](plans/README.md), [executor-plan template](plans/TEMPLATE-executor-plan.md) |
 | Why the first iOS attempt was rebuilt | [Gemini port review](reviews/2026-09-22-gemini-ios-review.md) |
+| The 2026-10-01 full review and its fixes | [Review reports](reviews/2026-10-01-full-review/), [plan 024](plans/2026-10-01-024-review-fixes.md) |
 | Porting from MacParakeet | [Pipeline map](research/2026-09-22-macparakeet-pipeline-map.md), [`upstream/README.md`](../upstream/README.md) |
 | Recurring problems and their fixes | [Solutions](solutions/README.md) |
 

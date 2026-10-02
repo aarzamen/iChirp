@@ -1,0 +1,2 @@
+ERROR: The request to open "com.example.app" failed. (FBSOpenApplicationErrorDomain error 7)
+       NSLocalizedFailureReason = Unable to launch com.example.app because the device was not, or could not be, unlocked.

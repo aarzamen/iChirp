@@ -2,6 +2,7 @@
 # Builds the Debug app for the owner's iPhone, installs it with devicectl and launches it.
 #
 # Usage: scripts/run_device.sh [--dry-run | --print-device | --print-pinned-device] [launch arguments passed to the app]
+#        scripts/run_device.sh --classify-log <build|tool> <log file>    # prints locked, signing or other; see below
 #   scripts/run_device.sh                          # build Debug, install, launch
 #   scripts/run_device.sh -SomeLaunchArgument      # extra arguments reach the app at launch
 #   scripts/run_device.sh -- -ChirpSmoke transcribe-sample   # a leading "--" is accepted and dropped
@@ -20,16 +21,22 @@
 #
 # Device selection never guesses between phones:
 #   1. DEVICE_ID=<identifier> in the environment;
-#   2. otherwise Config/Device.local (gitignored), one line DEVICE_ID=<identifier>
-#      (copy Config/Device.local.example);
+#   2. otherwise a DEVICE_ID=<identifier> line in Config/Device.local (gitignored; copy Config/Device.local.example).
+#      A Config/Device.local without such a line (the example as it stands) counts as no file;
 #   3. otherwise, unless --print-pinned-device or PINNED_DEVICE_ONLY=1 asked for the stricter rule above, the one
 #      iPhone that devicectl lists as "available (paired)" or "connected";
 #   4. more than one reachable iPhone and no DEVICE_ID: stop and list them.
 #
-# Signing uses the provisioning profiles that already exist on this Mac (the team's wildcard
-# "iOS Team Provisioning Profile: *" covers com.aarzamen.ichirp). This script never asks Xcode to
-# create or update provisioning profiles or to register devices. Read APPLE_DEVELOPER_WARNING.md.
+# Signing uses the provisioning profiles that already exist on this Mac (Xcode's automatic-signing profile for
+# com.aarzamen.ichirp; the Increased Memory Limit capability in project.yml lives on that App ID, so a profile that
+# predates it needs one automatic-signing build in the Xcode app). This script never asks Xcode to create or update
+# provisioning profiles or to register devices. Read APPLE_DEVELOPER_WARNING.md.
 # Logs: .build/device-logs/
+#
+# A failed step is classified so the advice matches the failure: "locked" (unlock the phone), "signing" (an error line
+# that names a signing problem), or "other" (a build or tool error; the error lines above say what). --classify-log
+# runs only that classification, for scripts/check_scripts.sh and its fixtures; "build" logs are xcodebuild's,
+# "tool" logs are devicectl's.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,8 +50,9 @@ case "${1:-}" in
   --dry-run) MODE="dry-run"; shift ;;
   --print-device) MODE="print-device"; shift ;;
   --print-pinned-device) MODE="print-pinned-device"; shift ;;
+  --classify-log) MODE="classify-log"; shift ;;
 esac
-if [ "${1:-}" = "--" ]; then
+if [ "$MODE" != "classify-log" ] && [ "${1:-}" = "--" ]; then
   shift
 fi
 
@@ -68,37 +76,91 @@ phone_locked() {
   echo "Unlock your iPhone and rerun." >&2
 }
 
-# Classifies a failure log: locked phone, signing, or generic. Always exits non-zero.
+# What a failure log says went wrong. Prints locked, signing or other.
+#   build: an xcodebuild log. It always carries signing words that prove nothing: the environment dump of every
+#          "Stamp Build Identity" script phase (CODE_SIGNING_ALLOWED, CODESIGNING_FOLDER_PATH, ...), the "Signing
+#          Identity:" and "Provisioning Profile:" lines and the CodeSign command lines. A Swift compile error is
+#          therefore not a signing problem; only an error line that names one is (R8-2).
+#   tool:  a devicectl log (short, no environment dump): the signing words anywhere in it count.
+LOCKED_PATTERN='device (is|was) locked|passcode protected|could not be,? unlocked|unlock (your|the) (iPhone|device)'
+SIGNING_ERROR_PATTERN='No profiles for|No Account for Team|requires a development team|provisioning profile|signing certificate|Automatic signing (is disabled|failed|is unable to resolve)|Code ?Sign(ing)? Error|Failed Registering Bundle Identifier|Your team has no devices|errSecInternalComponent|Command CodeSign failed'
+SIGNING_ANY_PATTERN='signing|provisioning profile|No profiles for|No Account for Team|certificate|CodeSign|code signature|errSecInternalComponent'
+classify_log() {
+  local log="$1" kind="$2" error_lines
+  if grep -qiE "$LOCKED_PATTERN" "$log"; then
+    echo locked
+    return
+  fi
+  if [ "$kind" = "build" ]; then
+    # Here-strings, not pipes: with pipefail a `grep -q` that stops reading early would fail the whole pipeline.
+    error_lines=$(grep -E 'error:|errSecInternalComponent|Command CodeSign failed' "$log" || true)
+    if [ -n "$error_lines" ] && grep -qiE "$SIGNING_ERROR_PATTERN" <<<"$error_lines"; then
+      echo signing
+      return
+    fi
+  elif grep -qiE "$SIGNING_ANY_PATTERN" "$log"; then
+    echo signing
+    return
+  fi
+  echo other
+}
+
+# Reports a failed step with advice that matches what went wrong. Always exits non-zero.
+# fail_with_log <log> <what> [build]   (the third word says the log is xcodebuild's; anything else is devicectl's)
 fail_with_log() {
-  local log="$1" what="$2"
+  local log="$1" what="$2" kind="${3:-tool}"
   echo "" >&2
   echo "error: $what failed. Full log: $log" >&2
-  if grep -qiE 'device (is|was) locked|passcode protected|could not be,? unlocked|unlock (your|the) (iPhone|device)' "$log"; then
-    phone_locked
-  elif grep -qiE 'signing|provisioning profile|No profiles for|No Account for Team|certificate|CodeSign|code signature|errSecInternalComponent' "$log"; then
-    signing_failed
-  fi
+  case "$(classify_log "$log" "$kind")" in
+    locked) phone_locked ;;
+    signing) signing_failed ;;
+    *)
+      if [ "$kind" = "build" ]; then
+        echo "That is not a signing problem. The error lines above say what failed; fix them and rerun." >&2
+      fi
+      ;;
+  esac
   exit 1
 }
 
-# 1. Resolve the device (see the order in the header).
+# Test hook for scripts/check_scripts.sh: classify a saved log without building or touching a phone.
+if [ "$MODE" = "classify-log" ]; then
+  if [ "$#" -ne 2 ] || { [ "$1" != "build" ] && [ "$1" != "tool" ]; } || [ ! -f "$2" ]; then
+    echo "usage: scripts/run_device.sh --classify-log <build|tool> <log file>" >&2
+    exit 2
+  fi
+  classify_log "$2" "$1"
+  exit 0
+fi
+
+# 1. Resolve the device (see the order in the header). A Config/Device.local with no uncommented DEVICE_ID line (the
+#    example copied as it stands, which older versions of bootstrap.sh did) is the same as no file (R8-10).
+FILE_DEVICE_ID=""
+if [ -f Config/Device.local ]; then
+  FILE_DEVICE_ID=$(sed -nE 's/^[[:space:]]*DEVICE_ID[[:space:]]*=[[:space:]]*"?([^"[:space:]#]+)"?.*/\1/p' \
+    Config/Device.local | head -1)
+fi
 DEVICE_SOURCE=""
 if [ -n "${DEVICE_ID:-}" ]; then
   DEVICE_SOURCE="DEVICE_ID environment variable"
-elif [ -f Config/Device.local ]; then
-  DEVICE_ID=$(sed -nE 's/^[[:space:]]*DEVICE_ID[[:space:]]*=[[:space:]]*"?([^"[:space:]#]+)"?.*/\1/p' \
-    Config/Device.local | head -1)
-  if [ -z "$DEVICE_ID" ]; then
-    echo "error: Config/Device.local has no DEVICE_ID=<identifier> line (see Config/Device.local.example)." >&2
-    exit 1
-  fi
+elif [ -n "$FILE_DEVICE_ID" ]; then
+  DEVICE_ID="$FILE_DEVICE_ID"
   DEVICE_SOURCE="Config/Device.local"
 elif [ "$PINNED_ONLY" = "1" ]; then
-  echo "error: no DEVICE_ID and no Config/Device.local, and this caller never guesses the phone (it does not fall" >&2
-  echo "back to \"the one reachable iPhone\"). Set DEVICE_ID=<identifier>, or add DEVICE_ID=<identifier> to" >&2
-  echo "Config/Device.local (copy Config/Device.local.example), then rerun." >&2
+  if [ -f Config/Device.local ]; then
+    echo "error: no DEVICE_ID, and Config/Device.local has no DEVICE_ID=<identifier> line. This caller never guesses" >&2
+    echo "the phone (it does not fall back to \"the one reachable iPhone\")." >&2
+  else
+    echo "error: no DEVICE_ID and no Config/Device.local, and this caller never guesses the phone (it does not fall" >&2
+    echo "back to \"the one reachable iPhone\")." >&2
+  fi
+  echo "Set DEVICE_ID=<identifier>, or put a DEVICE_ID=<identifier> line in Config/Device.local (copy" >&2
+  echo "Config/Device.local.example), then rerun." >&2
   exit 1
 else
+  if [ -f Config/Device.local ]; then
+    echo "note: Config/Device.local has no DEVICE_ID=<identifier> line, so it pins nothing; looking for the one reachable iPhone." >&2
+  fi
   DEVICES_JSON="$LOG_DIR/devices.json"
   rm -f "$DEVICES_JSON"
   if ! xcrun devicectl list devices --quiet --json-output "$DEVICES_JSON" >"$LOG_DIR/devices.log" 2>&1; then
@@ -170,7 +232,7 @@ if [ -z "$DEVICE_NAME" ] || [ "$DEVICE_NAME" = "$DEVICE_META" ]; then
   DEVICE_NAME="iPhone"
 fi
 
-# 2. Team: env, then Config/Signing.local.xcconfig, then the owner's team.
+# 2. Team: env, then Config/Signing.local.xcconfig.
 if [ -z "${DEVELOPMENT_TEAM:-}" ] && [ -f Config/Signing.local.xcconfig ]; then
   DEVELOPMENT_TEAM=$(sed -nE 's/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*([A-Za-z0-9]+).*/\1/p' \
     Config/Signing.local.xcconfig | head -1)
@@ -213,7 +275,7 @@ BUILD_LOG="$LOG_DIR/xcodebuild-device.log"
 echo "Building Debug for the device (log: $BUILD_LOG) ..."
 if ! xcodebuild "${XCODEBUILD_ARGS[@]}" >"$BUILD_LOG" 2>&1; then
   grep -E 'error:|BUILD FAILED' "$BUILD_LOG" | tail -20 >&2 || true
-  fail_with_log "$BUILD_LOG" "xcodebuild"
+  fail_with_log "$BUILD_LOG" "xcodebuild" build
 fi
 grep -E 'Stamped |BUILD SUCCEEDED' "$BUILD_LOG" | tail -2 || true
 

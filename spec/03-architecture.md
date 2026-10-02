@@ -1,31 +1,49 @@
 # 03 - Architecture
 
-> Status: ACTIVE — module map, dependency rules and data flow for M1; later milestones add modules without
-> changing these rules.
+> Status: ACTIVE — module map, dependency rules and data flow; milestones add modules without changing these
+> rules. The data-flow section below describes the M1 file pipeline; later pipelines follow the same rules.
 
 ## Shape
 
 ```
 ┌─────────────────────────── iChirp app target (App/) ───────────────────────────┐
 │ iChirpApp → AppEnvironment (composition root: builds concrete stores/engines)  │
-│ Screens: RootTabView · Capture · Library · Transcript (+PlayerBar) · Settings  │
-│          · Transforms · NotBuiltYetSheet · DEBUG SmokeTestRunner               │
+│ Screens: RootTabView · Capture · Library · Transcript (+PlayerBar) · Documents │
+│          · Transforms · Ask · Create · Dictating · Meeting · Settings          │
+│          · NotBuiltYetSheet · DEBUG runners · plus the Widgets/ extension      │
 └───────────────┬────────────────────────────────────────────────────────────────┘
                 │ imports ChirpKit products
 ┌───────────────▼──────────────── ChirpKit (local Swift package) ───────────────┐
 │ ChirpUI ─────────► ChirpCore                                                    │
-│ ChirpFeatures ───► ChirpCore, ChirpText, ChirpExport   (engines injected)       │
+│ ChirpFeatures ───► ChirpCore, ChirpText, ChirpExport, ChirpIngest               │
+│                    (engines and stores injected as protocols)                   │
 │ ChirpExport ─────► ChirpCore, ChirpText                                         │
 │ ChirpText ───────► ChirpCore                                                    │
-│ ChirpStore ──────► ChirpCore, GRDB                                              │
+│ ChirpStore ──────► ChirpCore, ChirpText, GRDB                                   │
 │ ChirpAudio ──────► ChirpCore (+ AVFoundation)                                   │
 │ ChirpIngest ─────► ChirpCore (+ URLSession, PDFKit, Vision; M5 links and docs)  │
-│ ChirpEngineFluidAudio ─► ChirpCore, FluidAudio (exact 0.16.1)                   │
+│ ChirpKeychain ───► ChirpCore (+ Security)                                       │
+│ ChirpEngine<Provider> ─► ChirpCore + that provider's SDK, nothing else         │
 │ ChirpCore ───────► Foundation, OSLog only                                       │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The authoritative graph is `ChirpKit/Package.swift`; the app's product list is in `project.yml`.
+The authoritative graph is `ChirpKit/Package.swift`; the app's product list is in `project.yml`. The engine targets:
+
+| Target | Needs | Is |
+|---|---|---|
+| `ChirpEngineFluidAudio` | FluidAudio, exact 0.16.1 | Parakeet speech and offline diarization |
+| `ChirpEngineAppleSpeech` | system `SpeechTranscriber` | Speech |
+| `ChirpEngineWhisperKit` | argmax-oss-swift (WhisperKit), exact 1.1.0 | Speech |
+| `ChirpEngineAppleFM` | system `FoundationModels` | Language model on the iPhone |
+| `ChirpEngineHTTPLLM` | `URLSession` | Language models over HTTP: Anthropic, OpenAI-compatible, Ollama; cloud or home network |
+| `ChirpEngineLlamaCpp` | `vendor/llama.xcframework` from `scripts/build_llamacpp.sh` | Small language models on the iPhone |
+| `ChirpEngineNeedle` | `vendor/NeedleC.xcframework` from `scripts/build_needle.sh` | Structure model (Needle 3) |
+| `ChirpEngineJev` | `URLSession` | Decision model (Jev; cloud, opt-in, never clinical) |
+| `ChirpEngineVoiceHTTP` | `URLSession` | Text to speech: xAI voices, the Mac companion's voices |
+
+The two `vendor/` runtimes are linked only when they exist; without them their targets compile and report "not in this
+build".
 
 ## Rules
 
@@ -77,7 +95,7 @@ see the [pipeline map](../docs/research/2026-09-22-macparakeet-pipeline-map.md),
 
 ## Errors and logging
 
-- Errors that reach the user are actionable ("Download the Parakeet speech model in Settings → Speech model"), and
+- Errors that reach the user are actionable ("Download the Parakeet speech model in Settings → Speech engines"), and
   are stored on the row (`errorMessage`) with Retry.
 - `Log.logger(<category>)` under subsystem `com.aarzamen.ichirp`. **Never log transcript text, audio paths that
   include user file names, or prompts**; log ids, stages, durations and error types.
@@ -91,5 +109,5 @@ see the [pipeline map](../docs/research/2026-09-22-macparakeet-pipeline-map.md),
 | M2 | Capture in `ChirpAudio`, live session protocol, App Intents, widget extension | Live text is display-only; the final pass is authoritative |
 | M3 | Meeting recorder, recovery service | Crash-safe files; never delete a session without the user |
 | M4 | `ChirpEngine<Provider>` language-model targets, templates, Keychain store | Privacy router in front of every generation |
-| M6 | Structure-model targets (Needle behind a build flag) | Confidence gating; numbers re-validated in code |
+| M6 | Structure-model targets (Needle linked when `vendor/NeedleC.xcframework` is built; ADR-012) | Confidence gating; numbers re-validated in code |
 | M7 | More speech engines, benchmark harness | Capability descriptors, not special cases in screens |

@@ -12,7 +12,9 @@ API: [`spec/contracts/mac-companion-v1.md`](../spec/contracts/mac-companion-v1.m
 
 ## Start it
 
-From the repo root (first run creates `companion/.venv` with Python 3.12 through `uv`):
+From the repo root (first run creates `companion/.venv` with Python 3.12 through `uv`; `companion/.python-version` pins
+3.12, so a bare `uv sync --project companion`, which the error messages suggest, picks it too instead of the newest
+Python on the Mac):
 
 ```bash
 cd ~/Documents/GitHub/iChirp
@@ -39,9 +41,29 @@ throwaway one for testing),
 `--download qwen3-tts-0.6b` (smaller, about 2.0 GB, no style instructions), `--download kokoro-82m` (about 390 MB;
 also run `uv sync --project companion --extra kokoro` for its phonemizer).
 
+Kokoro already on this Mac as an MLX copy? The companion looks in `~/Kokoro-82M` first, then in the Hugging Face
+cache. For another folder: `PARAKEET_KOKORO_DIR=/path/to/Kokoro-82M scripts/companion.sh` (read when it starts).
+
 Needs: `uv` (`brew install uv`), `ffmpeg` for MP3 answers (`brew install ffmpeg`; WAV works without it), and a
 JavaScript runtime for yt-dlp's YouTube support (`brew install deno`). Without deno the health check reports
 `youtubeAudio: false` with that reason (`youtube.reason`), and YouTube requests answer 503 with it.
+
+## When YouTube stops working
+
+YouTube changes often and yt-dlp follows within days. The phone only says "yt-dlp could not download this video" (a
+private or age-restricted video says the same, so try a public one first). If every video fails, update yt-dlp on
+this Mac, from the repo root, then restart the companion:
+
+```bash
+cd ~/Documents/GitHub/iChirp
+uv lock --project companion --upgrade-package yt-dlp   # newest yt-dlp that pyproject.toml allows, into companion/uv.lock
+scripts/companion.sh                                   # restart (Control-C stops the old one); it installs the new yt-dlp first
+```
+
+`companion/uv.lock` records the working version; commit it once YouTube works again. There is no separate install
+step: `scripts/companion.sh` runs `uv run`, which adds what the lock file needs. The companion's error messages suggest
+`uv sync --project companion`; that works too (it picks Python 3.12, as above), with one catch: `uv sync` is exact, so
+it uninstalls the Kokoro phonemizer unless you add the extra, `uv sync --project companion --extra kokoro`.
 
 ## Pair the iPhone
 
@@ -99,9 +121,9 @@ the Hugging Face cache (`~/.cache/huggingface/hub`).
 
 ```bash
 cd ~/Documents/GitHub/iChirp/companion
-uv run pytest -q          # every endpoint with fakes: no models, no network
+uv run --frozen --python 3.12 pytest -q   # every endpoint with fakes: no models, no network (CI runs this command)
 ```
 
-Layout: `parakeet_companion/app.py` (routes, the token guard and the content-free log), `auth.py` (the token),
-`speech.py` (mlx-audio models and voices), `audio.py` (WAV/MP3), `youtube.py` (yt-dlp and the link allowlist),
-`backends.py` (the protocols the tests fake), `__main__.py` (the command line).
+Layout: `parakeet_companion/app.py` (routes, the token guard for http and websocket requests, and the content-free
+log), `auth.py` (the token), `speech.py` (mlx-audio models and voices), `audio.py` (WAV/MP3), `youtube.py` (yt-dlp and
+the link allowlist), `backends.py` (the protocols the tests fake), `__main__.py` (the command line).

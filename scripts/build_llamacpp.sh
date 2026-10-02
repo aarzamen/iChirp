@@ -82,11 +82,16 @@ if [ "$(git -C "$SRC" rev-parse HEAD)" != "$LLAMA_CPP_COMMIT" ]; then
   echo "error: $SRC is not at the pinned commit $LLAMA_CPP_COMMIT" >&2
   exit 1
 fi
-# Patches to the vendored source, if one is ever needed, live in scripts/llamacpp/*.patch (none today). Adding one means
-# the clean-clone check above must also accept exactly the patched state.
+# Patches to the vendored source, if one is ever needed, live in scripts/llamacpp/*.patch (none today). A patch that does
+# not apply stops the build instead of being skipped silently (R8-16). Adding one means the clean-clone check above must
+# also accept exactly the patched state.
 shopt -s nullglob
 for patch in scripts/llamacpp/*.patch; do
-  git -C "$SRC" apply --check "$(pwd)/$patch" && git -C "$SRC" apply "$(pwd)/$patch"
+  if ! git -C "$SRC" apply --check "$(pwd)/$patch"; then
+    echo "error: $patch does not apply to llama.cpp $LLAMA_CPP_TAG. Update or remove it (and ADR-015)." >&2
+    exit 1
+  fi
+  git -C "$SRC" apply "$(pwd)/$patch"
 done
 shopt -u nullglob
 

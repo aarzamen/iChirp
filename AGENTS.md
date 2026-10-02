@@ -16,11 +16,13 @@ The owner's end goal, in their words:
 
 — plus miscellaneous models such as Needle, Jev/Laya and Cactus (the "Structure" engine kind, milestone M6).
 
-What exists today: the M0 foundation (XcodeGen project, the `ChirpKit` package, scripts, this doc set) and the M1
-slice, which is real on-device Parakeet v3 file transcription (import → normalize → transcribe → speaker labels →
-Library and Transcript → export). Every other part of the end goal is roadmap and shows in the app as an honest
-"Not built yet — milestone Mx" placeholder; the verified state of each milestone is on the
-[plans board](docs/plans/README.md).
+What exists today: M0–M7 are built and merged on `main` and verified on the simulator (file transcription,
+dictation, meetings, language models and deliverables, ingest, Needle and Jev, the Mac companion, voices, Create, more
+speech engines, benchmarks); owner device QA is still pending, and four pieces are open: Needle round 4 (clinical
+safety: until it lands, do not use Extract fields on real clinical dictation), Laya, M7 live streaming and the Jev live
+eval. M8 polish is partly done. What each milestone covers and was verified with is the table in
+[`spec/README.md`](spec/README.md#milestones); the [plans board](docs/plans/README.md) tracks open work. Anything not
+built yet says "Not built yet — milestone Mx" in the app.
 
 Names: display name **Parakeet**; codename, repo, Xcode targets **iChirp**; package **ChirpKit**; bundle id
 `com.aarzamen.ichirp`. The owner is a physician (clinical notes are PHI, protected health information) and a
@@ -35,18 +37,21 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/bootstrap.sh` | First run on a Mac: checks Xcode, XcodeGen and swift-format, offers to create `Config/Signing.local.xcconfig`, generates the project |
 | `scripts/gen.sh` | Regenerates `iChirp.xcodeproj` from `project.yml` (XcodeGen). Run after adding app files |
 | `scripts/check.sh [Filter]` | Inner loop: package build, focused tests when a filter is given, strict lint |
-| `scripts/test.sh` | Full package suite, then simulator build plus app-hosted tests |
+| `scripts/test.sh` | Full package suite, then simulator build plus app-hosted tests (the clinical-confirmation tests among them) |
 | `scripts/run_sim.sh [launch args]` | Build, install and launch in the iPhone simulator |
 | `scripts/run_device.sh [launch args]` | Build Debug, install and launch on the paired iPhone (`devicectl`) |
 | `scripts/device_smoke.sh` | On the phone: transcribes the bundled synthetic sample with Parakeet and asserts the words (`SMOKE PASS`) |
 | `scripts/device_llm_smoke.sh [model]` | On the phone: measures a small language model (`qwen3.5-2b`, `qwen3-4b`) on a synthetic SOAP note and asserts every number survived (`LLM SMOKE PASS`) |
 | `scripts/device_benchmark.sh [engines]` | On the phone: DEBUG ASR benchmark over the synthetic reference set (downloads missing models), prints WER, speed, load and peak memory per engine, plus the memory available before each model load and the load's own peak |
+| `scripts/build_needle.sh`, `scripts/build_llamacpp.sh` | Optional runtimes built from pinned source into `vendor/` (needs Rust; needs CMake or `uv`). Without them Settings says Needle and the small language models are "not in this build"; CI runs both |
 | `scripts/build_ipa.sh` | Ad-hoc-signed IPA for the optional SideStore fallback (`dist/`) |
 | `scripts/make_sample_audio.sh [--wav]` | Regenerates the synthetic two-voice sample with macOS `say` |
 | `scripts/make_benchmark_audio.sh [dir]` | Regenerates the M7 ASR benchmark reference set (`App/Resources/Benchmark`, known text) |
 | `scripts/sync_upstream.sh <ref>` | Replaces `upstream/macparakeet/` with a newer MacParakeet ref and commits it |
 | `scripts/check_readme_references.sh` | Fails when a module README names a `.swift` file that no longer exists |
-| `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off) plus committed key/profile/.env/database files; run before merging a lane or pushing |
+| `scripts/check_scripts.sh` | Checks the scripts themselves (bash 3.2 syntax, the `run_device.sh` failure classifier, the secret scanner, the build stamp, the privacy manifest checker's rules); CI runs it |
+| `scripts/check_privacy_manifest.sh [--app <built .app>]` | Fails when the Swift sources, the vendored runtimes (`nm -u`) or a built app import a required-reason API that `App/PrivacyInfo.xcprivacy` does not declare; CI runs it with `--app` after the app build |
+| `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off), plus committed key/profile/keychain/.env/database files and recordings outside the synthetic-fixture folders; run before merging a lane or pushing |
 | `scripts/format.sh` | swift-format in place; review the diff afterwards |
 | `scripts/companion.sh [--download <model>]` | Runs the Parakeet companion on the Mac (local voices, YouTube audio; `companion/README.md`); prints the URL and pairing token |
 
@@ -56,8 +61,8 @@ names one; the three `device_*` scripts above write real data to the phone, so t
 
 Direct commands: `swift test --package-path ChirpKit --filter <Name>`; the real-model test runs only with
 `CHIRP_MODEL_TESTS=1 swift test --package-path ChirpKit --filter ParakeetEngineIntegrationTests` (downloads ~0.5 GB).
-M7 opt-ins: `CHIRP_APPLE_SPEECH_TESTS=1`, `CHIRP_WHISPER_TESTS=1` (engine integration tests) and `CHIRP_BENCHMARK=1`
-(`--filter ASRBenchmarkMacRunTests`, every engine over the reference set on the Mac).
+The default run skips the opt-in tests; every `CHIRP_*` switch, what it runs and what it downloads or calls is the
+table in [`spec/09-testing.md`](spec/09-testing.md#opt-in-test-switches). The companion's tests: `cd companion && uv run --frozen --python 3.12 pytest -q`.
 
 **Signing.** Read [`APPLE_DEVELOPER_WARNING.md`](APPLE_DEVELOPER_WARNING.md) before touching signing or build
 settings. The team is `XM6E4PUXTU` (never `434HG698U6`, which is a certificate user ID). Device scripts never pass
@@ -80,10 +85,15 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
 | `ChirpAudio` | AVFoundation decoding to 16 kHz mono WAV; later capture and `AVAudioSession` |
 | `ChirpText` | Ported text pipeline: word timing, speaker merge, segments, paragraphs, cues, clean-up, titles |
 | `ChirpStore` | GRDB database, migrations, `TranscriptionStoring` implementation |
-| `ChirpExport` | TXT, Markdown, SRT, VTT, JSON exporters |
+| `ChirpExport` | TXT, Markdown, SRT, VTT, JSON transcript exporters; PDF and Word (DOCX) for generated documents |
 | `ChirpIngest` | M5: link classifier, podcast lookup, resumable media downloads, YouTube captions, document text (PDFKit, Vision OCR, RTF/HTML, DOCX). Apple frameworks only |
 | `ChirpEngineFluidAudio` | Parakeet speech engine and offline diarizer on FluidAudio, pinned **exact 0.16.1** |
 | `ChirpEngineAppleSpeech`, `ChirpEngineWhisperKit` | M7 speech engines: iOS `SpeechTranscriber`; Whisper on `argmax-oss-swift` **exact 1.1.0** |
+| `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM` | Language models: Apple's on-device model; Anthropic, OpenAI-compatible and Ollama over HTTP, cloud or home network (direct ports, [ADR-011](spec/adr/011-language-model-providers-direct-ports.md)) |
+| `ChirpEngineLlamaCpp` | Small language models on the iPhone through llama.cpp, built by `scripts/build_llamacpp.sh` ([ADR-015](spec/adr/015-on-device-llm-llama-cpp.md)) |
+| `ChirpEngineNeedle`, `ChirpEngineJev` | Structure and decision models: Needle 3 on needle-rs, built by `scripts/build_needle.sh` ([ADR-012](spec/adr/012-needle-from-needle-rs-source.md)); Jev, a cloud model that never sees clinical items ([ADR-013](spec/adr/013-jev-decision-model.md)) |
+| `ChirpEngineVoiceHTTP` | Text to speech over HTTP: Grok voices on xAI, the owner's voices on the Mac companion ([ADR-014](spec/adr/014-mac-companion.md)) |
+| `ChirpKeychain` | Keychain storage behind `SecretStoring`: language-model, xAI and Jev API keys and the companion pairing token |
 | `ChirpFeatures` | `@Observable` view models and the file-transcription pipeline; engines injected as protocols |
 | `ChirpUI` | Design tokens and shared SwiftUI components from the design canvas |
 
@@ -122,8 +132,11 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
 1. **Find the governing spec, ADR and test first** ([`spec/README.md`](spec/README.md), `spec/adr/`, the module README).
 2. **State scope and must-not-change** before editing behavior: what is in, what must not change, how you will prove
    it ([`spec/10-ai-coding-method.md`](spec/10-ai-coding-method.md)).
-3. **Focused tests while iterating** (`scripts/check.sh <Filter>`); run the full `swift test --package-path ChirpKit`
-   **once per task**, as the final gate. Report exactly what ran and what did not.
+3. **Focused tests while iterating** (`scripts/check.sh <Filter>`); run the full suite **once per task**, as the final
+   gate: `swift test --package-path ChirpKit`, or `scripts/test.sh` instead when `App/`, `Widgets/`, `UITests/` or
+   `project.yml` changed (it runs that same package suite first, then the app-hosted tests, which include the
+   clinical-confirmation guard); add the companion's pytest when `companion/` changed. Report exactly what ran and what
+   did not.
 4. **Pipeline changes** (audio, engines, scheduler, store, pipeline coordinator) also need `scripts/device_smoke.sh`
    on the owner's iPhone before they count as done.
 5. **Never edit the generated `.xcodeproj`.** Change `project.yml`, then `scripts/gen.sh`.

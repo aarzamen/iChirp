@@ -1,0 +1,6 @@
+warning: Automatic signing is unable to resolve an issue with the "iChirpWidgets" target's entitlements file. (in target 'iChirpWidgets' from project 'iChirp')
+
+SwiftCompile normal arm64 /path/to/iChirp/App/Sources/Example.swift (in target 'iChirp' from project 'iChirp')
+/path/to/iChirp/App/Sources/Example.swift:12:9: error: cannot find 'missingName' in scope
+
+** BUILD FAILED **
