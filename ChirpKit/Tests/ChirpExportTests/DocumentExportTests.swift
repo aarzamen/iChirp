@@ -292,7 +292,28 @@ final class DocumentExportTests: XCTestCase {
         ### Subjective
         Patient reports *mild* headache, `no` fever &amp; no rash.
         """,
+        """
+        **Review of systems**
+        - **Fever**, **chills**, and **cough** for 3 days
+        - Pain **8/10** → **3/10** after toradol; **Admission**→**Discharge** in 2 days
+
+        | **Medication** | **Dose** | **Frequency** |
+        **Yes** / **No**, _Yes_ / _No_
+        BP: ___/___ mmHg on __/__/____
+        """,
     ]
+
+    /// Fix round 1: PDF and Word never show the "**" or "_" of emphasized words separated only by punctuation.
+    func testEmphasisSeparatedByPunctuationPrintsWithoutMarkers() {
+        let document = ExportDocument.text(title: "Note", body: Self.templateShapes[8])
+        XCTAssertEqual(
+            Self.copyStyleLines(document),
+            [
+                "Review of systems", "- Fever, chills, and cough for 3 days",
+                "- Pain 8/10 → 3/10 after toradol; Admission→Discharge in 2 days", "| Medication | Dose | Frequency |",
+                "Yes / No, Yes / No", "BP: ___/___ mmHg on __/__/____",
+            ])
+    }
 
     /// The document's blocks written the way Copy writes them, one entry per line, blank lines dropped.
     static func copyStyleLines(_ document: ExportDocument) -> [String] {

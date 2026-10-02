@@ -109,10 +109,12 @@ public enum MarkdownInline {
     ///   as live text, so this app never strikes text through: `~~text~~` shows and copies with its tildes.
     /// - Every backtick that does not open or close inline code (a backtick between two digits, "5`10", is the
     ///   person's character, not a code span pairing across the words to the next one).
-    /// - Two runs of the same `*` or `_` with no letter or digit between them: they could only make emphasis out of
-    ///   punctuation, so they are a form's blanks or the person's symbols — "BP: ___/___ mmHg" copied as
-    ///   "BP: / mmHg" and "Date: __/__/____" as "Date: //____". Emphasis around words ("**Plan:**", "__init__")
-    ///   is unaffected.
+    /// - The `*` or `_` runs the parser would pair around content with no letter or digit: that is never emphasis
+    ///   around words but a form's blanks or the person's symbols — "BP: ___/___ mmHg" copied as "BP: / mmHg" and
+    ///   "Date: __/__/____" as "Date: //____". Which runs pair is decided by CommonMark's own emphasis algorithm
+    ///   (`emphasisPairs`), not by adjacency: in "**Fever**, **chills**" the run after "Fever" closes its own span
+    ///   and the next one opens a new span, so emphasis around words is unaffected (fix round 1 of plan 024 Task 4:
+    ///   an adjacency rule leaked "**" there).
     ///
     /// Inline code and autolinks are copied untouched: CommonMark reads no escapes inside them, so an added backslash
     /// would show ("`2*3`" copied as "2\*3", "<https://example.com/~user>" as ".../\~user"). An escape the source
@@ -120,7 +122,6 @@ public enum MarkdownInline {
     private static func protectLiterals(_ chars: [Character]) -> String {
         let verbatim = verbatimSpans(in: chars)
         var escaped = Set<Int>()
-        var runs: [(character: Character, range: Range<Int>)] = []
         var index = 0
         while index < chars.count {
             if let span = verbatim.first(where: { $0.lowerBound == index }) {
@@ -136,25 +137,25 @@ public enum MarkdownInline {
             case "~", "`":
                 escaped.insert(index)
                 index += 1
-            case "*", "_":
+            case "*":
                 let length = runLength(of: character, in: chars, at: index)
-                let range = index..<(index + length)
-                if character == "*", isBetweenWordCharacters(chars, start: index, length: length) {
-                    escaped.formUnion(range)
-                } else {
-                    runs.append((character, range))
+                if isBetweenWordCharacters(chars, start: index, length: length) {
+                    escaped.formUnion(index..<(index + length))
                 }
                 index += length
             default:
                 index += 1
             }
         }
-        for delimiter in ["*", "_"] as [Character] {
-            let same = runs.filter { $0.character == delimiter }
-            for (first, second) in zip(same, same.dropFirst())
-            where !chars[first.range.upperBound..<second.range.lowerBound].contains(where: isLetterOrDigit) {
-                escaped.formUnion(first.range)
-                escaped.formUnion(second.range)
+        // The delimiters the parser would use for emphasis around letter-free content, round by round: keeping
+        // them literal can let the remaining runs pair differently, so the pairing is recomputed until none is left.
+        while true {
+            let runs = delimiterRuns(chars, verbatim: verbatim, escaped: escaped)
+            let letterFree = emphasisPairs(runs).filter { !chars[$0.inner].contains(where: isLetterOrDigit) }
+            guard !letterFree.isEmpty else { break }
+            for pair in letterFree {
+                escaped.formUnion(pair.openerUsed)
+                escaped.formUnion(pair.closerUsed)
             }
         }
         var result = ""
@@ -164,6 +165,130 @@ public enum MarkdownInline {
             result.append(character)
         }
         return result
+    }
+
+    // MARK: - Emphasis pairing (CommonMark spec 6.4, "process emphasis")
+
+    /// A run of `*` or `_` and whether CommonMark lets it open or close emphasis (its flanking rules, with the line's
+    /// start and end counted as spaces).
+    private struct DelimiterRun {
+        let range: Range<Int>
+        let character: Character
+        let canOpen: Bool
+        let canClose: Bool
+
+        init(_ chars: [Character], _ range: Range<Int>) {
+            let before: Character? = range.lowerBound > 0 ? chars[range.lowerBound - 1] : nil
+            let after: Character? = range.upperBound < chars.count ? chars[range.upperBound] : nil
+            let spaceBefore = before?.isWhitespace ?? true
+            let spaceAfter = after?.isWhitespace ?? true
+            let punctuationBefore = before.map(MarkdownInline.isFlankingPunctuation) ?? false
+            let punctuationAfter = after.map(MarkdownInline.isFlankingPunctuation) ?? false
+            let leftFlanking = !spaceAfter && (!punctuationAfter || spaceBefore || punctuationBefore)
+            let rightFlanking = !spaceBefore && (!punctuationBefore || spaceAfter || punctuationAfter)
+            self.range = range
+            character = chars[range.lowerBound]
+            if character == "_" {
+                canOpen = leftFlanking && (!rightFlanking || punctuationBefore)
+                canClose = rightFlanking && (!leftFlanking || punctuationAfter)
+            } else {
+                canOpen = leftFlanking
+                canClose = rightFlanking
+            }
+        }
+    }
+
+    /// Punctuation as Foundation's parser reads it for flanking: ASCII punctuation and Unicode's punctuation
+    /// categories, not other symbols (measured: in "x*→*y" the arrow is italic, so "→" counts as a letter here).
+    private static func isFlankingPunctuation(_ character: Character) -> Bool {
+        isASCIIPunctuation(character) || character.isPunctuation
+    }
+
+    /// The `*`/`_` runs of one line outside `verbatim` spans: maximal sequences of one delimiter not escaped by the
+    /// source or by `escaped` (a delimiter kept literal is ordinary text to the parser, so it ends a run).
+    private static func delimiterRuns(_ chars: [Character], verbatim: [Range<Int>], escaped: Set<Int>) -> [DelimiterRun]
+    {
+        var runs: [DelimiterRun] = []
+        var index = 0
+        while index < chars.count {
+            if let span = verbatim.first(where: { $0.lowerBound == index }) {
+                index = span.upperBound
+                continue
+            }
+            let character = chars[index]
+            if character == "\\", index + 1 < chars.count, isASCIIPunctuation(chars[index + 1]) {
+                index += 2
+                continue
+            }
+            guard character == "*" || character == "_", !escaped.contains(index) else {
+                index += 1
+                continue
+            }
+            var end = index + 1
+            while end < chars.count, chars[end] == character, !escaped.contains(end) { end += 1 }
+            runs.append(DelimiterRun(chars, index..<end))
+            index = end
+        }
+        return runs
+    }
+
+    /// One emphasis the parser makes: the characters it encloses and the delimiters it uses on each side.
+    private typealias EmphasisPair = (inner: Range<Int>, openerUsed: Range<Int>, closerUsed: Range<Int>)
+
+    /// CommonMark's emphasis algorithm over one line's runs: each closer takes the nearest earlier opener of the
+    /// same character (skipping a match the "multiple of 3" rule forbids), two delimiters at a time when both runs
+    /// have two left, and the runs between them stop counting. Returns each pairing with the characters it encloses
+    /// and the delimiter positions it uses.
+    private static func emphasisPairs(_ runs: [DelimiterRun]) -> [EmphasisPair] {
+        // The delimiters of each run not yet used: an opener gives up its last ones, a closer its first ones.
+        var unused = runs.map(\.range)
+        var onStack = Array(repeating: true, count: runs.count)
+        var pairs: [EmphasisPair] = []
+        var closer = 0
+        while closer < runs.count {
+            guard onStack[closer], runs[closer].canClose, !unused[closer].isEmpty else {
+                closer += 1
+                continue
+            }
+            var match: Int?
+            for opener in stride(from: closer - 1, through: 0, by: -1)
+            where onStack[opener] && runs[opener].canOpen && runs[opener].character == runs[closer].character
+                && !unused[opener].isEmpty
+            {
+                let openerLength = runs[opener].range.count
+                let closerLength = runs[closer].range.count
+                let multipleOfThree =
+                    (runs[opener].canClose || runs[closer].canOpen) && (openerLength + closerLength) % 3 == 0
+                    && !(openerLength % 3 == 0 && closerLength % 3 == 0)
+                if !multipleOfThree {
+                    match = opener
+                    break
+                }
+            }
+            guard let opener = match else {
+                if !runs[closer].canOpen { onStack[closer] = false }
+                closer += 1
+                continue
+            }
+            let openerLeft = unused[opener]
+            let closerLeft = unused[closer]
+            let use = openerLeft.count >= 2 && closerLeft.count >= 2 ? 2 : 1
+            pairs.append(
+                (
+                    openerLeft.upperBound..<closerLeft.lowerBound,
+                    (openerLeft.upperBound - use)..<openerLeft.upperBound,
+                    closerLeft.lowerBound..<(closerLeft.lowerBound + use)
+                ))
+            for between in (opener + 1)..<closer { onStack[between] = false }
+            unused[opener] = openerLeft.lowerBound..<(openerLeft.upperBound - use)
+            unused[closer] = (closerLeft.lowerBound + use)..<closerLeft.upperBound
+            if unused[opener].isEmpty { onStack[opener] = false }
+            if unused[closer].isEmpty {
+                onStack[closer] = false
+                closer += 1
+            }
+        }
+        return pairs
     }
 
     // MARK: - Scanning helpers

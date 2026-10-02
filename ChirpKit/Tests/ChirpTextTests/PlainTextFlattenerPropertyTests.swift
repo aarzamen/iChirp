@@ -30,10 +30,13 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
     private struct Generated {
         var lines: [String] = []
         var tokens: [String] = []
+        /// Whole lines the copied text must contain exactly: a token check alone cannot see a leaked "**".
+        var exactLines: [String] = []
 
         mutating func append(_ other: Generated) {
             lines += other.lines
             tokens += other.tokens
+            exactLines += other.exactLines
         }
     }
 
@@ -63,7 +66,68 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
                     "iteration \(iteration) changed or lost \(missing.debugDescription).\n--- source ---\n\(markdown)\n--- flattened ---\n\(flattened)"
                 )
             }
+            let flattenedLines = Set(flattened.components(separatedBy: "\n"))
+            for line in document.exactLines where !flattenedLines.contains(line) {
+                XCTFail(
+                    "iteration \(iteration) did not copy \(line.debugDescription) exactly.\n--- source ---\n\(markdown)\n--- flattened ---\n\(flattened)"
+                )
+            }
         }
+    }
+
+    /// Fix round 1, a differential check of `MarkdownInline`'s copy of CommonMark's emphasis algorithm against
+    /// Foundation's parser itself: over random lines of words, digits, punctuation, arrows and `*`/`_` runs, the only
+    /// characters that may disappear are `*` and `_`, and Foundation never draws emphasis around text with no letter
+    /// or digit (a form's blanks and the person's symbols stay as written).
+    func testEmphasisIsNeverDrawnAroundLetterFreeText() {
+        let pieces = ["*", "**", "_", "__", "___", "a", "Pain", "8", "10", "/", " ", " ", ",", "→", "(", ")", ".", "-", ":"]
+        var generator = SeededGenerator(seed: 0xE3_F1_A5)
+        for iteration in 0..<2_000 {
+            let line = (0..<Int.random(in: 3...14, using: &generator))
+                .map { _ in pieces.randomElement(using: &generator)! }.joined()
+            let attributed = MarkdownInline.attributed(line)
+            let shown = String(attributed.characters)
+            XCTAssertTrue(
+                Self.isSubsequence(shown, of: line, droppingOnly: ["*", "_"]),
+                "iteration \(iteration): \(line.debugDescription) showed \(shown.debugDescription)")
+            for span in Self.emphasisSpans(in: attributed) where !span.contains(where: { $0.isLetter || $0.isNumber }) {
+                XCTFail("iteration \(iteration): \(line.debugDescription) emphasized \(span.debugDescription)")
+            }
+        }
+    }
+
+    /// The text of each stretch Foundation draws italic or bold, judged whole: a strong span with italics inside
+    /// arrives as several runs, and a run at its edge (like "( ") may hold no letter while the span does.
+    private static func emphasisSpans(in attributed: AttributedString) -> [String] {
+        var spans: [String] = []
+        for intent in [InlinePresentationIntent.emphasized, .stronglyEmphasized] {
+            var current: String?
+            for run in attributed.runs {
+                if run.inlinePresentationIntent?.contains(intent) == true {
+                    current = (current ?? "") + String(attributed[run.range].characters)
+                } else if let finished = current {
+                    spans.append(finished)
+                    current = nil
+                }
+            }
+            if let finished = current { spans.append(finished) }
+        }
+        return spans
+    }
+
+    /// True when `shown` is `source` with some of the `droppable` characters removed and nothing else changed.
+    private static func isSubsequence(_ shown: String, of source: String, droppingOnly droppable: Set<Character>)
+        -> Bool
+    {
+        var shownIndex = shown.startIndex
+        for character in source {
+            if shownIndex < shown.endIndex, shown[shownIndex] == character {
+                shownIndex = shown.index(after: shownIndex)
+            } else if !droppable.contains(character) {
+                return false
+            }
+        }
+        return shownIndex == shown.endIndex
     }
 
     /// The same property, pinned against the real representative shapes (`PlainTextFlattenerTests`), not just
@@ -226,10 +290,39 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
         return Generated(lines: [line], tokens: [line])
     }
 
+    /// Fix round 1: two to four emphasized words separated only by punctuation ("**Fever**, **chills** / *cough*"):
+    /// every marker drops and nothing else changes, so the copied line is known exactly. An arrow with no spaces
+    /// ("**8/10**→**3/10**") makes each middle run able to open and close; it is generated for asterisks only,
+    /// because CommonMark never lets an underscore between a letter and a non-punctuation symbol open or close.
+    private static func randomPunctuatedEmphasis(using generator: inout SeededGenerator) -> Generated {
+        let plainWords = vocabulary.filter { $0.allSatisfy { $0.isLetter || $0 == "-" || $0 == "'" } }
+        let underscores = Bool.random(using: &generator)
+        let delimiters = underscores ? ["__", "_"] : ["**", "*"]
+        let separators = [", ", " / ", "/", " → ", " | ", "; ", ": ", " - "] + (underscores ? [] : ["→"])
+        var source = ""
+        var expected = ""
+        var words: [String] = []
+        for index in 0..<Int.random(in: 2...4, using: &generator) {
+            if index > 0 {
+                let separator = separators.randomElement(using: &generator)!
+                source += separator
+                expected += separator
+            }
+            let word = plainWords.randomElement(using: &generator)!
+            let delimiter = delimiters.randomElement(using: &generator)!
+            source += delimiter + word + delimiter
+            expected += word
+            words.append(word)
+        }
+        let line = "Findings " + source + " today"
+        let copied = "Findings " + expected + " today"
+        return Generated(lines: [line], tokens: ["Findings"] + words + ["today"], exactLines: [copied])
+    }
+
     private static func randomDocument(blockCount: Int, using generator: inout SeededGenerator) -> Generated {
         var document = Generated()
         for _ in 0..<blockCount {
-            switch Int.random(in: 0..<6, using: &generator) {
+            switch Int.random(in: 0..<7, using: &generator) {
             case 0:
                 document.append(randomHeadingLine(using: &generator))
             case 1:
@@ -240,6 +333,8 @@ final class PlainTextFlattenerPropertyTests: XCTestCase {
                 document.append(randomCodeBlock(using: &generator))
             case 4:
                 document.append(randomClinicalLine(using: &generator))
+            case 5:
+                document.append(randomPunctuatedEmphasis(using: &generator))
             default:
                 document.append(randomLinkSentence(using: &generator))
             }

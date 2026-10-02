@@ -80,7 +80,7 @@ Markdown syntax and clinical shorthand, the person's reading wins (plan 024 ruli
 | `+ fever` | Text, "+" kept | As a bullet it was drawn "•" and copied "- fever", the opposite finding |
 | `25~50 mg q8~12h`, `~~text~~` | Text, every `~` kept (R2-8) | Strikethrough paired tilde ranges ("2550 mg q812h"); struck text pasted as plain text would read as live |
 | `2*3`, `2**10`, `x*2`, `` 5`10 `` | Text | A delimiter between two letters or digits paired across the words and merged the numbers |
-| `BP: ___/___`, `Date: __/__/____` | Text | Two delimiter runs with only punctuation between them made emphasis out of a form's blanks |
+| `BP: ___/___`, `Date: __/__/____` | Text | The parser paired the blanks as emphasis around "/"; delimiters it would pair around content with no letter or digit stay (decided by CommonMark's own pairing, so `**Fever**, **chills**` still renders) |
 | `&lt;`, `&amp;`, `&#8805;` | The character named (`<`, `&`, `≥`) (K3) | CommonMark decodes entities; the screen shows that character, so Copy and the exports do too |
 
 Copy writes a heading's text on its own line, `- ` for every bullet (`-`, `*`, `•`), each numbered item's own marker,

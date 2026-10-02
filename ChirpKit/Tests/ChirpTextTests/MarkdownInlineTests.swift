@@ -96,6 +96,33 @@ final class MarkdownInlineTests: XCTestCase {
         XCTAssertEqual(MarkdownInline.plain("a **/** b and x _/_ y"), "a **/** b and x _/_ y")
         XCTAssertEqual(MarkdownInline.plain("__init__ and __/__"), "init and __/__", "real emphasis still renders")
         XCTAssertEqual(MarkdownInline.plain("**Plan:** rest, *(optional)* fluids"), "Plan: rest, (optional) fluids")
+        // Blanks inside or after bold: the bold still renders, the blanks stay.
+        XCTAssertEqual(MarkdownInline.plain("**BP: ___/___ mmHg**"), "BP: ___/___ mmHg")
+        XCTAssertEqual(MarkdownInline.plain("**Plan:** ___/___"), "Plan: ___/___")
+        XCTAssertTrue(
+            MarkdownInline.attributed("**BP: ___/___ mmHg**").runs.allSatisfy {
+                $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true
+            }, "the whole line is bold")
+    }
+
+    /// Fix round 1: the form-blank rule paired a *closing* run with the next *opening* run whenever only punctuation
+    /// separated two emphasized words, so "**" and "_" leaked onto the screen and into Copy. Pairs now follow
+    /// CommonMark's own emphasis algorithm: only runs the parser would really pair around letter-free content stay.
+    func testEmphasisSeparatedOnlyByPunctuationStillRenders() {
+        XCTAssertEqual(
+            MarkdownInline.plain("- **Fever**, **chills**, and **cough** for 3 days"),
+            "- Fever, chills, and cough for 3 days")
+        XCTAssertEqual(
+            MarkdownInline.plain("- Pain **8/10** → **3/10** after toradol"), "- Pain 8/10 → 3/10 after toradol")
+        XCTAssertEqual(
+            MarkdownInline.plain("| **Medication** | **Dose** | **Frequency** |"), "| Medication | Dose | Frequency |")
+        XCTAssertEqual(MarkdownInline.plain("**Yes** / **No**"), "Yes / No")
+        XCTAssertEqual(MarkdownInline.plain("_Yes_ / _No_"), "Yes / No")
+        XCTAssertEqual(MarkdownInline.plain("**a**/**b**, *c*;*d*"), "a/b, c;d")
+        // A closer that can also open (an arrow is not punctuation to the parser) still closes its own span.
+        XCTAssertEqual(
+            MarkdownInline.plain("**8/10**→**3/10** and **Admission**→**Discharge**"),
+            "8/10→3/10 and Admission→Discharge")
     }
 
     /// An escape added inside a code span showed its backslash: CommonMark does not read escapes in code, so "`2*3`"

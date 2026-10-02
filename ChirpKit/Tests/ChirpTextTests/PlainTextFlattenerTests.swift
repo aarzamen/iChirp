@@ -249,6 +249,13 @@ final class PlainTextFlattenerTests: XCTestCase {
             "ROS\n+ fever\n+ cough\n\n- chills")
     }
 
+    /// Fix round 1: emphasized findings separated only by punctuation copy without any "**" (plan 023's promise).
+    func testEmphasizedFindingsSeparatedByPunctuationCopyWithoutMarkers() {
+        XCTAssertEqual(
+            PlainTextFlattener.flatten("- **Fever**, **chills**, and **cough** for 3 days\n- Pain **8/10** → **3/10**"),
+            "- Fever, chills, and cough for 3 days\n- Pain 8/10 → 3/10")
+    }
+
     /// Review R2-8: a dose range written with tildes copies exactly as written, never as a strikethrough.
     func testTildeDoseRangeCopiesExactly() {
         XCTAssertEqual(
