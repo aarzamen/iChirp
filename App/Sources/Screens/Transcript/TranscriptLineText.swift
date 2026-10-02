@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpFeatures
 import ChirpText
 import ChirpUI
 import Foundation
@@ -66,9 +67,11 @@ enum TranscriptLineText {
 
 /// The words of the correction sheets and menus (plan 025 D5).
 enum TranscriptCorrectionsCopy {
-    /// More → "Corrections (N)…", shown while there are corrections, or ones kept from an earlier transcript.
+    /// More → "Corrections (N)…" while there are corrections; "Earlier corrections (N)…" when the only ones are kept
+    /// from an earlier transcript of the audio; nothing when there are none.
     static func menuTitle(applied: Int, detached: Int) -> String? {
-        applied + detached > 0 ? "Corrections (\(applied))…" : nil
+        if applied > 0 { return "Corrections (\(applied))…" }
+        return detached > 0 ? "Earlier corrections (\(detached))…" : nil
     }
 
     static func revertAllTitle(count: Int) -> String {
@@ -113,6 +116,12 @@ enum TranscriptCorrectionsCopy {
 
 /// "Made before your corrections" on a document listed under Made from this (plan 025 D5).
 enum MadeBeforeCorrections {
+    /// When the item's corrections last changed, only while it still has some (fix round 1, M7: after Revert All the
+    /// documents read the transcript as it is again, so no badge).
+    @MainActor static func changedAt(of model: TranscriptViewModel) -> Date? {
+        model.corrections.isEmpty ? nil : model.correctionsChangedAt
+    }
+
     static func applies(documentCreatedAt: Date, correctionsChangedAt: Date?) -> Bool {
         guard let correctionsChangedAt else { return false }
         return documentCreatedAt < correctionsChangedAt

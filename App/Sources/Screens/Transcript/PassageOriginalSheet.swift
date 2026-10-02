@@ -6,35 +6,57 @@ import SwiftUI
 
 /// Show Original on a corrected line (plan 025 D5): the line as Parakeet heard it, with the corrected words shaded;
 /// one row per correction ("Heard: met for men" / "Now: metformin") with Play and Revert; and Revert This Passage.
-/// A revert is immediate; the screen offers Undo.
+/// A revert is immediate, with Undo in this sheet's own bar (fix round 1, I1). The line is looked up by id in the
+/// transcript as it is now (I2), so a partial revert never leaves a stale line; when the line has no corrections left
+/// the sheet closes and hands its Undo to the screen.
 struct PassageOriginalSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let line: TranscriptTextLine
-    let tokens: [TranscriptToken]
-    let corrections: [TranscriptCorrection]
+    let model: TranscriptViewModel
+    let lineID: Int
     let player: AudioPlayerModel
-    let revert: (Set<UUID>) async -> Void
+    /// Takes the Undo when the sheet closes because nothing is left to show.
+    let handOff: (CorrectionUndoOffer) -> Void
+
+    @State private var undo = CorrectionUndoController()
+
+    /// One corrected line and its corrections, as the transcript is now.
+    struct Passage {
+        let line: TranscriptTextLine
+        let corrections: [TranscriptCorrection]
+    }
+
+    /// Line `lineID` of `heard` with its corrections; nil when the line is gone or has none.
+    static func passage(lineID: Int, in heard: TranscriptText?) -> Passage? {
+        guard let heard, let line = heard.lines.first(where: { $0.id == lineID }) else { return nil }
+        let ids = Set(heard.tokens[line.tokenRange].compactMap(\.editID))
+        let corrections = heard.edits.filter { ids.contains($0.id) }
+        return corrections.isEmpty ? nil : Passage(line: line, corrections: corrections)
+    }
 
     var body: some View {
+        let passage = Self.passage(lineID: lineID, in: model.heard)
+        let tokens = model.heard?.tokens ?? []
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-                    SectionLabel("As heard")
-                    Text(Self.heardLine(line, tokens: tokens, corrections: corrections))
-                        .chirpFont(16)
-                        .lineSpacing(6)
-                        .foregroundStyle(Tokens.Color.ink)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .chirpCard(radius: Tokens.Radius.m, padding: Tokens.Spacing.m)
-                    SectionLabel(corrections.count == 1 ? "Your correction" : "Your corrections")
-                        .padding(.top, Tokens.Spacing.xs)
-                    ForEach(corrections) { correction in
-                        row(correction)
+                if let passage {
+                    VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
+                        SectionLabel("As heard")
+                        Text(Self.heardLine(passage.line, tokens: tokens, corrections: passage.corrections))
+                            .chirpFont(16)
+                            .lineSpacing(6)
+                            .foregroundStyle(Tokens.Color.ink)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .chirpCard(radius: Tokens.Radius.m, padding: Tokens.Spacing.m)
+                        SectionLabel(passage.corrections.count == 1 ? "Your correction" : "Your corrections")
+                            .padding(.top, Tokens.Spacing.xs)
+                        ForEach(passage.corrections) { correction in
+                            row(correction, tokens: tokens)
+                        }
                     }
+                    .padding(.horizontal, Tokens.Spacing.sheetGutter)
+                    .padding(.vertical, Tokens.Spacing.s)
                 }
-                .padding(.horizontal, Tokens.Spacing.sheetGutter)
-                .padding(.vertical, Tokens.Spacing.s)
             }
             .background(Tokens.Color.ground)
             .navigationTitle("Original")
@@ -45,24 +67,31 @@ struct PassageOriginalSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                ChirpBottomBar {
-                    Button("Revert This Passage") {
-                        let ids = Set(corrections.map(\.id))
-                        Task {
-                            await revert(ids)
-                            dismiss()
+                VStack(spacing: 0) {
+                    CorrectionUndoBar(controller: undo, model: model)
+                    if let passage {
+                        ChirpBottomBar {
+                            Button("Revert This Passage") {
+                                let ids = Set(passage.corrections.map(\.id))
+                                Task { await undo.revert(ids, model: model) }
+                            }
+                            .buttonStyle(.chirp(.destructive))
+                            .accessibilityHint("Puts back the words Parakeet heard for this passage; you can undo it")
                         }
                     }
-                    .buttonStyle(.chirp(.destructive))
-                    .accessibilityHint("Puts back the words Parakeet heard for this passage; you can undo it")
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .onChange(of: passage == nil, initial: true) { _, isGone in
+            guard isGone else { return }
+            if let offer = undo.offer { handOff(offer) }
+            dismiss()
+        }
     }
 
-    private func row(_ correction: TranscriptCorrection) -> some View {
+    private func row(_ correction: TranscriptCorrection, tokens: [TranscriptToken]) -> some View {
         let token = tokens.first { $0.editID == correction.id }
         return VStack(alignment: .leading, spacing: 6) {
             Text("Heard: \(correction.heard)")
@@ -85,10 +114,7 @@ struct PassageOriginalSheet: View {
                     .accessibilityLabel("Play \(Formatting.clock(ms: token.startMs))")
                 }
                 Button("Revert") {
-                    Task {
-                        await revert([correction.id])
-                        if corrections.count == 1 { dismiss() }
-                    }
+                    Task { await undo.revert([correction.id], model: model) }
                 }
                 .buttonStyle(.chirp(.quiet, size: .compact))
                 .accessibilityLabel("Revert to \(correction.heard)")

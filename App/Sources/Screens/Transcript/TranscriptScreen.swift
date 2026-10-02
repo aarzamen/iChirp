@@ -74,9 +74,15 @@ struct TranscriptScreen: View {
     /// Plan 025: the line being corrected, the line whose original is shown, the Corrections sheet, and the Undo
     /// offered after a revert.
     @State private var correctingLine: TranscriptTextLine?
-    @State private var originalLine: TranscriptTextLine?
+    @State private var originalLine: LineID?
     @State private var isShowingCorrections = false
-    @State private var undoOffer: CorrectionUndoOffer?
+    /// Undo for a revert whose sheet closed (Show Original with nothing left); sheets show their own (fix round 1).
+    @State private var undo = CorrectionUndoController()
+
+    /// A line id the Original sheet is open for (the sheet resolves the line itself, fix round 1, I2).
+    struct LineID: Identifiable, Equatable {
+        let id: Int
+    }
     /// Plan 025 Part B: Find in transcript and Replace.
     @State private var find = TranscriptFindModel()
     @State private var isFinding = false
@@ -171,9 +177,7 @@ struct TranscriptScreen: View {
                         .frame(maxHeight: max(screenHeight * 0.5, 160))
                         .fixedSize(horizontal: false, vertical: true)
                     } else {
-                        if let undoOffer {
-                            CorrectionUndoBar(offer: undoOffer) { Task { await undo(undoOffer) } }
-                        }
+                        CorrectionUndoBar(controller: undo, model: model)
                         bottomBar
                     }
                 }
@@ -279,19 +283,10 @@ struct TranscriptScreen: View {
         }
         .sheet(item: $originalLine) { line in
             PassageOriginalSheet(
-                line: line, tokens: model.heard?.tokens ?? [], corrections: model.corrections(inLine: line.id),
-                player: player, revert: { ids in await revert(ids) })
+                model: model, lineID: line.id, player: player, handOff: { offer in undo.adopt(offer) })
         }
         .sheet(isPresented: $isShowingCorrections) {
-            CorrectionsSheet(
-                model: model, revert: { ids in await revert(ids) }, revertAll: { await revertAll() },
-                deleteDetached: { ids in
-                    do {
-                        try await model.deleteDetached(ids)
-                    } catch {
-                        actionError = Formatting.message(for: error)
-                    }
-                })
+            CorrectionsSheet(model: model)
         }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
@@ -508,7 +503,7 @@ struct TranscriptScreen: View {
                 // before the latest correction say so.
                 MadeFromThisSection(
                     sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24),
-                    correctionsChangedAt: model.correctionsChangedAt)
+                    correctionsChangedAt: MadeBeforeCorrections.changedAt(of: model))
                 if model.transcription?.isPartialAudio == true {
                     PartialAudioNotice()
                         .padding(.horizontal, Tokens.Spacing.xl)
@@ -531,9 +526,16 @@ struct TranscriptScreen: View {
                             .accessibilityFocused($focusedLineID, equals: line.id)
                             .contextMenu { lineMenu(line, position: position) }
                             // F55: the long-press items, reachable from the VoiceOver actions rotor too.
-                            .accessibilityAction(named: "Correct") { startCorrecting(line) }
-                            .accessibilityAction(named: "Show Original") { showOriginal(line) }
-                            .accessibilityAction(named: "Listen from Here") { listen(from: position) }
+                            // The long-press items, as VoiceOver actions, offered when the menu offers them (F55).
+                            .accessibilityActions {
+                                if model.canCorrect {
+                                    Button("Correct") { startCorrecting(line) }
+                                }
+                                if !model.corrections(inLine: line.id).isEmpty {
+                                    Button("Show Original") { showOriginal(line) }
+                                }
+                                Button("Listen from Here") { listen(from: position) }
+                            }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -905,47 +907,7 @@ struct TranscriptScreen: View {
 
     private func showOriginal(_ line: TranscriptTextLine) {
         guard !model.corrections(inLine: line.id).isEmpty else { return }
-        originalLine = line
-    }
-
-    /// Reverts at once, then offers Undo for six seconds (announced).
-    private func revert(_ ids: Set<UUID>) async {
-        do {
-            let outcome = try await model.revert(ids)
-            guard !outcome.undo.isEmpty else { return }
-            offerUndo(CorrectionUndoOffer(message: "Reverted.", plan: outcome.undo))
-        } catch {
-            actionError = Formatting.message(for: error)
-        }
-    }
-
-    private func revertAll() async {
-        do {
-            let outcome = try await model.revertAll()
-            guard !outcome.undo.isEmpty else { return }
-            offerUndo(CorrectionUndoOffer(message: "Reverted all.", plan: outcome.undo))
-        } catch {
-            actionError = Formatting.message(for: error)
-        }
-    }
-
-    private func offerUndo(_ offer: CorrectionUndoOffer) {
-        undoOffer = offer
-        AccessibilityNotification.Announcement("\(offer.message) Undo is available.").post()
-        Task {
-            try? await Task.sleep(for: .seconds(CorrectionUndoOffer.seconds))
-            if undoOffer?.id == offer.id { undoOffer = nil }
-        }
-    }
-
-    private func undo(_ offer: CorrectionUndoOffer) async {
-        undoOffer = nil
-        do {
-            try await model.undo(offer.plan)
-            AccessibilityNotification.Announcement("Undone.").post()
-        } catch {
-            actionError = Formatting.message(for: error)
-        }
+        originalLine = LineID(id: line.id)
     }
 
     private func seek(toMs ms: Int) {
