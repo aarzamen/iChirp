@@ -417,6 +417,12 @@ public struct LibrarySection: Sendable, Equatable, Identifiable {
         return merged
     }
 
+    /// Re-reads the day sections' titles ("Today", "Yesterday", "Sep 19") against the clock now. The app calls it when it
+    /// comes back to the foreground, which may be the next morning, with nothing written since (plan 024, R6a-17).
+    public func refreshDayTitles() {
+        rebuildSections()
+    }
+
     /// The first `displayLimit` visible rows grouped by the day they were created.
     private func rebuildSections() {
         let shown = visibleEntries.prefix(displayLimit)
