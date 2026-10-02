@@ -41,6 +41,9 @@ struct ExtractFieldsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    // Plan 025 (fix round 1, M10): a stale run says so first, so it is in view when the sheet opens,
+                    // even at the largest text sizes.
+                    if case .ready = model.phase, model.isStale { staleBanner }
                     header
                     content
                 }
@@ -164,6 +167,23 @@ struct ExtractFieldsSheet: View {
         }
     }
 
+    /// Plan 025 D7: these fields were found before the person corrected the transcript, so their quotes point at text
+    /// that changed. The quotes are hidden and the SOAP hand-off is off until the bar's Extract again (filled while stale).
+    private var staleBanner: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(ExtractFieldsViewModel.staleNotice, systemImage: "exclamationmark.triangle")
+                .chirpFont(13.5, .semibold)
+                .foregroundStyle(Tokens.Color.partialAudioInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.Radius.inset, style: .continuous).fill(Tokens.Color.partialAudioFill)
+        )
+        .accessibilityElement(children: .contain)
+    }
+
     @ViewBuilder private func card(_ sections: DraftSections) -> some View {
         if sections.isEmpty {
             Text("Nothing to record was found.")
@@ -249,11 +269,14 @@ struct ExtractFieldsSheet: View {
                             .foregroundStyle(Tokens.Color.ink)
                             .multilineTextAlignment(.trailing)
                     }
-                    Text(Self.evidence(item))
-                        .chirpFont(12)
-                        .italic()
-                        .foregroundStyle(Tokens.Color.secondary)
-                        .lineLimit(4)
+                    // A stale run's quotes are hidden (plan 025 D7): no empty line in their place.
+                    if !item.evidence.isEmpty || !item.evidenceSentence.isEmpty {
+                        Text(Self.evidence(item))
+                            .chirpFont(12)
+                            .italic()
+                            .foregroundStyle(Tokens.Color.secondary)
+                            .lineLimit(4)
+                    }
                     Text(statusLine(item))
                         .chirpFont(11.5, .semibold)
                         .monospacedDigit()
@@ -338,9 +361,11 @@ struct ExtractFieldsSheet: View {
             // F88: names why "Use in SOAP note" is disabled once there is a draft to review, instead of leaving
             // the reason to be found by scrolling back up.
             if model.draft != nil, !isRunning, model.soapNotes == nil {
-                Text("Review at least one field (tap its circle).")
+                // Plan 025: a stale run's reason ("Extract again first.") replaces the review hint.
+                Text(model.soapHandOffBlockedReason ?? "Review at least one field (tap its circle).")
                     .chirpFont(12, .semibold)
                     .foregroundStyle(Tokens.Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
                 Button {
@@ -350,7 +375,7 @@ struct ExtractFieldsSheet: View {
                     // tinted once a draft exists and "Use in SOAP note" takes over as the primary action.
                     CapsuleButtonLabel(
                         title: model.draft == nil ? "Extract fields" : "Extract again",
-                        kind: model.draft == nil ? .filled : .tinted)
+                        kind: model.draft == nil || model.isStale ? .filled : .tinted)
                 }
                 .buttonStyle(.plain)
                 .disabled(isRunning)

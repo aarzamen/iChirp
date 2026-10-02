@@ -710,9 +710,11 @@ import Observation
     }
 
     func makeTranscriptViewModel(id: UUID) -> TranscriptViewModel {
+        // Plan 025: the screen corrects through the one correction writer (text-only items have no word timings, so
+        // their screens never offer it).
         TranscriptViewModel(
             id: id, store: store, paths: paths, settings: settings, deliverables: deliverableStore,
-            textContext: textContext)
+            corrections: TranscriptCorrectionService(store: store, context: textContext), textContext: textContext)
     }
 
     /// M4: one generated document (Transforms tab, or a finished Transform run).

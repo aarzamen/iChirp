@@ -33,15 +33,18 @@ public enum TranscriptCorrectionError: Error, Equatable, LocalizedError {
     case emptyText
     /// A newer version of Parakeet wrote this transcript's corrections; this one never changes them.
     case newerVersion
+    /// An undo (or another stored plan) covers words that were corrected again since, differently: it cannot be applied.
+    case correctedAgain
 
     public var errorDescription: String? {
         switch self {
         case .notFound: "This transcript no longer exists."
         case .notCompleted: "This transcript isn't finished, so it can't be corrected yet."
         case .noWordTimings: "Correcting needs word timings; this transcript has none."
-        case .transcriptChanged: "This transcript changed since it opened. Your text is still here; try again."
+        case .transcriptChanged: "This transcript changed since it opened. Try again."
         case .emptyText: "The passage can't be empty."
         case .newerVersion: "A newer version of Parakeet made these corrections. Update Parakeet to change them."
+        case .correctedAgain: "Those words were corrected again, so this can’t be undone."
         }
     }
 }
@@ -86,14 +89,29 @@ public struct TranscriptCorrectionService: Sendable {
         } catch let error as TranscriptCorrectionsError {
             throw Self.map(error)
         }
-        return try await apply(id, plan: plan, baseline: baseline)
+        do {
+            return try await apply(id, plan: plan, baseline: baseline)
+        } catch TranscriptCorrectionError.correctedAgain {
+            // A new edit over words another write corrected meanwhile: the screen's text is out of date.
+            throw TranscriptCorrectionError.transcriptChanged
+        }
     }
 
-    /// Applies a plan (an undo, a Replace) bound to the words the screen loaded.
+    /// Applies a plan (a Replace, voice commands) bound to the words the screen loaded. An added correction replaces
+    /// the stored ones it covers whole. An undo goes through `undo(_:plan:baseline:)`, which never does.
     public func apply(_ id: UUID, plan: TranscriptCorrectionPlan, baseline: String?) async throws
         -> CorrectionOutcome
     {
         try await apply(id, baseline: baseline) { _ in plan }
+    }
+
+    /// Applies an undo plan (a `CorrectionOutcome.undo`, or several joined) strictly: when any correction it would put
+    /// back touches a correction it does not remove (the words were corrected again since, even on the same or fewer
+    /// words), it throws `correctedAgain` and writes nothing. A newer correction is never overwritten.
+    public func undo(_ id: UUID, plan: TranscriptCorrectionPlan, baseline: String?) async throws
+        -> CorrectionOutcome
+    {
+        try await apply(id, baseline: baseline, strict: true) { _ in plan }
     }
 
     /// Reverts the given corrections (Show Original's Revert, a passage, a Replace-all batch). Ids no longer stored
@@ -114,7 +132,8 @@ public struct TranscriptCorrectionService: Sendable {
     /// The one write: `makePlan` sees the row as stored inside the transaction. A plan that would leave the stored
     /// items as they are writes nothing.
     private func apply(
-        _ id: UUID, baseline: String?, makePlan: @escaping @Sendable (Transcription) -> TranscriptCorrectionPlan
+        _ id: UUID, baseline: String?, strict: Bool = false,
+        makePlan: @escaping @Sendable (Transcription) -> TranscriptCorrectionPlan
     ) async throws -> CorrectionOutcome {
         let context = await self.context()
         let now = self.now()
@@ -126,7 +145,7 @@ public struct TranscriptCorrectionService: Sendable {
             guard !plan.isEmpty else { return false }
             let inverse: TranscriptCorrectionPlan
             do {
-                inverse = try row.applyCorrections(plan, now: now)
+                inverse = try row.applyCorrections(plan, now: now, strict: strict)
             } catch let error as TranscriptCorrectionsError {
                 throw Self.map(error)
             }
@@ -200,7 +219,8 @@ public struct TranscriptCorrectionService: Sendable {
         switch error {
         case .emptyText: .emptyText
         case .newerVersion: .newerVersion
-        case .baselineChanged, .invalidRange, .overlapping, .mixedSpeakers: .transcriptChanged
+        case .overlapping: .correctedAgain
+        case .baselineChanged, .invalidRange, .mixedSpeakers: .transcriptChanged
         }
     }
 }

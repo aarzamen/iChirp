@@ -19,6 +19,11 @@ import UniformTypeIdentifiers
 /// Plan 024 Task 9: the title, More menu, status card, reload and action bar are the Document screen's too
 /// (`ItemScreenParts`); the view models are made once per screen (`OnceBox`, R6a-5); the playhead is followed by a
 /// small watcher, so playback re-renders the screen once per paragraph, not ten times a second (R6a-10).
+///
+/// Plan 025 Part A: the lines are `TranscriptViewModel.lines` (the `.heard` view with the person's corrections), each
+/// with a stable `id` (Jev's tags and scroll targets key by it). A corrected passage has a dotted underline and its
+/// line says "Corrected"; a line's long-press offers Correct…, Show Original and Listen from Here (also as VoiceOver
+/// actions); More → Corrections (N)… lists them all. A revert is immediate, with Undo for six seconds.
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -60,6 +65,18 @@ struct TranscriptScreen: View {
     @State private var isConfirmingDelete = false
     /// The paragraph the media playhead is in (set by `PlayheadWatcher` only when it changes).
     @State private var currentParagraph: Int?
+    /// Plan 025: the line being corrected, the line whose original is shown, the Corrections sheet, and the Undo
+    /// offered after a revert.
+    @State private var correctingLine: TranscriptTextLine?
+    @State private var originalLine: LineID?
+    @State private var isShowingCorrections = false
+    /// Undo for a revert whose sheet closed (Show Original with nothing left); sheets show their own (fix round 1).
+    @State private var undo = CorrectionUndoController()
+
+    /// A line id the Original sheet is open for (the sheet resolves the line itself, fix round 1, I2).
+    struct LineID: Identifiable, Equatable {
+        let id: Int
+    }
 
     enum TranscriptTab { case transcript, ask }
 
@@ -113,7 +130,10 @@ struct TranscriptScreen: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if model.transcription?.status == .completed, selectedTab == .transcript {
-                bottomBar
+                VStack(spacing: 0) {
+                    CorrectionUndoBar(controller: undo, model: model)
+                    bottomBar
+                }
             }
         }
         .background {
@@ -185,6 +205,18 @@ struct TranscriptScreen: View {
             }
         }
         .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
+        .sheet(item: $correctingLine) { line in
+            CorrectPassageSheet(
+                line: line, speakerLabel: line.speakerLabel, player: player,
+                save: { text in try await model.correct(line: line.id, text: text) })
+        }
+        .sheet(item: $originalLine) { line in
+            PassageOriginalSheet(
+                model: model, lineID: line.id, player: player, handOff: { offer in undo.adopt(offer) })
+        }
+        .sheet(isPresented: $isShowingCorrections) {
+            CorrectionsSheet(model: model)
+        }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
                 .presentationDetents([.medium, .large])
@@ -225,7 +257,10 @@ struct TranscriptScreen: View {
         ItemMoreMenu(
             item: model.transcription, onRename: startRename, onFavorite: { Task { await toggleFavorite() } },
             onCopy: copyText, onExtractFields: { isExtractingFields = true },
-            onDelete: { isConfirmingDelete = true })
+            onDelete: { isConfirmingDelete = true },
+            corrections: TranscriptCorrectionsCopy.menuTitle(
+                applied: model.corrections.count, detached: model.detachedCorrections.count
+            ).map { title in (title, { isShowingCorrections = true }) })
     }
 
     // MARK: - Tabs (Transcript and Ask), the Notes button (M3) and the privacy class (M4)
@@ -366,7 +401,7 @@ struct TranscriptScreen: View {
 
     private func completedContent(_ item: Transcription) -> some View {
         let paragraphs = model.paragraphs
-        let hasTimings = !(item.wordTimestamps ?? []).isEmpty
+        let hasTimings = model.hasWordTimings
         let speakerOrder = SpeakerPalette.order(paragraphs.map(\.speakerId))
         let current = (player.isAvailable && hasTimings) ? currentParagraph : nil
         return VStack(spacing: 0) {
@@ -378,95 +413,123 @@ struct TranscriptScreen: View {
             if selectedTab == .ask {
                 AskView(transcription: item, session: ask, environment: environment) { ms in seek(toMs: ms) }
             } else {
-                transcriptText(paragraphs, hasTimings: hasTimings, speakerOrder: speakerOrder, current: current)
+                transcriptText(hasTimings: hasTimings, speakerOrder: speakerOrder, current: current)
             }
         }
     }
 
-    private func transcriptText(
-        _ paragraphs: [TranscriptParagraph], hasTimings: Bool, speakerOrder: [String: Int], current: Int?
-    ) -> some View {
-        ScrollView {
-            // Plan 023 (UX audit F43): the documents made from this transcript, above its text.
-            MadeFromThisSection(sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24))
-            if model.transcription?.isPartialAudio == true {
-                PartialAudioNotice()
-                    .padding(.horizontal, Tokens.Spacing.xl)
-                    .padding(.top, Tokens.Spacing.s)
-            }
-            if paragraphs.isEmpty {
-                EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
-            } else {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                        paragraphView(
-                            paragraph,
-                            speakerIndex: paragraph.speakerId.flatMap { speakerOrder[$0] },
-                            showsTiming: hasTimings,
-                            isCurrent: index == current,
-                            jevTag: paragraphTags[index]
-                        )
-                        .contextMenu {
-                            // Plan 020: read aloud from this paragraph onward.
-                            Button {
-                                listen(from: index)
-                            } label: {
-                                Label("Listen from Here", systemImage: "speaker.wave.2")
+    /// The lines (`model.lines`, parallel to `model.paragraphs`), each with its stable id: the scroll target, and the
+    /// key of Jev's tags (a correction that covers a whole paragraph leaves its id out, so positions and ids differ).
+    private func transcriptText(hasTimings: Bool, speakerOrder: [String: Int], current: Int?) -> some View {
+        let lines = model.lines
+        let tokens = model.heard?.tokens ?? []
+        // Each line is a scroll target by its id (`.id(line.id)`); plan 025 Part B's Find scrolls to a match with the
+        // reader's proxy.
+        return ScrollViewReader { _ in
+            ScrollView {
+                // Plan 023 (UX audit F43): the documents made from this transcript, above its text; plan 025: those made
+                // before the latest correction say so.
+                MadeFromThisSection(
+                    sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24),
+                    correctionsChangedAt: MadeBeforeCorrections.changedAt(of: model))
+                if model.transcription?.isPartialAudio == true {
+                    PartialAudioNotice()
+                        .padding(.horizontal, Tokens.Spacing.xl)
+                        .padding(.top, Tokens.Spacing.s)
+                }
+                if lines.isEmpty {
+                    EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.element.id) { position, line in
+                            lineView(
+                                line, tokens: tokens,
+                                speakerIndex: line.speakerId.flatMap { speakerOrder[$0] },
+                                showsTiming: hasTimings,
+                                isCurrent: position == current,
+                                jevTag: paragraphTags[line.id]
+                            )
+                            .id(line.id)
+                            .contextMenu { lineMenu(line, position: position) }
+                            // F55: the long-press items, reachable from the VoiceOver actions rotor too.
+                            // The long-press items, as VoiceOver actions, offered when the menu offers them (F55).
+                            .accessibilityActions {
+                                if model.canCorrect {
+                                    Button("Correct") { startCorrecting(line) }
+                                }
+                                if !model.corrections(inLine: line.id).isEmpty {
+                                    Button("Show Original") { showOriginal(line) }
+                                }
+                                Button("Listen from Here") { listen(from: position) }
                             }
                         }
-                        // F55: the long-press item, reachable from the VoiceOver actions rotor too.
-                        .accessibilityAction(named: "Listen from Here") { listen(from: index) }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 10)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 10)
-                .padding(.bottom, 24)
             }
         }
     }
 
-    private func paragraphView(
-        _ paragraph: TranscriptParagraph, speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
+    /// A line's long-press: Correct… (a finished, timed transcript), Show Original (a corrected line), Listen from Here.
+    @ViewBuilder private func lineMenu(_ line: TranscriptTextLine, position: Int) -> some View {
+        if model.canCorrect {
+            Button {
+                startCorrecting(line)
+            } label: {
+                Label("Correct…", systemImage: "pencil")
+            }
+        }
+        if !model.corrections(inLine: line.id).isEmpty {
+            Button {
+                showOriginal(line)
+            } label: {
+                Label("Show Original", systemImage: "text.badge.checkmark")
+            }
+        }
+        // Plan 020: read aloud from this paragraph onward.
+        Button {
+            listen(from: position)
+        } label: {
+            Label("Listen from Here", systemImage: "speaker.wave.2")
+        }
+    }
+
+    private func lineView(
+        _ line: TranscriptTextLine, tokens: [TranscriptToken], speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
         jevTag: String? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let isCorrected = TranscriptLineText.correctionCount(in: line, tokens: tokens) > 0
+        return VStack(alignment: .leading, spacing: 6) {
             if let jevTag {
                 ParagraphTagChip(title: jevTag)  // M6a: this session only
             }
             if showsTiming {
                 // The 44 pt timestamp target overlaps the paragraph spacing instead of adding to it.
-                HStack(spacing: 7) {
-                    if let speakerIndex {
-                        SpeakerDot(label: model.speakerLabel(for: paragraph.speakerId), speakerIndex: speakerIndex)
+                // Plan 025: "Corrected" sits beside the speaker and time when it fits, and on its own row at large text
+                // sizes (never breaking "Speaker 1" or itself mid-word).
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 7) {
+                        speakerAndTime(line, speakerIndex: speakerIndex, isCurrent: isCurrent)
+                        if isCorrected { correctedLabel }
                     }
-                    Button {
-                        seek(toMs: paragraph.startMs)
-                    } label: {
-                        Text(Formatting.clock(ms: paragraph.startMs))
-                            .chirpFont(11.5)
-                            .monospacedDigit()
-                            // Text-safe ink on the current paragraph's tint fill (F8): `accentText` alone is
-                            // 4.39:1 there.
-                            .foregroundStyle(
-                                player.isAvailable
-                                    ? (isCurrent ? AppColor.accentTextOnTint : AppColor.accentText)
-                                    : Tokens.Color.secondary
-                            )
-                            .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // F49: 44 pt to tap
-                            .contentShape(Rectangle())
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(spacing: 7) {
+                            speakerAndTime(line, speakerIndex: speakerIndex, isCurrent: isCurrent)
+                        }
+                        if isCorrected { correctedLabel }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!player.isAvailable)
-                    .accessibilityLabel("Play from \(Formatting.clock(ms: paragraph.startMs))")
                 }
                 .padding(.vertical, -8)
             }
-            Text(paragraph.text)
+            Text(TranscriptLineText.attributed(line, tokens: tokens))
                 .chirpFont(16)
                 .lineSpacing(6)
                 .foregroundStyle(Tokens.Color.ink)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityValue(isCorrected ? "Corrected" : "")
         }
         .padding(10)
         .background(
@@ -475,6 +538,43 @@ struct TranscriptScreen: View {
         )
         .padding(.horizontal, -10)
         .animation(.easeOut(duration: 0.2), value: isCurrent)
+    }
+
+    @ViewBuilder private func speakerAndTime(_ line: TranscriptTextLine, speakerIndex: Int?, isCurrent: Bool)
+        -> some View
+    {
+        let startMs = line.startMs ?? 0
+        if let speakerIndex {
+            SpeakerDot(label: model.speakerLabel(for: line.speakerId), speakerIndex: speakerIndex)
+        }
+        Button {
+            seek(toMs: startMs)
+        } label: {
+            Text(Formatting.clock(ms: startMs))
+                .chirpFont(11.5)
+                .monospacedDigit()
+                // Text-safe ink on the current paragraph's tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(
+                    player.isAvailable
+                        ? (isCurrent ? AppColor.accentTextOnTint : AppColor.accentText)
+                        : Tokens.Color.secondary
+                )
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // F49: 44 pt to tap
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!player.isAvailable)
+        .accessibilityLabel("Play from \(Formatting.clock(ms: startMs))")
+    }
+
+    /// Plan 025: the line carries the person's corrections (Show Original brings back the words as heard). VoiceOver
+    /// hears it as the line's value instead.
+    private var correctedLabel: some View {
+        Text("Corrected")
+            .chirpFont(11.5)
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize()
+            .accessibilityHidden(true)
     }
 
     // MARK: - Bottom bar
@@ -494,7 +594,7 @@ struct TranscriptScreen: View {
             }
             Button(ExportFormat.txt.displayName) { share(.txt) }
             Button {
-                voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+                voiceMessage = model.transcription.flatMap { VoiceMessageJob.item($0, text: model.plainText) }
             } label: {
                 Label("Voice message…", systemImage: "waveform.badge.plus")
             }
@@ -526,8 +626,20 @@ struct TranscriptScreen: View {
 
     /// Where Listen starts: the paragraph at the media playhead once the media has played, else the first.
     private var listenStartIndex: Int {
-        guard player.currentTime > 0, !(model.transcription?.wordTimestamps ?? []).isEmpty else { return 0 }
+        guard player.currentTime > 0, model.hasWordTimings else { return 0 }
         return TranscriptTiming.currentParagraphIndex(in: model.paragraphs, atMs: Int(player.currentTime * 1000)) ?? 0
+    }
+
+    // MARK: - Corrections (plan 025)
+
+    private func startCorrecting(_ line: TranscriptTextLine) {
+        guard model.canCorrect else { return }
+        correctingLine = line
+    }
+
+    private func showOriginal(_ line: TranscriptTextLine) {
+        guard !model.corrections(inLine: line.id).isEmpty else { return }
+        originalLine = LineID(id: line.id)
     }
 
     private func seek(toMs ms: Int) {

@@ -9,9 +9,10 @@ struct VoiceMessageJob: Identifiable {
     let id = UUID()
     let request: VoiceMessageRequest
 
-    /// A transcript, document or text item, spoken as it reads now.
-    static func item(_ item: Transcription) -> VoiceMessageJob? {
-        let text = SpeakableText.prepare(item.displayText)
+    /// A transcript, document or text item, spoken as it reads now: `text` is the text the person sees
+    /// (`TranscriptViewModel.plainText`: the shown view with their corrections, plan 025).
+    static func item(_ item: Transcription, text shown: String) -> VoiceMessageJob? {
+        let text = SpeakableText.prepare(shown)
         guard !text.isEmpty else { return nil }
         return VoiceMessageJob(
             request: VoiceMessageRequest(

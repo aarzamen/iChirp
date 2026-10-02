@@ -163,7 +163,7 @@ final class ContrastTests: XCTestCase {
             ink, on: [ground, surface, quietFill, tint, systemRow, privacyBadgeFill.opacity(0.7, over: surface)],
             .text, "titles and body text; the privacy-route chip (TransformComponents)")
         table += pairs(
-            secondary, on: [ground, surface, quietFill, tint, systemRow], .text,
+            secondary, on: [ground, surface, quietFill, tint, systemRow], .text,  // also plan 025's correction underline
             "meta, subtitles, section labels; the Create card; quiet chips")
         table += pairs(accentInk, on: [ground, surface, systemRow], .text, "accent text, links, the app tint")
         table += pairs(

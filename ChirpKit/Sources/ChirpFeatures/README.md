@@ -376,7 +376,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   `derivedTitle` and `derivedSnippet` from the corrected text (`Transcription.titleSource(context:)`: with no
   corrections left, the pipelines' own source, so Revert all restores their title exactly). `revert`, `revertAll`,
   `deleteDetached` (detached corrections are deleted only on request). Every write returns a `CorrectionOutcome` with
-  the undo plan. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
+  the undo plan, which `undo(_:plan:baseline:)` applies strictly: when any of its words were corrected again since
+  (the same span, fewer words or a sub-span) it fails with `correctedAgain` ("Those words were corrected again, so
+  this can’t be undone."), writes nothing and leaves the newer correction as it is. `apply(_:plan:baseline:)` (a
+  Replace, voice commands) lets a new correction replace the ones it covers whole. A write that would leave the stored corrections as they are (spacing-only text, reverting ids that
   are gone) writes nothing, so `changedAt` does not move; `revertAll` takes the ids inside the store's transaction. Logs: ids, counts and origin names, never text.
   `CorrectionDraft` holds the Correct sheet's Save rule (blank or unchanged: off).
 - `Corrections/TranscriptTextContextSource.swift`: `TranscriptTextContext.current(textRules:settings:)` (and
@@ -897,6 +900,8 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   finished or failed chain's model run and voice message (review M2), and the app resets a chain whenever it drops
   it (Done, Create another), so a failed voice message's chunk audio does not wait in `tmp` for the next launch. Logs carry the chain id, item ids,
   kinds and stage names only (`create_item_after_stop` for an item made after a Stop).
+  Plan 025: `itemShownText` is the item's text as the person sees it (their clean-up mode and rules, their
+  corrections), which the run's result card shows and copies; the voice message speaks the same text.
 - `Create/VoiceMessageProducing.swift`: `VoiceMessageRequest`, `VoiceMessageFile`, `VoiceMessagePhase` and the
   `VoiceMessageProducing` protocol (Step 5's `VoiceMessageExporter`).
 - `Create/CreateChoices.swift`: the Create sheet's last answers (`UserDefaultsCreateChoicesStore`,

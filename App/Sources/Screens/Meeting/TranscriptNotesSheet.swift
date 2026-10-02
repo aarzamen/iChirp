@@ -1,5 +1,6 @@
 import ChirpCore
 import ChirpFeatures
+import ChirpText
 import ChirpUI
 import SwiftUI
 
@@ -135,7 +136,8 @@ struct TranscriptNotesSheet: View {
                 // R6a-18: the transcript's colors (by first speech), not the roster's order.
                 let colors = SpeakerPalette.indices(
                     roster: model.speakers.map(\.id),
-                    speechOrder: SpeakerPalette.order((model.transcription?.wordTimestamps ?? []).map(\.speakerId)))
+                    speechOrder: SpeakerPalette.order(
+                        model.transcription.map { TranscriptTokens.of($0).map(\.speakerId) } ?? []))
                 VStack(spacing: 0) {
                     ForEach(Array(model.speakers.enumerated()), id: \.element.id) { index, speaker in
                         Button {

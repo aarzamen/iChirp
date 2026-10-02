@@ -15,9 +15,8 @@
 #   - ChirpText/TranscriptText.swift (the accessor),
 #   - the writers of the baseline (plan 025 C7 row W): FileTranscriptionPipeline, MeetingFinalizer,
 #     DictationCoordinator, LinkIngestService, DocumentImportPipeline, TextItemService,
-#   - ChirpFeatures/Benchmark/ and App/Sources/Debug/SmokeTestRunner.swift (they measure the engine's own words).
-# PENDING lists App screens plan 025 Step A8 routes through the accessor; each is reported, not failed, until A8
-# removes it from the list.
+#   - ChirpFeatures/Benchmark/ and App/Sources/Debug/SmokeTestRunner.swift (they measure the engine's own words),
+#   - App/Sources/Debug/CorrectionsPreviewLaunch.swift (DEBUG: writes the corrections tour's synthetic sample).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -35,19 +34,13 @@ allowed() {
     ChirpKit/Sources/ChirpFeatures/Create/TextItemService.swift) return 0 ;;
     ChirpKit/Sources/ChirpFeatures/Benchmark/*) return 0 ;;
     App/Sources/Debug/SmokeTestRunner.swift) return 0 ;;
+    App/Sources/Debug/CorrectionsPreviewLaunch.swift) return 0 ;;  # DEBUG: writes the synthetic tour sample
   esac
   return 1
 }
 
-# App screens still to route (plan 025 Step A8). Remove a file here in the commit that routes it.
+# Nothing is pending: plan 025 Step A8 routed every App screen. Keep the hook for a later staged migration.
 pending() {
-  case "$1" in
-    App/Sources/Screens/Transcript/TranscriptScreen.swift) return 0 ;;
-    App/Sources/Screens/Documents/DocumentRow.swift) return 0 ;;
-    App/Sources/Screens/Documents/DocumentScreen.swift) return 0 ;;
-    App/Sources/Screens/Create/CreateRunView.swift) return 0 ;;
-    App/Sources/Screens/Create/VoiceMessageViews.swift) return 0 ;;
-  esac
   return 1
 }
 
@@ -66,7 +59,7 @@ while IFS= read -r hit; do
     continue
   fi
   if pending "$file"; then
-    echo "pending (plan 025 A8): $hit" >&2
+    echo "pending: $hit" >&2
     waiting=$((waiting + 1))
     continue
   fi
@@ -78,4 +71,8 @@ if [ "$offenders" -gt 0 ]; then
   echo "FAIL: $offenders baseline text read(s) outside the allow-list; read Transcription.text(_:context:) instead" >&2
   exit 1
 fi
-echo "OK: no baseline text reads outside the allow-list ($waiting pending for plan 025 A8)"
+if [ "$waiting" -gt 0 ]; then
+  echo "OK: no baseline text reads outside the allow-list ($waiting pending)"
+else
+  echo "OK: no baseline text reads outside the allow-list"
+fi

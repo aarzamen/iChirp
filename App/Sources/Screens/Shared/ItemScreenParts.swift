@@ -109,6 +109,8 @@ struct ItemMoreMenu: View {
     let onCopy: () -> Void
     let onExtractFields: () -> Void
     let onDelete: () -> Void
+    /// Plan 025: "Corrections (N)…" and what it opens, on a transcript that has corrections; nil hides it.
+    var corrections: (title: String, open: () -> Void)?
 
     var body: some View {
         Menu {
@@ -128,6 +130,11 @@ struct ItemMoreMenu: View {
                 }
                 Button(action: onExtractFields) {
                     Label(ExtractFieldsViewModel.menuTitle, systemImage: "list.bullet.rectangle")
+                }
+            }
+            if let corrections {
+                Button(action: corrections.open) {
+                    Label(corrections.title, systemImage: "text.badge.checkmark")
                 }
             }
             if item != nil {

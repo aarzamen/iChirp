@@ -136,11 +136,12 @@ import Observation
         try await revert(Set(corrections(inLine: lineID).map(\.id)))
     }
 
-    /// Applies an undo plan from an earlier outcome.
+    /// Applies an undo plan from an earlier outcome, strictly: words corrected again since throw `correctedAgain` and
+    /// nothing is written (`TranscriptCorrectionService.undo`).
     @discardableResult
     public func undo(_ plan: TranscriptCorrectionPlan) async throws -> CorrectionOutcome {
         let (service, _) = try correctionInputs()
-        let outcome = try await service.apply(id, plan: plan, baseline: baseline)
+        let outcome = try await service.undo(id, plan: plan, baseline: baseline)
         apply(outcome.row)
         return outcome
     }

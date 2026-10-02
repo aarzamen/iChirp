@@ -37,6 +37,8 @@ struct LibraryDocumentRowContent: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let document: LibraryDocument
     let style: Style
+    /// Plan 025: made before the source's latest correction ("Made before your corrections").
+    var madeBeforeCorrections = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -80,7 +82,9 @@ struct LibraryDocumentRowContent: View {
         .background(ChirpCardBackground(radius: Tokens.Radius.s))
         .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.s, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.accessibilityLabel(for: document, style: style))
+        .accessibilityLabel(
+            Self.accessibilityLabel(for: document, style: style)
+                + (madeBeforeCorrections ? ", made before your corrections" : ""))
     }
 
     /// The type badge and the privacy badge side by side, or stacked when they do not fit (large text).
@@ -96,6 +100,9 @@ struct LibraryDocumentRowContent: View {
         PrivacyClassBadge(privacyClass: document.effectivePrivacyClass)
         if document.summary.isCutOff {
             CutOffBadge()
+        }
+        if madeBeforeCorrections {
+            MadeBeforeCorrectionsBadge()
         }
     }
 
@@ -141,6 +148,22 @@ struct CutOffBadge: View {
     }
 }
 
+/// Plan 025: "Made before your corrections" on a document under Made from this: its text came from the transcript
+/// before the person's latest correction (Transform again to use them).
+struct MadeBeforeCorrectionsBadge: View {
+    var body: some View {
+        Text("Made before your corrections")
+            .chirpFont(11.5, .semibold)
+            .foregroundStyle(Tokens.Color.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 24)
+            .background(Capsule().fill(AppColor.quietFill))
+            .accessibilityLabel("Made before your corrections: Transform again to use them")
+    }
+}
+
 /// The template's name as a small tinted capsule ("SOAP note").
 struct DocumentTypeBadge: View {
     let title: String
@@ -166,6 +189,8 @@ struct MadeFromThisSection: View {
     let sourceID: UUID
     /// Padding around the section when it shows (none when there is nothing to list).
     var padding = EdgeInsets()
+    /// Plan 025: when the source's corrections last changed; a document made before that says so.
+    var correctionsChangedAt: Date?
 
     @State private var showsAll = false
 
@@ -181,7 +206,11 @@ struct MadeFromThisSection: View {
                     NavigationLink {
                         DeferredDeliverableDetail(id: document.id, environment: environment)
                     } label: {
-                        LibraryDocumentRowContent(document: document, style: .madeFromThis)
+                        LibraryDocumentRowContent(
+                            document: document, style: .madeFromThis,
+                            madeBeforeCorrections: MadeBeforeCorrections.applies(
+                                documentCreatedAt: document.summary.createdAt,
+                                correctionsChangedAt: correctionsChangedAt))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens the document")

@@ -244,13 +244,14 @@ extension Transcription {
         wordTimestamps?.isEmpty == false
     }
 
-    /// Plan 025: applies `plan` to `textCorrections` against the engine's words (`TranscriptCorrections.applying`) and
-    /// returns its inverse. Only `TranscriptCorrectionService` calls it, inside the store's one-row transaction.
-    public mutating func applyCorrections(_ plan: TranscriptCorrectionPlan, now: Date) throws
+    /// Plan 025: applies `plan` to `textCorrections` against the engine's words (`TranscriptCorrections.applying`;
+    /// `strict` for an undo) and returns its inverse. Only `TranscriptCorrectionService` calls it, inside the store's
+    /// one-row transaction.
+    public mutating func applyCorrections(_ plan: TranscriptCorrectionPlan, now: Date, strict: Bool = false) throws
         -> TranscriptCorrectionPlan
     {
         let (corrections, inverse) = try (textCorrections ?? .empty).applying(
-            plan, words: wordTimestamps ?? [], now: now)
+            plan, words: wordTimestamps ?? [], now: now, strict: strict)
         textCorrections = corrections
         return inverse
     }
