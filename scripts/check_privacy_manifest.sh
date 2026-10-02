@@ -26,7 +26,9 @@
 # Usage: scripts/check_privacy_manifest.sh [--app <built .app>] [--manifest <file>] [--sources <folder>]... [--binary <file>]...
 #        --binary replaces the vendored runtimes as the binaries to read (the self-checks use it); --sources replaces the
 #        default source folders.
-# Exit:  0 nothing undeclared was found · 1 a mismatch (each one printed) · 2 bad usage, a missing file or a missing tool
+# Exit:  0 nothing undeclared was found · 1 a mismatch (each one printed) · 2 bad usage, a missing file, a missing tool
+#        or a file whose imports cannot be read (nm or lipo fails on it): unknown imports are not "no imports", so an
+#        unreadable binary stops the scan instead of counting as scanned.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -41,7 +43,7 @@ usage: scripts/check_privacy_manifest.sh [--app <built .app>] [--manifest <file>
   --app:        also every Mach-O file of a built app, except the test frameworks (what CI does after the app build)
   --binary:     read these files instead of the vendored runtimes
   --sources:    read these folders instead of ChirpKit/Sources, App/Sources, App/Shared and Widgets
-exit: 0 nothing undeclared found, 1 a mismatch (printed), 2 bad usage, a missing file or a missing tool
+exit: 0 nothing undeclared found, 1 a mismatch (printed), 2 bad usage, a missing file or tool, or a file nm cannot read
 EOF
 }
 while [ "$#" -gt 0 ]; do
@@ -87,9 +89,18 @@ for argument in sys.argv[2:]:
 sources, binaries, apps = groups["--sources"], groups["--binaries"], groups["--apps"]
 
 
-def bad_usage(message):
+def stop(message):
+    # Exit 2: bad usage, a missing file, or a file whose imports cannot be read. Never a pass.
     print(f"error: {message}", file=sys.stderr)
     sys.exit(2)
+
+
+def first_line(text, marker):
+    # The tools start their errors with their own long path; keep what follows the marker on the first line. nm adds
+    # "no symbols" lines for the members it cannot read at all, so prefer the line that says why.
+    lines = [line for line in text.strip().splitlines() if line.strip()] or ["no message"]
+    line = ([line for line in lines if not line.rstrip().endswith("no symbols")] or lines)[0]
+    return line.split(marker, 1)[-1]
 
 
 PREFIX = "NSPrivacyAccessedAPICategory"
@@ -98,22 +109,26 @@ try:
         subprocess.check_output(["plutil", "-convert", "json", "-o", "-", manifest_path], stderr=subprocess.DEVNULL)
     )
 except (subprocess.CalledProcessError, ValueError):
-    bad_usage(f"{manifest_path} is missing or is not a property list")
+    stop(f"{manifest_path} is missing or is not a property list")
 declared = {item["NSPrivacyAccessedAPIType"].replace(PREFIX, "") for item in manifest.get("NSPrivacyAccessedAPITypes", [])}
 
-# Swift/ObjC source patterns, per category (comment lines are skipped).
+# Swift/ObjC source patterns, per category (comment lines are skipped). The names are the ones on Apple's documented list
+# (the "Describing use of required reason API" page) and nothing else: clock_gettime, mach_continuous_time and the
+# access and attribute-change dates look related but are not on it, so using them is no reason to declare anything.
 SOURCE_PATTERNS = {
     "UserDefaults": r"\bUserDefaults\b|\bNSUserDefaults\b|\bAppStorage\b",
     "DiskSpace": r"volumeAvailableCapacity|volumeTotalCapacity|systemFreeSize|\.systemSize\b"
     r"|NSFileSystemFreeSize|NSFileSystemSize|\bstatfs\b|\bstatvfs\b",
-    "FileTimestamp": r"\.creationDate\b|\.modificationDate\b|contentModificationDate|creationDateKey|NSFileCreationDate"
-    r"|NSFileModificationDate|\bstat\(|\blstat\(|\bfstat\(|getattrlist|contentAccessDate|attributeModificationDate",
-    "SystemBootTime": r"systemUptime|mach_absolute_time|mach_continuous_time|\bclock_gettime",
+    "FileTimestamp": r"\.creationDate\b|\.modificationDate\b|\bfileModificationDate\b|\bfileCreationDate\b"
+    r"|contentModificationDate|creationDateKey|NSFileCreationDate|NSFileModificationDate|\bstat\(|\blstat\(|\bfstat\("
+    r"|getattrlist",
+    "SystemBootTime": r"systemUptime|mach_absolute_time",
     "ActiveKeyboards": r"activeInputModes",
 }
 # Imported symbols (`nm -u`), per category. Apple's list: stat, fstat, lstat, fstatat, getattrlist* and the date keys
 # are file timestamps; statfs, statvfs, fstatfs, fstatvfs and the volume-capacity keys are disk space; mach_absolute_time
-# is system boot time. On x86_64 the stat family carries a $INODE64 suffix. clock_gettime is not on Apple's list.
+# is system boot time. On x86_64 the stat family carries a $INODE64 suffix. clock_gettime and mach_continuous_time are
+# not on Apple's list.
 SYMBOL_PATTERNS = [
     ("FileTimestamp", r"^_(stat|fstat|lstat|fstatat|getattrlist|getattrlistbulk|fgetattrlist|getattrlistat)(\$INODE64)?$"),
     ("FileTimestamp", r"^_(NSURLContentModificationDateKey|NSURLCreationDateKey|NSFileCreationDate|NSFileModificationDate)$"),
@@ -149,7 +164,7 @@ def note_use(category, where):
 
 for root in sources:
     if not os.path.isdir(root):
-        bad_usage(f"source folder {root} not found")
+        stop(f"source folder {root} not found")
     for path in sorted(Path(root).rglob("*.swift")):
         scanned_sources += 1
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
@@ -168,41 +183,53 @@ def is_binary(path):
         return False
 
 
-def slices(path):
+def slices(path, label):
     # `nm` alone reads one slice of a universal file; the CI app build (generic simulator destination) is arm64 + x86_64.
+    # A file whose architectures lipo cannot tell has imports nobody has read: unknown is not "none".
     result = subprocess.run(["lipo", "-archs", path], capture_output=True, text=True)
-    return result.stdout.split() if result.returncode == 0 and result.stdout.split() else [None]
+    archs = result.stdout.split() if result.returncode == 0 else []
+    if not archs:
+        stop(
+            f"cannot tell which architectures {label} has ({first_line(result.stderr, 'lipo: ')}); its imports are "
+            "unknown, so this scan cannot vouch for the manifest"
+        )
+    return archs
 
 
 def scan_binary(path, label):
     symbols = set()
-    for arch in slices(path):
-        result = subprocess.run(
-            ["nm", "-u"] + (["-arch", arch] if arch else []) + [path], capture_output=True, text=True
-        )
+    for arch in slices(path, label):
+        result = subprocess.run(["nm", "-u", "-arch", arch, path], capture_output=True, text=True)
         if result.returncode != 0:
-            first = (result.stderr.strip().splitlines() or ["no message"])[0]
-            notes.append(f"nm could not read {label} ({first}); its imports are not in this scan")
+            # Xcode's nm already fails on the Rust standard library inside FluidAudio's NeMo library (bitcode it cannot
+            # read) while still listing the other members: a rebuilt libneedle_c.a that fails the same way would lose its
+            # stat imports, so a failure here is never a note and a pass.
+            stop(
+                f"nm could not read {label} ({first_line(result.stderr, 'error: ')}); its imports are unknown, so "
+                "this scan cannot vouch for the manifest"
+            )
         symbols |= {line.split()[-1] for line in result.stdout.splitlines() if line.split() and line.split()[-1].startswith("_")}
     for symbol in sorted(symbols):
         for category, pattern in SYMBOL_PATTERNS:
             if re.match(pattern, symbol):
                 note_use(category, f"{label} imports {symbol}")
     if not path.endswith(".a"):
-        text = subprocess.run(["strings", "-a", path], capture_output=True, text=True).stdout
+        listing = subprocess.run(["strings", "-a", path], capture_output=True, text=True)
+        if listing.returncode != 0:
+            stop(f"strings could not read {label} ({first_line(listing.stderr, ': ')}); its selector names are unknown")
         for selector, category in SELECTORS.items():
-            if re.search(rf"^{selector}$", text, re.MULTILINE):
+            if re.search(rf"^{selector}$", listing.stdout, re.MULTILINE):
                 note_use(category, f"{label} contains the selector {selector}")
     scanned_binaries.append(label)
 
 
 for path in binaries:
     if not os.path.isfile(path):
-        bad_usage(f"binary {path} not found")
+        stop(f"binary {path} not found")
     scan_binary(path, path)
 for app in apps:
     if not os.path.isdir(app):
-        bad_usage(f"{app} is not a folder (pass the built .app)")
+        stop(f"{app} is not a folder (pass the built .app)")
     found = 0
     for folder, _dirs, files in os.walk(app):
         for name in sorted(files):

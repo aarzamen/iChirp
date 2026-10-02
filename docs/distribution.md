@@ -19,9 +19,9 @@ need the MacParakeet copyright holder's permission for the App Store. For the da
 ships a privacy manifest (`App/PrivacyInfo.xcprivacy`: user defaults, disk space and file timestamps; the last comes
 from the Rust libraries inside Needle and FluidAudio's NeMo text library, not from first-party code).
 `scripts/check_privacy_manifest.sh` fails when the Swift sources, the vendored runtimes (`nm -u`) or, in CI, the built
-app import a required-reason API the manifest does not declare. It cannot see what Apple's own frameworks do or the
-manifests other packages ship (GRDB has its own), and a declaration it finds no use for is only a note, so it is a
-guard, not a privacy review. The App Privacy questions (what is "collected" when the person sends text to a cloud model
+app import a required-reason API the manifest does not declare, and stops (exit 2) on a binary `nm` cannot read instead
+of passing. It cannot see what Apple's own frameworks do or the manifests other packages ship (GRDB has its own), and
+a declaration it finds no use for is only a note, so it is a guard, not a privacy review. The App Privacy questions (what is "collected" when the person sends text to a cloud model
 or voice they chose with their own key) are the owner's to answer then.
 
 ## The hard rules (from `APPLE_DEVELOPER_WARNING.md`)

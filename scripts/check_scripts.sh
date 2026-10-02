@@ -383,8 +383,10 @@ fi
 #    with the first-party sources, with the imports (`nm -u`) of the vendored runtimes when they are built, and, in CI,
 #    with every binary of the built app. The first version read Swift sources only and missed that the Rust standard
 #    library inside needle-c imports stat, fstat and lstat (fix round 1 of plan 024). A declared category the scan
-#    does not see is a note, not a failure: only a missing declaration blocks an upload. Every rule below is proven on a
-#    compiled test program (a few lines of C, built with cc), so a pattern that stopped matching fails here.
+#    does not see is a note, not a failure: only a missing declaration blocks an upload. A file whose imports cannot be
+#    read (nm or lipo fails on it) is exit 2, never a note and a pass: unknown imports are not "no imports". The source
+#    and binary patterns follow Apple's documented list of required-reason APIs and nothing else. Every rule below is
+#    proven on a compiled test program (a few lines of C, built with cc), so a pattern that stopped matching fails here.
 if ! plutil -lint App/PrivacyInfo.xcprivacy >"$SANDBOX/out" 2>&1; then
   fail "App/PrivacyInfo.xcprivacy is not a valid property list: $(head -1 "$SANDBOX/out")"
 else
@@ -424,6 +426,18 @@ manifest_without FileTimestamp "$SANDBOX/pm/no-file-timestamp.xcprivacy"
 manifest_without DiskSpace "$SANDBOX/pm/no-disk-space.xcprivacy"
 printf 'import Foundation\nlet uptime = ProcessInfo.processInfo.systemUptime\n' >"$SANDBOX/pm/Sources/Boot.swift"
 NO_SOURCES="$SANDBOX/pm/empty"
+# Names on Apple's documented list of required-reason APIs and names that look related but are not on it.
+mkdir -p "$SANDBOX/pm/Listed" "$SANDBOX/pm/NotListed"
+printf 'import Darwin\nlet ticks = mach_absolute_time()\n' >"$SANDBOX/pm/Listed/Ticks.swift"
+printf 'import UIKit\nlet saved = document.fileModificationDate\n' >"$SANDBOX/pm/Listed/Dates.swift"
+cat >"$SANDBOX/pm/NotListed/NotListed.swift" <<'SWIFT'
+import Darwin
+import Foundation
+var now = timespec()
+clock_gettime(CLOCK_MONOTONIC, &now)
+let ticks = mach_continuous_time()
+let keys = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.contentAccessDateKey, .attributeModificationDateKey])
+SWIFT
 
 # Test programs: what a binary imports is read from a real binary, not assumed.
 cat >"$SANDBOX/pm/src/clean.c" <<'C'
@@ -449,10 +463,15 @@ cat >"$SANDBOX/pm/src/inode64.c" <<'C'
 extern int stat_inode64(const char *path, void *info) __asm__("_stat$INODE64");
 int probe(void) { char info[512]; return stat_inode64("/", info); }
 C
+cat >"$SANDBOX/pm/src/clock.c" <<'C'
+#include <mach/mach_time.h>
+#include <time.h>
+int main(void) { struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now); return (int)mach_continuous_time(); }
+C
 if ! command -v cc >/dev/null 2>&1; then
   fail "cc (Xcode's command line tools) is needed to build the privacy checker's test programs"
 fi
-for name in clean stat statfs boot selector; do
+for name in clean stat statfs boot selector clock; do
   if ! cc -w -o "$SANDBOX/pm/bin/$name" "$SANDBOX/pm/src/$name.c" 2>"$SANDBOX/pm/cc.err"; then
     fail "cc could not build the $name test program: $(head -1 "$SANDBOX/pm/cc.err")"
   fi
@@ -477,6 +496,17 @@ if cc -w -arch arm64 -c -o "$SANDBOX/pm/bin/clean-arm64.o" "$SANDBOX/pm/src/clea
 else
   fail "cc, ar or lipo could not build the universal test library: $(head -1 "$SANDBOX/pm/cc.err")"
 fi
+# Files whose imports cannot be read: a text file, a program cut short, an archive with no object file in it, and an
+# archive with one truncated object (the shape of FluidAudio's NeMo library, whose Rust standard library is bitcode that
+# Xcode's nm rejects with an error while it still lists the other members). Unknown imports are not "no imports".
+printf 'not a binary at all\n' >"$SANDBOX/pm/bin/text.txt"
+printf 'plain text, not an object file\n' >"$SANDBOX/pm/src/member.txt"
+if [ -x "$SANDBOX/pm/bin/stat" ] && [ -f "$SANDBOX/pm/bin/stat.o" ]; then
+  head -c 200 "$SANDBOX/pm/bin/stat" >"$SANDBOX/pm/bin/truncated"
+  head -c 120 "$SANDBOX/pm/bin/stat.o" >"$SANDBOX/pm/bin/truncated.o"
+  ar rcs "$SANDBOX/pm/bin/libtruncated.a" "$SANDBOX/pm/bin/truncated.o" 2>>"$SANDBOX/pm/cc.err" || true
+  ar rcs "$SANDBOX/pm/bin/libtext.a" "$SANDBOX/pm/src/member.txt" 2>>"$SANDBOX/pm/cc.err" || true
+fi
 
 # The real manifest against the real sources and, when they are built, the real vendored runtimes (a fresh checkout
 # has none, and CI builds them after this script runs, so there it reads the sources only).
@@ -488,6 +518,17 @@ privacy_case "the check notices a used category the manifest lacks (sources)" \
 privacy_case "the check notices a new first-party use of a required-reason API" \
   1 'SystemBootTime is used \(.*Boot\.swift:2\) but the manifest does not declare it' \
   --sources "$SANDBOX/pm/Sources" --binary "$SANDBOX/pm/bin/clean"
+# Source and binary patterns follow Apple's documented list and nothing else: mach_absolute_time and
+# fileModificationDate are on it; clock_gettime, mach_continuous_time and the access and attribute-change dates are not.
+privacy_case "mach_absolute_time in a Swift source is System Boot Time" \
+  1 'SystemBootTime is used \(.*Ticks\.swift:2\) but the manifest does not declare it' \
+  --sources "$SANDBOX/pm/Listed" --binary "$SANDBOX/pm/bin/clean"
+privacy_case "fileModificationDate in a Swift source is File Timestamp" \
+  1 'FileTimestamp is used \(.*Dates\.swift:2\) but the manifest does not declare it' \
+  --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$SANDBOX/pm/Listed" --binary "$SANDBOX/pm/bin/clean"
+privacy_case "names that are not on Apple's list (clock_gettime, mach_continuous_time, the access and attribute-change dates) are no required-reason use" \
+  0 "covers every required-reason API" \
+  --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$SANDBOX/pm/NotListed" --binary "$SANDBOX/pm/bin/clean"
 
 # The imports of a binary, which the first version could not see.
 privacy_case "stat imported by a program is File Timestamp, and a manifest without it is a mismatch" \
@@ -511,6 +552,9 @@ privacy_case "mach_absolute_time imported by a program is System Boot Time (the 
 privacy_case "the Objective-C selector systemUptime inside a program is System Boot Time" \
   1 'SystemBootTime is used \(.*/bin/selector contains the selector systemUptime\) but the manifest does not declare it' \
   --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/selector"
+privacy_case "clock_gettime and mach_continuous_time imported by a program are no required-reason use" \
+  0 "covers every required-reason API" \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clock"
 privacy_case "the manifest as it stands accepts the stat and statfs imports (File Timestamp, Disk Space)" \
   0 "covers every required-reason API" \
   --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/stat" --binary "$SANDBOX/pm/bin/statfs"
@@ -528,6 +572,10 @@ if [ -x "$SANDBOX/pm/bin/stat" ] && [ -x "$SANDBOX/pm/bin/boot" ]; then
   cp "$SANDBOX/pm/bin/boot" "$SANDBOX/pm/Shipped.app/Frameworks/Other.framework/Other"
 fi
 printf 'not a binary\n' >"$SANDBOX/pm/Empty.app/README.txt"
+mkdir -p "$SANDBOX/pm/Broken.app"
+if [ -f "$SANDBOX/pm/bin/truncated" ]; then
+  cp "$SANDBOX/pm/bin/truncated" "$SANDBOX/pm/Broken.app/Broken"
+fi
 privacy_case "--app reads the app's own binary (stat is File Timestamp)" \
   1 'FileTimestamp is used \(Fake\.app/Fake imports _stat\) but the manifest does not declare it' \
   --manifest "$SANDBOX/pm/no-file-timestamp.xcprivacy" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" \
@@ -541,6 +589,9 @@ privacy_case "--app reads a shipped framework (the same import in Frameworks/Oth
 privacy_case "--app with no Mach-O file in it fails, so a wrong path cannot pass" \
   1 "no Mach-O file found" \
   --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Empty.app"
+privacy_case "--app with a truncated Mach-O file in it is exit 2: its imports are unknown, so it is no pass" \
+  2 'cannot tell which architectures Broken\.app/Broken has' \
+  --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Broken.app"
 
 # With no --binary the check reads the vendored runtimes that exist: a copy of the script in a made-up checkout whose
 # vendor/ holds a Needle archive that imports stat and a llama framework that imports mach_absolute_time.
@@ -579,6 +630,14 @@ privacy_case "a missing --binary file is exit 2" \
   2 "binary .* not found" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/nowhere"
 privacy_case "--app pointing at nothing is exit 2" \
   2 "is not a folder" --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/clean" --app "$SANDBOX/pm/Nowhere.app"
+# A file whose imports cannot be read is exit 2 with the reason, never a note and a pass: a rebuilt libneedle_c.a that nm
+# can no longer read would otherwise lose its stat imports without anyone noticing.
+privacy_case "an archive with a member nm rejects is exit 2 (the shape of FluidAudio's NeMo library)" \
+  2 'nm could not read .*libtruncated\.a' --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/libtruncated.a"
+privacy_case "a file that is not an object file is exit 2" \
+  2 'cannot tell which architectures .*text\.txt has' --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/text.txt"
+privacy_case "an archive with no object file in it is exit 2 (nm lists nothing for it and exits 0)" \
+  2 'cannot tell which architectures .*libtext\.a has' --sources "$NO_SOURCES" --binary "$SANDBOX/pm/bin/libtext.a"
 
 # CI cannot run here, so its order is checked: the vendored runtimes and the app are built before the manifest is compared
 # with the built app (a step above them would read neither).
