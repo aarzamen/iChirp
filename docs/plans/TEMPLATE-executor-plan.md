@@ -73,8 +73,8 @@ Which tests are added (names), which fakes they use, which behaviors and failure
 All must hold:
 
 - [ ] Focused tests pass: `scripts/check.sh <Filter>`
-- [ ] Full package suite passes once: `swift test --package-path ChirpKit`
-- [ ] `scripts/test.sh` passes (simulator build and app tests) when app code changed
+- [ ] The full suite passes once: `swift test --package-path ChirpKit`, or `scripts/test.sh` instead when app code
+      changed (it runs that package suite first, then the simulator build and app tests)
 - [ ] `scripts/device_smoke.sh` prints `SMOKE PASS` when the pipeline changed
 - [ ] Specs, contracts and module READMEs updated for any changed behavior or boundary
 - [ ] No simulated progress or placeholder that pretends to work

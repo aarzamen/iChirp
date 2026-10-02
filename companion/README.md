@@ -61,9 +61,9 @@ scripts/companion.sh                                   # restart (Control-C stop
 ```
 
 `companion/uv.lock` records the working version; commit it once YouTube works again. There is no separate install
-step: `scripts/companion.sh` runs `uv run`, which adds what the lock file needs. Do not run a bare
-`uv sync --project companion` here: `uv sync` is exact and would uninstall the Kokoro phonemizer if you added it with
-`--extra kokoro`.
+step: `scripts/companion.sh` runs `uv run`, which adds what the lock file needs. The companion's error messages suggest
+`uv sync --project companion`; that works too (it picks Python 3.12, as above), with one catch: `uv sync` is exact, so
+it uninstalls the Kokoro phonemizer unless you add the extra, `uv sync --project companion --extra kokoro`.
 
 ## Pair the iPhone
 

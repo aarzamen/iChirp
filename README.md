@@ -34,7 +34,7 @@ walked yet. The authoritative per-milestone table (plans, commits, what was veri
 | M3 | Meeting recording with crash recovery, Notes tab | Built; device QA pending |
 | M4 | Language models and deliverables: summaries, meeting notes, agendas, SOAP notes, Ask | Built; device QA pending |
 | M5 | Ingest breadth: podcasts, media links, YouTube, PDFs, text documents (YouTube audio through the Mac companion) | Built; device QA pending |
-| M6 | Structure models: Needle 3, Jev, Laya | Needle 3 (experimental accuracy) and the Jev trial built; Jev's live eval waits on the owner's key; Laya not started |
+| M6 | Structure models: Needle 3, Jev, Laya | Needle 3 (experimental accuracy) and the Jev trial built; Needle round 4 (clinical safety) is open, so do not use Extract fields on real clinical dictation; Jev's live eval waits on the owner's key; Laya not started |
 | M7 | Engine breadth and on-device benchmarks: Apple Speech, WhisperKit, small language models on the iPhone | Built; some iPhone measurements pending; streaming Parakeet not built |
 | M8 | Polish: PDF/DOCX export, keyboard, widgets, accessibility, iPad | In progress: PDF and Word export (with Create), accessibility and the dark palette are in; keyboard, Transforms extension, home-screen widgets, iPad and localization are not |
 

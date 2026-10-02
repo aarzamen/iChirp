@@ -57,8 +57,9 @@ sample or a scratch Voice Memo) and test on that row only. Never test deletion o
 
 ## M1 checklist (file transcription)
 
-> Preconditions: the build's commit matches Settings → About; the phone has at least 2 GB free; you have a real Voice
-> Memo of 1–5 minutes with two people talking, and a short throwaway file.
+> Preconditions: a build of `main` that includes `a6cd8f2d` (the last commit of the M0 + M1 plan, plan 003; Settings →
+> About shows your build's commit and step 2 of the loop checks it); the phone has at least 2 GB free; you have a real
+> Voice Memo of 1–5 minutes with two people talking, and a short throwaway file.
 
 Model management
 - [ ] Settings → Speech model shows "Not downloaded" on a fresh install; Download shows real progress and ends with
@@ -542,9 +543,9 @@ TEST_RUNNER_CHIRP_SCREENSHOT_DIR="$PWD/.build/voice-screens" xcodebuild test -pr
 
 ## M6 checklist (Needle 3: SOAP fields and medications, dictation voice commands, Eval)
 
-> Preconditions: a build of `main` that includes `a9bca61e` (the last commit of `lane/needle`; the clinical allow-list gate this
-> checklist expects is `a27dd43a`, so current `main` is the safe choice); the Mac ran `scripts/build_needle.sh` before
-> the build (Settings → Structure models shows a Needle 3
+> Preconditions: a build of `main` that includes `a27dd43a` (the last commit of `fix/needle-allowlist`, the clinical
+> allow-list gate this checklist tests; it comes after `lane/needle`'s last commit `a9bca61e`, so it includes that one
+> too); the Mac ran `scripts/build_needle.sh` before the build (Settings → Structure models shows a Needle 3
 > row with Download, not "Needle is not in this build"); the phone has Wi-Fi for the one-time 35 MB model download.
 > Use only synthetic speech (the `say` file below). Needle 3's base model scored low on the synthetic eval (see
 > `docs/research/2026-09-22-needle-eval.md`): expect most of its fields in **Needs review**; that is the gate working.
@@ -1031,9 +1032,10 @@ Keep items concrete and user-facing: a **user action** and an **observable resul
 → the Recent row reaches 100% and the transcript shows two speakers"), never "the code path runs".
 
 Name the build as "a build of `main` that includes `<sha>`", where `<sha>` is the last commit of the lane that added the
-feature (an ancestor of `main`, not a commit on its first-parent line; the loop's `git merge-base --is-ancestor`
-command checks it against the commit Settings → About shows). Never name a lane branch to install: lane branches are
-merged and left behind within days, and installing one over the real Library is a downgrade.
+feature (an ancestor of `main`; not the merge commit that brought it in, because a lane merged by fast-forward has none;
+the loop's `git merge-base --is-ancestor` command checks it against the commit Settings → About shows). Never name a
+lane branch to install: lane branches are merged and left behind within days, and installing one over the real Library
+is a downgrade.
 
 ```text
 > Preconditions: <build of main that includes sha, data, settings>
