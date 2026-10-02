@@ -35,7 +35,8 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
 - `Models/LanguageModelProvider.swift`: `LanguageModelProviderKind` (stable engine ids),
   `LanguageModelProviderConfiguration` (no secret; locality derived from the base URL's host; `validate()`; its
   public `CodingKeys` name the keys this build writes, so the provider store keeps any other key a newer build
-  stored), `LocalNetworkHost` (the conservative "is this host on the LAN" rule) and
+  stored), `LocalNetworkHost` (the conservative "is this host on the LAN" rule; dotted-decimal IPv4 only, and an
+  octet with a leading zero, which some resolvers read as octal, is never local) and
   `PrivacyRoutingPolicy(trustingLocalNetworkHostsOf:)`.
 - `Secrets/SecretStoring.swift`: `SecretValue` (a redacted in-memory secret) and `SecretStoring` (Keychain in the
   app via `ChirpKeychain`, a fake in tests).

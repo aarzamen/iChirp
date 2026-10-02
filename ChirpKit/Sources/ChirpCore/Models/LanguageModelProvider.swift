@@ -178,12 +178,16 @@ public enum LocalNetworkHost {
         return localSuffixes.contains { host.hasSuffix($0) && host.count > $0.count }
     }
 
+    /// The four octets of a dotted-decimal IPv4 address, or nil for anything else. A leading zero is refused (review
+    /// R1-10): inet_aton-style resolvers and the WHATWG URL parser read "010" as octal 8, so "010.0.0.1" may connect to
+    /// 8.0.0.1, a public address. Short, hex and single-number forms are not four decimal parts, so they are refused too.
     private static func ipv4Octets(_ host: String) -> [Int]? {
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
         var octets: [Int] = []
         for part in parts {
-            guard !part.isEmpty, part.count <= 3, part.allSatisfy(\.isNumber), let value = Int(part), value <= 255
+            guard !part.isEmpty, part.count <= 3, part.allSatisfy({ $0.isASCII && $0.isNumber }),
+                part.count == 1 || part.first != "0", let value = Int(part), value <= 255
             else { return nil }
             octets.append(value)
         }
