@@ -3,7 +3,7 @@ import XCTest
 @testable import ChirpCore
 
 /// The language-model contract's provider-independent pieces: the normalized stop reason every engine reports
-/// (review R3-1).
+/// (review R3-1) and the sampling rule for clinical requests (review R3-2).
 final class LanguageModelContractTests: XCTestCase {
     // MARK: - Review R3-1: a length stop is never a whole document
 
@@ -47,5 +47,25 @@ final class LanguageModelContractTests: XCTestCase {
         usage.stopReason = "length"
         XCTAssertEqual(usage.normalizedStopReason, .outputLimit, "one source of truth: the raw word")
         XCTAssertEqual(usage, GenerationUsage(stopReason: "length"), "equality is unchanged (raw fields only)")
+    }
+
+    // MARK: - Review R3-2: clinical requests sample faithfully on every engine that can choose
+
+    func testOnlyClinicalRequestsRequireFaithfulSampling() {
+        XCTAssertTrue(GenerationRequest(prompt: "x", privacyClass: .clinical).requiresFaithfulSampling)
+        XCTAssertFalse(GenerationRequest(prompt: "x", privacyClass: .personal).requiresFaithfulSampling)
+        XCTAssertFalse(GenerationRequest(prompt: "x", privacyClass: .general).requiresFaithfulSampling)
+    }
+
+    func testFaithfulSamplingIsGreedyWithNoPenaltyOnTokensAlreadyWritten() {
+        // ADR-015: a random draw can pick a digit that is not the model's first choice, and a repeat, presence or
+        // frequency penalty punishes the second "0" of "500" or a dose restated in the Plan.
+        XCTAssertEqual(FaithfulSampling.temperature, 0)
+        XCTAssertEqual(FaithfulSampling.topK, 1)
+        XCTAssertEqual(FaithfulSampling.topP, 1)
+        XCTAssertEqual(FaithfulSampling.minP, 0)
+        XCTAssertEqual(FaithfulSampling.repeatPenalty, 1, "1 means no repeat penalty")
+        XCTAssertEqual(FaithfulSampling.presencePenalty, 0)
+        XCTAssertEqual(FaithfulSampling.frequencyPenalty, 0)
     }
 }

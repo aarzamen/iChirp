@@ -475,6 +475,91 @@ final class HTTPLanguageModelTests: XCTestCase {
         XCTAssertFalse(usage.isLengthCapped)
     }
 
+    // MARK: - Review R3-2: clinical requests sample faithfully where the provider lets the app choose
+
+    private let clinicalRequest = GenerationRequest(
+        system: "You write documents.", prompt: "Synthetic SOAP note: amoxicillin 500 mg twice a day.",
+        privacyClass: .clinical, maxOutputTokens: 256)
+
+    /// Every field the faithful profile sends (ADR-015: greedy, no penalty on tokens already written).
+    private static let faithfulKeys: Set<String> = [
+        "temperature", "top_k", "top_p", "min_p", "repeat_penalty", "presence_penalty", "frequency_penalty",
+    ]
+
+    private func assertFaithful(_ fields: [String: Any], file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(fields["temperature"] as? Double, 0, "always the most likely token", file: file, line: line)
+        XCTAssertEqual(fields["top_k"] as? Int, 1, file: file, line: line)
+        XCTAssertEqual(fields["top_p"] as? Double, 1, file: file, line: line)
+        XCTAssertEqual(fields["min_p"] as? Double, 0, file: file, line: line)
+        XCTAssertEqual(
+            fields["repeat_penalty"] as? Double, 1, "the servers' default 1.1 penalizes a repeated digit", file: file,
+            line: line)
+        XCTAssertEqual(fields["presence_penalty"] as? Double, 0, file: file, line: line)
+        XCTAssertEqual(fields["frequency_penalty"] as? Double, 0, file: file, line: line)
+    }
+
+    func testOllamaClinicalRequestSamplesGreedilyWithNoPenaltyAndOthersKeepTheServersSettings() async throws {
+        let done = #"{"model":"llama3.1:8b","message":{"content":"Plan noted."},"done":true,"done_reason":"stop"}"#
+        StubURLProtocol.reset { _ in .lines([done], contentType: "application/x-ndjson") }
+        let engine = model(.ollama, "http://mac-studio.local:11434", modelName: "llama3.1:8b")
+        _ = try await collect(engine.generate(clinicalRequest))
+        let options = try XCTUnwrap(StubURLProtocol.requests.first?.json?["options"] as? [String: Any])
+        assertFaithful(options)
+        XCTAssertEqual(options["num_ctx"] as? Int, 8_192, "the window is still the budgeted one")
+        XCTAssertEqual(options["num_predict"] as? Int, 256)
+
+        StubURLProtocol.reset { _ in .lines([done], contentType: "application/x-ndjson") }
+        _ = try await collect(engine.generate(request))
+        let personal = try XCTUnwrap(StubURLProtocol.requests.first?.json?["options"] as? [String: Any])
+        XCTAssertTrue(Set(personal.keys).isDisjoint(with: Self.faithfulKeys), "\(personal.keys.sorted())")
+    }
+
+    func testAClinicalRequestToALANOpenAICompatibleServerSamplesGreedilyWithNoPenalty() async throws {
+        let lines = [
+            #"data: {"model":"qwen","choices":[{"delta":{"content":"Plan noted."},"finish_reason":"stop"}]}"#,
+            "data: [DONE]",
+        ]
+        StubURLProtocol.reset { _ in .lines(lines) }
+        let engine = model(.openAICompatible, "http://192.168.1.20:1234/v1", modelName: "qwen")
+        _ = try await collect(engine.generate(clinicalRequest))
+        let body = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        assertFaithful(body)
+        XCTAssertEqual(body["max_tokens"] as? Int, 256)
+
+        StubURLProtocol.reset { _ in .lines(lines) }
+        _ = try await collect(engine.generate(request))
+        let personal = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        XCTAssertTrue(Set(personal.keys).isDisjoint(with: Self.faithfulKeys), "\(personal.keys.sorted())")
+    }
+
+    func testCloudProvidersKeepTheirDefaultsForAClinicalRequest() async throws {
+        // Ruling (review R3-2): OpenAI's GPT-5 and o-series models reject a non-default temperature and every
+        // provider rejects unknown fields such as `repeat_penalty`; current Claude models reject `temperature`. A
+        // clinical request reaches a cloud engine only after a per-run confirmation.
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"model":"gpt-5.5","choices":[{"delta":{"content":"Plan noted."},"finish_reason":"stop"}]}"#,
+                "data: [DONE]",
+            ])
+        }
+        let openAI = model(.openAICompatible, "https://api.openai.com/v1", modelName: "gpt-5.5", key: key)
+        _ = try await collect(openAI.generate(clinicalRequest))
+        let openAIBody = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        XCTAssertTrue(Set(openAIBody.keys).isDisjoint(with: Self.faithfulKeys), "\(openAIBody.keys.sorted())")
+
+        StubURLProtocol.reset { _ in
+            .lines([
+                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Plan noted."}}"#,
+                #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#,
+                #"data: {"type":"message_stop"}"#,
+            ])
+        }
+        let anthropic = model(.anthropic, "https://api.anthropic.com/v1", key: key)
+        _ = try await collect(anthropic.generate(clinicalRequest))
+        let anthropicBody = try XCTUnwrap(StubURLProtocol.requests.first?.json)
+        XCTAssertTrue(Set(anthropicBody.keys).isDisjoint(with: Self.faithfulKeys), "\(anthropicBody.keys.sorted())")
+    }
+
     // MARK: Pure parsing
 
     func testSSELineParsing() {

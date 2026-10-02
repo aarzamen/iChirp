@@ -16,6 +16,29 @@ public struct GenerationRequest: Sendable, Equatable {
         self.privacyClass = privacyClass
         self.maxOutputTokens = maxOutputTokens
     }
+
+    /// Clinical requests sample with `FaithfulSampling` on every engine whose provider lets the app choose (review
+    /// R3-2, ADR-015).
+    public var requiresFaithfulSampling: Bool {
+        privacyClass == .clinical
+    }
+}
+
+/// The sampling of a clinical request on every engine whose provider lets the app choose (ADR-015, review R3-2):
+/// always the most likely token, and no penalty on tokens already written. A random draw can pick a digit that is not
+/// the model's first choice, and a repeat, presence or frequency penalty punishes the second "0" of "500" or a dose
+/// restated in the Plan (measured on the Mac: 2 of 5 synthetic SOAP notes lost a dose or rewrote "1 1/2" with a
+/// token-history penalty). llama.cpp's `LlamaSampling.faithful`, Apple's greedy mode and the clinical fields the HTTP
+/// engines send all follow it.
+public enum FaithfulSampling {
+    public static let temperature: Double = 0
+    public static let topK = 1
+    public static let topP: Double = 1
+    public static let minP: Double = 0
+    /// 1 means no repeat penalty (llama.cpp, Ollama and LM Studio default to 1.1).
+    public static let repeatPenalty: Double = 1
+    public static let presencePenalty: Double = 0
+    public static let frequencyPenalty: Double = 0
 }
 
 /// Metadata about one finished call. Never content: token counts, the model the provider reported, why it stopped.

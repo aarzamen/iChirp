@@ -79,8 +79,11 @@ public struct LlamaSampling: Sendable, Equatable {
         self.minP = minP
     }
 
-    /// For clinical requests with every model: the most likely token every time, no randomness, no penalty.
-    public static let faithful = LlamaSampling(temperature: 0, topK: 1, topP: 1, minP: 0)
+    /// For clinical requests with every model: the most likely token every time, no randomness, no penalty. It is
+    /// ChirpCore's `FaithfulSampling`, the profile every engine uses for clinical content (review R3-2).
+    public static let faithful = LlamaSampling(
+        temperature: Float(FaithfulSampling.temperature), topK: Int32(FaithfulSampling.topK),
+        topP: Float(FaithfulSampling.topP), minP: Float(FaithfulSampling.minP))
 
     /// The chain `LlamaCppContext` builds, stage by stage.
     public var stages: [LlamaSamplerStage] {

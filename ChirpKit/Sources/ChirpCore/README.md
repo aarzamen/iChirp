@@ -89,7 +89,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   `contextWindowTokens()`, `availability()` and `generate`; `GenerationRequest`, `GenerationEvent`,
   `GenerationUsage`, `LanguageModelAvailability`, `LanguageModelError`). `GenerationStopReason` and
   `GenerationUsage.isLengthCapped` say, the same way for every provider, that a finished stream was cut off at a
-  length limit and is not a whole document (review R3-1). Conformers: `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM`,
+  length limit and is not a whole document (review R3-1). `FaithfulSampling` and
+  `GenerationRequest.requiresFaithfulSampling` are the clinical sampling every engine that can choose uses (greedy,
+  no penalty; review R3-2, ADR-015). Conformers: `ChirpEngineAppleFM`, `ChirpEngineHTTPLLM`,
   `ChirpEngineLlamaCpp`. Contract: `spec/contracts/language-model-plugin-v1.md`.
 - `Engines/DecisionModel.swift` (M6a): the typed-decision contract (`DecisionModel` with `endpointHost`,
   `availability()` and `decide`; `DecisionQuestion` with 2…250 options and `validate()`, `DecisionState`,

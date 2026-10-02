@@ -37,6 +37,12 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
 - **`num_ctx` equals the budgeted window.** Ollama silently drops the start of a prompt longer than its context.
   The engine reports `contextWindowTokens()` and sends the same number as `num_ctx`, so the planner in ChirpFeatures
   splits long input instead of Ollama truncating it. Do not remove `num_ctx`.
+- **Clinical requests sample faithfully on the owner's network (review R3-2).** When
+  `request.requiresFaithfulSampling`, Ollama's `options` and the body for an OpenAI-compatible server on the local
+  network carry ChirpCore's `FaithfulSampling` (temperature 0, top-k 1, top-p 1, min-p 0, repeat penalty 1,
+  presence / frequency penalty 0), overriding Ollama's temperature 0.8 and repeat penalty 1.1 and LM Studio's preset.
+  Other requests send no sampling field. Cloud hosts never get them: OpenAI's GPT-5 and o-series reject a
+  non-default temperature, cloud APIs reject `repeat_penalty`, and current Claude models reject `temperature`.
 - **A cut-off answer says so (review R3-1).** Every finished stream reports the provider's stop word in
   `GenerationUsage.stopReason`: Anthropic `max_tokens` or `model_context_window_exceeded`, OpenAI-compatible and
   Ollama `length` read as `isLengthCapped` in ChirpCore (the text is not a whole document). A provider that sends no

@@ -84,6 +84,18 @@ final class AppleFoundationLanguageModelTests: XCTestCase {
         XCTAssertFalse(Model.finishedUsage.isLengthCapped)
     }
 
+    // MARK: - Review R3-2: a clinical request samples greedily
+
+    func testAClinicalRequestSamplesGreedilyAndOthersKeepApplesDefault() {
+        typealias Model = AppleFoundationLanguageModel
+        let clinical = GenerationRequest(prompt: "Synthetic SOAP note.", privacyClass: .clinical, maxOutputTokens: 512)
+        XCTAssertEqual(Model.options(for: clinical).sampling, .greedy, "always the most likely token (ADR-015)")
+        for privacyClass in [PrivacyClass.general, .personal] {
+            let request = GenerationRequest(prompt: "Synthetic.", privacyClass: privacyClass)
+            XCTAssertNil(Model.options(for: request).sampling, "\(privacyClass) keeps Apple's default sampling")
+        }
+    }
+
     /// Opt-in: `CHIRP_LLM_TESTS=1 swift test --package-path ChirpKit --filter AppleFoundationLanguageModelTests`.
     /// Runs Apple's model on this Mac when Apple Intelligence is on; skips otherwise.
     func testRealOnDeviceGenerationWhenAvailable() async throws {

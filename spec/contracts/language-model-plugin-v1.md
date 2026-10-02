@@ -80,6 +80,12 @@ is recorded as `GenerationUsage.model`, a catalog id such as `qwen3.5-2b-q4_k_m`
   `</think>`) inside content; those cannot open or close a turn (review minor 11).
 - Engines do **not** enforce privacy. Callers route first (`PrivacyRoutingPolicy.allows(descriptor, for:,
   host: endpointHost, userOverride:)`).
+- **Clinical sampling (review R3-2, ADR-015).** An engine whose provider lets the app choose its sampling uses
+  ChirpCore's `FaithfulSampling` when `request.requiresFaithfulSampling` (the request is clinical): llama.cpp and
+  Apple's model sample greedily; Ollama and OpenAI-compatible servers on the local network receive temperature 0,
+  top-k 1, top-p 1, min-p 0, repeat penalty 1 and presence / frequency penalty 0. Other requests send no sampling
+  field, so the model's own settings apply. Cloud providers receive none of these fields (their newest models reject
+  them).
 
 **`LanguageModelProviderConfiguration`**
 - Holds no secret. Its `Codable` form has no key field and no stored `locality`.
@@ -112,17 +118,20 @@ migrate every conformer and fake in the same change.
 - `LanguageModelProviderTests` (ChirpCoreTests): local-host rules, derived locality, trust ignored for cloud hosts,
   validation, no key in the encoded configuration, stable engine ids, `SecretValue` redaction.
 - `LanguageModelContractTests` (ChirpCoreTests): every provider stop word normalizes the same way, and a length or
-  context-window stop is `isLengthCapped`.
+  context-window stop is `isLengthCapped`; only clinical requests require `FaithfulSampling`, which is greedy with no
+  penalty.
 - `HTTPLanguageModelTests` (ChirpEngineHTTPLLMTests): request shapes and headers per provider, SSE / NDJSON
   parsing, usage, sentinel truncation errors, empty-stream error, mid-stream and HTTP error mapping, key scrubbing,
   `max_completion_tokens` policy, Ollama `num_ctx` equals the budgeted window,
   `testRedirectsAreRefusedAndNothingIsForwarded`, `testCloudProviderWithoutKeyIsUnavailableAndSendsNothing`,
   `testModelDescriptionNeverShowsTheKey`, `testTestConnectionSendsNoUserContent`; review R3-1: a length stop per
   provider (`max_tokens`, `model_context_window_exceeded`, `length`) is `isLengthCapped`, a missing stop word with the
-  whole allowance used reads `length`, and `refusal` / `content_filter` throw `refused`.
+  whole allowance used reads `length`, and `refusal` / `content_filter` throw `refused`; review R3-2: a clinical
+  request to Ollama or a LAN OpenAI-compatible server carries the faithful fields, other requests and cloud hosts
+  none.
 - `AppleFoundationLanguageModelTests` (ChirpEngineAppleFMTests): descriptor, availability mapping, error mapping
-  without framework text, snapshot deltas, no `maximumResponseTokens` for any request (review R3-1); opt-in real run
-  with `CHIRP_LLM_TESTS=1`.
+  without framework text, snapshot deltas, no `maximumResponseTokens` for any request (review R3-1), greedy sampling
+  for a clinical request only (review R3-2); opt-in real run with `CHIRP_LLM_TESTS=1`.
 - `LlamaCppLanguageModelTests`, `LlamaCppModelAssetsTests`, `LlamaCppModelCatalogTests` (ChirpEngineLlamaCppTests):
   descriptor and routing, stream order, UTF-8 across tokens, think-block filter, `contextTooLong` before decoding,
   `maxOutputTokens`, content never parsed as special tokens, cancellation, not downloaded / not in build / memory /

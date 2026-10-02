@@ -60,6 +60,15 @@ increased-memory entitlement, no network but an explicit download, and buildable
   Qwen's settings (temperature 0.7, top-p 0.8, top-k 20). No profile has a token-history penalty or DRY; the first
   version's presence penalty on the 2B turned "1 1/2" into "1½" and dropped a dose in 2 of 5 Mac runs
   ([research §3a](../../docs/research/2026-09-22-on-device-llm.md)).
+- **The same rule on every engine that lets the app choose** (2026-10-01, review R3-2): the faithful profile lives in
+  ChirpCore (`FaithfulSampling`, `GenerationRequest.requiresFaithfulSampling`) and `LlamaSampling.faithful` is built
+  from it. A clinical request also samples greedily on Apple's on-device model (`GenerationOptions(sampling:
+  .greedy)`; it has no penalty setting), and on Ollama and OpenAI-compatible servers on the local network it sends
+  temperature 0, top-k 1, top-p 1, min-p 0, repeat penalty 1 and presence / frequency penalty 0, overriding
+  Ollama's temperature 0.8 and repeat penalty 1.1 and LM Studio's preset. Cloud providers keep their defaults:
+  OpenAI's GPT-5 and o-series models reject a non-default temperature, cloud APIs reject unknown fields such as
+  `repeat_penalty`, current Claude models reject `temperature`, and clinical text reaches a cloud engine only after a
+  per-run confirmation.
 - **Routing is unchanged**: `DeliverableService` stays the one caller; an on-device engine is allowed for every class
   with no confirmation (`PrivacyRoutingPolicy`), and the effective class (`EffectivePrivacyClass`) is re-checked before
   every call as for every engine.

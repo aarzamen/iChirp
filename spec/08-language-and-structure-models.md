@@ -70,6 +70,14 @@ notes from every part, condenses the notes in groups until they fit (up to 4 lev
 `contextTooLong` from a model re-plans with half the window. Nothing is ever middle-truncated, for any class: input
 that still cannot fit fails with "too long for this model" and stores nothing.
 
+**Clinical sampling (review R3-2, [ADR-015](adr/015-on-device-llm-llama-cpp.md)).** A clinical request samples
+faithfully wherever the provider lets the app choose (ChirpCore `FaithfulSampling`): always the most likely token and
+no penalty on tokens already written, because a random draw or a repeat penalty can change a repeated digit in a dose.
+llama.cpp and Apple's model sample greedily; Ollama and OpenAI-compatible servers on the local network get
+temperature 0, top-k 1, top-p 1, min-p 0, repeat penalty 1 and presence / frequency penalty 0. Cloud providers keep
+their defaults (their newest models reject these fields; clinical text reaches them only after a per-run
+confirmation). Other classes keep each model's own settings.
+
 **Answers cut off at a length limit (review R3-1).** Every engine reports why a generation stopped:
 `GenerationUsage.isLengthCapped` is true for Anthropic `max_tokens` or `model_context_window_exceeded` and for
 OpenAI-compatible, Ollama and llama.cpp `length` (and for an HTTP provider that sent no stop word but used the whole

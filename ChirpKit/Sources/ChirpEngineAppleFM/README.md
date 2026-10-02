@@ -27,6 +27,9 @@ returns the `AppleFoundationLanguageModel` (engine id `apple.foundation-models`)
   fixed sentences only.
 - **The context is small.** Callers (ChirpFeatures' planner) budget against `contextWindowTokens()` and use
   map-reduce for long transcripts; `contextTooLong` from here makes the planner retry with smaller parts.
+- **Clinical requests sample greedily (review R3-2).** `options(for:)` sets `sampling: .greedy` when
+  `request.requiresFaithfulSampling` (ChirpCore's `FaithfulSampling`, ADR-015): a random draw can change a digit in
+  a dose, and Retry should give the same draft. Other requests keep Apple's default sampling.
 - **No response cap (review R3-1).** `maxOutputTokens` is never passed as `maximumResponseTokens`: FoundationModels
   ends a capped response early with no error and no signal, so a cut-off answer would read as finished. Uncapped,
   the answer is bounded by the context window and one that outgrows it throws `contextTooLong`. A finished stream

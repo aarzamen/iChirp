@@ -7,6 +7,17 @@ import XCTest
 /// Review I2: no sampler may alter a number. Clinical requests are greedy for every model, and no profile has a stage
 /// that looks at the tokens already written (presence, frequency, repetition or DRY penalties).
 final class LlamaCppSamplingTests: XCTestCase {
+    /// Review R3-2: llama.cpp's clinical profile is ChirpCore's `FaithfulSampling`, the one every engine sends.
+    func testFaithfulIsChirpCoresClinicalSampling() {
+        XCTAssertEqual(LlamaSampling.faithful.temperature, Float(FaithfulSampling.temperature))
+        XCTAssertEqual(LlamaSampling.faithful.topK, Int32(FaithfulSampling.topK))
+        XCTAssertEqual(LlamaSampling.faithful.topP, Float(FaithfulSampling.topP))
+        XCTAssertEqual(LlamaSampling.faithful.minP, Float(FaithfulSampling.minP))
+        let clinical = GenerationRequest(prompt: "Synthetic.", privacyClass: .clinical)
+        XCTAssertEqual(LlamaTestSupport.spec().sampling(for: clinical.privacyClass), .faithful)
+        XCTAssertTrue(clinical.requiresFaithfulSampling)
+    }
+
     func testFaithfulIsGreedyWithNothingElse() {
         XCTAssertEqual(LlamaSampling.faithful.stages, [.greedy])
         XCTAssertEqual(LlamaSampling(temperature: 0, topK: 20, topP: 0.8, minP: 0.05).stages, [.greedy])

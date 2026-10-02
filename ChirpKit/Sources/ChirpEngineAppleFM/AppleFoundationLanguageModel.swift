@@ -78,13 +78,18 @@ public struct AppleFoundationLanguageModel: LanguageModel {
 
     // MARK: - Options (internal for tests)
 
-    /// The options for one request. `maximumResponseTokens` is never set (review R3-1): FoundationModels ends a
-    /// response at that cap early with no error and no signal (Apple's documentation), so a cut-off answer would pass
-    /// as finished. Uncapped, the answer is bounded by the context window, and one that outgrows it throws
-    /// `exceededContextWindowSize` (`contextTooLong`: the planner re-plans with smaller parts). So here
-    /// `request.maxOutputTokens` is the planner's estimate, not a cap.
+    /// The options for one request.
+    ///
+    /// - A clinical request samples greedily (review R3-2, ADR-015's faithful sampling: always the most likely token,
+    ///   so a random draw never changes a dose or a vital, and Retry gives the same draft). Apple's model has no
+    ///   penalty setting. Other requests keep Apple's default sampling.
+    /// - `maximumResponseTokens` is never set (review R3-1): FoundationModels ends a response at that cap early with
+    ///   no error and no signal (Apple's documentation), so a cut-off answer would pass as finished. Uncapped, the
+    ///   answer is bounded by the context window, and one that outgrows it throws `exceededContextWindowSize`
+    ///   (`contextTooLong`: the planner re-plans with smaller parts). So here `request.maxOutputTokens` is the
+    ///   planner's estimate, not a cap.
     static func options(for request: GenerationRequest) -> GenerationOptions {
-        GenerationOptions()
+        GenerationOptions(sampling: request.requiresFaithfulSampling ? .greedy : nil)
     }
 
     /// What a finished stream reports. Apple gives no stop word; uncapped, a response that finishes ended on its own.

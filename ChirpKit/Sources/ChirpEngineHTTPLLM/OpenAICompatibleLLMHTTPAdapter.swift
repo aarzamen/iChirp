@@ -2,9 +2,11 @@
 // Changes: one streaming path (upstream's detailed stream) emitting ChirpCore `GenerationEvent`s, plus the one-token
 // test call and model listing. Kept: `parseSSELine` (including LM Studio's mid-stream error frames), the `[DONE]`
 // sentinel policy, `max_completion_tokens` for OpenAI reasoning / GPT-5+ model ids (from upstream `OpenAIModelPolicy`),
-// `stream_options.include_usage` for api.openai.com only. Dropped: sampling, thinking and JSON-schema options (no
-// caller in M4 core), OpenCode Go headers, Gemini-specific model listing. The lab wire policy applies to cloud hosts
-// only; LAN servers (LM Studio, llama.cpp) keep `max_tokens`, as upstream does for LM Studio.
+// `stream_options.include_usage` for api.openai.com only. Dropped: upstream's sampling allow-list, thinking and
+// JSON-schema options (no caller in M4 core), OpenCode Go headers, Gemini-specific model listing; a clinical request
+// to a LAN server sends ChirpCore's faithful sampling instead (review R3-2). The lab wire policy applies to cloud hosts
+// only; LAN servers (LM Studio, llama.cpp) keep `max_tokens`, as upstream does for LM Studio. Stop words and safety
+// stops: review R3-1.
 
 import ChirpCore
 import Foundation
@@ -130,7 +132,7 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
         let needsNewTokenParameter =
             Self.usesLabWirePolicy(settings)
             && Self.requiresMaxCompletionTokens(settings.modelName)
-        let body = OpenAIRequestBody(
+        var body = OpenAIRequestBody(
             model: settings.modelName,
             messages: messages,
             stream: stream,
@@ -139,6 +141,13 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
             max_tokens: needsNewTokenParameter ? nil : request.maxOutputTokens,
             max_completion_tokens: needsNewTokenParameter ? request.maxOutputTokens : nil
         )
+        // Review R3-2: a clinical request to a server on the owner's network (LM Studio, llama.cpp) overrides its
+        // preset's random sampling and repeat penalty (LM Studio: 1.1), which can change a repeated digit in a dose.
+        // Cloud hosts keep their defaults: OpenAI's GPT-5 and o-series reject a non-default temperature, and cloud
+        // APIs reject unknown fields such as `repeat_penalty`; their penalties already default to 0.
+        if request.requiresFaithfulSampling, !Self.usesLabWirePolicy(settings) {
+            body.sampleFaithfully()
+        }
         urlRequest.httpBody = try JSONEncoder().encode(body)
         return urlRequest
     }
@@ -220,6 +229,8 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
 
 // MARK: - Wire types
 
+/// The sampling fields are sent only for a clinical request to a server on the local network (`sampleFaithfully()`;
+/// `top_k`, `min_p` and `repeat_penalty` are llama.cpp / LM Studio extensions); absent, the server's preset applies.
 struct OpenAIRequestBody: Encodable {
     let model: String
     let messages: [OpenAIMessage]
@@ -227,6 +238,36 @@ struct OpenAIRequestBody: Encodable {
     let stream_options: OpenAIStreamOptions?
     let max_tokens: Int?
     let max_completion_tokens: Int?
+    var temperature: Double?
+    var top_k: Int?
+    var top_p: Double?
+    var min_p: Double?
+    var repeat_penalty: Double?
+    var presence_penalty: Double?
+    var frequency_penalty: Double?
+
+    init(
+        model: String, messages: [OpenAIMessage], stream: Bool, stream_options: OpenAIStreamOptions?,
+        max_tokens: Int?, max_completion_tokens: Int?
+    ) {
+        self.model = model
+        self.messages = messages
+        self.stream = stream
+        self.stream_options = stream_options
+        self.max_tokens = max_tokens
+        self.max_completion_tokens = max_completion_tokens
+    }
+
+    /// ChirpCore's `FaithfulSampling` (ADR-015, review R3-2): greedy, no penalty on tokens already written.
+    mutating func sampleFaithfully() {
+        temperature = FaithfulSampling.temperature
+        top_k = FaithfulSampling.topK
+        top_p = FaithfulSampling.topP
+        min_p = FaithfulSampling.minP
+        repeat_penalty = FaithfulSampling.repeatPenalty
+        presence_penalty = FaithfulSampling.presencePenalty
+        frequency_penalty = FaithfulSampling.frequencyPenalty
+    }
 }
 
 struct OpenAIStreamOptions: Encodable {
