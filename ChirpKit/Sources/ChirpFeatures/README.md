@@ -514,6 +514,9 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
     - Privacy routing runs first: the synthetic set is `.general`, and a person's own file is treated as `.clinical`.
       An engine without its model is reported, never downloaded.
     - A person's own file keeps no recognized text.
+    - Review R4-7: the 16 kHz copies live in `<work dir>/asr-benchmark-<uuid>/` only while the run needs them.
+      `removeLeftoverWork()` deletes the folders a run killed by iOS left (only `asr-benchmark-` plus a whole UUID,
+      never a folder a run in this process is using); every run calls it first, and the app at launch.
   - `ASRBenchmarkExport`: CSV (RFC 4180) and JSON (`ichirp.asr-benchmark/v1`).
 - `ASRBenchmarkStore.swift`: an actor holding one JSON file (`<library>/benchmarks/asr-benchmark-runs.json`) with the
   newest 20 runs. Before saving, it strips text from results without a reference. There is no database table and no
@@ -538,8 +541,8 @@ Contract: `spec/contracts/meeting-session-v1.md`. Plan: `docs/plans/2026-09-22-0
   - Engine choices with the reason an engine cannot run; ready engines are selected by default.
   - The reference-set toggle, and added files copied from the importer. Review M6: a person's file is labelled "Your
     file n" and copied under a neutral name (a file name can hold a patient's name); the copies are deleted when a
-    run ends and at launch (`removeLeftoverImports`). `ASRBenchmarkStore` also replaces a file name an earlier build
-    saved (items with a UUID id) when it reads the file.
+    run ends and at launch (`removeLeftoverImports`, which also runs the runner's `removeLeftoverWork()`).
+    `ASRBenchmarkStore` also replaces a file name an earlier build saved (items with a UUID id) when it reads the file.
   - Run and cancel, progress, saved history, and `exportFiles(to:)` for the share sheet.
 
 ## Number fidelity (on-device language models, review I2, `Benchmark/NumberFidelity.swift`)
