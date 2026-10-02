@@ -86,7 +86,7 @@ enum DocumentRow {
         let pages = item.documentPages ?? []
         return meta(
             isTextItem: item.isTextItem, format: item.documentFormat, pageCount: pages.count,
-            ocrPageCount: item.ocrPageCount, words: pages.isEmpty ? wordCount(item.displayText) : 0)
+            ocrPageCount: item.ocrPageCount, words: pages.isEmpty ? wordCount(item.plainText(.heard)) : 0)
     }
 
     /// The same line from a list row's summary, which carries the counts instead of the pages and text.

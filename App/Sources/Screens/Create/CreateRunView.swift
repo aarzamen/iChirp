@@ -385,7 +385,7 @@ struct CreateRunView: View {
             Text(item.displayTitle)
                 .chirpFont(16, .semibold)
                 .foregroundStyle(Tokens.Color.ink)
-            Text(item.displayText)
+            Text(flow.itemShownText)
                 .chirpFont(14.5)
                 .lineSpacing(4)
                 .foregroundStyle(Tokens.Color.ink)
@@ -393,7 +393,7 @@ struct CreateRunView: View {
                 .textSelection(.enabled)
             resultActions(
                 openLabel: item.isTextOnly ? "Open" : "Open transcript", destination: .item(item.id),
-                text: item.displayText)
+                text: flow.itemShownText)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

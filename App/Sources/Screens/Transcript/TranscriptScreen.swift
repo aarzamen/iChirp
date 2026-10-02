@@ -19,6 +19,11 @@ import UniformTypeIdentifiers
 /// Plan 024 Task 9: the title, More menu, status card, reload and action bar are the Document screen's too
 /// (`ItemScreenParts`); the view models are made once per screen (`OnceBox`, R6a-5); the playhead is followed by a
 /// small watcher, so playback re-renders the screen once per paragraph, not ten times a second (R6a-10).
+///
+/// Plan 025 Part A: the lines are `TranscriptViewModel.lines` (the `.heard` view with the person's corrections), each
+/// with a stable `id` (Jev's tags and scroll targets key by it). A corrected passage has a dotted underline and its
+/// line says "Corrected"; a line's long-press offers Correct…, Show Original and Listen from Here (also as VoiceOver
+/// actions); More → Corrections (N)… lists them all. A revert is immediate, with Undo for six seconds.
 struct TranscriptScreen: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -60,6 +65,12 @@ struct TranscriptScreen: View {
     @State private var isConfirmingDelete = false
     /// The paragraph the media playhead is in (set by `PlayheadWatcher` only when it changes).
     @State private var currentParagraph: Int?
+    /// Plan 025: the line being corrected, the line whose original is shown, the Corrections sheet, and the Undo
+    /// offered after a revert.
+    @State private var correctingLine: TranscriptTextLine?
+    @State private var originalLine: TranscriptTextLine?
+    @State private var isShowingCorrections = false
+    @State private var undoOffer: CorrectionUndoOffer?
 
     enum TranscriptTab { case transcript, ask }
 
@@ -113,7 +124,12 @@ struct TranscriptScreen: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if model.transcription?.status == .completed, selectedTab == .transcript {
-                bottomBar
+                VStack(spacing: 0) {
+                    if let undoOffer {
+                        CorrectionUndoBar(offer: undoOffer) { Task { await undo(undoOffer) } }
+                    }
+                    bottomBar
+                }
             }
         }
         .background {
@@ -185,6 +201,27 @@ struct TranscriptScreen: View {
             }
         }
         .sheet(item: $voiceMessage) { job in VoiceMessageSheet(job: job, environment: environment) }
+        .sheet(item: $correctingLine) { line in
+            CorrectPassageSheet(
+                line: line, speakerLabel: line.speakerLabel, player: player,
+                save: { text in try await model.correct(line: line.id, text: text) })
+        }
+        .sheet(item: $originalLine) { line in
+            PassageOriginalSheet(
+                line: line, tokens: model.heard?.tokens ?? [], corrections: model.corrections(inLine: line.id),
+                player: player, revert: { ids in await revert(ids) })
+        }
+        .sheet(isPresented: $isShowingCorrections) {
+            CorrectionsSheet(
+                model: model, revert: { ids in await revert(ids) }, revertAll: { await revertAll() },
+                deleteDetached: { ids in
+                    do {
+                        try await model.deleteDetached(ids)
+                    } catch {
+                        actionError = Formatting.message(for: error)
+                    }
+                })
+        }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
                 .presentationDetents([.medium, .large])
@@ -225,7 +262,10 @@ struct TranscriptScreen: View {
         ItemMoreMenu(
             item: model.transcription, onRename: startRename, onFavorite: { Task { await toggleFavorite() } },
             onCopy: copyText, onExtractFields: { isExtractingFields = true },
-            onDelete: { isConfirmingDelete = true })
+            onDelete: { isConfirmingDelete = true },
+            corrections: TranscriptCorrectionsCopy.menuTitle(
+                applied: model.corrections.count, detached: model.detachedCorrections.count
+            ).map { title in (title, { isShowingCorrections = true }) })
     }
 
     // MARK: - Tabs (Transcript and Ask), the Notes button (M3) and the privacy class (M4)
@@ -366,7 +406,7 @@ struct TranscriptScreen: View {
 
     private func completedContent(_ item: Transcription) -> some View {
         let paragraphs = model.paragraphs
-        let hasTimings = !(item.wordTimestamps ?? []).isEmpty
+        let hasTimings = model.hasWordTimings
         let speakerOrder = SpeakerPalette.order(paragraphs.map(\.speakerId))
         let current = (player.isAvailable && hasTimings) ? currentParagraph : nil
         return VStack(spacing: 0) {
@@ -378,58 +418,89 @@ struct TranscriptScreen: View {
             if selectedTab == .ask {
                 AskView(transcription: item, session: ask, environment: environment) { ms in seek(toMs: ms) }
             } else {
-                transcriptText(paragraphs, hasTimings: hasTimings, speakerOrder: speakerOrder, current: current)
+                transcriptText(hasTimings: hasTimings, speakerOrder: speakerOrder, current: current)
             }
         }
     }
 
-    private func transcriptText(
-        _ paragraphs: [TranscriptParagraph], hasTimings: Bool, speakerOrder: [String: Int], current: Int?
-    ) -> some View {
-        ScrollView {
-            // Plan 023 (UX audit F43): the documents made from this transcript, above its text.
-            MadeFromThisSection(sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24))
-            if model.transcription?.isPartialAudio == true {
-                PartialAudioNotice()
-                    .padding(.horizontal, Tokens.Spacing.xl)
-                    .padding(.top, Tokens.Spacing.s)
-            }
-            if paragraphs.isEmpty {
-                EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
-            } else {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                        paragraphView(
-                            paragraph,
-                            speakerIndex: paragraph.speakerId.flatMap { speakerOrder[$0] },
-                            showsTiming: hasTimings,
-                            isCurrent: index == current,
-                            jevTag: paragraphTags[index]
-                        )
-                        .contextMenu {
-                            // Plan 020: read aloud from this paragraph onward.
-                            Button {
-                                listen(from: index)
-                            } label: {
-                                Label("Listen from Here", systemImage: "speaker.wave.2")
-                            }
-                        }
-                        // F55: the long-press item, reachable from the VoiceOver actions rotor too.
-                        .accessibilityAction(named: "Listen from Here") { listen(from: index) }
-                    }
+    /// The lines (`model.lines`, parallel to `model.paragraphs`), each with its stable id: the scroll target, and the
+    /// key of Jev's tags (a correction that covers a whole paragraph leaves its id out, so positions and ids differ).
+    private func transcriptText(hasTimings: Bool, speakerOrder: [String: Int], current: Int?) -> some View {
+        let lines = model.lines
+        let tokens = model.heard?.tokens ?? []
+        // Each line is a scroll target by its id (`.id(line.id)`); plan 025 Part B's Find scrolls to a match with the
+        // reader's proxy.
+        return ScrollViewReader { _ in
+            ScrollView {
+                // Plan 023 (UX audit F43): the documents made from this transcript, above its text; plan 025: those made
+                // before the latest correction say so.
+                MadeFromThisSection(
+                    sourceID: id, padding: EdgeInsets(top: 14, leading: 24, bottom: 0, trailing: 24),
+                    correctionsChangedAt: model.correctionsChangedAt)
+                if model.transcription?.isPartialAudio == true {
+                    PartialAudioNotice()
+                        .padding(.horizontal, Tokens.Spacing.xl)
+                        .padding(.top, Tokens.Spacing.s)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 10)
-                .padding(.bottom, 24)
+                if lines.isEmpty {
+                    EmptyStateView(title: "No speech found", message: "Parakeet didn’t hear any words in this file.")
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.element.id) { position, line in
+                            lineView(
+                                line, tokens: tokens,
+                                speakerIndex: line.speakerId.flatMap { speakerOrder[$0] },
+                                showsTiming: hasTimings,
+                                isCurrent: position == current,
+                                jevTag: paragraphTags[line.id]
+                            )
+                            .id(line.id)
+                            .contextMenu { lineMenu(line, position: position) }
+                            // F55: the long-press items, reachable from the VoiceOver actions rotor too.
+                            .accessibilityAction(named: "Correct") { startCorrecting(line) }
+                            .accessibilityAction(named: "Show Original") { showOriginal(line) }
+                            .accessibilityAction(named: "Listen from Here") { listen(from: position) }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 10)
+                    .padding(.bottom, 24)
+                }
             }
         }
     }
 
-    private func paragraphView(
-        _ paragraph: TranscriptParagraph, speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
+    /// A line's long-press: Correct… (a finished, timed transcript), Show Original (a corrected line), Listen from Here.
+    @ViewBuilder private func lineMenu(_ line: TranscriptTextLine, position: Int) -> some View {
+        if model.canCorrect {
+            Button {
+                startCorrecting(line)
+            } label: {
+                Label("Correct…", systemImage: "pencil")
+            }
+        }
+        if !model.corrections(inLine: line.id).isEmpty {
+            Button {
+                showOriginal(line)
+            } label: {
+                Label("Show Original", systemImage: "text.badge.checkmark")
+            }
+        }
+        // Plan 020: read aloud from this paragraph onward.
+        Button {
+            listen(from: position)
+        } label: {
+            Label("Listen from Here", systemImage: "speaker.wave.2")
+        }
+    }
+
+    private func lineView(
+        _ line: TranscriptTextLine, tokens: [TranscriptToken], speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
         jevTag: String? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let startMs = line.startMs ?? 0
+        let isCorrected = TranscriptLineText.correctionCount(in: line, tokens: tokens) > 0
+        return VStack(alignment: .leading, spacing: 6) {
             if let jevTag {
                 ParagraphTagChip(title: jevTag)  // M6a: this session only
             }
@@ -437,12 +508,12 @@ struct TranscriptScreen: View {
                 // The 44 pt timestamp target overlaps the paragraph spacing instead of adding to it.
                 HStack(spacing: 7) {
                     if let speakerIndex {
-                        SpeakerDot(label: model.speakerLabel(for: paragraph.speakerId), speakerIndex: speakerIndex)
+                        SpeakerDot(label: model.speakerLabel(for: line.speakerId), speakerIndex: speakerIndex)
                     }
                     Button {
-                        seek(toMs: paragraph.startMs)
+                        seek(toMs: startMs)
                     } label: {
-                        Text(Formatting.clock(ms: paragraph.startMs))
+                        Text(Formatting.clock(ms: startMs))
                             .chirpFont(11.5)
                             .monospacedDigit()
                             // Text-safe ink on the current paragraph's tint fill (F8): `accentText` alone is
@@ -457,16 +528,24 @@ struct TranscriptScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!player.isAvailable)
-                    .accessibilityLabel("Play from \(Formatting.clock(ms: paragraph.startMs))")
+                    .accessibilityLabel("Play from \(Formatting.clock(ms: startMs))")
+                    if isCorrected {
+                        // Plan 025: the line carries the person's corrections (Show Original brings back the words).
+                        Text("Corrected")
+                            .chirpFont(11.5)
+                            .foregroundStyle(Tokens.Color.secondary)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .padding(.vertical, -8)
             }
-            Text(paragraph.text)
+            Text(TranscriptLineText.attributed(line, tokens: tokens))
                 .chirpFont(16)
                 .lineSpacing(6)
                 .foregroundStyle(Tokens.Color.ink)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityValue(isCorrected ? "Corrected" : "")
         }
         .padding(10)
         .background(
@@ -494,7 +573,7 @@ struct TranscriptScreen: View {
             }
             Button(ExportFormat.txt.displayName) { share(.txt) }
             Button {
-                voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+                voiceMessage = model.transcription.flatMap { VoiceMessageJob.item($0, text: model.plainText) }
             } label: {
                 Label("Voice message…", systemImage: "waveform.badge.plus")
             }
@@ -526,8 +605,60 @@ struct TranscriptScreen: View {
 
     /// Where Listen starts: the paragraph at the media playhead once the media has played, else the first.
     private var listenStartIndex: Int {
-        guard player.currentTime > 0, !(model.transcription?.wordTimestamps ?? []).isEmpty else { return 0 }
+        guard player.currentTime > 0, model.hasWordTimings else { return 0 }
         return TranscriptTiming.currentParagraphIndex(in: model.paragraphs, atMs: Int(player.currentTime * 1000)) ?? 0
+    }
+
+    // MARK: - Corrections (plan 025)
+
+    private func startCorrecting(_ line: TranscriptTextLine) {
+        guard model.canCorrect else { return }
+        correctingLine = line
+    }
+
+    private func showOriginal(_ line: TranscriptTextLine) {
+        guard !model.corrections(inLine: line.id).isEmpty else { return }
+        originalLine = line
+    }
+
+    /// Reverts at once, then offers Undo for six seconds (announced).
+    private func revert(_ ids: Set<UUID>) async {
+        do {
+            let outcome = try await model.revert(ids)
+            guard !outcome.undo.isEmpty else { return }
+            offerUndo(CorrectionUndoOffer(message: "Reverted.", plan: outcome.undo))
+        } catch {
+            actionError = Formatting.message(for: error)
+        }
+    }
+
+    private func revertAll() async {
+        do {
+            let outcome = try await model.revertAll()
+            guard !outcome.undo.isEmpty else { return }
+            offerUndo(CorrectionUndoOffer(message: "Reverted all.", plan: outcome.undo))
+        } catch {
+            actionError = Formatting.message(for: error)
+        }
+    }
+
+    private func offerUndo(_ offer: CorrectionUndoOffer) {
+        undoOffer = offer
+        AccessibilityNotification.Announcement("\(offer.message) Undo is available.").post()
+        Task {
+            try? await Task.sleep(for: .seconds(CorrectionUndoOffer.seconds))
+            if undoOffer?.id == offer.id { undoOffer = nil }
+        }
+    }
+
+    private func undo(_ offer: CorrectionUndoOffer) async {
+        undoOffer = nil
+        do {
+            try await model.undo(offer.plan)
+            AccessibilityNotification.Announcement("Undone.").post()
+        } catch {
+            actionError = Formatting.message(for: error)
+        }
     }
 
     private func seek(toMs ms: Int) {

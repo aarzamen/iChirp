@@ -185,7 +185,8 @@ struct DocumentScreen: View {
                         pageView(page, total: pages.count)
                     }
                 } else {
-                    ForEach(Array(Self.paragraphs(of: item.displayText).enumerated()), id: \.offset) { _, paragraph in
+                    ForEach(Array(Self.paragraphs(of: item.plainText(.heard)).enumerated()), id: \.offset) {
+                        _, paragraph in
                         paragraphText(paragraph)
                     }
                 }
@@ -292,7 +293,7 @@ struct DocumentScreen: View {
             // Plan 020: reads the document's text aloud.
             listen: ListenBarButton(
                 source: .document(id: id), privacyClass: model.transcription?.privacyClass ?? .clinical
-            ) { model.transcription?.displayText ?? "" },
+            ) { model.plainText },
             onTransform: { isTransforming = true }
         ) {
             // One Share order on every screen: PDF, Word, Text, Voice message…, then the other formats (UX audit F54).
@@ -303,7 +304,7 @@ struct DocumentScreen: View {
             Button(ExportFormat.txt.displayName) { share(.txt) }
             Divider()
             Button {
-                voiceMessage = model.transcription.flatMap(VoiceMessageJob.item)
+                voiceMessage = model.transcription.flatMap { VoiceMessageJob.item($0, text: model.plainText) }
             } label: {
                 Label("Voice message…", systemImage: "waveform.badge.plus")
             }

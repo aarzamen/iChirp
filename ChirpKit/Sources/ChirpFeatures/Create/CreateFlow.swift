@@ -540,6 +540,12 @@ public struct CreateFlowDependencies {
         return settleOutput(producer)
     }
 
+    /// The item's text as the person sees it (their clean-up mode, their corrections and a dictation's voice commands;
+    /// plan 025): what the run's result card shows and copies. Empty without an item.
+    public var itemShownText: String {
+        item?.plainText(.shown(dependencies.cleanupMode()), context: textContext) ?? ""
+    }
+
     /// The text to speak: the operation's document when there is one, otherwise the item's text.
     private func voiceMessageRequest() -> VoiceMessageRequest? {
         guard let request, let item else { return nil }
