@@ -94,23 +94,31 @@ struct SectionLabel: View {
     }
 }
 
-/// A rounded rectangle filled and stroked with tokens: the canvas's cards, tiles and rows.
-struct CardBackground: View {
-    var radius: CGFloat
-    var fill: Color = Tokens.Color.surface
-    var stroke: Color = Tokens.Color.border
+/// A rounded rectangle filled and stroked with tokens: the canvas's cards, tiles and rows. Plan 024 Task 10 (R7-22):
+/// the one card is ChirpUI's `ChirpCardBackground` (same parameters, same drawing); this name stays for the many call
+/// sites.
+typealias CardBackground = ChirpCardBackground
 
-    var body: some View {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(fill)
-            .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(stroke, lineWidth: 1)
-            )
+/// "Copied" for a moment after Copy (R6b-18): one helper instead of a 1.5 s `Task` copied into every screen. A second
+/// Copy restarts the moment rather than ending it early.
+@MainActor @Observable final class CopyFeedback {
+    private(set) var isShowing = false
+    @ObservationIgnored private var reset: Task<Void, Never>?
+
+    func flash() {
+        isShowing = true
+        reset?.cancel()
+        reset = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            self?.isShowing = false
+        }
     }
 }
 
-/// A small capsule action button ("Retry", "Download", "Delete", "Start").
+/// A small capsule action button ("Retry", "Download", "Delete", "Start"): the look of ChirpUI's compact
+/// `ChirpButtonStyle` (one pill height, font, padding and fill per kind; plan 024 Task 11), as a label for the many
+/// call sites that wrap it in a plain button. A disabled button draws the text-safe quiet capsule, as ChirpUI does.
 struct CapsuleButtonLabel: View {
     enum Kind {
         /// Accent fill, white text (canvas "Start").
@@ -123,36 +131,31 @@ struct CapsuleButtonLabel: View {
 
     let title: String
     var kind: Kind = .tinted
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Text(title)
             .chirpFont(13.5, .bold)
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 32)
-            .background(Capsule().fill(background))
+            .foregroundStyle(chirpKind.ink(isEnabled: isEnabled))
+            .multilineTextAlignment(.center)
+            .lineLimit(1...2)
+            .padding(.horizontal, Tokens.Spacing.m)
+            .frame(minHeight: Tokens.Metric.compactButtonHeight)
+            .background(Capsule().fill(chirpKind.fill(isEnabled: isEnabled)))
             // F7: the visual pill stays 32pt (the canvas size), but the tappable area grows to the 44pt
             // accessibility floor — a frame added *inside* the label, not by callers wrapping the button from the
             // outside (that never enlarges a button's actual hit area).
-            .frame(minHeight: 44)
+            .frame(minHeight: Tokens.Metric.minTapTarget)
             .contentShape(Rectangle())
     }
 
-    private var foreground: Color {
+    /// The ChirpUI kind whose colors this label draws (every pair is in `ContrastTests`).
+    private var chirpKind: ChirpButtonStyle.Kind {
         switch kind {
-        case .filled: Tokens.Color.onAccent
-        // F8: `accentTextOnTint`, not `accentText` — `accentText` alone fails 4.5:1 on this button's tint
-        // background in light mode.
-        case .tinted: AppColor.accentTextOnTint
-        case .destructive: AppColor.error
-        }
-    }
-
-    private var background: Color {
-        switch kind {
-        case .filled: Tokens.Color.accentFill
-        case .tinted: AppColor.tintFill
-        case .destructive: AppColor.quietFill
+        case .filled: .filled
+        // F8: the tint kind draws `accentInkPressed`, not `accentText` (4.39:1 on tint in light mode).
+        case .tinted: .tinted
+        case .destructive: .destructive
         }
     }
 }

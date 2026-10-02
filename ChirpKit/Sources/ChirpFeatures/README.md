@@ -348,7 +348,9 @@ pipeline's `Task`s and publishes its progress to the UI.
   unreachable past the first 50; UX audit F43; every document is also in the Library, plan 023) and `DeliverableDocumentViewModel` (one document: text, template version number,
   `save()` through `updateDeliverableText`, `delete()`); neither ever writes a transcript.
 - `AskSessionViewModel.swift` (M4 UI): the Ask tab's questions, one `DeliverableRunViewModel(.ask)` each, one at a
-  time; answers are not stored (the ledger records each run without content).
+  time; answers are not stored (the ledger records each run without content). It also keeps the model picked on the
+  tab (`choice`) and the unsent question (`draftQuestion`), because the tab's view is rebuilt on every tab switch
+  (review R6b-1).
 
 ## Meetings (M3, `Meeting/`)
 

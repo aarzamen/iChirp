@@ -18,12 +18,23 @@ import Observation
 
     public let transcriptionID: UUID
     public private(set) var exchanges: [Exchange] = []
+    /// The model the person picked on the Ask tab; nil until they pick one (the screen then shows the Settings default).
+    /// Kept here, not in the tab's view, because the view is rebuilt on every tab switch (review R6b-1): a pick of
+    /// "on this iPhone" must not fall back to a cloud default unasked.
+    public var choice: LanguageModelChoice?
+    /// The question typed but not sent yet, kept across tab switches for the same reason. Cleared when it is asked.
+    public var draftQuestion = ""
 
     @ObservationIgnored private let service: DeliverableService
 
     public init(service: DeliverableService, transcriptionID: UUID) {
         self.service = service
         self.transcriptionID = transcriptionID
+    }
+
+    /// The picked model, or `fallback` (the Settings default) when nothing was picked yet.
+    public func choice(default fallback: LanguageModelChoice) -> LanguageModelChoice {
+        choice ?? fallback
     }
 
     /// A question is being routed, is waiting for the clinical confirmation, or is being answered.
@@ -39,6 +50,8 @@ import Observation
     public func ask(_ question: String, model: any LanguageModel, choice: LanguageModelChoice) async {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isBusy else { return }
+        // The typed question is now asked; a suggestion asked while something is typed leaves the typing alone.
+        if draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed { draftQuestion = "" }
         let run = DeliverableRunViewModel(
             service: service, model: model, transcriptionID: transcriptionID, request: .ask(question: trimmed))
         exchanges.append(Exchange(question: trimmed, choice: choice, run: run))

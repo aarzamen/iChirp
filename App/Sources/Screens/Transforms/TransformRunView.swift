@@ -192,13 +192,13 @@ struct TransformRunView: View {
                 // The real route once the router has answered; the chosen model before that.
                 if let route = run.route {
                     LocalityChip(
-                        text: "Runs \(route.placeWithName)",
-                        staysPrivate: route.locality == .onDevice
-                            || (route.locality == .localNetwork && request.choice.isTrustedForClinical))
+                        text: "Runs \(route.placeWithName)", locality: route.locality,
+                        trustedForClinical: request.choice.isTrustedForClinical)
                     PrivacyClassBadge(privacyClass: route.privacyClass)
                 } else {
                     LocalityChip(
-                        text: "Runs \(request.choice.placeWithName)", staysPrivate: request.choice.staysPrivate)
+                        text: "Runs \(request.choice.placeWithName)", locality: request.choice.locality,
+                        trustedForClinical: request.choice.isTrustedForClinical)
                 }
             }
         }

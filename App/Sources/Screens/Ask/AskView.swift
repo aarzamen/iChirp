@@ -11,6 +11,11 @@ import SwiftUI
 /// Polish (UX audit W): 44 pt targets for the suggestion and citation chips and Send / Stop (the visuals keep their
 /// canvas sizes), rows that stack at accessibility sizes, and an honest intro: answers cite moments when they can, and
 /// an answer without one says so.
+///
+/// Plan 024 Task 10: the picked model and the unsent question live in the session (review R6b-1), so switching to the
+/// Transcript tab and back keeps both; the clinical heads-up is the one every chooser shows (R6b-8); an item without
+/// word timings (typed text, an imported document) is answered with quotations, so it never says "No timestamp found";
+/// a cited time shows once, as its chip (R7-16).
 struct AskView: View {
     @Environment(AppEnvironment.self) private var environment
     let transcription: Transcription
@@ -18,10 +23,13 @@ struct AskView: View {
     /// Seeks the player to a cited moment and plays.
     let seek: (Int) -> Void
 
-    @State private var question = ""
-    @State private var choice: LanguageModelChoice
+    /// The Settings default, shown until the person picks a model here (the pick lives in `session`, review R6b-1).
+    private let defaultChoice: LanguageModelChoice
     /// The model could not be built (for example its key is gone); nothing was sent.
     @State private var failure: String?
+    /// The transcript's class as the router uses it (stricter when a document made from it is clinical), for the
+    /// clinical heads-up under the chooser (review R6b-8).
+    @State private var effectiveClass: PrivacyClass?
     @FocusState private var inputFocused: Bool
 
     static let suggestions: [(title: String, question: String)] = [
@@ -31,6 +39,9 @@ struct AskView: View {
         ("What's the plan?", "What's the plan, and what happens next?"),
     ]
 
+    /// The item has word timings, so answers cite moments (`[mm:ss]`); otherwise they quote (Task 8, R4-14).
+    private let citesTimestamps: Bool
+
     init(
         transcription: Transcription, session: AskSessionViewModel, environment: AppEnvironment,
         seek: @escaping (Int) -> Void
@@ -38,7 +49,24 @@ struct AskView: View {
         self.transcription = transcription
         self.session = session
         self.seek = seek
-        _choice = State(initialValue: environment.languageModels.defaultChoice)
+        defaultChoice = environment.languageModels.defaultChoice
+        citesTimestamps = Self.citesTimestamps(transcription)
+    }
+
+    /// The same test the service uses to ask for timestamps or for quotations.
+    static func citesTimestamps(_ transcription: Transcription) -> Bool {
+        !TranscriptTokens.of(transcription).isEmpty
+    }
+
+    /// The model picked here, else the Settings default.
+    private var choice: LanguageModelChoice { session.choice(default: defaultChoice) }
+
+    private var choiceBinding: Binding<LanguageModelChoice> {
+        Binding(get: { session.choice(default: defaultChoice) }, set: { session.choice = $0 })
+    }
+
+    private var questionBinding: Binding<String> {
+        Binding(get: { session.draftQuestion }, set: { session.draftQuestion = $0 })
     }
 
     var body: some View {
@@ -48,18 +76,19 @@ struct AskView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         ViewThatFits(in: .horizontal) {
                             HStack {
-                                ModelChoiceMenu(prefix: "Answering", choice: $choice)
+                                ModelChoiceMenu(prefix: "Answering", choice: choiceBinding)
                                 Spacer(minLength: 8)
                                 SpeakAnswersToggle()  // plan 020
                             }
                             VStack(alignment: .leading, spacing: 0) {
-                                ModelChoiceMenu(prefix: "Answering", choice: $choice)
+                                ModelChoiceMenu(prefix: "Answering", choice: choiceBinding)
                                 SpeakAnswersToggle()
                             }
                         }
-                        if let message = environment.unavailableMessage(for: choice) {
-                            ModelUnavailableNote(message: message)
-                        }
+                        // One heads-up for every model chooser (review R6b-8; Ask had none).
+                        ModelRunNotes(
+                            choice: choice, subject: .transcript,
+                            isClinical: (effectiveClass ?? transcription.privacyClass) == .clinical)
                         intro
                         if let failure {
                             Text(failure)
@@ -69,7 +98,8 @@ struct AskView: View {
                         }
                         ForEach(session.exchanges) { exchange in
                             ExchangeView(
-                                exchange: exchange, seek: seek, retry: { ask(exchange.question) },
+                                exchange: exchange, citesTimestamps: citesTimestamps, seek: seek,
+                                retry: { ask(exchange.question) },
                                 listenState: ListenButtonState.of(
                                     .askAnswer(id: exchange.id, transcriptionID: transcription.id),
                                     player: environment.voicePlayer),
@@ -95,7 +125,12 @@ struct AskView: View {
             inputArea
         }
         .clinicalConfirmation(for: pendingRun)
-        .task { await environment.languageModels.refresh() }
+        .task {
+            effectiveClass = await VoiceSourcePrivacy.current(
+                for: .transcript(id: transcription.id), transcripts: environment.store,
+                deliverables: environment.deliverableStore)
+            await environment.languageModels.refresh()
+        }
         .onChange(of: newestAnsweredID) { _, answered in
             // Plan 020: "Speak answers" reads each new answer once it is complete.
             guard let answered, environment.voiceSettings.settings.speakAskAnswers,
@@ -128,9 +163,10 @@ struct AskView: View {
 
     private var intro: some View {
         HStack(alignment: .top, spacing: 10) {
-            // The Capture header's mark, at its size (smaller renders illegibly).
+            // The mark fills its frame since plan 024 Task 11: about 24 pt beside the intro, growing with the text.
             ParakeetMarkView()
-                .frame(width: 27, height: 27)
+                .chirpScaledFrame(width: 24, height: 24, relativeTo: .title2)
+                .accessibilityHidden(true)
             Text(introText)
                 .chirpFont(15)
                 .foregroundStyle(Tokens.Color.ink)
@@ -140,6 +176,11 @@ struct AskView: View {
 
     private var introText: String {
         let length = transcription.durationMs.map { " all \(Formatting.duration(ms: $0)) of" } ?? ""
+        guard citesTimestamps else {
+            // Typed text or an imported document: no moments to cite; the model is asked for short quotations.
+            return "Ask about this \(transcription.isDocument ? "document" : "text"): decisions, commitments, or "
+                + "anything it says. Answers quote the passages they come from."
+        }
         return "Ask about\(length) this transcript: decisions, commitments, or anything a speaker said. "
             + "Answers cite the moments they come from when they can."  // F61
     }
@@ -173,21 +214,24 @@ struct AskView: View {
                 .padding(.horizontal, 24)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Ask about this transcript", text: $question, axis: .vertical)
-                    .lineLimit(1...4)
-                    .chirpFont(15.5)
-                    .focused($inputFocused)
-                    .submitLabel(.send)
-                    .onSubmit { ask(question) }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(CardBackground(radius: 22))
+                ChirpTextField(
+                    citesTimestamps ? "Ask about this transcript" : "Ask about this text", text: questionBinding,
+                    axis: .vertical
+                )
+                .lineLimit(1...4)
+                .chirpFont(15.5)
+                .focused($inputFocused)
+                .submitLabel(.send)
+                .onSubmit { ask(session.draftQuestion) }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(CardBackground(radius: Tokens.Radius.input))
                 if session.isBusy, pendingRun == nil {
                     Button {
                         session.cancel()
                     } label: {
                         Image(systemName: "stop.fill")
-                            .font(.system(size: 15, weight: .bold))
+                            .chirpGlyph(15, .bold, relativeTo: .body, maxScale: 1.3)
                             .foregroundStyle(Tokens.Color.ground)
                             .frame(width: 40, height: 40)
                             .background(Circle().fill(Tokens.Color.ink))
@@ -198,13 +242,14 @@ struct AskView: View {
                     .accessibilityLabel("Stop answering")
                 } else {
                     Button {
-                        ask(question)
+                        ask(session.draftQuestion)
                     } label: {
                         Image(systemName: "arrow.up")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
+                            .chirpGlyph(16, .bold, relativeTo: .body, maxScale: 1.3)
+                            // Disabled: the quiet fill with a `secondary` arrow, as every ChirpUI button.
+                            .foregroundStyle(canSend ? Tokens.Color.onAccent : Tokens.Color.secondary)
                             .frame(width: 40, height: 40)
-                            .background(Circle().fill(canSend ? Tokens.Color.accent : Tokens.Color.mutedText))
+                            .background(Circle().fill(canSend ? Tokens.Color.accentFill : AppColor.quietFill))
                             .frame(width: 44, height: 44)  // F60
                             .contentShape(Rectangle())
                     }
@@ -217,15 +262,11 @@ struct AskView: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 8)
-        .background(
-            Tokens.Color.ground.opacity(0.96)
-                .overlay(alignment: .top) { Rectangle().fill(Tokens.Color.border).frame(height: 1) }
-                .ignoresSafeArea(edges: .bottom)
-        )
+        .chirpBarBackground()
     }
 
     private var canSend: Bool {
-        !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !session.isBusy
+        !session.draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !session.isBusy
     }
 
     private func ask(_ text: String) {
@@ -235,11 +276,10 @@ struct AskView: View {
         do {
             model = try environment.languageModels.makeModel(for: choice)
         } catch {
-            question = trimmed
+            // Nothing was sent; the typed question stays in the field.
             failure = Formatting.message(for: error)
             return
         }
-        question = ""
         inputFocused = false
         let choice = self.choice
         failure = nil
@@ -250,6 +290,8 @@ struct AskView: View {
 /// One question and its answer: the user's bubble, the answer (streaming, then with citation chips), the real route.
 private struct ExchangeView: View {
     let exchange: AskSessionViewModel.Exchange
+    /// The item has timings, so an answer without a cited moment says so; quotations need no such line.
+    let citesTimestamps: Bool
     let seek: (Int) -> Void
     let retry: () -> Void
     /// Plan 020: the answer's Listen button.
@@ -267,12 +309,13 @@ private struct ExchangeView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous).fill(AppColor.tintFill)
+                        RoundedRectangle(cornerRadius: Tokens.Radius.bubble, style: .continuous)
+                            .fill(AppColor.tintFill)
                     )
                     .accessibilityLabel("You asked: \(exchange.question)")
             }
             if !run.text.isEmpty {
-                Text(run.text)
+                Text(AskAnswerText.shown(run.text, phase: run.phase))
                     .chirpFont(15.5)
                     .lineSpacing(4)
                     .foregroundStyle(Tokens.Color.ink)
@@ -285,7 +328,7 @@ private struct ExchangeView: View {
                     CutOffNote(message: notice + " Ask again, or ask for a shorter answer.")
                 }
                 citations(answer.citations)
-                if answer.citations.isEmpty {
+                if answer.citations.isEmpty, citesTimestamps {
                     // F61: the intro promises citations "when they can"; say when this one has none.
                     Text("No timestamp found for this answer.")
                         .chirpFont(11.5)
@@ -409,5 +452,29 @@ private struct SpeakAnswersToggle: View {
         .accessibilityLabel("Speak answers")
         .accessibilityValue(isOn ? "On" : "Off")
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
+/// The answer as the screen shows it (review R7-16): each cited moment shows once, as its chip under the answer, so
+/// the `[mm:ss]` tokens that became chips are taken out of the text. A time the model made up (not a line it was shown)
+/// is not a chip and stays in the text. Copy, Listen and the run keep the model's own text.
+enum AskAnswerText {
+    static func shown(_ text: String, phase: DeliverableRunViewModel.Phase) -> String {
+        guard case .answered(let answer) = phase else { return text }
+        return withoutCitations(text, labels: answer.citations.map(\.label))
+    }
+
+    static func withoutCitations(_ text: String, labels: [String]) -> String {
+        guard !labels.isEmpty else { return text }
+        var result = text
+        for label in labels {
+            result = result.replacingOccurrences(of: "[\(label)]", with: "")
+        }
+        // Tidy the gaps a token leaves: "said [00:12] that" → "said that", "this [00:12]." → "this.", "( )" → "".
+        let tidy: [(String, String)] = [(#"\(\s*\)"#, ""), (#"[ \t]{2,}"#, " "), (#"[ \t]+([.,;:!?])"#, "$1")]
+        for (pattern, template) in tidy {
+            result = result.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        }
+        return result.trimmingCharacters(in: .whitespaces)
     }
 }

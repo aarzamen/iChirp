@@ -403,18 +403,8 @@ struct CreateSheet: View {
     private var modelRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             ModelChoiceMenu(prefix: "Runs", choice: $choice)
-            if let message = environment.unavailableMessage(for: choice) {
-                ModelUnavailableNote(message: message)
-            } else if !choice.isTrustedForClinical {
-                Text(
-                    draft.isClinical
-                        ? "Clinical: Parakeet will ask before anything is sent to \(choice.name)."
-                        : "Clinical items and SOAP notes ask before anything is sent to \(choice.name)."
-                )
-                .chirpFont(12.5)
-                .foregroundStyle(Tokens.Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            // One heads-up for every model chooser (review R6b-8).
+            ModelRunNotes(choice: choice, subject: .item, isClinical: draft.isClinical, makesDocuments: true)
         }
     }
 
@@ -424,9 +414,9 @@ struct CreateSheet: View {
             CreateNote(text: problem, systemImage: "speaker.slash", isProblem: true)
         } else if let provider = voices.settings.provider {
             CreateNote(
-                text: "Spoken by \(provider.displayName) (\(provider.place.lowercasedFirst)). "
-                    + (draft.isClinical || provider == .xai
-                        ? "Clinical text asks before it is sent." : "Saved with the item as an audio file."),
+                text: CreateVoiceNote.text(
+                    provider: provider, isClinical: draft.isClinical,
+                    companionTrusted: environment.companionConfiguration.companionEndpoint()?.isTrusted == true),
                 systemImage: "speaker.wave.2")
         }
     }
@@ -585,6 +575,33 @@ struct CreateSheet: View {
 
     private func outputTitle(for output: CreateOutput) -> String {
         CreateReadiness.outputTitle(for: output, templates: templates)
+    }
+}
+
+/// Create's line under the voice (review R6b-3), worded from what the voice router does
+/// (`PrivacyRoutingPolicy().trusting(companion)`, spec/12 Voices): clinical text goes to a Mac companion the person
+/// trusts without a question; to an untrusted Mac, or to Grok voices on the internet, it asks before each reading.
+/// Settings → Voices says the same per provider ("trusted for clinical" / "asks for clinical").
+enum CreateVoiceNote {
+    static func text(provider: VoiceProviderKind, isClinical: Bool, companionTrusted: Bool) -> String {
+        let spoken = "Spoken by \(provider.displayName) (\(provider.place.lowercasedFirst)). "
+        switch provider {
+        case .companion where companionTrusted:
+            return spoken
+                + (isClinical
+                    ? "You trust this Mac for clinical text, so it goes there without asking."
+                    : "Saved with the item as an audio file.")
+        case .companion:
+            return spoken
+                + (isClinical
+                    ? "This Mac is not trusted for clinical text, so Parakeet asks before it is sent."
+                    : "Saved with the item as an audio file.")
+        case .xai:
+            return spoken
+                + (isClinical
+                    ? "Clinical text goes over the internet, so Parakeet asks before it is sent."
+                    : "Clinical text always asks before it is sent.")
+        }
     }
 }
 

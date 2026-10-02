@@ -5,6 +5,10 @@ import SwiftUI
 
 /// Transcript → Transform: pick the model and a template, add optional notes, then watch the result stream into an
 /// editable document. Clinical text bound for a cloud or untrusted model waits for the per-run confirmation.
+///
+/// With `repeating` (plan 024 Task 10: "Make it again" on a document the model cut off), the sheet is titled "Make it
+/// again", lists that document's template first, starts with its notes and, when it is still set up, its model. The
+/// run makes a new document; the cut-off one stays.
 struct TransformSheet: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -13,6 +17,8 @@ struct TransformSheet: View {
     let privacyClass: PrivacyClass
     /// M6a: a built-in's canonical key Jev suggested, shown first as "Suggested by Jev" (never run automatically).
     let suggestedTemplateKey: String?
+    /// A document to make again (its template, notes and model); nil for a plain Transform.
+    let repeating: Deliverable?
 
     @State private var host: TransformRunHost
     @State private var choice: LanguageModelChoice
@@ -23,14 +29,24 @@ struct TransformSheet: View {
 
     init(
         transcriptionID: UUID, transcriptTitle: String, privacyClass: PrivacyClass, environment: AppEnvironment,
-        suggestedTemplateKey: String? = nil
+        suggestedTemplateKey: String? = nil, repeating: Deliverable? = nil
     ) {
         self.transcriptionID = transcriptionID
         self.transcriptTitle = transcriptTitle
         self.privacyClass = privacyClass
         self.suggestedTemplateKey = suggestedTemplateKey
+        self.repeating = repeating
         _host = State(initialValue: TransformRunHost(environment: environment))
-        _choice = State(initialValue: environment.languageModels.defaultChoice)
+        let models = environment.languageModels
+        _choice = State(
+            initialValue: repeating.flatMap { Self.originalChoice(of: $0, in: models.choices) } ?? models.defaultChoice)
+        _notes = State(initialValue: repeating?.userNotes ?? "")
+    }
+
+    /// The model a document was written with, when it is still one of the choices (same name and place); nil
+    /// otherwise, so the Settings default is offered and the chip says where it runs.
+    static func originalChoice(of document: Deliverable, in choices: [LanguageModelChoice]) -> LanguageModelChoice? {
+        choices.first { $0.name == document.provider && $0.locality == document.locality }
     }
 
     var body: some View {
@@ -57,7 +73,7 @@ struct TransformSheet: View {
         let library = environment.deliverableLibrary
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Transform")
+                Text(repeating == nil ? "Transform" : "Make it again")
                     .chirpTitleFont(26, .heavy)
                     .foregroundStyle(Tokens.Color.ink)
                     .accessibilityAddTraits(.isHeader)
@@ -79,6 +95,18 @@ struct TransformSheet: View {
                     })
                 {
                     templateSection("Suggested by Jev", [suggested])
+                }
+                if let repeating,
+                    let original = (library.documentTemplates + library.transformTemplates).first(where: {
+                        $0.id == repeating.promptID
+                    })
+                {
+                    templateSection("Same template", [original])
+                } else if repeating != nil {
+                    Text("The template this document was made with is gone. Pick another below.")
+                        .chirpFont(13)
+                        .foregroundStyle(Tokens.Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 templateSection("Documents", library.documentTemplates)
                 templateSection("Rewrites", library.transformTemplates)
@@ -260,29 +288,19 @@ private struct TransformSetup: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { chips }
+                HStack(alignment: .top, spacing: 8) { chips }
                 VStack(alignment: .leading, spacing: 4) { chips }
             }
-            if let message = environment.unavailableMessage(for: choice) {
-                ModelUnavailableNote(message: message)
-            }
-            if !choice.isTrustedForClinical {
-                Text(
-                    privacyClass == .clinical
-                        ? "This transcript is clinical. Parakeet will ask before sending it to \(choice.name)."
-                        : "Clinical transcripts and SOAP notes ask before anything is sent to \(choice.name)."
-                )
-                .chirpFont(12.5)
-                .foregroundStyle(Tokens.Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            // One heads-up for every model chooser (review R6b-8).
+            ModelRunNotes(
+                choice: choice, subject: .transcript, isClinical: privacyClass == .clinical, makesDocuments: true)
             if let startError {
                 Text(startError)
                     .chirpFont(13)
                     .foregroundStyle(AppColor.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            TextField("Notes for the model (optional)", text: $notes, axis: .vertical)
+            ChirpTextField("Notes for the model (optional)", text: $notes, axis: .vertical)
                 .lineLimit(1...4)
                 .chirpFont(15)
                 .padding(12)
