@@ -146,6 +146,9 @@ contract that proves no content or identifiers leave the device.
   synthetic (`say`).
 - **Logs never contain transcript text, prompts, generated documents, or user file names.** Log ids, stages,
   durations, sizes and error types.
+- **Template names and instructions are the person's text** (plan 026): never in logs or the run ledger (template logs
+  carry ids, kinds and counts only). What leaves the phone is unchanged: a run sends "the template" (above), whether
+  built-in or the person's own, under the same routing; a template can only raise its output to clinical.
 - Debugging with real audio happens on the owner's phone with their own data; nothing from it is copied into the repo,
   issues, or chat transcripts.
 - Exports and shares are user actions; the app never shares automatically. Copy of a transcript or a generated

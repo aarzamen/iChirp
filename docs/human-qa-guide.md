@@ -1035,6 +1035,46 @@ Regression
 Screenshots to attach
 - [ ] Capture and a transcript in Dark mode; the Dictating screen.
 
+## Your own templates checklist (plan 026)
+
+> Preconditions: a build of `main` that includes plan 026 (Settings → About shows its commit), installed **over the
+> current build** so the migration runs on real data. Synthetic speech and text only. Screenshots: the simulator tour
+> (`UITests/TemplatesTourUITests.swift`) and the light, dark and AX3 renders (`AppTests/TemplateScreenRenderTests.swift`)
+> are in `.superpowers/sdd/2026-10-01-026-your-own-templates/` (`tour/` and `screens/`).
+
+The migration
+- [ ] After the update: Library documents open as before; Transforms → Templates · Edit lists the nine built-ins in
+      the old order, none hidden.
+
+Happy path
+- [ ] Templates → SOAP note ⋯ → Duplicate and edit: the editor shows "SOAP note copy", A document, the clinical switch
+      on and SOAP note's text. Rename it "Clinic SOAP", change the headings, Save and try… → pick a synthetic dictation
+      → run on this iPhone: the document uses your headings, is **Clinical**, and Details say "Clinic SOAP · version 1".
+- [ ] Edit Clinic SOAP's text and Save: the editor said "Saving makes version 2"; the earlier document still says
+      version 1, and Details show "Template now: Edited since: now version 2." and "Show the instructions used" shows
+      the old text.
+
+Guardrails
+- [ ] A blank name or blank instructions: Save stays off and the sentence says why. A name "soap note": "“SOAP note” is
+      already a template." Paste 4,001 characters: the count and sentence say so. "<transcript>" in the text is refused.
+- [ ] A built-in's ⋯ menu has no Edit and no Delete.
+- [ ] Make a recipe "Dictate → Clinic SOAP", then Delete Clinic SOAP: the question says the documents made with it
+      stay and names the recipe that stops. After Delete, the recipe says the template "no longer exists. Restore it
+      in Templates, …" and starts nothing. Deleted templates → Restore: the recipe runs again.
+- [ ] Hide Agenda: it leaves Transforms, the Transform sheet and Create's menu; Transforms says "1 hidden template";
+      a recipe of a hidden template still runs.
+
+Clinical
+- [ ] Clinic SOAP on a Personal item with a cloud model asks "Send this clinical text to …?" every run; Cancel sends
+      nothing.
+
+Regression
+- [ ] Built-in runs, Create → Summary, Extract fields → Use in SOAP note and Jev's "Use this template" work as before.
+
+Accessibility
+- [ ] At AX sizes the Templates rows and the editor wrap without truncation; VoiceOver reads a row as "Clinic SOAP, your
+      template, clinical, hidden"; ⋯ → Move up / Move down work without dragging.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

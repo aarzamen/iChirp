@@ -105,7 +105,23 @@ Templates are versioned prompts that take `{{transcript}}` and optional `{{userN
 | Transforms | Polish (keep the voice), Distill (essential points), Decide (a recommendation), Brief (BLUF, then three bullets) |
 
 The nine built-ins are `ChirpFeatures.BuiltInTemplates` (canonical keys `summary`, `meeting-notes`, `action-items`,
-`agenda`, `soap-note`, `polish`, `distill`, `decide`, `brief`); users can add templates and edit any template.
+`agenda`, `soap-note`, `polish`, `distill`, `decide`, `brief`).
+
+**Your own templates (plan 026, [ADR-016](adr/016-your-own-templates.md)).** The person makes templates of their own
+(Transforms → Templates · Edit, or Settings → Text → Templates): blank, or a copy of any template ("Duplicate and
+edit"). A template has a name (≤ 40 characters, unique ignoring case), a kind (a Document or a Rewrite), instructions
+(≤ 4,000 characters, no Parakeet source tags) and one raise-only switch, "Makes clinical documents", the same
+`outputPrivacyClass` SOAP note carries. Built-ins are read-only: they can be hidden and moved, never edited, renamed
+or deleted. Editing the instructions adds an immutable version, so every document keeps naming the exact text that
+made it; renaming, the kind and the switch change only the row. Any template can be hidden (out of Transforms, the
+Transform sheet and Create's menu; still runnable from recipes, Jev's suggestion and Extract fields) and the order
+of each section is the person's (built-in updates never rewrite it). Delete is soft and only for the person's own:
+"Deleted templates" offers Restore ("<name> (restored)" when the name was taken), and a deleted template never runs
+(`templateDeleted`). For text the person wrote, the step that writes the result adds fixed app rules to the system
+message (a Markdown document or only the rewritten text; on clinical runs the clinical draft rules: never invent
+findings, vital signs, doses, dates or durations, copy numbers exactly, "Not documented.", `[unclear]`); built-in
+requests are byte-identical. "Make again" (a version-pinned rerun) is deferred; a document's Details say what made it
+and what changed since, and show the instructions used.
 
 Rules ([deliverables-v1](contracts/deliverables-v1.md)):
 

@@ -18,6 +18,8 @@ when voices were designed (plan 018/020); Listen and voice messages stay on the 
 
 ## Still open (defaults proposed later, owner to confirm)
 
+F45: plan 026 makes the order the person's own; the default order is still open.
+
 F15 meeting "Ready" step with a consent reminder; F44 naming of Transform / Transforms / Document / Rewrites; F45 template
 order (SOAP first for a physician); F57 import titles; F63 Library filter names; F66 the unbuilt Grid toggle; F70 editing
 typed notes and versions; F75 splitting Settings (everyday vs Advanced); F92 renaming "Jev" in the toolbar; F93 one brand
