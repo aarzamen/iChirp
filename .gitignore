@@ -19,6 +19,9 @@ MEMORY.md
 journal/
 # Needle (ADR-012): the needle-rs clone, the built NeedleC.xcframework and downloaded .cact weights
 vendor/
+# `vendor/` matches only a directory; every lane worktree links the shared runtimes with a `vendor` symlink at the root,
+# which `/vendor` ignores too (so `git status` stays clean and nobody commits the link).
+/vendor
 *.cact
 # Data and secrets
 *.db

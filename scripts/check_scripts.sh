@@ -365,6 +365,23 @@ else
   fail "the manifest check missed a new use of a required-reason API"
 fi
 
+# 8. .gitignore keeps the shared runtimes out of git whether `vendor` is a real folder or the symlink every lane worktree
+#    makes (`vendor/` alone matches a folder only, so `git status` showed `?? vendor` and the link could be committed).
+mkdir -p "$SANDBOX/gi/real/vendor/models" "$SANDBOX/gi/real/sub/vendor" "$SANDBOX/gi/linked" "$SANDBOX/gi/shared"
+cp .gitignore "$SANDBOX/gi/real/.gitignore"
+cp .gitignore "$SANDBOX/gi/linked/.gitignore"
+: >"$SANDBOX/gi/real/vendor/models/needle3.cact"
+ln -s "$SANDBOX/gi/shared" "$SANDBOX/gi/linked/vendor"
+env -u GIT_DIR -u GIT_WORK_TREE git -c init.defaultBranch=main -C "$SANDBOX/gi/real" init -q .
+env -u GIT_DIR -u GIT_WORK_TREE git -c init.defaultBranch=main -C "$SANDBOX/gi/linked" init -q .
+if env -u GIT_DIR -u GIT_WORK_TREE git -C "$SANDBOX/gi/linked" check-ignore -q vendor \
+  && env -u GIT_DIR -u GIT_WORK_TREE git -C "$SANDBOX/gi/real" check-ignore -q vendor/models/needle3.cact \
+  && env -u GIT_DIR -u GIT_WORK_TREE git -C "$SANDBOX/gi/real" check-ignore -q sub/vendor/x; then
+  pass ".gitignore ignores the vendor symlink, a real vendor folder and a nested vendor folder"
+else
+  fail ".gitignore no longer ignores the vendor symlink, a real vendor folder or a nested vendor folder"
+fi
+
 echo ""
 if [ "$failures" -gt 0 ]; then
   echo "SCRIPT CHECKS FAILED: $failures of $checks checks." >&2
