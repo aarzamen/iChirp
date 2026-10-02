@@ -175,6 +175,10 @@ pipeline's `Task`s and publishes its progress to the UI.
   (review N4). Failure: row `.failed`, audio kept, Retry; no speech: "Didn’t catch that";
   under 0.3 s: nothing kept. Cancel is the discard (no row, no folder). `retry(transcriptionID:)` serves the Library
   (no copy); `recoverOrphanedRecordings()` adopts a `dictation.wav` without a row as `.interrupted` at launch.
+  Review R5-1: `start(privacyClass:)` (Create passes the chain's class; everything else starts Personal) writes the
+  class to `media/<id>/dictation.json` before the recorder starts, inserts the row with it (so a Clinical dictation is
+  never Personal, not even for a moment), routes the live preview on it, and deletes the file once the row exists.
+  An orphan is adopted with the class in that file, or Clinical when it is missing or unreadable.
 - `Dictation/DictationDiscardPrompt.swift` (UX audit F72): what the Dictating screen's Cancel asks. A false start
   (under `confirmAfterSeconds`, 5 s of recorded audio) is discarded with one tap; anything longer asks first
   ("Discard this 3-minute dictation?", Discard dictation / Keep dictating, or Keep transcribing during the final
@@ -723,10 +727,11 @@ Plan: `docs/plans/2026-09-22-022-create-anything-in-anything-out.md`.
   report `pending/running/done/skipped/failed`; `phase` is `running`, `waitingForAnswer(stage)`, `finished`,
   `failed(stage, sentence)` or `cancelled`; `retry()` restarts at the failed stage and reuses an item already made.
   **The chain never confirms a clinical question:** the operation's `DeliverableRunViewModel` and the voice message
-  ask through their own dialogs, and `onAnswered` resumes the chain. **Class (review I1):** link, file and text rows
-  are created with the chosen class (`startLink` / `startFile` / `saveText` take it), so no row is ever stored less
-  private, not even for a moment; a dictation's row is raised (`DeliverableService.setPrivacyClass`) the moment the
-  chain learns its id, before the Stop check, since raising only ever makes it more private. A Stop while a lookup or
+  ask through their own dialogs, and `onAnswered` resumes the chain. **Class (review I1, R5-1):** link, file, text
+  and dictation rows are created with the chosen class (`startLink` / `startFile` / `saveText` / `recordSpeech` take
+  it; the dictation is started with it), so no row is ever stored less private, not even for a moment; the raise
+  (`DeliverableService.setPrivacyClass`) the moment the chain learns an item's id stays as a backstop, before the
+  Stop check, since raising only ever makes it more private. A Stop while a lookup or
   copy runs lets it finish: the item it makes stays in the Library with its class, `itemID` names it and
   `isMakingInput` says one may still come (the run view says so and offers Open). `reset()` also cancels a
   finished or failed chain's model run and voice message (review M2), and the app resets a chain whenever it drops

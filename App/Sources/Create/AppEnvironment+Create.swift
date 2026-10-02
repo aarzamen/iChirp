@@ -39,7 +39,9 @@ extension AppEnvironment {
         let jobCenter = self.jobCenter
         return CreateFlow(
             dependencies: CreateFlowDependencies(
-                recordSpeech: { [unowned self] in await recordSpeechForCreate() },
+                recordSpeech: { [unowned self] privacyClass in
+                    await recordSpeechForCreate(privacyClass: privacyClass)
+                },
                 saveText: { text, privacyClass in
                     try await TextItemService(store: store).save(text, privacyClass: privacyClass)
                 },
@@ -59,13 +61,14 @@ extension AppEnvironment {
     }
 
     /// Speak: the ordinary dictation (the Dictating screen, its final pass, its clipboard copy and its row), followed
-    /// until it is saved, discarded, or closed after a failure.
-    private func recordSpeechForCreate() async -> CreateSpeechOutcome {
+    /// until it is saved, discarded, or closed after a failure. The dictation is started with the chain's class, so
+    /// its row is written with it from the first write (review R5-1).
+    private func recordSpeechForCreate(privacyClass: PrivacyClass) async -> CreateSpeechOutcome {
         await launch()
         guard dictation.state.isFinished else {
             return .failed(nil, "A dictation is still finishing. Try again when it is done.")
         }
-        dictation.start()
+        dictation.start(privacyClass: privacyClass)
         await dictation.waitForState { state in
             switch state {
             case .done, .cancelled, .failed: true

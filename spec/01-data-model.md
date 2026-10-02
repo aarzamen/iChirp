@@ -14,6 +14,7 @@ Application Support/iChirp/
     ├── source.<ext>              the imported file, copied in; kept for playback
     ├── dictation.wav             M2: a dictation's recording (16 kHz mono Float32); kept unless the person turned
     │                             off "Keep dictation audio"
+    ├── dictation.json            the class a dictation was started with, only until its row exists (review R5-1)
     ├── download.part(.json)      M5: an unfinished link download and its resume record; gone once it completes
     └── normalized-16k.wav        temporary decode for the engine; deleted when the job finishes
 ```

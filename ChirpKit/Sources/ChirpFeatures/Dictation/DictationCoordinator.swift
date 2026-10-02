@@ -48,9 +48,12 @@ public struct DictationTextRules: Sendable {
 /// (`testCopiedTextIsTheFinalPassWithVoiceCommandsAppliedNeverTheLivePreview`).
 ///
 /// Data rules: the row is inserted when recording stops (status `.processing`), so a process killed during the final
-/// pass leaves an `.interrupted` row with its audio for Retry. A failed pass keeps the audio and offers Retry. Cancel
-/// is the explicit discard: while recording it deletes the recording (no row); during the final pass it deletes the
-/// row and its folder. A recording under 0.3 s is rejected by the recorder and leaves nothing.
+/// pass leaves an `.interrupted` row with its audio for Retry. The row has the class the dictation was started with
+/// from its first write (`start(privacyClass:)`, review R5-1); while recording, that class sits next to the audio
+/// (`sessionFileName`), so a recording a kill leaves behind is adopted with it (Clinical when unknown). A failed pass
+/// keeps the audio and offers Retry. Cancel is the explicit discard: while recording it deletes the recording (no
+/// row); during the final pass it deletes the row and its folder. A recording under 0.3 s is rejected by the recorder
+/// and leaves nothing.
 @MainActor @Observable public final class DictationCoordinator {
     /// Where the flow is.
     public private(set) var state: DictationFlowState = .idle
@@ -83,7 +86,10 @@ public struct DictationTextRules: Sendable {
     }
 
     public static let levelHistoryCount = 48
-    public static let fileName = "dictation.wav"
+    public nonisolated static let fileName = "dictation.wav"
+    /// Review R5-1: next to `dictation.wav` while it records, the class the dictation was started with, so a recording
+    /// a killed process leaves behind is adopted with that class. Removed once the row (which carries it) exists.
+    public nonisolated static let sessionFileName = "dictation.json"
 
     /// Called on every state change (the app forwards it to the Live Activity).
     @ObservationIgnored public var onStateChange: (@MainActor (DictationFlowState) -> Void)?
@@ -104,8 +110,10 @@ public struct DictationTextRules: Sendable {
     @ObservationIgnored private let voiceCommands: (any DictationVoiceCommanding)?
     @ObservationIgnored private let logger = Log.logger("dictation")
 
-    /// The current recording: its row id and WAV. Set when recording starts, kept after a failure for Retry.
-    @ObservationIgnored private var recording: (id: UUID, url: URL)?
+    /// The current recording: its row id, WAV and class. Set when recording starts, kept after a failure for Retry.
+    @ObservationIgnored private var recording: (id: UUID, url: URL, privacyClass: PrivacyClass)?
+    /// The class the next start was asked for (read when the start is accepted).
+    @ObservationIgnored private var requestedPrivacyClass: PrivacyClass = .personal
     @ObservationIgnored private var rowInserted = false
     @ObservationIgnored private var live: (any LiveSpeechSession)?
     @ObservationIgnored private var startTask: Task<Void, Never>?
@@ -152,7 +160,14 @@ public struct DictationTextRules: Sendable {
 
     // MARK: - Person's actions
 
-    public func start() { send(.startRequested) }
+    /// Starts a dictation whose row is written with `privacyClass` from its first write (review R5-1): Create passes
+    /// the chain's class (Clinical when the person said it holds patient information); everything else starts
+    /// Personal, the default for a new item.
+    public func start(privacyClass: PrivacyClass = .personal) {
+        requestedPrivacyClass = privacyClass
+        send(.startRequested)
+    }
+
     public func stop() { send(.stopRequested) }
     public func cancel() { send(.cancelRequested) }
     public func resume() { send(.resumeRequested) }
@@ -219,9 +234,10 @@ public struct DictationTextRules: Sendable {
         case .startRecording:
             resetForNewDictation()
             let cleanup = cleanupTask
+            let privacyClass = requestedPrivacyClass
             startTask = Task {
                 await cleanup?.value
-                await self.beginRecording(generation: generation)
+                await self.beginRecording(generation: generation, privacyClass: privacyClass)
             }
         case .stopRecordingAndTranscribe:
             let starting = startTask
@@ -270,7 +286,7 @@ public struct DictationTextRules: Sendable {
 
     // MARK: - Start
 
-    private func beginRecording(generation: Int) async {
+    private func beginRecording(generation: Int, privacyClass: PrivacyClass) async {
         // The previous dictation's discard (if any) has finished; this one starts clean.
         recording = nil
         rowInserted = false
@@ -296,6 +312,13 @@ public struct DictationTextRules: Sendable {
         let updates: AsyncStream<CaptureUpdate>
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Review R5-1: the class is on disk before any audio, so a recording a kill leaves behind is adopted with
+            // it. A failed write only costs precision: an orphan of unknown class is adopted Clinical.
+            do {
+                try Self.writeSessionMarker(privacyClass, in: directory)
+            } catch {
+                logger.error("dictation_class_write_failed error_type=\(error.logTypeName, privacy: .public)")
+            }
             updates = try await capture.start(recordingTo: url)
         } catch {
             try? FileManager.default.removeItem(at: directory)
@@ -304,15 +327,16 @@ public struct DictationTextRules: Sendable {
             send(.startFailed(generation: generation, message: Self.message(for: error)))
             return
         }
-        recording = (id, url)
+        recording = (id, url, privacyClass)
         transcriptionID = id
         updatesTask = Task { await self.consume(updates, generation: generation) }
 
         // The final engine loads while the person speaks, so the final pass does not pay for it.
         Task.detached(priority: .utility) { try? await finalEngine.prepare() }
 
-        // M7: the live route may be a different engine from the final one; routing checks the one that gets audio.
-        if privacyRouting.allows(SpeechRouting.resolve(self.speech, for: .live).descriptor, for: .personal),
+        // M7: the live route may be a different engine from the final one; routing checks the one that gets audio,
+        // against this dictation's own class (review R5-1).
+        if privacyRouting.allows(SpeechRouting.resolve(self.speech, for: .live).descriptor, for: privacyClass),
             let session = await liveSessions?.makeLiveSession(
                 scheduler: scheduler, options: SpeechTranscriptionOptions(purpose: .dictation))
         {
@@ -399,7 +423,8 @@ public struct DictationTextRules: Sendable {
         } catch {
             await finishLiveSession()
             if (error as? AudioCaptureError) == .tooShort {
-                // The recorder removed the tiny file; drop the empty folder so nothing is left.
+                // The recorder removed the tiny file; drop its class file and the empty folder so nothing is left.
+                Self.removeSessionMarker(in: recording.url.deletingLastPathComponent())
                 removeFolder(of: recording.url)
                 self.recording = nil
             }
@@ -417,12 +442,14 @@ public struct DictationTextRules: Sendable {
             mediaRelativePath: paths.relativePath(for: recorded.url),
             fileSizeBytes: Self.fileSize(recorded.url),
             durationMs: recorded.durationMs,
-            status: .processing
+            status: .processing,
+            privacyClass: recording.privacyClass
         )
         do {
             let store = self.store
             try await Self.detached { try await store.insert(row) }
             rowInserted = true
+            Self.removeSessionMarker(in: recording.url.deletingLastPathComponent())
         } catch {
             logger.error("dictation_row_insert_failed error_type=\(error.logTypeName, privacy: .public)")
             failureKind = Self.failureKind(for: error)
@@ -631,18 +658,24 @@ public struct DictationTextRules: Sendable {
         var added = 0
         for name in names {
             guard let id = UUID(uuidString: name), !known.contains(id) else { continue }
-            let wav = paths.mediaDirectory(for: id).appendingPathComponent(Self.fileName, isDirectory: false)
+            let folder = paths.mediaDirectory(for: id)
+            let wav = folder.appendingPathComponent(Self.fileName, isDirectory: false)
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
+            // Review R5-1: the class the dictation was started with; Clinical when it is unknown.
+            let privacyClass = Self.recordedPrivacyClass(in: folder)
             var row = Transcription(
                 id: id, sourceType: .dictation, fileName: "Dictation.wav",
                 mediaRelativePath: paths.relativePath(for: wav), fileSizeBytes: Self.fileSize(wav),
-                status: .interrupted)
+                status: .interrupted, privacyClass: privacyClass)
             row.errorMessage = "Parakeet closed while this dictation was recording. Retry to transcribe what was kept."
             let orphan = row
             do {
                 try await Self.detached { try await store.insert(orphan) }
+                Self.removeSessionMarker(in: folder)
                 added += 1
-                logger.notice("dictation_orphan_adopted id=\(id, privacy: .public)")
+                logger.notice(
+                    "dictation_orphan_adopted id=\(id, privacy: .public) class=\(privacyClass.rawValue, privacy: .public)"
+                )
             } catch {
                 logger.error("dictation_orphan_adopt_failed error_type=\(error.logTypeName, privacy: .public)")
             }
@@ -678,6 +711,33 @@ public struct DictationTextRules: Sendable {
         await session?.finish()
         liveTextTask?.cancel()
         liveTextTask = nil
+    }
+
+    // MARK: - The class on disk (review R5-1)
+
+    /// `dictation.json`: `{"privacyClass": "<raw value>"}`.
+    private struct SessionMarker: Codable {
+        var privacyClass: String
+    }
+
+    /// Writes the class next to the recording (`sessionFileName`).
+    nonisolated static func writeSessionMarker(_ privacyClass: PrivacyClass, in folder: URL) throws {
+        let data = try JSONEncoder().encode(SessionMarker(privacyClass: privacyClass.rawValue))
+        try data.write(to: folder.appendingPathComponent(sessionFileName, isDirectory: false), options: .atomic)
+    }
+
+    /// The class the recording in `folder` was started with. Clinical when it is unknown (no file, an unreadable one,
+    /// or a class this build does not know): the most protective reading, as `VoiceSourcePrivacy` reads an unknown row.
+    nonisolated static func recordedPrivacyClass(in folder: URL) -> PrivacyClass {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent(sessionFileName, isDirectory: false)),
+            let marker = try? JSONDecoder().decode(SessionMarker.self, from: data),
+            let privacyClass = PrivacyClass(rawValue: marker.privacyClass)
+        else { return .clinical }
+        return privacyClass
+    }
+
+    nonisolated static func removeSessionMarker(in folder: URL) {
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent(sessionFileName, isDirectory: false))
     }
 
     // MARK: - Helpers

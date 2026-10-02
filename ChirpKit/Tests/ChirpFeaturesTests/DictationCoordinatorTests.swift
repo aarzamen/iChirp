@@ -418,6 +418,87 @@ final class DictationCoordinatorTests: XCTestCase {
         XCTAssertEqual(retried?.status, .completed)
     }
 
+    // MARK: - Review R5-1: the class from the first write
+
+    /// A dictation started Clinical (Create → Speak with Clinical on, a clinical recipe) is stored Clinical by its first
+    /// write, never Personal, not even for a moment. While it records, the class sits next to its audio; once the row
+    /// carries it, that file goes.
+    func testAClinicalDictationIsStoredClinicalFromItsFirstWrite() async throws {
+        let h = Harness(testCase: self)
+        h.coordinator.start(privacyClass: .clinical)
+        await waitUntil { h.coordinator.state == .recording }
+        let folder = try XCTUnwrap(h.wavURL).deletingLastPathComponent()
+        let marker = folder.appendingPathComponent(DictationCoordinator.sessionFileName)
+        XCTAssertTrue(fileExists(marker), "the class is on disk while recording")
+        XCTAssertEqual(DictationCoordinator.recordedPrivacyClass(in: folder), .clinical)
+
+        await h.stopAndWait()
+        XCTAssertEqual(h.coordinator.state, .done)
+        let row = try await h.row()
+        XCTAssertEqual(row.privacyClass, .clinical)
+        let history = await h.store.classHistory(row.id)
+        XCTAssertEqual(history.first, .clinical, "the insert itself is clinical")
+        XCTAssertEqual(Set(history), [.clinical], "never Personal, not even for a moment")
+        XCTAssertFalse(fileExists(marker), "the row carries the class now")
+        XCTAssertTrue(fileExists(try XCTUnwrap(h.wavURL)))
+    }
+
+    func testAnOrdinaryDictationStaysPersonalAndAShortOneLeavesNoFolder() async throws {
+        let h = Harness(testCase: self)
+        await h.startRecording()
+        await h.stopAndWait()
+        let row = try await h.row()
+        XCTAssertEqual(row.privacyClass, .personal)
+
+        let short = Harness(testCase: self)
+        short.capture.failStop(with: .tooShort)
+        short.coordinator.start(privacyClass: .clinical)
+        await waitUntil { short.coordinator.state == .recording }
+        let folder = try XCTUnwrap(short.wavURL).deletingLastPathComponent()
+        await short.stopAndWait()
+        XCTAssertFalse(fileExists(folder), "the class file goes with the too-short recording")
+    }
+
+    /// A recording a killed process left behind is adopted with the class it was started with. An unknown class (an
+    /// older build wrote none, the file is unreadable, or names a class this build does not know) reads as Clinical,
+    /// the most protective class.
+    func testLaunchAdoptsAKilledRecordingWithTheClassItWasStartedWith() async throws {
+        let h = Harness(testCase: self)
+        func orphan(_ privacyClass: PrivacyClass?, rawMarker: String? = nil) throws -> UUID {
+            let id = UUID()
+            let folder = h.paths.mediaDirectory(for: id)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(repeating: 3, count: 128).write(to: folder.appendingPathComponent(DictationCoordinator.fileName))
+            if let privacyClass {
+                try DictationCoordinator.writeSessionMarker(privacyClass, in: folder)
+            } else if let rawMarker {
+                try Data(rawMarker.utf8).write(
+                    to: folder.appendingPathComponent(DictationCoordinator.sessionFileName))
+            }
+            return id
+        }
+        let expectations: [(UUID, PrivacyClass)] = [
+            (try orphan(.clinical), .clinical),
+            (try orphan(.personal), .personal),
+            (try orphan(.general), .general),
+            (try orphan(nil), .clinical),
+            (try orphan(nil, rawMarker: "not json"), .clinical),
+            (try orphan(nil, rawMarker: #"{"privacyClass":"top-secret"}"#), .clinical),
+        ]
+
+        let added = await h.coordinator.recoverOrphanedRecordings()
+        XCTAssertEqual(added, expectations.count)
+        for (id, expected) in expectations {
+            let row = try await h.row(id)
+            XCTAssertEqual(row.privacyClass, expected, "\(id)")
+            let history = await h.store.classHistory(id)
+            XCTAssertEqual(history, [expected], "adopted with its class by the insert itself")
+            XCTAssertFalse(
+                fileExists(h.paths.mediaDirectory(for: id).appendingPathComponent(DictationCoordinator.sessionFileName))
+            )
+        }
+    }
+
     /// Cancel, then start again at once: the new dictation waits for the discard, keeps its own recording, and the
     /// discarded one leaves nothing.
     func testStartingRightAfterACancelKeepsTheNewRecordingAndDiscardsTheOld() async throws {
