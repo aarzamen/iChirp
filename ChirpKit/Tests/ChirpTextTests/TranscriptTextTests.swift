@@ -72,13 +72,16 @@ final class TranscriptTextTests: XCTestCase {
         let item = row(words("um hello there"), clean: "Hello there.")
         XCTAssertEqual(item.plainText(.shown(.raw)), "um hello there")
         XCTAssertEqual(item.plainText(.shown(.clean)), "Hello there.")
-        XCTAssertEqual(item.plainText(.heard), "Hello there.")
+        XCTAssertEqual(item.plainText(.heard), "um hello there", "a timed row is heard as its engine text")
         var blankClean = item
         blankClean.cleanTranscript = "  "
         XCTAssertEqual(blankClean.plainText(.shown(.clean)), "um hello there")
         var noRaw = item
         noRaw.rawTranscript = nil
         XCTAssertEqual(noRaw.plainText(.shown(.raw)), "Hello there.")
+        var untimed = item
+        untimed.wordTimestamps = nil
+        XCTAssertEqual(untimed.plainText(.heard), "Hello there.", "an untimed row shows its clean text")
         for view in [TranscriptTextView.heard, .shown(.raw), .shown(.clean)] {
             XCTAssertEqual(item.text(view).plainText, item.plainText(view))
         }

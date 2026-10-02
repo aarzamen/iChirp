@@ -159,21 +159,25 @@ extension Transcription {
 /// Builds `TranscriptText`. Internal: consumers go through `Transcription.text(_:context:)`.
 enum TranscriptTextBuilder {
     /// The stored text a view shows when the row is read as a whole:
-    /// - `.heard`: the clean text when there is one, else the raw text (what the Transcript screen shows for an
-    ///   untimed row); timed rows show their words instead.
+    /// - `.heard`: a timed row's engine text (the raw transcript; the clean one only when raw is missing), the words
+    ///   its lines show; an untimed row's clean text when there is one, else its raw text (what the Transcript screen
+    ///   shows for it).
     /// - `.shown(.raw)`: the raw transcript (clean only when raw is missing), except a dictation whose final pass
     ///   stored polished text: the person chose Polish after (or Clean) for it and its Done screen copied that text, so
     ///   that is its text in either mode (review R4-1).
     /// - `.shown(.clean)`: the clean transcript when it is not blank, else the raw one.
     static func shownText(of transcription: Transcription, view: TranscriptTextView) -> String {
+        let rawFirst = transcription.rawTranscript ?? transcription.cleanTranscript ?? ""
         switch view {
-        case .heard, .shown(.clean):
+        case .heard:
+            return transcription.wordTimestamps?.isEmpty == false ? rawFirst : transcription.displayText
+        case .shown(.clean):
             return transcription.displayText
         case .shown(.raw):
             if transcription.sourceType == .dictation, hasCleanText(transcription) {
                 return transcription.displayText
             }
-            return transcription.rawTranscript ?? transcription.cleanTranscript ?? ""
+            return rawFirst
         }
     }
 
