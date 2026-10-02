@@ -172,4 +172,23 @@ final class TextDocumentReaderTests: XCTestCase {
         XCTAssertEqual(
             HTMLEntities.decode("a &amp; b &lt;c&gt; &#39;d&#39; &#x1F600; &bogus; &"), "a & b <c> 'd' 😀 &bogus; &")
     }
+
+    /// Review R2-18: the named entities of clinical text (comparisons, minus, Greek letters, superscripts, arrows,
+    /// fractions) and accented names decode instead of staying as "&ge;".
+    func testClinicalGreekAndAccentedEntitiesDecode() {
+        XCTAssertEqual(
+            HTMLEntities.decode("K &ge; 5.5, SpO&#8322; &le; 92 %"), "K \u{2265} 5.5, SpO\u{2082} \u{2264} 92 %")
+        XCTAssertEqual(
+            HTMLEntities.decode("&ne; &minus;3 &mu;g &micro;g &alpha; &beta; &Delta; x&sup2; m&sup3; &asymp; &plusmn;"),
+            "\u{2260} \u{2212}3 \u{03BC}g \u{00B5}g \u{03B1} \u{03B2} \u{0394} x\u{00B2} m\u{00B3} \u{2248} \u{00B1}")
+        XCTAssertEqual(
+            HTMLEntities.decode("&rarr; &larr; &uarr; &darr; &harr; &rArr; &frac13; &frac23; &half; &permil; &infin;"),
+            "\u{2192} \u{2190} \u{2191} \u{2193} \u{2194} \u{21D2} \u{2153} \u{2154} \u{00BD} \u{2030} \u{221E}")
+        XCTAssertEqual(
+            HTMLEntities.decode("M&uuml;ller &eacute;t&eacute; Fran&ccedil;ois Pe&ntilde;a Stra&szlig;e &Aring;se"),
+            "M\u{00FC}ller \u{00E9}t\u{00E9} Fran\u{00E7}ois Pe\u{00F1}a Stra\u{00DF}e \u{00C5}se")
+        XCTAssertEqual(
+            HTMLEntities.decode("&Omega; &omega; &Prime; &prime; &Dagger; &dagger; &radic; &check; &geq; &leq;"),
+            "\u{03A9} \u{03C9} \u{2033} \u{2032} \u{2021} \u{2020} \u{221A} \u{2713} \u{2265} \u{2264}")
+    }
 }

@@ -111,7 +111,9 @@
   (`compression_stream`, raw DEFLATE), and inflation stops as soon as the output passes the size the entry declares
   (at most 128 MB): an entry that lies about its size ("zip bomb") is refused as damaged with memory bounded by that
   declaration. It replaces ZIPFoundation, so M5 adds **no dependency** (nothing new in `THIRD_PARTY_LICENSES.md`).
-- `Support/HTMLEntities.swift`: character-reference decoding for HTML documents and YouTube caption text.
+- `Support/HTMLEntities.swift`: character-reference decoding for HTML documents and YouTube caption text: numeric
+  references, all of HTML 4's named ones (Latin-1 letters, Greek, math and arrows) and the HTML5 names clinical text
+  uses (`&geq;`, `&leq;`, `&approx;`, `&check;`, fractions); `&nbsp;` becomes a plain space.
 - `Support/BlockingWork.swift`: the ingest document queue (`com.aarzamen.ichirp.ingest.documents`, concurrent,
   user-initiated) and its async bridge, with a cancellation check for the blocking side (the
   `AVAudioNormalizer.runOnDecodeQueue` pattern).
