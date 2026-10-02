@@ -46,6 +46,10 @@ public struct ExportDocument: Sendable, Equatable {
     }
 
     public static let defaultFooter = "Made with Parakeet on iPhone"
+
+    /// The line every export of a clinical item carries — PDF and Word as a fact under the title, TXT, Markdown and
+    /// WebVTT as a header line (review R1-13) — so a file passed on still says it holds patient information.
+    public static let clinicalPrivacyLine = ExportMetadataLine("Privacy", "Clinical: contains patient information")
 }
 
 extension ExportDocument {
@@ -80,7 +84,7 @@ extension ExportDocument {
             metadata.append(ExportMetadataLine("Source", link))
         }
         if transcription.privacyClass.stricter(effectivePrivacyClass) == .clinical {
-            metadata.append(ExportMetadataLine("Privacy", "Clinical: contains patient information"))
+            metadata.append(clinicalPrivacyLine)
         }
 
         var blocks: [Block] = []

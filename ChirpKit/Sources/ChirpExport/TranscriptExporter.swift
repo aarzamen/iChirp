@@ -44,9 +44,15 @@ public enum ExportError: Error, Sendable, Equatable {
 /// Renders a `Transcription` into TXT, Markdown, SRT, VTT, or JSON, and can write the result to disk.
 public struct TranscriptExporter: Sendable {
     private let cleanupMode: CleanupMode
+    private let effectivePrivacyClass: PrivacyClass?
 
-    public init(cleanupMode: CleanupMode) {
+    /// `effectivePrivacyClass` is the class the privacy rules use for the item (`EffectivePrivacyClass`: its own class
+    /// raised by its documents'), as `ExportDocument.transcript` takes it; nil uses the row's own class. It is never
+    /// lower than the row's own. A clinical item's TXT, Markdown and WebVTT files carry
+    /// `ExportDocument.clinicalPrivacyLine` and its JSON says `"privacyClass": "clinical"` (review R1-13).
+    public init(cleanupMode: CleanupMode, effectivePrivacyClass: PrivacyClass? = nil) {
         self.cleanupMode = cleanupMode
+        self.effectivePrivacyClass = effectivePrivacyClass
     }
 
     /// Renders `transcription` as `format`. Throws `ExportError.noTimestamps` for `.srt`/`.vtt` when
@@ -120,18 +126,36 @@ public struct TranscriptExporter: Sendable {
         }
     }
 
+    // MARK: - Privacy
+
+    /// The class the privacy rules use: the row's own, raised (never lowered) by the caller's effective class.
+    private func privacyClass(of transcription: Transcription) -> PrivacyClass {
+        transcription.privacyClass.stricter(effectivePrivacyClass)
+    }
+
+    /// The header line a clinical item's text exports start with ("Privacy: Clinical: contains patient
+    /// information", the line PDF and Word show); nil for any other class.
+    private func clinicalHeader(_ transcription: Transcription) -> String? {
+        guard privacyClass(of: transcription) == .clinical else { return nil }
+        let line = ExportDocument.clinicalPrivacyLine
+        return "\(line.label): \(line.value)"
+    }
+
     // MARK: - TXT
 
     private func renderPlainText(_ transcription: Transcription) -> String {
+        let header = clinicalHeader(transcription).map { [$0, ""] } ?? []
         guard let words = transcription.wordTimestamps, !words.isEmpty else {
-            return preferredText(transcription)
+            let text = preferredText(transcription)
+            guard let line = header.first else { return text }
+            return text.isEmpty ? line : line + "\n\n" + text
         }
 
         let paragraphs = TranscriptParagraphBuilder.build(from: words)
-        var lines: [String] = []
+        var lines: [String] = header
         var lastSpeakerId: String?
         for (index, paragraph) in paragraphs.enumerated() {
-            if !lines.isEmpty { lines.append("") }
+            if lines.count > header.count { lines.append("") }
             if let label = speakerLabel(for: paragraph.speakerId, in: transcription.speakers),
                 index == 0 || paragraph.speakerId != lastSpeakerId
             {
@@ -146,8 +170,9 @@ public struct TranscriptExporter: Sendable {
     // MARK: - Markdown
 
     private func renderMarkdown(_ transcription: Transcription) -> String {
+        let top = ["# \(transcription.displayTitle)", ""] + (clinicalHeader(transcription).map { [$0, ""] } ?? [])
         guard let words = transcription.wordTimestamps, !words.isEmpty else {
-            var lines = ["# \(transcription.displayTitle)", ""]
+            var lines = top
             let text = preferredText(transcription)
             if !text.isEmpty {
                 lines.append(text)
@@ -156,7 +181,7 @@ public struct TranscriptExporter: Sendable {
         }
 
         let paragraphs = TranscriptParagraphBuilder.build(from: words)
-        var lines: [String] = ["# \(transcription.displayTitle)", ""]
+        var lines: [String] = top
         var lastSpeakerId: String?
         for (index, paragraph) in paragraphs.enumerated() {
             if let label = speakerLabel(for: paragraph.speakerId, in: transcription.speakers),
@@ -193,6 +218,10 @@ public struct TranscriptExporter: Sendable {
     private func renderVTT(_ transcription: Transcription) throws -> String {
         let cues = try subtitleCues(for: transcription)
         var lines: [String] = ["WEBVTT", ""]
+        // A WebVTT NOTE block is a comment players never show. SRT has no comment syntax, so it carries no marker.
+        if let header = clinicalHeader(transcription) {
+            lines += ["NOTE \(header)", ""]
+        }
         for cue in cues {
             lines.append("\(Self.vttTimestamp(ms: cue.startMs)) --> \(Self.vttTimestamp(ms: cue.endMs))")
             if let label = speakerLabel(for: cue.speakerId, in: transcription.speakers) {
@@ -236,7 +265,9 @@ public struct TranscriptExporter: Sendable {
 
     /// `ichirp.transcript/v1`: a stable, portable JSON projection of a transcription — not a raw
     /// `Transcription` encode, so the on-disk export shape stays independent of the row's persisted
-    /// column shape.
+    /// column shape. `speakers`, `segments` and `words` are always arrays, empty when the item has none (the
+    /// contract types them as arrays; review R1-4); `privacyClass` is the effective class (review R1-13, an additive
+    /// key).
     private struct ExportedTranscript: Encodable {
         let schema: String
         let id: UUID
@@ -247,9 +278,10 @@ public struct TranscriptExporter: Sendable {
         let engineVariant: String?
         let language: String?
         let text: String
-        let speakers: [SpeakerInfo]?
-        let segments: [TranscriptSegmentRecord]?
-        let words: [WordTimestamp]?
+        let privacyClass: PrivacyClass
+        let speakers: [SpeakerInfo]
+        let segments: [TranscriptSegmentRecord]
+        let words: [WordTimestamp]
     }
 
     private func renderJSON(_ transcription: Transcription) throws -> String {
@@ -263,9 +295,10 @@ public struct TranscriptExporter: Sendable {
             engineVariant: transcription.engineVariant,
             language: transcription.language,
             text: preferredText(transcription),
-            speakers: transcription.speakers,
-            segments: transcription.transcriptSegments,
-            words: transcription.wordTimestamps
+            privacyClass: privacyClass(of: transcription),
+            speakers: transcription.speakers ?? [],
+            segments: transcription.transcriptSegments ?? [],
+            words: transcription.wordTimestamps ?? []
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]

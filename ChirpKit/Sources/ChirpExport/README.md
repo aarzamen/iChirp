@@ -5,14 +5,20 @@ ported from MacParakeet's `Services/ExportService.swift`, collapsed to the M0/M1
 
 ## Entry point
 
-`TranscriptExporter.swift` — `TranscriptExporter(cleanupMode:).render(_:as:)` and `.write(_:as:to:)`.
+`TranscriptExporter.swift` — `TranscriptExporter(cleanupMode:effectivePrivacyClass:).render(_:as:)` and
+`.write(_:as:to:)`.
 
 ## What's here
 
 - `TranscriptExporter.swift`: `ExportFormat` (txt/markdown/srt/vtt/json, with `fileExtension` and
   `displayName`), `ExportError.noTimestamps`, and `TranscriptExporter` itself. TXT/Markdown paragraphs
   come from `ChirpText`'s `TranscriptParagraphBuilder`; SRT/VTT cues come from `TranscriptCueBuilder`;
-  JSON is a custom `ichirp.transcript/v1` schema, not a raw `Transcription` encode.
+  JSON is a custom `ichirp.transcript/v1` schema, not a raw `Transcription` encode: `speakers`, `segments` and
+  `words` are always arrays, empty when the item has none (review R1-4), and `privacyClass` names the effective
+  class (review R1-13). `TranscriptExporter(cleanupMode:effectivePrivacyClass:)` takes the class the privacy rules
+  use, like `ExportDocument.transcript` (nil: the row's own; never lower than it); a clinical item's TXT starts with
+  `ExportDocument.clinicalPrivacyLine` ("Privacy: Clinical: contains patient information"), its Markdown has the
+  line under the title and its VTT a `NOTE` block; SRT, which has no comment syntax, has none.
 - `ExportTempFiles.swift`: where a share-sheet export lives on disk (`<tmp>/export-<id>/`, the same path
   `ChirpFeatures.TranscriptViewModel.exportFile(_:)` writes into) and how it is cleaned up —
   `remove(for:)` deletes one id's folder (`LibraryViewModel.delete` calls this so a deleted row's export

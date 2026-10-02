@@ -235,6 +235,140 @@ final class TranscriptExporterTests: XCTestCase {
         XCTAssertEqual(decoded.text, "JSON export test")
     }
 
+    // MARK: - JSON contract (review R1-4): `speakers`, `segments` and `words` are always arrays
+
+    /// `transcript-json-v1` types the three as arrays ("empty when no speakers"); only the scalar fields may be
+    /// absent. Non-optional arrays here, so a missing key fails to decode — as `doc["speakers"]` failed in a script.
+    private struct ContractV1: Decodable {
+        let schema: String
+        let id: UUID
+        let title: String
+        let createdAt: Date
+        let text: String
+        let speakers: [SpeakerInfo]
+        let segments: [TranscriptSegmentRecord]
+        let words: [WordTimestamp]
+        let privacyClass: String
+    }
+
+    private func decodeContract(_ json: String) throws -> ContractV1 {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ContractV1.self, from: Data(json.utf8))
+    }
+
+    /// Two synthetic speakers, four words, two segments whose word ranges index into the words.
+    private func diarizedRow() -> Transcription {
+        var row = Transcription(fileName: "visit.m4a", durationMs: 4_000, status: .completed)
+        row.wordTimestamps = [
+            WordTimestamp(word: "Synthetic", startMs: 0, endMs: 400, confidence: 0.91, speakerId: "S1"),
+            WordTimestamp(word: "question.", startMs: 450, endMs: 900, confidence: 0.87, speakerId: "S1"),
+            WordTimestamp(word: "Synthetic", startMs: 2_000, endMs: 2_400, confidence: 0.95, speakerId: "S2"),
+            WordTimestamp(word: "answer.", startMs: 2_450, endMs: 2_900, confidence: 0.9, speakerId: "S2"),
+        ]
+        row.speakers = [SpeakerInfo(id: "S1", label: "Speaker 1"), SpeakerInfo(id: "S2", label: "Speaker 2")]
+        row.transcriptSegments = [
+            TranscriptSegmentRecord(
+                startMs: 0, endMs: 900, speakerId: "S1", speakerLabel: "Speaker 1", text: "Synthetic question.",
+                wordRange: TranscriptSegmentWordRange(startIndex: 0, endIndexExclusive: 2)),
+            TranscriptSegmentRecord(
+                startMs: 2_000, endMs: 2_900, speakerId: "S2", speakerLabel: "Speaker 2", text: "Synthetic answer.",
+                wordRange: TranscriptSegmentWordRange(startIndex: 2, endIndexExclusive: 4)),
+        ]
+        row.rawTranscript = "Synthetic question. Synthetic answer."
+        return row
+    }
+
+    func testJSONOfASpeakerlessTranscriptHasEmptySpeakerAndSegmentArrays() throws {
+        var row = Transcription(fileName: "note.m4a", status: .completed)
+        row.wordTimestamps = [
+            WordTimestamp(word: "Synthetic", startMs: 0, endMs: 400, confidence: 1),
+            WordTimestamp(word: "words.", startMs: 450, endMs: 900, confidence: 1),
+        ]
+        row.rawTranscript = "Synthetic words."
+        let decoded = try decodeContract(TranscriptExporter(cleanupMode: .raw).render(row, as: .json))
+        XCTAssertEqual(decoded.speakers, [])
+        XCTAssertEqual(decoded.segments, [])
+        XCTAssertEqual(decoded.words.map(\.word), ["Synthetic", "words."])
+    }
+
+    func testJSONOfADocumentHasThreeEmptyArrays() throws {
+        var row = Transcription(sourceType: .document, fileName: "letter.pdf", status: .completed)
+        row.rawTranscript = "Synthetic letter text."
+        let decoded = try decodeContract(TranscriptExporter(cleanupMode: .raw).render(row, as: .json))
+        XCTAssertEqual(decoded.speakers, [])
+        XCTAssertEqual(decoded.segments, [])
+        XCTAssertEqual(decoded.words, [])
+        XCTAssertEqual(decoded.text, "Synthetic letter text.")
+    }
+
+    /// The contract's round trip: words, speakers and segments come back equal, every `wordRange` indexes the words
+    /// of its own segment (half-open), and every speaker id used appears in `speakers`.
+    func testJSONRoundTripsWordsSpeakersAndSegmentsWithWordRanges() throws {
+        let row = diarizedRow()
+        let decoded = try decodeContract(TranscriptExporter(cleanupMode: .raw).render(row, as: .json))
+        XCTAssertEqual(decoded.schema, "ichirp.transcript/v1")
+        XCTAssertEqual(decoded.id, row.id)
+        XCTAssertEqual(decoded.words, row.wordTimestamps)
+        XCTAssertEqual(decoded.speakers, row.speakers)
+        XCTAssertEqual(decoded.segments, row.transcriptSegments)
+        for segment in decoded.segments {
+            let range = segment.wordRange.startIndex..<segment.wordRange.endIndexExclusive
+            XCTAssertEqual(decoded.words[range].map(\.word).joined(separator: " "), segment.text)
+        }
+        let speakerIDs = Set(decoded.speakers.map(\.id))
+        XCTAssertTrue(decoded.words.allSatisfy { $0.speakerId.map(speakerIDs.contains) ?? true })
+        XCTAssertTrue(decoded.segments.allSatisfy { $0.speakerId.map(speakerIDs.contains) ?? true })
+    }
+
+    // MARK: - Clinical marker in the text exports (review R1-13)
+
+    private static let clinicalLine = "Privacy: Clinical: contains patient information"
+
+    /// PDF and Word say "Privacy: Clinical"; the text formats now say the same, so a file passed on as text still
+    /// tells its reader (or a script) that it holds patient information.
+    func testTXTAndMarkdownOfAClinicalItemSayItHoldsPatientInformation() throws {
+        var row = Transcription(sourceType: .text, fileName: "Text", status: .completed, privacyClass: .clinical)
+        row.rawTranscript = "Synthetic note."
+        let exporter = TranscriptExporter(cleanupMode: .raw)
+        XCTAssertEqual(try exporter.render(row, as: .txt), "\(Self.clinicalLine)\n\nSynthetic note.")
+        XCTAssertEqual(try exporter.render(row, as: .markdown), "# Text\n\n\(Self.clinicalLine)\n\nSynthetic note.")
+
+        var timed = diarizedRow()
+        timed.privacyClass = .clinical
+        XCTAssertTrue(try exporter.render(timed, as: .txt).hasPrefix("\(Self.clinicalLine)\n\nSpeaker 1:\n"))
+        XCTAssertTrue(try exporter.render(timed, as: .markdown).hasPrefix("# visit\n\n\(Self.clinicalLine)\n\n"))
+        XCTAssertTrue(
+            try exporter.render(timed, as: .vtt).hasPrefix("WEBVTT\n\nNOTE \(Self.clinicalLine)\n\n00:00:00.000 -->"),
+            "a WebVTT NOTE block (players never show it)")
+    }
+
+    /// The marker follows the class the privacy rules use: a personal row raised by a clinical document is marked;
+    /// the effective class never lowers the row's own clinical class.
+    func testTheEffectiveClassMarksTheTextExports() throws {
+        var row = Transcription(fileName: "visit.m4a", status: .completed)
+        row.rawTranscript = "Synthetic visit."
+        XCTAssertEqual(try TranscriptExporter(cleanupMode: .raw).render(row, as: .txt), "Synthetic visit.")
+        let raised = TranscriptExporter(cleanupMode: .raw, effectivePrivacyClass: .clinical)
+        XCTAssertEqual(try raised.render(row, as: .txt), "\(Self.clinicalLine)\n\nSynthetic visit.")
+        XCTAssertEqual(try decodeContract(raised.render(row, as: .json)).privacyClass, "clinical")
+
+        row.privacyClass = .clinical
+        let lower = TranscriptExporter(cleanupMode: .raw, effectivePrivacyClass: .personal)
+        XCTAssertTrue(try lower.render(row, as: .txt).hasPrefix(Self.clinicalLine), "never lower than the row's own")
+    }
+
+    /// JSON names the class for every item (an additive `transcript-json-v1` key): scripts and agents that
+    /// post-process transcripts can tell PHI apart.
+    func testJSONCarriesThePrivacyClass() throws {
+        for privacyClass in PrivacyClass.allCases {
+            var row = Transcription(fileName: "a.m4a", status: .completed, privacyClass: privacyClass)
+            row.rawTranscript = "Synthetic."
+            let decoded = try decodeContract(TranscriptExporter(cleanupMode: .raw).render(row, as: .json))
+            XCTAssertEqual(decoded.privacyClass, privacyClass.rawValue)
+        }
+    }
+
     // MARK: - write(_:as:to:)
 
     func testWriteNamesFileFromSanitizedDisplayTitleAndWritesRenderedContent() throws {

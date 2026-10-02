@@ -94,7 +94,12 @@ and code as plain text; the PDF and Word files use real heading styles, bullets 
 | Markdown | Title, then paragraphs with speaker labels when present | Ported from upstream `formatMarkdown` |
 | SRT | Numbered cues, `HH:MM:SS,mmm` | Throws `noTimestamps` without words |
 | VTT | `WEBVTT` header, cues with `HH:MM:SS.mmm` | Throws `noTimestamps` without words |
-| JSON | `ichirp.transcript/v1` | Contract: [`contracts/transcript-json-v1.md`](contracts/transcript-json-v1.md) |
+| JSON | `ichirp.transcript/v1`, with `privacyClass` and always-present `speakers`/`segments`/`words` arrays | Contract: [`contracts/transcript-json-v1.md`](contracts/transcript-json-v1.md) |
+
+A clinical item (its own class or the effective class the caller passes) says so in every format that can carry a
+line (review R1-13): TXT starts with "Privacy: Clinical: contains patient information", Markdown has that line under
+its title, VTT has it as a `NOTE` block (players never show it), PDF and Word list it under the title, and JSON says
+`"privacyClass": "clinical"`. SRT has no comment syntax, so it carries no marker.
 
 With no words, TXT and Markdown fall back to `displayText`. The exported file name is the sanitized display title
 plus the extension. PDF and Word (`DocumentExporter`, plan 022: Core Text and a minimal OOXML writer; the Gemini
