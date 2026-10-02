@@ -20,6 +20,17 @@ public struct NotBuiltYetView: View {
     @ScaledMetric(relativeTo: .caption2) private var badgeSize: CGFloat = 11.5
     @ScaledMetric(relativeTo: .subheadline) private var summarySize: CGFloat = 14
 
+    /// The canvas placeholder's own geometry: the symbol's tint circle and glyph (both grow with the title, R7-4),
+    /// and the milestone badge's padding.
+    private enum Metrics {
+        static let circle: CGFloat = 64
+        static let glyph: CGFloat = 26
+        static let badgeHorizontalPadding: CGFloat = 10
+        static let badgeTracking: CGFloat = 0.6
+        /// The canvas placeholder's padding above and below its content.
+        static let verticalPadding: CGFloat = 36
+    }
+
     public init(title: String, milestone: String, summary: String, systemImage: String = "hammer") {
         self.title = title
         self.milestone = milestone
@@ -28,18 +39,18 @@ public struct NotBuiltYetView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Tokens.Spacing.m) {
             ZStack {
                 Circle()
                     .fill(Tokens.Color.tint)
-                    .frame(width: 64, height: 64)
+                    .chirpScaledFrame(width: Metrics.circle, height: Metrics.circle, relativeTo: .title3, maxScale: 1.5)
                 Image(systemName: systemImage)
-                    .font(.system(size: 26, weight: .semibold))
+                    .chirpGlyph(Metrics.glyph, .semibold, relativeTo: .title3, maxScale: 1.5)
                     .foregroundStyle(Tokens.Color.accentInk)
             }
             .accessibilityHidden(true)  // Decorative; the combined label below says it all.
 
-            VStack(spacing: 8) {
+            VStack(spacing: Tokens.Spacing.xs) {
                 Text(title)
                     .font(Tokens.Font.rounded(titleSize, .bold))
                     .foregroundStyle(Tokens.Color.ink)
@@ -47,11 +58,11 @@ public struct NotBuiltYetView: View {
 
                 Text(milestone.uppercased())
                     .font(.system(size: badgeSize, weight: .bold))
-                    .tracking(0.6)
+                    .tracking(Metrics.badgeTracking)
                     // Text on `tint`: `accentInkPressed` (about 7:1), not `accentInk` (4.39:1 in light mode, F8).
                     .foregroundStyle(Tokens.Color.accentInkPressed)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Metrics.badgeHorizontalPadding)
+                    .padding(.vertical, Tokens.Spacing.xxs)
                     .background(Tokens.Color.tint)
                     .clipShape(Capsule())
             }
@@ -62,8 +73,8 @@ public struct NotBuiltYetView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 36)
+        .padding(.horizontal, Tokens.Spacing.xxl)
+        .padding(.vertical, Metrics.verticalPadding)
         .frame(maxWidth: .infinity)
         .background(Tokens.Color.ground)
         // One VoiceOver stop for the whole placeholder: title, milestone, then the summary.

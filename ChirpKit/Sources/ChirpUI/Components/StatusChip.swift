@@ -28,8 +28,17 @@ public struct StatusChip: View {
         self.border = border
     }
 
+    /// The canvas chip's own metrics (a component's geometry, not a shared spacing step).
+    private enum Metrics {
+        static let iconSpacing: CGFloat = 6
+        static let dot: CGFloat = 6
+        static let horizontalPadding: CGFloat = 10
+        static let verticalPadding: CGFloat = 5
+        static let minHeight: CGFloat = 26
+    }
+
     public var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Metrics.iconSpacing) {
             switch icon {
             case .system(let name):
                 Image(systemName: name)
@@ -38,7 +47,8 @@ public struct StatusChip: View {
             case .dot(let color):
                 Circle()
                     .fill(color)
-                    .frame(width: 6, height: 6)
+                    // Grows with the caption beside it (R7-4).
+                    .chirpScaledFrame(width: Metrics.dot, height: Metrics.dot, relativeTo: .caption)
                     .accessibilityHidden(true)
             case .none:
                 EmptyView()
@@ -52,12 +62,12 @@ public struct StatusChip: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(ink)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(minHeight: 26)
+        .padding(.horizontal, Metrics.horizontalPadding)
+        .padding(.vertical, Metrics.verticalPadding)
+        .frame(minHeight: Metrics.minHeight)
         .background(fill)
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(border, lineWidth: 1))
+        .overlay(Capsule().strokeBorder(border, lineWidth: Tokens.Metric.hairline))
         .accessibilityElement(children: .combine)
     }
 }
@@ -109,13 +119,13 @@ extension StatusChip {
 }
 
 #Preview("StatusChip") {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
         StatusChip.onDevice()
         StatusChip.cleanTextOnCopy()
         StatusChip.notBuiltYet(milestone: "M2")
         StatusChip.transcribing(percent: 62)
         StatusChip.partialAudio()
     }
-    .padding(24)
+    .padding(Tokens.Spacing.xl)
     .background(Tokens.Color.ground)
 }

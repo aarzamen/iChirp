@@ -31,7 +31,7 @@ public struct RosetteMark: View {
                         width: Self.haloRadius * 2, height: Self.haloRadius * 2)
                     context.stroke(
                         Path(ellipseIn: haloRect).applying(transform),
-                        with: .color(Self.haloColor.opacity(0.45)),
+                        with: .color(Tokens.Color.rosetteHalo.opacity(Self.haloOpacity)),
                         lineWidth: 1.2 * scale
                     )
                 }
@@ -73,7 +73,8 @@ public struct RosetteMark: View {
 
     private static let haloCenter = CGPoint(x: 60, y: 48)
     private static let haloRadius: CGFloat = 30
-    private static let haloColor = SwiftUI.Color(red: 0.4, green: 0.851, blue: 0.4)  // #66D966
+    /// The canvas draws the halo (`Tokens.Color.rosetteHalo`, `#66D966`) at 45%.
+    private static let haloOpacity = 0.45
 
     private static let stemPath: Path = {
         var path = Path()
@@ -102,12 +103,12 @@ public struct RosetteMark: View {
 }
 
 #Preview("RosetteMark") {
-    HStack(spacing: 24) {
+    HStack(spacing: Tokens.Spacing.xl) {
         RosetteMark()
             .frame(width: 40, height: 47)
         RosetteMark(halo: true)
             .frame(width: 42, height: 49)
     }
-    .padding(32)
+    .padding(Tokens.Spacing.xxl)
     .background(Tokens.Color.surface)
 }

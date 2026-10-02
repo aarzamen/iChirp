@@ -14,6 +14,8 @@ public struct SpeakerDot: View {
     /// The dot's diameter, scaled with Dynamic Type (F1): 7pt at the default size, relative to `.footnote` (the
     /// label's text style below).
     @ScaledMetric(relativeTo: .footnote) private var dotDiameter: CGFloat = 7
+    /// The canvas gap between the dot and the label.
+    private static let dotSpacing: CGFloat = 7
 
     public init(label: String, timestamp: String? = nil, speakerIndex: Int) {
         self.label = label
@@ -23,7 +25,7 @@ public struct SpeakerDot: View {
 
     public var body: some View {
         let palette = Tokens.Color.speaker(at: speakerIndex)
-        HStack(spacing: 7) {
+        HStack(spacing: Self.dotSpacing) {
             Circle()
                 .fill(palette.dot)
                 .frame(width: dotDiameter, height: dotDiameter)
@@ -48,7 +50,7 @@ public struct SpeakerDot: View {
 }
 
 #Preview("SpeakerDot") {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
         SpeakerDot(label: "Senior Chief", timestamp: "03:41", speakerIndex: 0)
         SpeakerDot(label: "Ops", timestamp: "03:58", speakerIndex: 1)
         SpeakerDot(label: "You", timestamp: "04:06", speakerIndex: 2)
@@ -56,6 +58,6 @@ public struct SpeakerDot: View {
         // Wraps back to blue past the four-color palette.
         SpeakerDot(label: "Speaker 5", timestamp: "04:40", speakerIndex: 4)
     }
-    .padding(24)
+    .padding(Tokens.Spacing.xl)
     .background(Tokens.Color.ground)
 }
