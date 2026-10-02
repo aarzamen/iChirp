@@ -19,7 +19,7 @@ Then read `ParakeetEngine.swift`.
 
 ## What's here
 
-- `ModelAssetLifecycle.swift`: the generic actor both engines delegate to. It owns the download and load jobs
+- `ModelAssetLifecycle.swift`: the generic actor all three models (Parakeet, the diarizer, Silero VAD) delegate to. It owns the download and load jobs
   (concurrent callers join one of each), the leases that in-flight jobs hold, and a generation counter. A delete
   refuses while a lease is out, bumps the generation, cancels and awaits in-flight work, and only then removes
   files. A load that finishes for an older generation is discarded. The FluidAudio calls come in through
@@ -80,11 +80,16 @@ Then read `ParakeetEngine.swift`.
   `DownloadError.stalled` and `.rateLimited`.
 
 - `FluidAudioVoiceActivity.swift` (M3): Silero VAD (`VadManager`, **CPU only**, so the Neural Engine stays free
-  for Parakeet) behind `ChirpCore.VoiceActivityDetecting`: `assetStatus` checks
-  `<models root>/<Repo.vad.folderName>/silero-vad-unified-256ms-v6.2.1.mlmodelc`, `downloadAssets` fetches it
-  (about 2 MB; only when the person taps Download in Settings → Meetings), `makeStream` never downloads and hands
-  out a per-recording `FluidAudioVoiceActivityStream` (streaming state, upstream `fluidConfig`: 0.5 s silence,
-  0.15 s padding). `FluidAudioEngines.makeVoiceActivity()` builds it.
+  for Parakeet) behind `ChirpCore.VoiceActivityDetecting`, on the same `ModelAssetLifecycle` as Parakeet and the
+  diarizer (review R3-3). Ready means complete: `<models root>/<Repo.vad.folderName>/silero-vad-unified-256ms-v6.2.1.mlmodelc`
+  with its `coremldata.bin`, no `*.partial` file, and the pinned revision (`voiceActivityModelsExist`).
+  `downloadAssets` fetches it with `ModelHub.download` (about 2 MB; only when the person taps Download in Settings →
+  Meetings), resuming a partial cache, and excludes the folder from backups. `makeStream` loads the model once from
+  local files (`VadManager(config:vadModel:)`, concurrent callers share the load; a folder from before the fix is
+  excluded from backups then) and hands out a per-recording `FluidAudioVoiceActivityStream` (streaming state,
+  upstream `fluidConfig`: 0.5 s silence, 0.15 s padding). A missing, downloading, deleting or unloadable model gives
+  nil (fixed chunks): `makeStream` never downloads and never purges the folder (`VadManager(config:modelDirectory:)`
+  would, through `ModelHub.loadModels`). `FluidAudioEngines.makeVoiceActivity()` builds it.
 
 ## What to know before editing
 
@@ -136,7 +141,10 @@ scripts/check.sh ChirpEngineFluidAudioTests
 This runs the package build, the unit tests and the strict lint. The unit tests never download and never wait
 on a real network: they cover the gate, the descriptors, word timing, the not-downloaded and partial-cache paths,
 the lifecycle race rules, download retries, the offline check and failure details, the per-job manager pool,
-diarizer renumbering, PLDA repair and decoding, progress mapping, and Parakeet's memory-fit refusal.
+diarizer renumbering, PLDA repair and decoding, progress mapping, Parakeet's memory-fit refusal, and Silero VAD on
+the lifecycle (review R3-3: a partial cache is not ready and is neither purged nor re-downloaded by `makeStream`, a
+damaged one gives fixed chunks and is kept, Download excludes the folder from backups, concurrent streams share one
+local load).
 
 The real-model tests are skipped unless you opt in. They download Parakeet v3 (~0.5 GB) and the diarizer into
 `~/Library/Caches/ichirp-test-models`. Then they transcribe and diarize
