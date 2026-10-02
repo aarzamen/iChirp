@@ -99,7 +99,7 @@ struct CorrectionsSheet: View {
                 TranscriptCorrectionsCopy.revertAllTitle(count: corrections.count),
                 isPresented: $isConfirmingRevertAll, titleVisibility: .visible
             ) {
-                Button("Revert All", role: .destructive) {
+                Button(TranscriptCorrectionsCopy.revertAllButton(count: corrections.count), role: .destructive) {
                     Task { await revertAll() }
                 }
                 Button("Cancel", role: .cancel) {}

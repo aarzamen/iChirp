@@ -46,6 +46,11 @@ enum TranscriptCorrectionsCopy {
         count == 1 ? "Revert the correction?" : "Revert all \(count) corrections?"
     }
 
+    /// The dialog's destructive button: "Revert" for one correction (the title says "the correction"), else "Revert All".
+    static func revertAllButton(count: Int) -> String {
+        count == 1 ? "Revert" : "Revert All"
+    }
+
     static let revertAllMessage =
         "The transcript goes back to the words Parakeet heard. Documents already made from it don’t change."
 

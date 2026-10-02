@@ -498,7 +498,6 @@ struct TranscriptScreen: View {
         _ line: TranscriptTextLine, tokens: [TranscriptToken], speakerIndex: Int?, showsTiming: Bool, isCurrent: Bool,
         jevTag: String? = nil
     ) -> some View {
-        let startMs = line.startMs ?? 0
         let isCorrected = TranscriptLineText.correctionCount(in: line, tokens: tokens) > 0
         return VStack(alignment: .leading, spacing: 6) {
             if let jevTag {
@@ -506,35 +505,18 @@ struct TranscriptScreen: View {
             }
             if showsTiming {
                 // The 44 pt timestamp target overlaps the paragraph spacing instead of adding to it.
-                HStack(spacing: 7) {
-                    if let speakerIndex {
-                        SpeakerDot(label: model.speakerLabel(for: line.speakerId), speakerIndex: speakerIndex)
+                // Plan 025: "Corrected" sits beside the speaker and time when it fits, and on its own row at large text
+                // sizes (never breaking "Speaker 1" or itself mid-word).
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 7) {
+                        speakerAndTime(line, speakerIndex: speakerIndex, isCurrent: isCurrent)
+                        if isCorrected { correctedLabel }
                     }
-                    Button {
-                        seek(toMs: startMs)
-                    } label: {
-                        Text(Formatting.clock(ms: startMs))
-                            .chirpFont(11.5)
-                            .monospacedDigit()
-                            // Text-safe ink on the current paragraph's tint fill (F8): `accentText` alone is
-                            // 4.39:1 there.
-                            .foregroundStyle(
-                                player.isAvailable
-                                    ? (isCurrent ? AppColor.accentTextOnTint : AppColor.accentText)
-                                    : Tokens.Color.secondary
-                            )
-                            .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // F49: 44 pt to tap
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!player.isAvailable)
-                    .accessibilityLabel("Play from \(Formatting.clock(ms: startMs))")
-                    if isCorrected {
-                        // Plan 025: the line carries the person's corrections (Show Original brings back the words).
-                        Text("Corrected")
-                            .chirpFont(11.5)
-                            .foregroundStyle(Tokens.Color.secondary)
-                            .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(spacing: 7) {
+                            speakerAndTime(line, speakerIndex: speakerIndex, isCurrent: isCurrent)
+                        }
+                        if isCorrected { correctedLabel }
                     }
                 }
                 .padding(.vertical, -8)
@@ -554,6 +536,43 @@ struct TranscriptScreen: View {
         )
         .padding(.horizontal, -10)
         .animation(.easeOut(duration: 0.2), value: isCurrent)
+    }
+
+    @ViewBuilder private func speakerAndTime(_ line: TranscriptTextLine, speakerIndex: Int?, isCurrent: Bool)
+        -> some View
+    {
+        let startMs = line.startMs ?? 0
+        if let speakerIndex {
+            SpeakerDot(label: model.speakerLabel(for: line.speakerId), speakerIndex: speakerIndex)
+        }
+        Button {
+            seek(toMs: startMs)
+        } label: {
+            Text(Formatting.clock(ms: startMs))
+                .chirpFont(11.5)
+                .monospacedDigit()
+                // Text-safe ink on the current paragraph's tint fill (F8): `accentText` alone is 4.39:1 there.
+                .foregroundStyle(
+                    player.isAvailable
+                        ? (isCurrent ? AppColor.accentTextOnTint : AppColor.accentText)
+                        : Tokens.Color.secondary
+                )
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)  // F49: 44 pt to tap
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!player.isAvailable)
+        .accessibilityLabel("Play from \(Formatting.clock(ms: startMs))")
+    }
+
+    /// Plan 025: the line carries the person's corrections (Show Original brings back the words as heard). VoiceOver
+    /// hears it as the line's value instead.
+    private var correctedLabel: some View {
+        Text("Corrected")
+            .chirpFont(11.5)
+            .foregroundStyle(Tokens.Color.secondary)
+            .fixedSize()
+            .accessibilityHidden(true)
     }
 
     // MARK: - Bottom bar

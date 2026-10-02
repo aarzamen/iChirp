@@ -166,17 +166,13 @@ struct ExtractFieldsSheet: View {
     }
 
     /// Plan 025 D7: these fields were found before the person corrected the transcript, so their quotes point at text
-    /// that changed. The quotes are hidden and the SOAP hand-off is off until Extract Again.
+    /// that changed. The quotes are hidden and the SOAP hand-off is off until the bar's Extract again (filled while stale).
     private var staleBanner: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(ExtractFieldsViewModel.staleNotice, systemImage: "exclamationmark.triangle")
                 .chirpFont(13.5, .semibold)
                 .foregroundStyle(Tokens.Color.partialAudioInk)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Extract Again") { Task { await model.extract() } }
-                .buttonStyle(.chirp(.filled, size: .compact))
-                .disabled(isRunning)
-                .accessibilityHint("Finds the fields again in the corrected transcript")
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

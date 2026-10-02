@@ -80,6 +80,8 @@ final class TranscriptCorrectionsAppTests: XCTestCase {
     func testRevertAllDialogCopyNamesTheCount() {
         XCTAssertEqual(TranscriptCorrectionsCopy.revertAllTitle(count: 14), "Revert all 14 corrections?")
         XCTAssertEqual(TranscriptCorrectionsCopy.revertAllTitle(count: 1), "Revert the correction?")
+        XCTAssertEqual(TranscriptCorrectionsCopy.revertAllButton(count: 1), "Revert")
+        XCTAssertEqual(TranscriptCorrectionsCopy.revertAllButton(count: 14), "Revert All")
         XCTAssertEqual(
             TranscriptCorrectionsCopy.revertAllMessage,
             "The transcript goes back to the words Parakeet heard. Documents already made from it don’t change.")
