@@ -22,12 +22,17 @@ final class ShareViewController: UIViewController {
 
     private func handOff() async {
         let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
-        guard let link = await Self.firstLink(in: providers), let url = SharedLink.handOffURL(for: link) else {
+        let token = SharedLink.newToken()
+        guard let link = await Self.firstLink(in: providers), let url = SharedLink.handOffURL(for: link, token: token)
+        else {
             logger.notice("share_received kind=none")
             extensionContext?.cancelRequest(withError: CocoaError(.featureUnsupported))
             return
         }
         logger.notice("share_received kind=\(Self.kind(of: link), privacy: .public)")
+        // The app starts on its own only when this token is in the shared keychain group (ShareTokenKeychain).
+        let wrote = ShareTokenKeychain.write(token: token)
+        logger.notice("share_token_written ok=\(wrote, privacy: .public)")
         let opened = openContainingApp(url)
         logger.notice("share_open_app result=\(opened ? "sent" : "no_application", privacy: .public)")
         extensionContext?.completeRequest(returningItems: nil)

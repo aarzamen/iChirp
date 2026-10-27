@@ -56,4 +56,32 @@ final class SharedLinkTests: XCTestCase {
         XCTAssertNil(SharedLink.firstWebLink(in: "no link here"))
         XCTAssertNil(SharedLink.firstWebLink(in: "mail me: a@b.c"))
     }
+
+    // MARK: - The one-time share token (owner's choice 2026-10-27: iOS reports no source application)
+
+    func testHandOffCarriesToken() throws {
+        let link = url("https://youtu.be/dQw4w9WgXcQ")
+        let handOff = try XCTUnwrap(SharedLink.handOffURL(for: link, token: "abc-123"))
+        let parsed = try XCTUnwrap(SharedLink.handOff(from: handOff))
+        XCTAssertEqual(parsed.link, link)
+        XCTAssertEqual(parsed.token, "abc-123")
+        XCTAssertNil(try XCTUnwrap(SharedLink.handOff(from: XCTUnwrap(SharedLink.handOffURL(for: link)))).token)
+    }
+
+    func testTokenRecordMatchesOnlyFreshSameToken() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let record = SharedLink.tokenRecord(token: "abc", at: now)
+        XCTAssertTrue(SharedLink.tokenMatches(record: record, token: "abc", now: now.addingTimeInterval(59)))
+        XCTAssertFalse(SharedLink.tokenMatches(record: record, token: "abc", now: now.addingTimeInterval(61)))
+        XCTAssertFalse(SharedLink.tokenMatches(record: record, token: "abd", now: now))
+        XCTAssertFalse(SharedLink.tokenMatches(record: record, token: nil, now: now))
+        XCTAssertFalse(SharedLink.tokenMatches(record: nil, token: "abc", now: now))
+        XCTAssertFalse(SharedLink.tokenMatches(record: "garbage", token: "abc", now: now))
+        XCTAssertFalse(SharedLink.tokenMatches(record: SharedLink.tokenRecord(token: "", at: now), token: "", now: now))
+    }
+
+    func testNewTokensAreUnique() {
+        XCTAssertNotEqual(SharedLink.newToken(), SharedLink.newToken())
+        XCTAssertGreaterThanOrEqual(SharedLink.newToken().count, 32)
+    }
 }

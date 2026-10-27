@@ -142,6 +142,16 @@ final class TranscriptionCodingTests: XCTestCase {
         XCTAssertEqual(
             try JSONDecoder().decode(TranscriptionSettings.self, from: JSONEncoder().encode(dictation)), dictation)
     }
+
+    /// Plan 029: "Start shared links right away" is on for settings saved before it existed, and round-trips off.
+    func testOldSettingsDecodeWithStartRightAwayOn() throws {
+        let old = Data(#"{"cleanupMode":"raw","keepDictationAudio":true}"#.utf8)
+        XCTAssertTrue(try JSONDecoder().decode(TranscriptionSettings.self, from: old).startSharedLinksRightAway)
+        var off = TranscriptionSettings()
+        off.startSharedLinksRightAway = false
+        let decoded = try JSONDecoder().decode(TranscriptionSettings.self, from: JSONEncoder().encode(off))
+        XCTAssertFalse(decoded.startSharedLinksRightAway)
+    }
 }
 
 /// M5: document formats, pages and the source title's place in `displayTitle`.

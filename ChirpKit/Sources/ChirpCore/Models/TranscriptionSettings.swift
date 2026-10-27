@@ -28,6 +28,9 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
     /// M3: delete the audio of completed meetings older than this many days; nil keeps it forever (the default).
     /// Transcripts and notes are never deleted by it, nor a meeting still recording or not yet transcribed.
     public var meetingAudioRetentionDays: Int?
+    /// Plan 029: a link shared to Parakeet from its own share extension starts as soon as Parakeet opens. Off fills in
+    /// Paste a link and waits for Transcribe. On by default (the owner asked for it).
+    public var startSharedLinksRightAway: Bool = true
 
     public init() {}
 
@@ -54,6 +57,9 @@ public struct TranscriptionSettings: Codable, Sendable, Equatable {
         }
         if let value = try? container.decodeIfPresent(Int.self, forKey: .meetingAudioRetentionDays) {
             meetingAudioRetentionDays = value
+        }
+        if let value = try? container.decodeIfPresent(Bool.self, forKey: .startSharedLinksRightAway) {
+            startSharedLinksRightAway = value
         }
     }
 }
