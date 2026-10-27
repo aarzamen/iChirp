@@ -18,7 +18,6 @@ struct CaptureScreen: View {
     @State private var isImporting = false
     @State private var pickerError: String?
     /// M5: the Paste a link sheet.
-    @State private var isPastingLink = false
     /// Plan 022: the Type or paste sheet.
     @State private var isTyping = false
     /// UX audit F13: the "Where things run" sheet behind the header chip.
@@ -81,7 +80,11 @@ struct CaptureScreen: View {
                 route.destination(environment: environment)
             }
         }
-        .sheet(isPresented: $isPastingLink) {
+        .sheet(
+            isPresented: Binding(
+                get: { environment.linkSheet.isPresented }, set: { environment.linkSheet.isPresented = $0 }),
+            onDismiss: { environment.linkSheet.sheetDidDismiss() }
+        ) {
             // The sheet opens only a link's own row (a podcast, media or YouTube transcript), never a text item or
             // document, so the kind is known without waiting for the Library to list it.
             PasteLinkSheet { id in path.append(.item(id, isTextOnly: false)) }
@@ -90,7 +93,12 @@ struct CaptureScreen: View {
             // A typed or pasted text item: it opens the document screen even before the Library lists it (R6a-5).
             TextItemSheet { id in path.append(.item(id, isTextOnly: true)) }
         }
-        .ingestPreviewLaunch(environment: environment, isPastingLink: $isPastingLink, path: idPath)
+        .ingestPreviewLaunch(
+            environment: environment,
+            isPastingLink: Binding(
+                get: { environment.linkSheet.isPresented }, set: { environment.linkSheet.isPresented = $0 }),
+            path: idPath
+        )
         .onChange(of: environment.captureNavigationResets) { _, _ in
             // Share → Parakeet shows Capture's top, where the new Recent row appears (R6a-14).
             path = []
@@ -404,7 +412,7 @@ struct CaptureScreen: View {
         switch starter {
         case .dictate: environment.dictation.start()
         case .typeOrPaste: isTyping = true
-        case .pasteLink: isPastingLink = true
+        case .pasteLink: environment.linkSheet.isPresented = true
         case .importFile:
             fileRecipe = nil
             isImporting = true

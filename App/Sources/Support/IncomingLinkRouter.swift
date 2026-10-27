@@ -2,6 +2,7 @@
 // delegate passes each one here with the app that opened it; the router holds it until Parakeet can show it.
 
 import ChirpCore
+import ChirpFeatures
 import Foundation
 import Observation
 import OSLog
@@ -14,14 +15,6 @@ struct IncomingShare: Sendable, Equatable {
     let fromOwnShare: Bool
     let sourceApplication: String?
     let receivedAt: Date
-}
-
-/// What Parakeet does with a shared link.
-enum SharedLinkStart: Sendable, Equatable {
-    /// Paste a link starts on its own.
-    case autoStart
-    /// Paste a link opens with the link filled in and waits for Transcribe.
-    case prefill
 }
 
 @MainActor @Observable final class IncomingLinkRouter {

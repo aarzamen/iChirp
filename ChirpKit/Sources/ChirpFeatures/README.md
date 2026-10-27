@@ -88,6 +88,13 @@ pipeline's `Task`s and publishes its progress to the UI.
   once per link (`needsCompanionConfirmation`, `confirmCompanion()`) and `getAudioFromMac()` starts a `.companion`
   job. Without a companion the failure keeps the captions error's own advice (try again later, share the file) and
   adds how to set one up.
+  Plan 029: `start(link:autoStart:)` fills in a shared link and runs `transcribe()` when `autoStart`, only while
+  `isIdleAndEmpty` (never over typing or a run); a shared link never answers the companion question.
+- `LinkSheetHost.swift` (plan 029): the Paste a link sheet across presentations (`isPresented`, one `model` per
+  presentation, renewed by `sheetDidDismiss()`) and `SharedLinkStart` (`autoStart`, `prefill`). `deliver(_:start:)`
+  shows the sheet and starts or fills in a shared link when the sheet is idle and empty, otherwise keeps it in
+  `waiting`; `modelDidChange()` starts a waiting auto-start once the sheet's own run has finished; `startWaiting()`
+  is the waiting row's tap.
 - `CompanionSettingsStore.swift` (plan 019): Settings → Mac companion. Host, port and the trusted flag in
   `UserDefaults` (`ichirp.companion`); the pairing token only in `SecretStoring` (`companion.pairing-token`). It is
   **the concrete `CompanionConfiguration`** (ChirpCore) that plan 020's voices read, makes the `CompanionClient`

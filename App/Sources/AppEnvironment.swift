@@ -63,6 +63,10 @@ import Observation
     let jobCenter: TranscriptionJobCenter
     /// Plan 022: the Create sheet and its chain (App/Sources/Create).
     let create = CreateHost()
+    /// Plan 029: the Paste a link sheet's presentation and its model, so a shared link can open it from anywhere.
+    @ObservationIgnored private(set) lazy var linkSheet = LinkSheetHost { [unowned self] in
+        self.makeLinkImportViewModel()
+    }
     let pipeline: FileTranscriptionPipeline
     let library: LibraryViewModel
     let capture: CaptureViewModel

@@ -14,9 +14,6 @@ struct PasteLinkSheet: View {
     /// Opens a row (the sheet closes first).
     let onOpen: (UUID) -> Void
 
-    /// The sheet's view model, made on its first render and kept (R6a-5: not re-made on every job-progress tick while
-    /// the "started" card shows).
-    @State private var box = OnceBox<LinkImportViewModel>()
     @State private var isConfirmingCompanion = false
     @State private var isImportingDocument = false
     @State private var pickerError: String?
@@ -26,8 +23,10 @@ struct PasteLinkSheet: View {
         self.onOpen = onOpen
     }
 
+    /// The sheet's view model, owned by `environment.linkSheet` (plan 029): one per presentation, kept across
+    /// job-progress ticks (R6a-5), and reachable by a shared link.
     private var model: LinkImportViewModel {
-        box.get { environment.makeLinkImportViewModel() }
+        environment.linkSheet.model
     }
 
     /// What the document picker offers: PDF, Word, RTF, HTML, Markdown and any plain text.
@@ -42,6 +41,7 @@ struct PasteLinkSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    waitingRow
                     linkField
                     detection
                     phaseView
@@ -69,6 +69,8 @@ struct PasteLinkSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        // Plan 029: a shared link waiting for this sheet starts once the sheet's own run is done.
+        .onChange(of: model.phase) { _, _ in environment.linkSheet.modelDidChange() }
         .onAppear {
             #if DEBUG
             if model.text.isEmpty, let link = IngestPreviewLaunch.value(after: IngestPreviewLaunch.pasteLinkArgument) {
@@ -109,6 +111,39 @@ struct PasteLinkSheet: View {
         } message: {
             Text(pickerError ?? "")
         }
+    }
+
+    // MARK: - Shared link waiting (plan 029)
+
+    @ViewBuilder private var waitingRow: some View {
+        if let waiting = environment.linkSheet.waiting {
+            Button {
+                environment.linkSheet.startWaiting()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "square.and.arrow.down")
+                        .chirpGlyph(15, .semibold, maxScale: 1.6)
+                        .foregroundStyle(Tokens.Color.accentInk)
+                        .accessibilityHidden(true)
+                    Text("Shared link · Start")
+                        .chirpFont(15, .semibold)
+                        .foregroundStyle(Tokens.Color.ink)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 50)
+                .background(ChirpCardBackground(radius: Tokens.Radius.cover))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Self.waitingLabel(for: waiting.link))
+            .accessibilityHint("Starts the shared link")
+        }
+    }
+
+    static func waitingLabel(for link: URL) -> String {
+        if case .youtube = LinkClassifier.classify(link.absoluteString) { return "Shared YouTube link waiting" }
+        return "Shared link waiting"
     }
 
     // MARK: - Field

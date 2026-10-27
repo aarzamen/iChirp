@@ -1,4 +1,5 @@
 import ChirpCore
+import ChirpFeatures
 import Foundation
 import XCTest
 
@@ -55,7 +56,8 @@ final class IncomingLinkRouterTests: XCTestCase {
     /// entitlement, so this skips there and says so; Xcode's signed simulator run executes it.
     func testKeychainTokenWorksOnceAndOnlyForTheSameToken() throws {
         guard ShareTokenKeychain.write(token: "abc", now: Date()) else {
-            throw XCTSkip("Unsigned host (CODE_SIGNING_ALLOWED=NO) has no Keychain entitlement; run the signed command.")
+            throw XCTSkip(
+                "Unsigned host (CODE_SIGNING_ALLOWED=NO) has no Keychain entitlement; run the signed command.")
         }
         XCTAssertFalse(ShareTokenKeychain.consume(token: "abd", now: Date()), "a different token never matches")
         ShareTokenKeychain.write(token: "abc", now: Date())
