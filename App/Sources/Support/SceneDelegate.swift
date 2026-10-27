@@ -28,16 +28,6 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         route(URLContexts, coldLaunch: false)
     }
 
-    func sceneDidBecomeActive(_ scene: UIScene) {
-        #if DEBUG
-        if let probe = ShareTokenKeychain.takeProbe(),
-            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        {
-            try? probe.write(
-                to: documents.appendingPathComponent("share-extension-debug.txt"), atomically: true, encoding: .utf8)
-        }
-        #endif
-    }
 
     /// A custom scene delegate replaces SwiftUI's `onOpenURL`, so it takes every opened URL: share links and files.
     private func route(_ contexts: Set<UIOpenURLContext>, coldLaunch: Bool) {
