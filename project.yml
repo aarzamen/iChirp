@@ -233,7 +233,12 @@ targets:
               AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a,
               ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url"
               OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audiovisual-content"
-              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf").@count >= 1).@count == 0
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "net.daringfireball.markdown"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.rtf"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.html"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.wordprocessingml.document"
+              ).@count >= 1).@count == 0
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"

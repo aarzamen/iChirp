@@ -1,3 +1,4 @@
+import ChirpIngest
 import Foundation
 import Observation
 
@@ -25,6 +26,11 @@ public enum SharedLinkStart: Sendable, Equatable {
     public var isPresented = false
     public private(set) var model: LinkImportViewModel
     public private(set) var waiting: WaitingLink?
+    /// The sheet is on screen (between `sheetDidAppear()` and `sheetDidDismiss()`).
+    public private(set) var isShowing = false
+    /// A shared link that arrived while the sheet was not on screen yet: it is applied in `sheetDidAppear()`, so no
+    /// network work starts unless the person can see the sheet (final review I2).
+    @ObservationIgnored private var arriving: WaitingLink?
 
     @ObservationIgnored private let makeModel: @MainActor () -> LinkImportViewModel
 
@@ -33,14 +39,35 @@ public enum SharedLinkStart: Sendable, Equatable {
         model = makeModel()
     }
 
-    /// A shared link: shows the sheet; starts or fills it in now when the sheet is free, otherwise it waits.
+    /// A shared link: shows the sheet; once the sheet is on screen it starts or fills it in when the sheet is free,
+    /// otherwise it waits.
     public func deliver(_ link: URL, start: SharedLinkStart) {
         isPresented = true
+        let incoming = WaitingLink(link: link, start: start)
+        if isShowing { apply(incoming) } else { arriving = incoming }
+    }
+
+    /// The sheet is on screen: a link that arrived before it is applied now.
+    public func sheetDidAppear() {
+        isShowing = true
+        if let arriving {
+            self.arriving = nil
+            apply(arriving)
+        }
+    }
+
+    private func apply(_ incoming: WaitingLink) {
+        // Final review I3: the link this sheet is already running (or just finished) is not run again.
+        if !model.isIdleAndEmpty, model.isWorking || model.startedID != nil,
+            Self.isSameLink(model.text, incoming.link.absoluteString)
+        {
+            return
+        }
         if model.isIdleAndEmpty {
             waiting = nil
-            model.start(link: link, autoStart: start == .autoStart)
+            model.start(link: incoming.link, autoStart: incoming.start == .autoStart)
         } else {
-            waiting = WaitingLink(link: link, start: start)
+            waiting = incoming
         }
     }
 
@@ -65,10 +92,22 @@ public enum SharedLinkStart: Sendable, Equatable {
         model.start(link: waiting.link, autoStart: true)
     }
 
+    /// The same YouTube video in any link form, or the same link otherwise.
+    static func isSameLink(_ first: String, _ second: String) -> Bool {
+        switch (LinkClassifier.classify(first), LinkClassifier.classify(second)) {
+        case (.youtube(let a, _), .youtube(let b, _)): return a == b
+        default:
+            return first.trimmingCharacters(in: .whitespacesAndNewlines)
+                == second.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
     /// The sheet closed: the next open gets a fresh sheet; a link still waiting is dropped with it. A started job is
     /// unaffected (it belongs to the Library).
     public func sheetDidDismiss() {
+        isShowing = false
         waiting = nil
+        arriving = nil
         model = makeModel()
     }
 }

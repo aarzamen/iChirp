@@ -44,9 +44,18 @@ final class ShareExtensionActivationTests: XCTestCase {
     }
 
     func testLeavesAVoiceMemoToOpenInParakeet() throws {
-        XCTAssertFalse(try rule().evaluate(with: share([["com.apple.m4a-audio", "public.file-url"], ["public.plain-text"]])))
+        XCTAssertFalse(
+            try rule().evaluate(with: share([["com.apple.m4a-audio", "public.file-url"], ["public.plain-text"]])))
         XCTAssertFalse(try rule().evaluate(with: share([["public.file-url"]])))
         XCTAssertFalse(try rule().evaluate(with: share([["public.mpeg-4"]])))
         XCTAssertFalse(try rule().evaluate(with: share([["com.adobe.pdf", "public.file-url"]])))
+    }
+
+    /// Final review I4: a document file that comes without a file URL (only its own type) stays with Open in.
+    func testLeavesDocumentFilesToOpenInParakeet() throws {
+        XCTAssertFalse(try rule().evaluate(with: share([["net.daringfireball.markdown"]])))
+        XCTAssertFalse(try rule().evaluate(with: share([["public.rtf"]])))
+        XCTAssertFalse(try rule().evaluate(with: share([["public.html"]])))
+        XCTAssertFalse(try rule().evaluate(with: share([["org.openxmlformats.wordprocessingml.document"]])))
     }
 }

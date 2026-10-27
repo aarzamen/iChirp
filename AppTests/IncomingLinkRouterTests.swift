@@ -153,5 +153,15 @@ final class IncomingLinkRouterTests: XCTestCase {
         router.receiveFile(URL(string: "https://youtu.be/dQw4w9WgXcQ")!)
         XCTAssertTrue(router.takePendingFiles().isEmpty)
     }
-}
 
+    /// Final review I1: nothing is delivered before launch housekeeping has run (it marks running rows Interrupted).
+    func testRootViewIsNotReadyBeforeLaunch() {
+        let state = RootTabView.sharedDeliveryState(
+            isLaunched: false, isRecordingOnScreen: false, isCreatePresented: false, startRightAway: true)
+        XCTAssertFalse(state.isReady)
+        XCTAssertTrue(
+            RootTabView.sharedDeliveryState(
+                isLaunched: true, isRecordingOnScreen: false, isCreatePresented: false, startRightAway: true
+            ).isReady)
+    }
+}

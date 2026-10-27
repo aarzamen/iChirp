@@ -75,6 +75,8 @@ struct PasteLinkSheet: View {
             environment.linkSheet.modelDidChange()
         }
         .onAppear {
+            // Plan 029 / final review I2: a shared link starts only once this sheet is on screen.
+            environment.linkSheet.sheetDidAppear()
             #if DEBUG
             if model.text.isEmpty, let link = IngestPreviewLaunch.value(after: IngestPreviewLaunch.pasteLinkArgument) {
                 model.text = link

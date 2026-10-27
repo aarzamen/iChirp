@@ -37,10 +37,12 @@ final class LinkSheetHostTests: XCTestCase {
         }
     }
 
-    func testDeliverToIdleSheetStartsAtOnce() {
+    func testDeliverToIdleSheetStartsOnceTheSheetIsOnScreen() {
         let host = makeHost()
         host.deliver(linkA, start: .autoStart)
         XCTAssertTrue(host.isPresented)
+        XCTAssertFalse(host.model.isWorking, "final review I2: nothing starts until the sheet is on screen")
+        host.sheetDidAppear()
         XCTAssertNil(host.waiting)
         XCTAssertTrue(host.model.isWorking)
     }
@@ -48,6 +50,7 @@ final class LinkSheetHostTests: XCTestCase {
     func testDeliverPrefillWaitsForTranscribe() {
         let host = makeHost()
         host.deliver(linkA, start: .prefill)
+        host.sheetDidAppear()
         XCTAssertEqual(host.model.text, linkA.absoluteString)
         XCTAssertEqual(host.model.phase, .editing)
     }
@@ -55,6 +58,7 @@ final class LinkSheetHostTests: XCTestCase {
     func testBusySheetKeepsStateAndQueuesSharedLink() async throws {
         let host = makeHost()
         host.isPresented = true
+        host.sheetDidAppear()
         host.model.text = linkA.absoluteString
         host.model.transcribe()
         host.deliver(linkB, start: .autoStart)
@@ -74,6 +78,7 @@ final class LinkSheetHostTests: XCTestCase {
     func testTypedTextIsNotReplaced() {
         let host = makeHost()
         host.isPresented = true
+        host.sheetDidAppear()
         host.model.text = "my podcast"
         host.deliver(linkB, start: .autoStart)
         host.modelDidChange()
@@ -84,6 +89,7 @@ final class LinkSheetHostTests: XCTestCase {
     func testTapStartReplacesOnPurpose() {
         let host = makeHost()
         host.isPresented = true
+        host.sheetDidAppear()
         host.model.text = "my podcast"
         host.deliver(linkB, start: .prefill)
         host.startWaiting()
@@ -95,11 +101,27 @@ final class LinkSheetHostTests: XCTestCase {
     func testDismissGivesTheNextOpenAFreshSheet() {
         let host = makeHost()
         host.isPresented = true
+        host.sheetDidAppear()
         host.model.text = "my podcast"
         host.deliver(linkB, start: .prefill)
         host.isPresented = false
         host.sheetDidDismiss()
         XCTAssertNil(host.waiting)
         XCTAssertTrue(host.model.isIdleAndEmpty)
+    }
+
+    /// Final review I3: the same video shared again while its first share is still fetching does not run twice.
+    func testSameVideoSharedTwiceWhileFetchingRunsOnce() async throws {
+        let host = makeHost()
+        host.deliver(linkA, start: .autoStart)
+        host.sheetDidAppear()
+        XCTAssertTrue(host.model.isWorking)
+        host.deliver(URL(string: "https://youtu.be/AAAAAAAAAAA?si=x")!, start: .autoStart)
+        XCTAssertNil(host.waiting, "the same video is already running")
+        await host.model.waitUntilSettled()
+        host.modelDidChange()
+        await host.model.waitUntilSettled()
+        let rows = try await store.fetchAll()
+        XCTAssertEqual(rows.count, 1)
     }
 }

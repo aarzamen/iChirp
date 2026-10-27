@@ -168,6 +168,16 @@ struct RootOverlayLayer: View {
 }
 
 extension RootTabView {
+    /// What lets a waiting shared link through. Final review I1: not before launch housekeeping has run, which marks
+    /// rows still "processing" from an earlier run as Interrupted (a link row made sooner would be caught by it).
+    static func sharedDeliveryState(
+        isLaunched: Bool, isRecordingOnScreen: Bool, isCreatePresented: Bool, startRightAway: Bool
+    ) -> IncomingLinkRouter.DeliveryState {
+        IncomingLinkRouter.DeliveryState(
+            isReady: isLaunched, isRecordingOnScreen: isRecordingOnScreen, isCreatePresented: isCreatePresented,
+            startRightAway: startRightAway)
+    }
+
     /// Plan 029: hands a waiting shared link to Paste a link when nothing is in the way.
     fileprivate func deliverSharedLink() {
         let router = IncomingLinkRouter.shared
@@ -184,10 +194,11 @@ extension RootTabView {
             || MeetingCoverLayer.isShown(
                 state: environment.meeting.state, isScreenHidden: environment.meeting.isScreenHidden,
                 dictationState: environment.dictation.state)
-        let state = IncomingLinkRouter.DeliveryState(
-            isReady: true, isRecordingOnScreen: recording, isCreatePresented: environment.create.isSheetPresented,
+        let state = Self.sharedDeliveryState(
+            isLaunched: environment.isLaunched, isRecordingOnScreen: recording,
+            isCreatePresented: environment.create.isSheetPresented,
             startRightAway: environment.speechSettings.settingsValue.startSharedLinksRightAway)
-        if !recording, !state.isCreatePresented { selection = .capture }
+        if state.isReady, !recording, !state.isCreatePresented { selection = .capture }
         router.deliverIfReady(
             state: state, to: environment.linkSheet, hideCreate: { environment.create.hide() },
             openRow: { environment.requestCaptureRow($0) })
@@ -209,5 +220,6 @@ private struct SharedArrivalTriggers: ViewModifier {
             .onChange(of: environment.meeting.state) { _, _ in deliver() }
             .onChange(of: environment.meeting.isScreenHidden) { _, _ in deliver() }
             .onChange(of: environment.create.isSheetPresented) { _, _ in deliver() }
+            .onChange(of: environment.isLaunched) { _, _ in deliver() }
     }
 }
