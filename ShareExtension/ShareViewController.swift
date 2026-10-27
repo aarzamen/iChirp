@@ -21,7 +21,15 @@ final class ShareViewController: UIViewController {
     }
 
     private func handOff() async {
-        let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
+        let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
+        let providers = items.flatMap { $0.attachments ?? [] }
+        #if DEBUG
+        let shape = items.enumerated().map { index, item in
+            "item\(index): " + (item.attachments ?? []).map { $0.registeredTypeIdentifiers.joined(separator: ",") }
+                .joined(separator: " | ")
+        }
+        ShareTokenKeychain.writeProbe(shape.joined(separator: "\n"))
+        #endif
         let token = SharedLink.newToken()
         guard let link = await Self.firstLink(in: providers), let url = SharedLink.handOffURL(for: link, token: token)
         else {

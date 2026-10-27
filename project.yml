@@ -221,9 +221,19 @@ targets:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
-            NSExtensionActivationRule:
-              NSExtensionActivationSupportsWebURLWithMaxCount: 1
-              NSExtensionActivationSupportsText: true
+            # A web link or text holding one, and never a share that carries a file, audio, video or a PDF: those keep
+            # going to "Open in Parakeet" (CFBundleDocumentTypes). Voice Memos shares its file plus the title as text,
+            # (as separate items), and the dictionary shorthand let this extension take it (device QA, 2026-10-27). So
+            # the file check covers every item of the share, not each item on its own.
+            # ShareExtensionActivationTests evaluates this rule.
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text").@count >= 1).@count >= 1
+              AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audiovisual-content"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf").@count >= 1).@count == 0
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"

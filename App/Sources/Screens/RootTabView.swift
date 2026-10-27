@@ -54,19 +54,9 @@ struct RootTabView: View {
                 }
             }
         }
-        .onOpenURL { url in
-            // Share sheet → Parakeet (or Files → Open in): show Capture's top, where the new Recent row appears.
-            selection = .capture
-            environment.openIncoming(url)
-        }
-        // Plan 029: a link shared to Parakeet opens Paste a link once Parakeet can show it (after a cold launch, after a
+        // Plan 029: files and links shared to Parakeet arrive once Parakeet can show them (after a cold launch, after a
         // recording, after Create closes).
-        .onAppear { deliverSharedLink() }
-        .onChange(of: IncomingLinkRouter.shared.hasPending) { _, _ in deliverSharedLink() }
-        .onChange(of: environment.dictation.state) { _, _ in deliverSharedLink() }
-        .onChange(of: environment.meeting.state) { _, _ in deliverSharedLink() }
-        .onChange(of: environment.meeting.isScreenHidden) { _, _ in deliverSharedLink() }
-        .onChange(of: environment.create.isSheetPresented) { _, _ in deliverSharedLink() }
+        .modifier(SharedArrivalTriggers(environment: environment, deliver: deliverSharedLink))
         .onChange(of: scenePhase) { _, phase in
             // R6a-17: back in the foreground (maybe the next morning), "Today" and "Yesterday" are re-read.
             if phase == .active { environment.library.refreshDayTitles() }
@@ -182,6 +172,13 @@ extension RootTabView {
     fileprivate func deliverSharedLink() {
         let router = IncomingLinkRouter.shared
         guard router.hasPending else { return }
+        // Share sheet → Parakeet with a file (or Files → Open in): show Capture's top, where the new Recent row appears.
+        let files = router.takePendingFiles()
+        if !files.isEmpty {
+            selection = .capture
+            files.forEach(environment.openIncoming)
+        }
+        guard router.pending != nil else { return }
         let recording =
             RootOverlayLayer.showsDictating(environment.dictation.state)
             || MeetingCoverLayer.isShown(
@@ -194,5 +191,23 @@ extension RootTabView {
         router.deliverIfReady(
             state: state, to: environment.linkSheet, hideCreate: { environment.create.hide() },
             openRow: { environment.requestCaptureRow($0) })
+    }
+}
+
+/// Plan 029: every state change that may let a waiting shared file or link through (kept apart from `RootTabView`'s
+/// body so the type checker stays fast).
+private struct SharedArrivalTriggers: ViewModifier {
+    let environment: AppEnvironment
+    let deliver: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: deliver)
+            .onChange(of: IncomingLinkRouter.shared.hasPending) { _, _ in deliver() }
+            .onChange(of: IncomingLinkRouter.shared.pendingFiles.count) { _, _ in deliver() }
+            .onChange(of: environment.dictation.state) { _, _ in deliver() }
+            .onChange(of: environment.meeting.state) { _, _ in deliver() }
+            .onChange(of: environment.meeting.isScreenHidden) { _, _ in deliver() }
+            .onChange(of: environment.create.isSheetPresented) { _, _ in deliver() }
     }
 }

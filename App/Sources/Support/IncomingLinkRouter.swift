@@ -29,7 +29,10 @@ extension LinkSheetHost: SharedLinkReceiving {}
     static let shared = IncomingLinkRouter()
 
     private(set) var pending: IncomingShare?
-    var hasPending: Bool { pending != nil }
+    /// Files shared to Parakeet ("Open in Parakeet", Voice Memos, Files), in arrival order. The scene delegate takes
+    /// every opened URL, so SwiftUI's `onOpenURL` no longer fires; files wait here for `RootTabView`.
+    private(set) var pendingFiles: [URL] = []
+    var hasPending: Bool { pending != nil || !pendingFiles.isEmpty }
 
     @ObservationIgnored private let logger = Logger(subsystem: "com.aarzamen.ichirp", category: "share")
     @ObservationIgnored private let now: () -> Date
@@ -119,6 +122,18 @@ extension LinkSheetHost: SharedLinkReceiving {}
     private static func key(for link: String) -> String {
         if case .youtube(let videoID, _) = LinkClassifier.classify(link) { return "youtube:\(videoID)" }
         return link.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A file another app handed to Parakeet; anything but a file URL is ignored.
+    func receiveFile(_ url: URL) {
+        guard url.isFileURL else { return }
+        pendingFiles.append(url)
+    }
+
+    /// The files waiting to be imported, once.
+    func takePendingFiles() -> [URL] {
+        defer { pendingFiles = [] }
+        return pendingFiles
     }
 
     /// The link waiting to be shown, once.

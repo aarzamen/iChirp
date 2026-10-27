@@ -66,5 +66,34 @@ enum ShareTokenKeychain {
     #if DEBUG
     /// Plan 029 Step 0: what the last `consume` saw (never the token itself).
     nonisolated(unsafe) static var lastDiagnostic = "none"
+
+    /// Device QA 4 probe (DEBUG): the extension records what a share offered (type identifiers only, never content);
+    /// the app copies it to `Documents/share-extension-debug.txt` when it next becomes active.
+    static func writeProbe(_ text: String) {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+            kSecAttrAccount as String: "probe",
+        ]
+        SecItemDelete(base as CFDictionary)
+        var item = base
+        item[kSecValueData as String] = Data(text.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
+    static func takeProbe() -> String? {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+            kSecAttrAccount as String: "probe",
+        ]
+        var query = base
+        query[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        SecItemDelete(base as CFDictionary)
+        return String(data: data, encoding: .utf8)
+    }
     #endif
 }

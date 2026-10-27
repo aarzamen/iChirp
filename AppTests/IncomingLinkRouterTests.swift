@@ -134,4 +134,24 @@ final class IncomingLinkRouterTests: XCTestCase {
         router.deliverIfReady(state: state(), to: spy, hideCreate: {}, openRow: { opened.append($0) })
         XCTAssertEqual(spy.delivered.count, 1, "after 10 minutes it starts again")
     }
+
+    // MARK: - Files shared to Parakeet (the scene delegate replaces SwiftUI's onOpenURL)
+
+    func testSharedFilesQueueUntilShownAndDrainOnce() {
+        let router = IncomingLinkRouter(verifyToken: { _ in true })
+        let file = URL(fileURLWithPath: "/tmp/Inbox/memo.m4a")
+        router.receiveFile(file)
+        router.receiveFile(file.deletingLastPathComponent().appendingPathComponent("b.pdf"))
+        XCTAssertTrue(router.hasPending)
+        XCTAssertEqual(router.takePendingFiles().map(\.lastPathComponent), ["memo.m4a", "b.pdf"])
+        XCTAssertTrue(router.takePendingFiles().isEmpty)
+        XCTAssertFalse(router.hasPending)
+    }
+
+    func testNonFileURLsAreNotQueuedAsFiles() {
+        let router = IncomingLinkRouter(verifyToken: { _ in true })
+        router.receiveFile(URL(string: "https://youtu.be/dQw4w9WgXcQ")!)
+        XCTAssertTrue(router.takePendingFiles().isEmpty)
+    }
 }
+

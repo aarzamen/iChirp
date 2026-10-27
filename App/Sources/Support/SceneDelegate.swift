@@ -1,7 +1,7 @@
 // Plan 029 Task 2: SwiftUI's `onOpenURL` does not say which app opened Parakeet, and a shared link may start work on
 // its own only when Parakeet's own share extension opened it. This scene delegate reads `sourceApplication` for
-// `ichirp://` URLs and hands them to `IncomingLinkRouter`. File URLs (Share sheet → "Open in Parakeet", Files) are left
-// to `RootTabView.onOpenURL`, as before.
+// `ichirp://` URLs and hands them to `IncomingLinkRouter`. A custom scene delegate also stops SwiftUI's `onOpenURL`, so
+// file URLs (Share sheet → "Open in Parakeet", Voice Memos, Files) go through the router too (device QA 2026-10-27).
 
 import UIKit
 
@@ -28,11 +28,28 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         route(URLContexts, coldLaunch: false)
     }
 
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        #if DEBUG
+        if let probe = ShareTokenKeychain.takeProbe(),
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        {
+            try? probe.write(
+                to: documents.appendingPathComponent("share-extension-debug.txt"), atomically: true, encoding: .utf8)
+        }
+        #endif
+    }
+
+    /// A custom scene delegate replaces SwiftUI's `onOpenURL`, so it takes every opened URL: share links and files.
     private func route(_ contexts: Set<UIOpenURLContext>, coldLaunch: Bool) {
-        for context in contexts where context.url.scheme?.lowercased() == "ichirp" {
+        for context in contexts {
+            let url = context.url
             let source = context.options.sourceApplication
             MainActor.assumeIsolated {
-                IncomingLinkRouter.shared.receive(context.url, sourceApplication: source, coldLaunch: coldLaunch)
+                if url.isFileURL {
+                    IncomingLinkRouter.shared.receiveFile(url)
+                } else if url.scheme?.lowercased() == "ichirp" {
+                    IncomingLinkRouter.shared.receive(url, sourceApplication: source, coldLaunch: coldLaunch)
+                }
             }
         }
     }
