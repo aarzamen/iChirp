@@ -51,8 +51,12 @@ final class IncomingLinkRouterTests: XCTestCase {
         XCTAssertNil(router.takePending())
     }
 
-    func testKeychainTokenWorksOnceAndOnlyForTheSameToken() {
-        ShareTokenKeychain.write(token: "abc", now: Date())
+    /// Like `KeychainSecretStoreAppTests`: an unsigned host (`scripts/test.sh`, CODE_SIGNING_ALLOWED=NO) has no Keychain
+    /// entitlement, so this skips there and says so; Xcode's signed simulator run executes it.
+    func testKeychainTokenWorksOnceAndOnlyForTheSameToken() throws {
+        guard ShareTokenKeychain.write(token: "abc", now: Date()) else {
+            throw XCTSkip("Unsigned host (CODE_SIGNING_ALLOWED=NO) has no Keychain entitlement; run the signed command.")
+        }
         XCTAssertFalse(ShareTokenKeychain.consume(token: "abd", now: Date()), "a different token never matches")
         ShareTokenKeychain.write(token: "abc", now: Date())
         XCTAssertTrue(ShareTokenKeychain.consume(token: "abc", now: Date()))
