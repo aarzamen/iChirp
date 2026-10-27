@@ -28,7 +28,6 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         route(URLContexts, coldLaunch: false)
     }
 
-
     /// A custom scene delegate replaces SwiftUI's `onOpenURL`, so it takes every opened URL: share links and files.
     private func route(_ contexts: Set<UIOpenURLContext>, coldLaunch: Bool) {
         for context in contexts {
