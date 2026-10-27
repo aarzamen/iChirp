@@ -50,6 +50,9 @@ plug-in protocol). The pipeline in ChirpFeatures wires `AudioNormalizing` → `S
   stored), `LocalNetworkHost` (the conservative "is this host on the LAN" rule; dotted-decimal IPv4 only, and an
   octet with a leading zero, which some resolvers read as octal, is never local) and
   `PrivacyRoutingPolicy(trustingLocalNetworkHostsOf:)`.
+- `Ingest/SharedLink.swift` (plan 029): the share extension's hand-off to the app,
+  `ichirp://share-link?url=<link>&v=1` (`handOffURL(for:)`, `link(fromHandOff:)`), and `firstWebLink(in:)` for shared
+  text. Only http and https links pass either way. Linked by the `iChirpShare` extension, so it stays Foundation-only.
 - `Secrets/SecretStoring.swift`: `SecretValue` (a redacted in-memory secret) and `SecretStoring` (Keychain in the
   app via `ChirpKeychain`, a fake in tests).
 - `Models/TranscriptionSettings.swift`: user preferences (`CleanupMode`, `ParakeetVariant`, speaker labels,
