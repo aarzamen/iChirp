@@ -31,6 +31,7 @@ struct MeetingScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            SharedLinkWaitingBanner()  // plan 029
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     recordingCard

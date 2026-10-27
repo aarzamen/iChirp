@@ -83,6 +83,14 @@ struct SettingsScreen: View {
                 Toggle("Keep dictation audio", isOn: $speech.settingsValue.keepDictationAudio)
                     .toggleStyle(.chirpSwitch)
             }
+            // Plan 029: a link shared from Parakeet's own share extension starts as soon as Parakeet opens.
+            SettingsRow(
+                title: "Start shared links right away",
+                caption: "When you share a link to Parakeet, it starts as soon as Parakeet opens."
+            ) {
+                Toggle("Start shared links right away", isOn: $speech.settingsValue.startSharedLinksRightAway)
+                    .toggleStyle(.chirpSwitch)
+            }
         }
     }
 

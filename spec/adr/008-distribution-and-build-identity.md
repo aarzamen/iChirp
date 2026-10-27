@@ -39,6 +39,10 @@
 - **Extension budget:** keep to the app plus at most two extensions (keyboard; one widget extension holding the Live
   Activity and Controls) so a SideStore install fits free-account App ID limits. The M1.5 share extension is weighed
   against that budget in its plan.
+  **Amended 2026-10-27 (plan 029):** the limit came from SideStore free-account App ID counts, a path retired since the
+  paid team. The app now embeds three extensions on the paid team: the widget, the share extension `iChirpShare`
+  (`com.aarzamen.ichirp.share`, registered by the owner's one automatic-signing build in Xcode) and, later, a keyboard.
+  A SideStore IPA would need "Keep App Extensions?" and the free-account budget re-checked.
 
 ## Alternatives considered
 

@@ -96,6 +96,21 @@ import Observation
         task?.cancel()
     }
 
+    /// Plan 029: nothing typed and nothing running, so a shared link may take the sheet.
+    public var isIdleAndEmpty: Bool {
+        phase == .editing && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Plan 029: a link shared to Parakeet. Fills in the field, then runs `transcribe()` when `autoStart` (the owner's
+    /// own share with "Start shared links right away" on). Does nothing unless `isIdleAndEmpty`, so it never replaces
+    /// typing or a run. A link Paste a link refuses shows today's refusal and starts nothing; a video without captions
+    /// still stops at "Send this link to your Mac?".
+    public func start(link: URL, autoStart: Bool) {
+        guard isIdleAndEmpty else { return }
+        text = link.absoluteString
+        if autoStart { transcribe() }
+    }
+
     /// The person's tap: resolves the link (the only network use), then creates the row. Does nothing unless
     /// `canTranscribe`.
     ///

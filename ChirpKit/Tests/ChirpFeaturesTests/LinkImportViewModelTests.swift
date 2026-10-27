@@ -39,6 +39,60 @@ final class LinkImportViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: - Plan 029: a link shared to Parakeet
+
+    func testStartAutoStartsWhenIdle() async throws {
+        let model = makeModel()
+        XCTAssertTrue(model.isIdleAndEmpty)
+        model.start(link: URL(string: "https://www.youtube.com/watch?v=AAAAAAAAAAA")!, autoStart: true)
+        XCTAssertTrue(model.isWorking, "started without a tap")
+        await model.waitUntilSettled()
+        let id = try XCTUnwrap(model.startedID)
+        let row = await store.row(id)
+        XCTAssertEqual(row?.status, .completed)
+    }
+
+    func testStartPrefillOnly() async throws {
+        let model = makeModel()
+        let link = URL(string: "https://www.youtube.com/watch?v=AAAAAAAAAAA")!
+        model.start(link: link, autoStart: false)
+        XCTAssertEqual(model.text, link.absoluteString)
+        XCTAssertEqual(model.phase, .editing)
+        XCTAssertTrue(model.canTranscribe, "waits for the person's Transcribe")
+        let rows = try await store.fetchAll()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testSharedYouTubeLinkWithTrackingParamStartsCaptions() async throws {
+        let model = makeModel()
+        model.start(link: URL(string: "https://youtu.be/AAAAAAAAAAA?si=abc123")!, autoStart: true)
+        await model.waitUntilSettled()
+        let id = try XCTUnwrap(model.startedID)
+        let row = await store.row(id)
+        XCTAssertEqual(row?.status, .completed)
+        // As with a pasted link, the row keeps the link on this iPhone; only the video id is requested from YouTube
+        // (YouTubeURLValidator; the Mac gets a rebuilt watch link, CompanionIngestTests).
+        XCTAssertEqual(row?.sourceURL, "https://youtu.be/AAAAAAAAAAA?si=abc123")
+    }
+
+    func testUnsupportedSharedLinkIsRefusedWithoutFetch() async throws {
+        let model = makeModel()
+        model.start(link: URL(string: "https://x.com/a/status/1")!, autoStart: true)
+        XCTAssertEqual(model.kind, .unsupported(.platform(name: "X")), "the sheet shows today's refusal")
+        XCTAssertEqual(model.phase, .editing)
+        let rows = try await store.fetchAll()
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testStartNeverReplacesTypedTextOrARun() {
+        let model = makeModel()
+        model.text = "my podcast"
+        XCTAssertFalse(model.isIdleAndEmpty)
+        model.start(link: URL(string: "https://www.youtube.com/watch?v=AAAAAAAAAAA")!, autoStart: true)
+        XCTAssertEqual(model.text, "my podcast")
+        XCTAssertEqual(model.phase, .editing)
+    }
+
     func testTypingClassifiesLocallyAndGatesTranscribe() {
         let model = makeModel()
         XCTAssertFalse(model.canTranscribe)

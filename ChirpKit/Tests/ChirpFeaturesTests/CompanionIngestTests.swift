@@ -199,7 +199,8 @@ final class CompanionIngestTests: XCTestCase {
     func testOtherYouTubeLinkFormsAreRebuiltToo() {
         for raw in [
             "https://youtu.be/CCCCCCCCCCC?si=SyntheticShare2", "https://www.youtube-nocookie.com/embed/CCCCCCCCCCC",
-            "https://www.youtube.com/shorts/CCCCCCCCCCC/extra", "https://m.youtube.com/WATCH?v=CCCCCCCCCCC&v=DDDDDDDDDDD",
+            "https://www.youtube.com/shorts/CCCCCCCCCCC/extra",
+            "https://m.youtube.com/WATCH?v=CCCCCCCCCCC&v=DDDDDDDDDDD",
         ] {
             XCTAssertEqual(
                 LinkMediaSource.companionYouTube(URL(string: raw)!).downloadURL.absoluteString,
@@ -381,6 +382,16 @@ final class LinkImportCompanionOfferTests: XCTestCase {
         await model.waitUntilSettled()
         XCTAssertEqual(model.phase, .companionOffer("This video has no captions."))
         XCTAssertFalse(model.needsCompanionConfirmation, "confirmed once per link")
+    }
+
+    /// Plan 029: a shared link never answers "Send this link to your Mac?" for the person.
+    func testSharedLinkWithoutCaptionsStopsAtTheCompanionQuestion() async throws {
+        let model = makeModel(captionsError: .noCaptions, companion: FakeCompanionAudio(.waitForCancel))
+        model.start(link: URL(string: youtube)!, autoStart: true)
+        await model.waitUntilSettled()
+        XCTAssertEqual(model.phase, .companionOffer("This video has no captions."))
+        XCTAssertTrue(model.needsCompanionConfirmation)
+        XCTAssertTrue(started.isEmpty, "nothing goes to the Mac before the tap")
     }
 
     func testCaptionsYouTubeRefusedAreAlsoOffered() async {

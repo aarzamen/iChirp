@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct iChirpApp: App {
+    /// Plan 029: reads which app opened an `ichirp://` share link (`SceneDelegate`).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var launchState = AppEnvironment.shared
 
     var body: some Scene {

@@ -23,6 +23,8 @@ targets:
         buildPhase: resources
       # M2: the Live Activity attributes and App Intents shared with the widget extension.
       - path: App/Shared
+      # Plan 029: the share token's private pasteboard, shared with the share extension.
+      - path: App/ShareShared
     dependencies:
       - package: ChirpKit
         products: [ChirpCore, ChirpText, ChirpExport, ChirpStore, ChirpAudio, ChirpEngineFluidAudio, ChirpFeatures, ChirpUI, ChirpIngest]
@@ -49,6 +51,8 @@ targets:
         products: [ChirpEngineAppleSpeech, ChirpEngineWhisperKit]
       # M2: the widget extension (Live Activity + Control), embedded in the app.
       - target: iChirpWidgets
+      # Plan 029: the share extension (Share → Parakeet for a web link), embedded in the app.
+      - target: iChirpShare
     info:
       path: App/Info.plist
       properties:
@@ -121,6 +125,11 @@ targets:
           Settings → Models, and the Parakeet companion you set up in Settings → Mac companion.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # Plan 029: the share extension opens Parakeet with ichirp://share-link?url=…&v=1 (ChirpCore SharedLink).
+        # An ichirp:// URL from anything but that extension only fills in Paste a link; it never starts work.
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER).share-link
+            CFBundleURLSchemes: [ichirp]
         ChirpGitCommit: unknown
         ChirpGitBranch: unknown
         ChirpGitDirty: "0"
@@ -133,6 +142,12 @@ targets:
       path: App/iChirp.entitlements
       properties:
         com.apple.developer.kernel.increased-memory-limit: true
+        # Plan 029: the share token's keychain group, shared with the share extension (ShareTokenKeychain). The app's own
+        # app-ID group stays first, so its other keychain items (API keys, the companion token) keep their group. The
+        # development profiles already allow <team>.*; no account change.
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)
+          - $(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER).share-token
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -175,6 +190,73 @@ targets:
       # that time back instead of taking its own minute (R8-24).
       - name: Stamp Build Identity
         script: "\"${SRCROOT}/scripts/stamp_build_identity.sh\" --new-build"
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
+  # Plan 029: Parakeet in the share sheet's app row for a web link (the YouTube app, Safari, Messages). It finds the
+  # link, opens Parakeet with ichirp://share-link and closes: no UI, no network, no models, no App Group, no
+  # entitlements. Its own plain bundle id (com.aarzamen.ichirp.share) needs one automatic-signing build in the Xcode
+  # app (the owner's step); device scripts never pass provisioning flags.
+  iChirpShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: App/ShareShared
+    dependencies:
+      - package: ChirpKit
+        products: [ChirpCore]
+      # Built after the widget so the widget's --new-build stamp time is the one this extension reads (same
+      # CFBundleVersion as the app and the widget). Not linked or embedded here.
+      - target: iChirpWidgets
+        link: false
+        embed: false
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Parakeet
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # A web link or text holding one, and never a share that carries a file, audio, video or a PDF: those keep
+            # going to "Open in Parakeet" (CFBundleDocumentTypes). Voice Memos shares its file plus the title as text,
+            # (as separate items), and the dictionary shorthand let this extension take it (device QA, 2026-10-27). So
+            # the file check covers every item of the share, not each item on its own.
+            # ShareExtensionActivationTests evaluates this rule.
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text").@count >= 1).@count >= 1
+              AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audiovisual-content"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "net.daringfireball.markdown"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.rtf"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.html"
+              OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.wordprocessingml.document"
+              ).@count >= 1).@count == 0
+        ChirpGitCommit: unknown
+        ChirpGitBranch: unknown
+        ChirpGitDirty: "0"
+        ChirpBuildDateUTC: unknown
+    # Plan 029: only the shared share-token group (its PRODUCT_BUNDLE_IDENTIFIER is the app's plus .share).
+    entitlements:
+      path: ShareExtension/iChirpShare.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)-token
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(inherited).share
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SKIP_INSTALL: YES
+    postBuildScripts:
+      - name: Stamp Build Identity
+        script: "\"${SRCROOT}/scripts/stamp_build_identity.sh\""
         basedOnDependencyAnalysis: false
         inputFiles:
           - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
