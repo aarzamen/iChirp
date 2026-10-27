@@ -59,6 +59,14 @@ struct RootTabView: View {
             selection = .capture
             environment.openIncoming(url)
         }
+        // Plan 029: a link shared to Parakeet opens Paste a link once Parakeet can show it (after a cold launch, after a
+        // recording, after Create closes).
+        .onAppear { deliverSharedLink() }
+        .onChange(of: IncomingLinkRouter.shared.hasPending) { _, _ in deliverSharedLink() }
+        .onChange(of: environment.dictation.state) { _, _ in deliverSharedLink() }
+        .onChange(of: environment.meeting.state) { _, _ in deliverSharedLink() }
+        .onChange(of: environment.meeting.isScreenHidden) { _, _ in deliverSharedLink() }
+        .onChange(of: environment.create.isSheetPresented) { _, _ in deliverSharedLink() }
         .onChange(of: scenePhase) { _, phase in
             // R6a-17: back in the foreground (maybe the next morning), "Today" and "Yesterday" are re-read.
             if phase == .active { environment.library.refreshDayTitles() }
@@ -166,5 +174,25 @@ struct RootOverlayLayer: View {
     /// goes through the job center, which then shows the next pending choice or nil.
     private var pendingTrackChoice: Binding<TranscriptionJobCenter.AudioTrackSelectionRequest?> {
         Binding(get: { environment.jobCenter.pendingAudioTrackSelection }, set: { _ in })
+    }
+}
+
+extension RootTabView {
+    /// Plan 029: hands a waiting shared link to Paste a link when nothing is in the way.
+    fileprivate func deliverSharedLink() {
+        let router = IncomingLinkRouter.shared
+        guard router.hasPending else { return }
+        let recording =
+            RootOverlayLayer.showsDictating(environment.dictation.state)
+            || MeetingCoverLayer.isShown(
+                state: environment.meeting.state, isScreenHidden: environment.meeting.isScreenHidden,
+                dictationState: environment.dictation.state)
+        let state = IncomingLinkRouter.DeliveryState(
+            isReady: true, isRecordingOnScreen: recording, isCreatePresented: environment.create.isSheetPresented,
+            startRightAway: environment.speechSettings.settingsValue.startSharedLinksRightAway)
+        if !recording, !state.isCreatePresented { selection = .capture }
+        router.deliverIfReady(
+            state: state, to: environment.linkSheet, hideCreate: { environment.create.hide() },
+            openRow: { environment.requestCaptureRow($0) })
     }
 }

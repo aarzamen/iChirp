@@ -64,4 +64,74 @@ final class IncomingLinkRouterTests: XCTestCase {
         XCTAssertTrue(ShareTokenKeychain.consume(token: "abc", now: Date()))
         XCTAssertFalse(ShareTokenKeychain.consume(token: "abc", now: Date()), "a token works once")
     }
+
+    // MARK: - Delivery (Task 5)
+
+    private final class SpyReceiver: SharedLinkReceiving {
+        var delivered: [(URL, SharedLinkStart)] = []
+        func deliver(_ link: URL, start: SharedLinkStart) { delivered.append((link, start)) }
+    }
+
+    private func state(
+        ready: Bool = true, recording: Bool = false, create: Bool = false, startRightAway: Bool = true
+    ) -> IncomingLinkRouter.DeliveryState {
+        IncomingLinkRouter.DeliveryState(
+            isReady: ready, isRecordingOnScreen: recording, isCreatePresented: create, startRightAway: startRightAway)
+    }
+
+    func testColdLaunchDeliversOnceAfterReady() {
+        let router = IncomingLinkRouter(verifyToken: { _ in true })
+        let spy = SpyReceiver()
+        router.receive(SharedLink.handOffURL(for: link, token: "t")!, sourceApplication: nil, coldLaunch: true)
+        router.deliverIfReady(state: state(ready: false), to: spy, hideCreate: {}, openRow: { _ in })
+        XCTAssertTrue(router.hasPending, "held until Parakeet is on screen")
+        router.deliverIfReady(state: state(), to: spy, hideCreate: {}, openRow: { _ in })
+        router.deliverIfReady(state: state(), to: spy, hideCreate: {}, openRow: { _ in })
+        XCTAssertEqual(spy.delivered.map(\.0), [link])
+        XCTAssertEqual(spy.delivered.first?.1, .autoStart)
+    }
+
+    func testHeldWhileRecording() {
+        let router = IncomingLinkRouter(verifyToken: { _ in true })
+        let spy = SpyReceiver()
+        router.receive(SharedLink.handOffURL(for: link, token: "t")!, sourceApplication: nil)
+        router.deliverIfReady(state: state(recording: true), to: spy, hideCreate: {}, openRow: { _ in })
+        XCTAssertTrue(spy.delivered.isEmpty)
+        XCTAssertTrue(router.hasPending)
+        router.deliverIfReady(state: state(), to: spy, hideCreate: {}, openRow: { _ in })
+        XCTAssertEqual(spy.delivered.count, 1)
+    }
+
+    func testCreateSheetHidesThenDeliversOnce() {
+        let router = IncomingLinkRouter(verifyToken: { _ in true })
+        let spy = SpyReceiver()
+        var hides = 0
+        router.receive(SharedLink.handOffURL(for: link, token: "t")!, sourceApplication: nil)
+        router.deliverIfReady(state: state(create: true), to: spy, hideCreate: { hides += 1 }, openRow: { _ in })
+        XCTAssertEqual(hides, 1)
+        XCTAssertTrue(spy.delivered.isEmpty, "the link sheet waits for Create to close")
+        router.deliverIfReady(state: state(), to: spy, hideCreate: { hides += 1 }, openRow: { _ in })
+        XCTAssertEqual(hides, 1)
+        XCTAssertEqual(spy.delivered.count, 1)
+    }
+
+    func testDuplicateWithinTenMinutesOpensRow() {
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let router = IncomingLinkRouter(now: { clock }, verifyToken: { _ in true })
+        let spy = SpyReceiver()
+        var opened: [UUID] = []
+        let row = UUID()
+        router.noteStarted(link: link.absoluteString, id: row)
+        clock += 599
+        router.receive(
+            SharedLink.handOffURL(for: URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")!, token: "t")!,
+            sourceApplication: nil)
+        router.deliverIfReady(state: state(), to: spy, hideCreate: {}, openRow: { opened.append($0) })
+        XCTAssertEqual(opened, [row], "the same video (another link form) opens its row")
+        XCTAssertTrue(spy.delivered.isEmpty)
+        clock += 2
+        router.receive(SharedLink.handOffURL(for: link, token: "t")!, sourceApplication: nil)
+        router.deliverIfReady(state: state(), to: spy, hideCreate: {}, openRow: { opened.append($0) })
+        XCTAssertEqual(spy.delivered.count, 1, "after 10 minutes it starts again")
+    }
 }

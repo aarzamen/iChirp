@@ -99,6 +99,12 @@ struct CaptureScreen: View {
                 get: { environment.linkSheet.isPresented }, set: { environment.linkSheet.isPresented = $0 }),
             path: idPath
         )
+        .onChange(of: environment.captureOpenRow) { _, id in
+            // Plan 029: a repeat share opens the row its first share started.
+            guard let id else { return }
+            path = [.item(id, isTextOnly: false)]
+            environment.clearCaptureOpenRow()
+        }
         .onChange(of: environment.captureNavigationResets) { _, _ in
             // Share → Parakeet shows Capture's top, where the new Recent row appears (R6a-14).
             path = []

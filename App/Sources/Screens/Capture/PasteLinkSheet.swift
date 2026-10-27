@@ -70,7 +70,10 @@ struct PasteLinkSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         // Plan 029: a shared link waiting for this sheet starts once the sheet's own run is done.
-        .onChange(of: model.phase) { _, _ in environment.linkSheet.modelDidChange() }
+        .onChange(of: model.phase) { _, phase in
+            if case .started(let id) = phase { IncomingLinkRouter.shared.noteStarted(link: model.text, id: id) }
+            environment.linkSheet.modelDidChange()
+        }
         .onAppear {
             #if DEBUG
             if model.text.isEmpty, let link = IngestPreviewLaunch.value(after: IngestPreviewLaunch.pasteLinkArgument) {

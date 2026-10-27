@@ -3,6 +3,7 @@
 
 import ChirpCore
 import ChirpFeatures
+import ChirpIngest
 import Foundation
 import Observation
 import OSLog
@@ -16,6 +17,13 @@ struct IncomingShare: Sendable, Equatable {
     let sourceApplication: String?
     let receivedAt: Date
 }
+
+/// Where a shared link goes when Parakeet can show it (`LinkSheetHost`).
+@MainActor protocol SharedLinkReceiving: AnyObject {
+    func deliver(_ link: URL, start: SharedLinkStart)
+}
+
+extension LinkSheetHost: SharedLinkReceiving {}
 
 @MainActor @Observable final class IncomingLinkRouter {
     static let shared = IncomingLinkRouter()
@@ -59,6 +67,58 @@ struct IncomingShare: Sendable, Equatable {
             sourceApplication: sourceApplication, link: handOff.link, coldLaunch: coldLaunch, fromOwnShare: fromOwnShare
         )
         #endif
+    }
+
+    /// What decides whether a waiting link can be shown now.
+    struct DeliveryState: Equatable {
+        /// Parakeet's screens are up (the root view appeared).
+        var isReady: Bool
+        /// The Dictating or Meeting screen is showing: the link waits until it closes.
+        var isRecordingOnScreen: Bool
+        /// The Create sheet is open: it is hidden first (its typed draft is kept) and the link follows once it closes.
+        var isCreatePresented: Bool
+        /// Settings → Capture → "Start shared links right away".
+        var startRightAway: Bool
+    }
+
+    /// A repeat share of the same video (or link) within this many seconds of its row starting opens that row.
+    static let repeatWindow: TimeInterval = 600
+
+    @ObservationIgnored private var recentStarts: [String: (id: UUID, at: Date)] = [:]
+
+    /// Shows the waiting link when Parakeet can: not before the root view, not over a recording, not over Create. A
+    /// repeat share of a link whose row started in the last 10 minutes opens that row instead of starting again.
+    func deliverIfReady(
+        state: DeliveryState, to receiver: SharedLinkReceiving, hideCreate: () -> Void, openRow: (UUID) -> Void
+    ) {
+        guard let share = pending, state.isReady, !state.isRecordingOnScreen else { return }
+        if let recent = recentStarts[Self.key(for: share.link.absoluteString)],
+            now().timeIntervalSince(recent.at) <= Self.repeatWindow
+        {
+            pending = nil
+            logger.notice("share_link_repeat opened_row=true")
+            openRow(recent.id)
+            return
+        }
+        if state.isCreatePresented {
+            hideCreate()
+            return
+        }
+        pending = nil
+        let start = Self.decide(share, startRightAway: state.startRightAway)
+        logger.notice("share_link_delivered start=\(start == .autoStart ? "auto" : "prefill", privacy: .public)")
+        receiver.deliver(share.link, start: start)
+    }
+
+    /// A Paste a link row started (`phase == .started`): remembered for the repeat rule.
+    func noteStarted(link: String, id: UUID) {
+        recentStarts[Self.key(for: link)] = (id, now())
+    }
+
+    /// One key per video for YouTube (any link form), the link itself otherwise.
+    private static func key(for link: String) -> String {
+        if case .youtube(let videoID, _) = LinkClassifier.classify(link) { return "youtube:\(videoID)" }
+        return link.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The link waiting to be shown, once.

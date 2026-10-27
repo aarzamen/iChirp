@@ -30,6 +30,7 @@ struct DictatingScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             statusRow
+            SharedLinkWaitingBanner()  // plan 029
             DictationVoiceCommandBar()  // M6: voice-command chip (display only) and what the final pass applied
                 .padding(.top, 12)
             if let next = environment.create.speechOutputTitle {  // plan 022: this dictation feeds a Create chain

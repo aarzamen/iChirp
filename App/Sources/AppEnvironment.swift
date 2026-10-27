@@ -60,6 +60,11 @@ import Observation
     /// Bumped when something outside Capture sends the person to Capture's top (a file shared to Parakeet), so Capture
     /// pops any screen it had pushed and the new Recent row is on screen (R6a-14).
     private(set) var captureNavigationResets = 0
+    /// Plan 029: a Library row Capture should open (a repeat share of a link whose row started minutes ago).
+    private(set) var captureOpenRow: UUID?
+
+    func requestCaptureRow(_ id: UUID) { captureOpenRow = id }
+    func clearCaptureOpenRow() { captureOpenRow = nil }
     let jobCenter: TranscriptionJobCenter
     /// Plan 022: the Create sheet and its chain (App/Sources/Create).
     let create = CreateHost()
