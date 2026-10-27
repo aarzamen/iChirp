@@ -96,7 +96,7 @@ legacy/gemini-ios/**                        # Task 1
 - [ ] **Step 1: Branch from the current head**
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 git switch -c ichirp/foundation
 ```
 

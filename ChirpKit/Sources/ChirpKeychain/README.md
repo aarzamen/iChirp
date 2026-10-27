@@ -35,7 +35,7 @@ orphan every stored item (`KeychainSecretStoreTests` pins it).
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/check.sh KeychainSecretStoreTests
 # Optional: writes and deletes a throwaway item in this Mac's login keychain.
 CHIRP_KEYCHAIN_TESTS=1 swift test --package-path ChirpKit --filter KeychainSecretStoreTests

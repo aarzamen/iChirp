@@ -38,7 +38,7 @@ We keep the salvageable pieces (see [Salvage](#salvage)) and rebuild from a clea
 | Wiring search: `grep` for callers of `ShareExtensionHandler`, `SharedMediaQueueManager`, `KeyboardDictationClient`, `RecordingActivityAttributes`, `Activity.request`, `IOSMemoryPressureCoordinator.configure` | ❌ **No callers** outside their own files |
 | Search for FluidAudio / `AsrManager` in the mobile targets | ❌ Only one hit: a status *string* in `IOSTranscribeView.swift:180` |
 | Project files | ❌ No `.xcodeproj`, `project.yml`, `Info.plist` or `.entitlements` for iOS. The app is a SwiftPM `executableTarget`. |
-| Existing device build | `~/Library/Developer/Xcode/DerivedData/macparakeet-…/Build/Products/Debug-iphoneos/MacParakeetMobile` (115 MB, 2026-09-21), built from `/Users/ama/macparakeet` |
+| Existing device build | `~/Library/Developer/Xcode/DerivedData/macparakeet-…/Build/Products/Debug-iphoneos/MacParakeetMobile` (115 MB, 2026-09-21), built from `/Users/ama/Projects/macparakeet-fork` |
 
 ## Findings (most severe first)
 

@@ -45,7 +45,7 @@ returns the `AppleFoundationLanguageModel` (engine id `apple.foundation-models`)
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/check.sh AppleFoundationLanguageModelTests
 # Optional real run on this Mac (skips when Apple Intelligence is off):
 CHIRP_LLM_TESTS=1 swift test --package-path ChirpKit --filter AppleFoundationLanguageModelTests

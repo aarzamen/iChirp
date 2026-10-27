@@ -1,7 +1,7 @@
 <!-- apple-developer-kit:generated v1 2026-09-29 — regenerate: ~/apple-developer-kit/scripts/apple-dev-place-warnings.py -->
 # ⚠️ APPLE DEVELOPER SIGNING — READ BEFORE TOUCHING BUILD SETTINGS
 
-**Project:** `iChirp` · **Root:** `/Users/ama/Documents/GitHub/iChirp` · **Remote:** https://github.com/aarzamen/iChirp.git · **Generated:** 2026-09-29
+**Project:** `iChirp` · **Root:** `/Users/ama/Projects/ichirp` · **Remote:** https://github.com/aarzamen/iChirp.git · **Generated:** 2026-09-29
 
 This file is a sign for AI agents and humans. It was placed here because this project carries Apple
 code-signing material or configuration. It does **not** change anything in the project. Do not delete

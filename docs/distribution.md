@@ -45,7 +45,7 @@ or voice they chose with their own key) are the owner's to answer then.
 3. Create the local signing file (gitignored):
 
    ```bash
-   cd /Users/ama/Documents/GitHub/iChirp
+   cd /Users/ama/Projects/ichirp
    cp Config/Signing.local.xcconfig.example Config/Signing.local.xcconfig   # then replace YOUR_TEAM_ID (the owner: XM6E4PUXTU)
    ```
 
@@ -54,7 +54,7 @@ or voice they chose with their own key) are the owner's to answer then.
 ### Every install
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/run_device.sh                       # build Debug, install, launch
 scripts/run_device.sh -SomeLaunchArgument   # extra arguments are passed to the app at launch
 scripts/run_device.sh --dry-run             # show the chosen device and commands, build nothing
@@ -90,7 +90,7 @@ build number, so "which build is this?" has one answer), install the `.app` the 
 rebuilding. It works when the development profile inside it lists that phone; check first:
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 APP=.build/xcode/Build/Products/Debug-iphoneos/iChirp.app
 plutil -p "$APP/Info.plist" | grep -E 'ChirpGitCommit|CFBundleVersion"'                 # the build you are about to copy
 security cms -D -i "$APP/embedded.mobileprovision" | grep -c '<the phone UDID>'          # 1 = the profile covers it
@@ -120,7 +120,7 @@ the iPhone 17 Pro had tested.
 ## Device smoke test
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/device_smoke.sh
 ```
 
@@ -137,7 +137,7 @@ The first run downloads about 0.5 GB of models on the phone; keep it on Wi-Fi an
 ## Path B: IPA + SideStore (optional fallback)
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/build_ipa.sh          # writes dist/iChirp-sidestore.ipa
 ```
 

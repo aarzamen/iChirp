@@ -81,7 +81,7 @@ and without the runtime the models say "not in this build".
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/build_llamacpp.sh
 scripts/check.sh ChirpEngineLlamaCppTests
 # Real models on this Mac (downloads 1.3 GB and 2.5 GB once into ~/Library/Caches/iChirpTests/ondevice-llm):

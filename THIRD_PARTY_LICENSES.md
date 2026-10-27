@@ -19,7 +19,7 @@ record the result here before shipping an IPA to anyone else.
 
 - Author: the repository owner. Not published; no separate license. The owner contributes the ported code to this
   repository under its GPL-3.0.
-- Source: the owner's macOS read-aloud app, `~/readback` on the owner's Mac, at `696cef6`.
+- Source: the owner's macOS read-aloud app, `~/Projects/readback` on the owner's Mac, at `696cef6`.
 - Used for (plan 020): `Sources/TTS/TTSProvider.swift` (`TTSHTTP`), `XAIProvider.swift`, `OpenAIProvider.swift`,
   `Chunker.swift`, `SynthQueue.swift` and `Sources/Audio/PlaybackEngine.swift`, ported into `ChirpEngineVoiceHTTP`
   (`VoiceHTTPTransport`, `XAIVoice`, `CompanionVoice`), `ChirpFeatures` (`SpeechChunker`, `VoicePlayer`) and

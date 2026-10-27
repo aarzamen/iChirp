@@ -39,7 +39,7 @@ against the old layout. Two different symptoms showed up:
 Delete the build products of the repo's own modules, keep the third-party ones, and rebuild:
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp/ChirpKit/.build/arm64-apple-macosx/debug   # or the worktree's ChirpKit
+cd /Users/ama/Projects/ichirp/ChirpKit/.build/arm64-apple-macosx/debug   # or the worktree's ChirpKit
 rm -rf Chirp*.build Modules/Chirp*
 cd ../../../..
 swift build --package-path ChirpKit --jobs 3 --build-tests
@@ -53,7 +53,7 @@ If the next build then stops with `couldn't build …/ChirpFeatures.build/source
 re-plan, then rebuild:
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp   # or the worktree
+cd /Users/ama/Projects/ichirp   # or the worktree
 rm -f ChirpKit/.build/arm64-apple-macosx/debug/description.json ChirpKit/.build/debug.yaml
 swift build --package-path ChirpKit --jobs 3 --build-tests
 ```

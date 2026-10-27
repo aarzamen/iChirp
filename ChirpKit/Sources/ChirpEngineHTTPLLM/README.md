@@ -61,7 +61,7 @@ app loads the provider's key from the Keychain (`ChirpKeychain`) and builds one 
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/check.sh HTTPLanguageModelTests
 # Optional, only when LM Studio's server is already running on this Mac with a model loaded:
 CHIRP_LLM_TESTS=1 swift test --package-path ChirpKit --filter LMStudioLiveTests

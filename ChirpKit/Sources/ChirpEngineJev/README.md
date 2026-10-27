@@ -53,7 +53,7 @@ protocol and its validation are ports of MacParakeet's `Services/VoiceControl/Je
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/check.sh JevDecisionModelTests
 # Optional, on the owner's key only (never in CI): the live evaluation and its results doc.
 CHIRP_JEV_TESTS=1 JEV_API_KEY=… swift test --package-path ChirpKit --filter JevLiveEvalTests

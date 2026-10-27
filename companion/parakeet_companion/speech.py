@@ -75,7 +75,7 @@ class ModelSpec:
     needs: tuple[tuple[str, str], ...] = ()
 
 
-#: Where an MLX copy of Kokoro-82M may already live besides the Hugging Face cache: `~/Kokoro-82M` unless this variable
+#: Where an MLX copy of Kokoro-82M may already live besides the Hugging Face cache: `~/Projects/_reference/kokoro-82m` unless this variable
 #: names another folder (`~` allowed). Read once, when the companion starts (R8-21: it was a hard-coded home path).
 KOKORO_DIR_ENV = "PARAKEET_KOKORO_DIR"
 

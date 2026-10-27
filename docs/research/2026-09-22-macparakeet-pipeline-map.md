@@ -6,14 +6,14 @@ source: research subagent run during the iChirp foundation session
 ---
 
 > MacParakeet STT + text-processing architecture map (upstream bbae9e0e). Reference for porting; line numbers refer to upstream paths (now under upstream/macparakeet/).
-> Paths such as `/Users/ama/Documents/GitHub/iChirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
+> Paths such as `/Users/ama/Projects/ichirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
 
 # MacParakeet speech-to-text and text-processing architecture (upstream, before commit ae5efa53)
 
 **How to read this.** Paths are absolute. Line numbers come from the working tree for files that ae5efa53 did not touch. Some files ae5efa53 did touch are also cited; for those, the numbers come from `git show ae5efa53^:<path>`. They include `ExportService.swift`, `ClipboardService.swift`, `SystemAudioStream.swift`, `MicrophoneEnginePlatform.swift`, `LocalCLIExecutor.swift`, `AudioProcessor.swift`, `PermissionService.swift`, `AudioDeviceManager.swift` and `MeetingAudioCaptureService.swift`. I left out ae5efa53's new Core files (`IOSMicrophoneEnginePlatform.swift`, `PlatformBridge.swift`, `AppGroupConstants.swift`, `DarwinNotificationBroadcaster.swift`, `IOSMemoryPressureCoordinator.swift`).
 
 ## 0. Dependency pins
-From `/Users/ama/Documents/GitHub/iChirp/Package.swift` and `/Users/ama/Documents/GitHub/iChirp/Package.resolved`:
+From `/Users/ama/Projects/ichirp/Package.swift` and `/Users/ama/Projects/ichirp/Package.resolved`:
 
 | Dependency | Requirement | Resolved | Notes |
 |---|---|---|---|
@@ -30,7 +30,7 @@ The package platforms are `.macOS(.v14)` and `.iOS(.v17)`. The app enforces macO
 
 ## 1. STT engine abstraction
 
-**Key files:** `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/STT/` (`STTClientProtocol.swift`, `STTResult.swift`, `STTScheduler.swift`, `STTRuntime.swift`, `SpeechEngineCapabilities.swift`, `NativeLiveDictating.swift`, `ParakeetTDTASRConfig.swift`, `STTWordTimingBuilder.swift`, `CustomVocabularyBoosting.swift`, and the engine files), `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/SpeechEnginePreference.swift`, `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/ANEInferenceGate.swift`.
+**Key files:** `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/STT/` (`STTClientProtocol.swift`, `STTResult.swift`, `STTScheduler.swift`, `STTRuntime.swift`, `SpeechEngineCapabilities.swift`, `NativeLiveDictating.swift`, `ParakeetTDTASRConfig.swift`, `STTWordTimingBuilder.swift`, `CustomVocabularyBoosting.swift`, and the engine files), `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/SpeechEnginePreference.swift`, `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/ANEInferenceGate.swift`.
 
 ### 1.1 Protocols and value types
 - **Job kinds.** `STTJobKind` has four cases: `dictation`, `meetingFinalize`, `meetingLiveChunk`, `fileTranscription` (STTClientProtocol.swift:3).
@@ -73,7 +73,7 @@ How each engine feeds audio:
 Parakeet always reports `language: "en"` (STTRuntime.swift:753), even for v3.
 
 ### 1.3 Model download, caching, deletion
-- **FluidAudio cache:** `AppPaths.fluidAudioModelDirectory(forASRVersion:)` maps to `MLModelConfigurationUtils.defaultModelsDirectory()` plus `Repo.folderName` (`/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/AppPaths.swift:149–213`). Setting `MACPARAKEET_DEBUG_APP_STATE_DIR` redirects this cache for dev and test runs.
+- **FluidAudio cache:** `AppPaths.fluidAudioModelDirectory(forASRVersion:)` maps to `MLModelConfigurationUtils.defaultModelsDirectory()` plus `Repo.folderName` (`/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/AppPaths.swift:149–213`). Setting `MACPARAKEET_DEBUG_APP_STATE_DIR` redirects this cache for dev and test runs.
 - **Download source:** FluidAudio downloads from Hugging Face (`ModelRegistry.baseURL`, `https://huggingface.co` by default).
 - **Whisper cache:** `appSupport/models/stt/whisper` (AppPaths:216). Downloads go through `WhisperKit.download(variant:downloadBase:)`.
 - **Whisper first load** runs a multi-minute on-device CoreML "optimize". The app records which variants are warm in `whisperOptimizedVariants` (SpeechEnginePreference.swift:42,275).
@@ -83,7 +83,7 @@ Parakeet always reports `language: "en"` (STTRuntime.swift:753), even for v3.
 
 ### 1.4 Warm-up and prewarm
 - `backgroundWarmUp()` (STTRuntime.swift:1379) publishes `STTWarmUpState` to observers. The status strings are parsed by `OnboardingProgressParser`.
-- **Launch sequence** (`/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeet/AppDelegate.swift:745–790`), after onboarding is complete:
+- **Launch sequence** (`/Users/ama/Projects/ichirp/Sources/MacParakeet/AppDelegate.swift:745–790`), after onboarding is complete:
   1. `sharedMicStream.prewarmDictation()`
   2. a deferral
   3. `sttRuntime.backgroundWarmUp()`
@@ -103,8 +103,8 @@ Parakeet always reports `language: "en"` (STTRuntime.swift:753), even for v3.
   - *Live Speech* (UserDefaults `speechRecognitionEngine`) serves dictation and meeting preview.
   - *Final Transcription* (`transcriptionSpeechRecognitionEngine`) is an optional override. If absent, it inherits Live Speech (SpeechEnginePreference.swift:12–132).
 - **Meetings.** A meeting takes `beginSpeechEngineSession()` first (MeetingRecordingService.swift:660), then `MeetingSpeechPlan.resolve` (L674). Preview is set only if the live engine provides word timings and live transcription is enabled. The final route is written into `recording.lock` schema 2.
-- **File jobs** snapshot `SpeechEngineSelection.finalTranscription()`. This is wired in `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeet/App/AppEnvironment.swift:458`.
-- **Locale-aware first run.** `OnboardingViewModel.recommendedWhisperLanguage` (`/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetViewModels/OnboardingViewModel.swift:1140`) switches the default to Whisper plus a language hint (ko, ja, zh or yue) when the preferred languages have no English and include one of those. It is applied at L506.
+- **File jobs** snapshot `SpeechEngineSelection.finalTranscription()`. This is wired in `/Users/ama/Projects/ichirp/Sources/MacParakeet/App/AppEnvironment.swift:458`.
+- **Locale-aware first run.** `OnboardingViewModel.recommendedWhisperLanguage` (`/Users/ama/Projects/ichirp/Sources/MacParakeetViewModels/OnboardingViewModel.swift:1140`) switches the default to Whisper plus a language hint (ko, ja, zh or yue) when the preferred languages have no English and include one of those. It is applied at L506.
 - **Leases.** An active lease blocks engine, variant and model switches (`engineSwitchAvailability`, STTScheduler.swift:474).
 
 ### 1.7 Scheduler and runtime (ADR-016)
@@ -128,7 +128,7 @@ Parakeet always reports `language: "en"` (STTRuntime.swift:753), even for v3.
 
 ## 2. Audio pipeline
 
-**Key files:** `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Audio/` and `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/Capture/`.
+**Key files:** `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Audio/` and `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/Capture/`.
 
 - **Capture.**
   - `SharedMicrophoneStream` is one per process. It fans buffers out through `subscribe(wantsVPIO:blocksVPIOPromotion:onEngineDeath:handler:)` (L261), with a tap buffer of 4096 frames (L144).
@@ -165,7 +165,7 @@ Parakeet always reports `language: "en"` (STTRuntime.swift:753), even for v3.
 ## 3. The three flows end to end
 
 ### (a) Dictation
-1. **Hotkey.** Hotkey event taps (`/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeet/Hotkey/HotkeyManager.swift`, CGEvent) drive the pure `HotkeyGestureController`/`FnKeyStateMachine`, then `DictationFlowCoordinator`, then `DictationService.startRecording` (`/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/Dictation/DictationService.swift:282`).
+1. **Hotkey.** Hotkey event taps (`/Users/ama/Projects/ichirp/Sources/MacParakeet/Hotkey/HotkeyManager.swift`, CGEvent) drive the pure `HotkeyGestureController`/`FnKeyStateMachine`, then `DictationFlowCoordinator`, then `DictationService.startRecording` (`/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/Dictation/DictationService.swift:282`).
 2. **Capture.** `AudioProcessor.startCapture` records the WAV.
 3. **Display-only live text**, in parallel. The WAV is always recorded as well. There are two paths:
    - *Native streaming* for Unified or Nemotron (L958): `beginLiveDictationTranscription`, then append, then partials.
@@ -184,7 +184,7 @@ Parakeet always reports `language: "en"` (STTRuntime.swift:753), even for v3.
 7. **Insert.** `DictationFlowCoordinator.swift:1310–1370` calls `ClipboardService.pasteTextWithAction`. This writes to the pasteboard, sends a synthetic Cmd+V (CGEvent), runs any post-paste key action such as Return, and restores the clipboard after 0.5 s (upstream ClipboardService.swift:192, 329). There is an optional streaming-cursor typing mode.
 
 ### (b) File or URL transcription
-Entry points in `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/TranscriptionService.swift`:
+Entry points in `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/TranscriptionService.swift`:
 - **Local file** (L871): resolve the final route, read metadata (`MediaMetadataExtractor`, AVFoundation), insert a `processing` row, then `transcribeAudio` (L1907).
 - **URL** (L978): YouTube and other sites go through `YouTubeDownloader`, which runs yt-dlp as a subprocess (`-f <selector> --no-playlist --retries 3 --concurrent-fragments 4 --embed-metadata --ffmpeg-location …`, L399–430). The managed binary auto-updates from GitHub releases (`BinaryBootstrap.swift:35`). Apple Podcasts goes through `PodcastEpisodeResolver` (iTunes lookup) and `PodcastAudioDownloader` (native URLSession). Text queries go through `PodcastDirectoryService`, `PodcastFeedParser` and `PodcastEpisodeMatcher`. Downloads never occupy an STT slot.
 
@@ -214,7 +214,7 @@ Entry points in `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Serv
 5. **Live Ask** uses `LLMService.chatStream` with the live transcript and notes as context (`TranscriptChatViewModel.swift:287`).
 
 ## 4. Diarization
-Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/Diarization/DiarizationService.swift` and `SpeakerMerger.swift`.
+Key files: `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/Diarization/DiarizationService.swift` and `SpeakerMerger.swift`.
 
 - **Pipeline.** FluidAudio `OfflineDiarizerManager`: pyannote community-1 segmentation, WeSpeaker v2 embeddings, VBx clustering.
 - **Configuration.** `highAccuracyConfig` (L448): `stepRatio 0.1`, `minSegmentDurationSeconds 0`, `zeroVoteReembed` enabled. Clustering threshold and constrained assignment stay at library defaults.
@@ -226,7 +226,7 @@ Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/
 - **Where it runs:** files and URLs, and the meeting **system track only**. Cohere output has no word timings, so it cannot be aligned.
 
 ## 5. Text-processing pipeline
-Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/TextProcessing/` (`TextProcessingPipeline.swift`, `TextRefinementService.swift`, `CustomWordReplacer.swift`, `AIFormatter.swift`, `AIFormatterSmartDefaults.swift`, `TranscriptFormatter.swift`).
+Key files: `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/TextProcessing/` (`TextProcessingPipeline.swift`, `TextRefinementService.swift`, `CustomWordReplacer.swift`, `AIFormatter.swift`, `AIFormatterSmartDefaults.swift`, `TranscriptFormatter.swift`).
 
 **Deterministic, pure pipeline.** `TextProcessingPipeline.process` (L12–66) runs five steps in this fixed order:
 1. **Fillers** (L73–111). Always removes `uh`, `umm`, `uhh`. Also removes standalone `um` by default (`removeUmFiller`, default true; can be turned off for Portuguese and German). Uses word-boundary, case-insensitive regexes, then fixes up punctuation.
@@ -251,7 +251,7 @@ Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/TextProce
 - **App-aware dictation profiles.** Order: exact app, then category, then built-in smart defaults (messaging, email, browser, notes, docs, code, terminal), then the dictation prompt. This uses `AIFormatterProfileRepository`. The profile UI is behind the `AppFeatures.aiFormatterProfilesEnabled = false` flag; smart defaults are active.
 
 ## 6. LLM layer
-Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/LLM/`, `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Models/LLMProvider.swift`, `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Models/Prompt.swift`, `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetLocalLLM/MLXLocalLLMRuntime.swift`.
+Key files: `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/LLM/`, `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Models/LLMProvider.swift`, `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Models/Prompt.swift`, `/Users/ama/Projects/ichirp/Sources/MacParakeetLocalLLM/MLXLocalLLMRuntime.swift`.
 
 - **Providers** (`LLMProviderID`, L33–47): anthropic, openai, openaiCompatible, gemini (via its OpenAI-compatible endpoint), openrouter, moonshot, deepseek, qwen (dashscope-intl), zai, minimax, ollama (`localhost:11434`), lmstudio (`localhost:1234`), localCLI, inProcessLocal.
 - **Routing.**
@@ -267,7 +267,7 @@ Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/
 - **Run ledger.** `llm_runs` records metadata only, never content.
 
 ## 7. Persistence
-Key file: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Database/DatabaseManager.swift`.
+Key file: `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Database/DatabaseManager.swift`.
 
 - **Connection.** One GRDB `DatabaseQueue` on `appSupport/MacParakeet/macparakeet.db`, with foreign keys on and a 5 s busy timeout (L83–86). A `.migration.lock` file serializes migrations across processes.
 - **Migrations** are registered inline, from `v0.1-dictations` (L133) to `v0.44-timed-transcript-corrections` (L2243). Shipped migrations are never edited. `DatabaseManager()` gives an in-memory database for tests.
@@ -288,7 +288,7 @@ Key file: `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Database/D
 - **Crash recovery** (ADR-019). `recording.lock` (schema 2) has states `recording` and `awaitingTranscription` (MeetingRecordingLockFileStore.swift:4–20). The fragmented m4a stays playable up to its last 1 s fragment. `MeetingRecordingRecoveryService` offers `discoverPendingRecoveries`, `recover` (repairs the m4a and re-runs finalization with the captured route) and `discard` (L137/192/418).
 
 ## 8. Export
-Key files: upstream `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/ExportService.swift`, `DAPTDocumentRenderer.swift`, and `TextProcessing/TranscriptCueBuilder.swift` / `TranscriptParagraphBuilder.swift`.
+Key files: upstream `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/ExportService.swift`, `DAPTDocumentRenderer.swift`, and `TextProcessing/TranscriptCueBuilder.swift` / `TranscriptParagraphBuilder.swift`.
 
 All formats consume a `Transcription` or a `SpeakerAttributionProjection`, which carries the effective, correction-aware transcript.
 
@@ -304,7 +304,7 @@ All formats consume a `Transcription` or a `SpeakerAttributionProjection`, which
 The GUI enum lists all 8 formats (`TranscriptResultActions.swift:5`). CLI `export` supports 6 of them (no DOCX or PDF; `ExportCommand.swift:5–11`).
 
 ## 9. CLI
-Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/MacParakeetCLI.swift` (`cliVersion` 4.5.0, L11), `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/Commands/`, `/Users/ama/Documents/GitHub/iChirp/integrations/README.md`, `/Users/ama/Documents/GitHub/iChirp/spec/contracts/cli-json-v1.md`.
+Key files: `/Users/ama/Projects/ichirp/Sources/CLI/MacParakeetCLI.swift` (`cliVersion` 4.5.0, L11), `/Users/ama/Projects/ichirp/Sources/CLI/Commands/`, `/Users/ama/Projects/ichirp/integrations/README.md`, `/Users/ama/Projects/ichirp/spec/contracts/cli-json-v1.md`.
 
 - **Commands:** transcribe, retranscribe, search, search-reindex, transcript, cards, history, export, stats, spec, health, config, models, vocab, llm, prompts, quick-prompts, transforms, meetings (import, split, artifact, export), calendar, meeting-vad-sim, feedback, voice-control.
 - **`transcribe` flags:** `--engine`, `--language`, `--parakeet-model`, `--nemotron-model`, `--speaker-detection`, `--speaker-count`/`--speaker-min`/`--speaker-max`, `--podcast`, `--audio-track`, `--format` (text, transcript, json, srt, vtt, dapt), `--output-dir`, `--no-history`.
@@ -319,7 +319,7 @@ Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/MacParakeetCLI.swift`
 | **Portable, with adaptation** | `AVAudioEngine` capture (needs AVAudioSession category and route handling; the `MicrophoneEnginePlatform` protocol is the seam); `AudioRecorder` WAV writing; `MeetingAudioStorageWriter` (AVAssetWriter); file decoding (replace FFmpeg with AVAudioFile/AVAssetReader or FluidAudio `AudioConverter`); `KeychainKeyValueStore` (Security); EventKit `CalendarService`; the LocalVQE AEC (needs static linking or an xcframework instead of dlopen). |
 | **Portable as-is** | FluidAudio 0.15.7 (iOS 17), WhisperKit 0.18.0 (iOS 16), GRDB and every repository and migration, `STTScheduler`/`STTRuntime`/engines, capability registry, `TextProcessingPipeline`/`CustomWordReplacer`/`TextRefinementService`, `AIFormatter`/`TranscriptFormatter`, `LLMService` plus URLSession adapters, `LLMConfigStore`, `SpeakerMerger`/`DiarizationService`, `MeetingTranscriptFinalizer`/`Reconciler`/`Assembler`, chunkers and VAD, podcast resolver and downloader (URLSession), JSON/SRT/VTT/TXT/MD/DAPT export, `KnowledgeSegmenter`/`TranscriptSegmenter`, pure state machines (`DictationFlowStateMachine`, `FnKeyStateMachine`). |
 
-## Appendix A: ADR index (`/Users/ama/Documents/GitHub/iChirp/spec/adr/`)
+## Appendix A: ADR index (`/Users/ama/Projects/ichirp/spec/adr/`)
 - 001-parakeet-stt: Parakeet TDT 0.6B-v3 is the primary/default STT. Amendments add v2 (English), Unified, Nemotron Beta, opt-in Cohere, and Whisper for CJK locales at onboarding.
 - 002-local-only: audio never leaves the device. LLM, telemetry and Discover are explicit or opt-out network surfaces.
 - 003-one-time-purchase: historical $49 pricing, replaced by free GPL-3.0. Keep the entitlement code.
@@ -354,7 +354,7 @@ Key files: `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/MacParakeetCLI.swift`
 - 032-llm-task-group-routing: cleanup / analysis / transform routing (accepted, not implemented).
 - 033-explicit-voice-control: gated Voice Control using the shared STT; Jev cloud decisions plus AX actions.
 
-**Contracts** (`/Users/ama/Documents/GitHub/iChirp/spec/contracts/`):
+**Contracts** (`/Users/ama/Projects/ichirp/spec/contracts/`):
 - CLI and export: cli-json-v1, dapt-export-v1, file-transcription-audio-tracks.
 - Meetings: meeting-artifacts-v1, meeting-recovery-retention, meeting-import-v1, meeting-splitting, saved-audio-auto-prompt-completion.
 - Editing and speakers: custom-word-deletion, speaker-correction-view-model, speaker-voiceprints.

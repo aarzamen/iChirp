@@ -20,7 +20,7 @@ plus the phone side of YouTube audio and plan 014's remaining items.
 ## Global constraints
 
 - Repo is **public**: no keys, tokens, device ids, voice ids, personal paths beyond `~/Projects/ChoiceVoice` and
-  `~/Kokoro-82M` as documented defaults, recordings or PHI. Fixtures synthetic.
+  `~/Projects/_reference/kokoro-82m` as documented defaults, recordings or PHI. Fixtures synthetic.
 - Python: always `uv` (Python 3.12 via `uv venv --python 3.12`); never a bare `pip install` into the global Python.
 - The companion stores nothing it receives and logs no content (method, path, status, sizes, durations only).
 - Swift 6 strict concurrency; `swift format lint --strict --recursive ChirpKit/Sources App/Sources Widgets App/Shared`
@@ -49,8 +49,8 @@ sources, and what the lane does about them:
    `scripts/companion.sh --download <model>`; a request never starts a download (a missing model is `503` naming that
    command). The speaker list and descriptions come from ChoiceVoice's `ui-vite/src/App.jsx` (`SPEAKERS`). The 0.6B
    model ignores style instructions, so its voices report `supportsStyle: false`.
-2. **`~/Kokoro-82M` holds PyTorch weights** (`kokoro-v1_0.pth`, `voices/*.pt`) that mlx-audio cannot load. `kokoro-82m`
-   is served from `~/Kokoro-82M` only if it holds MLX safetensors, else from `mlx-community/Kokoro-82M-bf16`
+2. **`~/Projects/_reference/kokoro-82m` holds PyTorch weights** (`kokoro-v1_0.pth`, `voices/*.pt`) that mlx-audio cannot load. `kokoro-82m`
+   is served from `~/Projects/_reference/kokoro-82m` only if it holds MLX safetensors, else from `mlx-community/Kokoro-82M-bf16`
    (Apache-2.0, ~390 MB) after `--download kokoro-82m`, and it needs the optional `kokoro` extra (the misaki
    phonemizer). Not part of the done criteria; reported unavailable with the fixing command until then.
 3. **MP3** is encoded by Homebrew `ffmpeg` (already on the Mac) in a subprocess; WAV by the standard library. Without
@@ -78,7 +78,7 @@ sources, and what the lane does about them:
 - `ChirpIngest` has `LinkClassifier`, `MediaDownloader`, `PodcastEpisodeResolver`, `YouTubeCaptionFetcher`,
   `IngestHTTPClient`; `LinkIngestService` (ChirpFeatures) imports captions or fails with "no captions".
 - ChoiceVoice (`~/Projects/ChoiceVoice/sidecar`, uv, mlx-audio 0.4.3) runs Qwen3-TTS (0.6B/1.7B, speakers such as
-  Ryan, a style instruction); `~/Kokoro-82M` holds Kokoro-82M. mlx-audio's server exposes `POST /v1/audio/speech`.
+  Ryan, a style instruction); `~/Projects/_reference/kokoro-82m` holds Kokoro-82M. mlx-audio's server exposes `POST /v1/audio/speech`.
 - M5 lane concerns: downloads of unknown size show "0%"; the YouTube ANDROID client version `20.10.38` may be stale;
   podcasts and captions were never run against the live services.
 
@@ -115,7 +115,7 @@ a log capture proves request bodies never appear.
 ### Step 2: Speech (mlx-audio)
 `POST /v1/audio/speech` and `GET /v1/voices` per the contract. Models: `qwen3-tts-1.7b`, `qwen3-tts-0.6b` (the same
 Hugging Face repos ChoiceVoice uses — read `~/Projects/ChoiceVoice/sidecar` for the ids and speaker list),
-`kokoro-82m` (local path `~/Kokoro-82M` if present). Load lazily, keep one model resident, serialize synthesis with
+`kokoro-82m` (local path `~/Projects/_reference/kokoro-82m` if present). Load lazily, keep one model resident, serialize synthesis with
 one lock. Style → Qwen3-TTS instruction. Limits: 4 000 characters (413). Missing model → 503 with the command that
 fixes it. Inject the synthesizer behind a protocol so tests use a fake that returns a tiny WAV.
 **Verify:** pytest with the fake (shape, limits, errors, content types); a manual live check on the Mac:

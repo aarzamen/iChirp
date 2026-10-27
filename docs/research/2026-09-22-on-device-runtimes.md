@@ -6,7 +6,7 @@ source: research subagent run during the iChirp foundation session
 ---
 
 > On-device engine research for iOS (FluidAudio, Apple Speech/Foundation Models, WhisperKit, LLM runtimes, small models, Cactus/Needle/Jev iOS facts) with the recommended plug-in matrix.
-> Paths such as `/Users/ama/Documents/GitHub/iChirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
+> Paths such as `/Users/ama/Projects/ichirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
 
 I checked the three iOS facts you asked about for items 1-3, researched items 4-9, and changed no files. The report is below.
 
@@ -16,7 +16,7 @@ I checked the three iOS facts you asked about for items 1-3, researched items 4-
 
 - **Cactus can't go in a GPL-3.0 app you distribute (my reading, not legal advice).** Its licence only lets individuals, non-profits and companies under $2M in funding and under $2M in revenue use it free. Everyone else needs a paid licence. That extra restriction clashes with GPL-3.0. **Needle 3 doesn't need Cactus**: it ships its own small iOS library under Apache-2.0, but only as a compiled binary with no source.
 - **Jev has no on-device option.** It's a closed, early-access cloud API.
-- **iChirp's licence may be wrong.** The latest commit (`ae5efa53`) changed `/Users/ama/Documents/GitHub/iChirp/LICENSE` from GPL-3.0 to MIT. The upstream MacParakeet code is GPL-3.0 (© 2026 Daniel Moon), so a fork most likely has to stay GPL-3.0. Not legal advice.
+- **iChirp's licence may be wrong.** The latest commit (`ae5efa53`) changed `/Users/ama/Projects/ichirp/LICENSE` from GPL-3.0 to MIT. The upstream MacParakeet code is GPL-3.0 (© 2026 Daniel Moon), so a fork most likely has to stay GPL-3.0. Not legal advice.
 - **FluidAudio's newest tag is v0.16.1 (2026-09-21).** The release titled "v0.16.0" is actually tagged `v0.15.8`, and there is no `v0.16.0` tag. Use `from: "0.16.1"`. The project currently pins exact 0.15.7.
 - **SideStore limits memory.** Apple's capability table lists Extended Virtual Addressing and Increased Debugging Memory Limit as paid-account only; the plain "Increased Memory Limit" isn't in the table. One test on an iPhone 17 Pro: a 3.65 GB model (Gemma 4 E4B) would not load without one of these entitlements. Plan on **≤ ~2–3 GB of model weights** for SideStore builds.
 - **Your Xcode 26.2 is behind.** iOS 27 and Xcode 27 shipped 2026-09-14. You need Xcode 27 for: Core AI, the third-party model protocol and cloud model in Foundation Models, the MLX bridge to Foundation Models, and the new Speech input APIs.
@@ -190,5 +190,5 @@ Remember that the memory used during a long transcript grows on top of the weigh
 | P2 | Laya / open-jev (DeBERTa) | Needs Core ML or ONNX conversion | Only if an on-device alternative to Jev is needed |
 
 Local files I read (nothing changed):
-- `/Users/ama/Documents/GitHub/iChirp/Package.swift` (pins FluidAudio 0.15.7, argmax-oss-swift 0.18.0, mlx-swift-lm 3.31.4, mlx-swift 0.31.4)
-- `/Users/ama/Documents/GitHub/iChirp/LICENSE` (changed to MIT in `ae5efa53`)
+- `/Users/ama/Projects/ichirp/Package.swift` (pins FluidAudio 0.15.7, argmax-oss-swift 0.18.0, mlx-swift-lm 3.31.4, mlx-swift 0.31.4)
+- `/Users/ama/Projects/ichirp/LICENSE` (changed to MIT in `ae5efa53`)

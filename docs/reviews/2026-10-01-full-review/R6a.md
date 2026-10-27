@@ -1,6 +1,6 @@
 # R6a — App shell and the capture → library → transcript journey
 
-Reviewer lane R6a, repo `/Users/ama/Documents/GitHub/iChirp`, `main` @ `53bc2cc6`. Read-only review; nothing was built or run.
+Reviewer lane R6a, repo `/Users/ama/Projects/ichirp`, `main` @ `53bc2cc6`. Read-only review; nothing was built or run.
 
 ## Overall assessment
 

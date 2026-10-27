@@ -20,7 +20,7 @@ Automated tests prove the paths they exercise; QA adds what they cannot:
    feature); the About commit is normally newer than that one:
 
    ```bash
-   cd /Users/ama/Documents/GitHub/iChirp
+   cd /Users/ama/Projects/ichirp
    git merge-base --is-ancestor <checklist sha> <About commit> && echo OK
    ```
 
@@ -34,7 +34,7 @@ Automated tests prove the paths they exercise; QA adds what they cannot:
 ## Getting a build onto the phone
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 git switch main
 scripts/run_device.sh
 ```
@@ -472,7 +472,7 @@ Before the phone (optional, on the Mac): the opt-in live check speaks one synthe
 and, with your key in this shell only, through xAI:
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 CHIRP_LIVE_VOICE_TESTS=1 CHIRP_LIVE_VOICE_OUT="$PWD/.build/voice-live" \
   swift test --package-path ChirpKit --filter VoiceLiveTests   # companion token read from its token file
 open .build/voice-live                                           # listen to voice-live-companion.wav
@@ -535,7 +535,7 @@ Settings → Mac companion keeps the saved companion. Keep the simulator build s
 the clinical steps read Keychain items, which an unsigned build cannot (`-34018`).
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 python3 scripts/voice_stub_server.py &   # companion speech API on 127.0.0.1:8799 (synthetic tones)
 python3 scripts/llm_stub_server.py &     # for the clinical SOAP → Listen steps
 scripts/gen.sh

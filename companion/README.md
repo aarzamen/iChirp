@@ -17,7 +17,7 @@ From the repo root (first run creates `companion/.venv` with Python 3.12 through
 Python on the Mac):
 
 ```bash
-cd ~/Documents/GitHub/iChirp
+cd ~/Projects/ichirp
 scripts/companion.sh --download qwen3-tts-1.7b   # once: about 3.1 GB into the Hugging Face cache
 scripts/companion.sh                             # starts it; Control-C stops it
 ```
@@ -41,7 +41,7 @@ throwaway one for testing),
 `--download qwen3-tts-0.6b` (smaller, about 2.0 GB, no style instructions), `--download kokoro-82m` (about 390 MB;
 also run `uv sync --project companion --extra kokoro` for its phonemizer).
 
-Kokoro already on this Mac as an MLX copy? The companion looks in `~/Kokoro-82M` first, then in the Hugging Face
+Kokoro already on this Mac as an MLX copy? The companion looks in `~/Projects/_reference/kokoro-82m` first, then in the Hugging Face
 cache. For another folder: `PARAKEET_KOKORO_DIR=/path/to/Kokoro-82M scripts/companion.sh` (read when it starts).
 
 Needs: `uv` (`brew install uv`), `ffmpeg` for MP3 answers (`brew install ffmpeg`; WAV works without it), and a
@@ -55,7 +55,7 @@ private or age-restricted video says the same, so try a public one first). If ev
 this Mac, from the repo root, then restart the companion:
 
 ```bash
-cd ~/Documents/GitHub/iChirp
+cd ~/Projects/ichirp
 uv lock --project companion --upgrade-package yt-dlp   # newest yt-dlp that pyproject.toml allows, into companion/uv.lock
 scripts/companion.sh                                   # restart (Control-C stops the old one); it installs the new yt-dlp first
 ```
@@ -120,7 +120,7 @@ the Hugging Face cache (`~/.cache/huggingface/hub`).
 ## Develop
 
 ```bash
-cd ~/Documents/GitHub/iChirp/companion
+cd ~/Projects/ichirp/companion
 uv run --frozen --python 3.12 pytest -q   # every endpoint with fakes: no models, no network (CI runs this command)
 ```
 

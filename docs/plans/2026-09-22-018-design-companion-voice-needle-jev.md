@@ -13,7 +13,7 @@
    decision models serve transcription.
 3. Text-to-speech ("text voice") that involves the owner's two voice projects: **ChoiceVoice** (local Qwen3-TTS on
    the Mac via mlx-audio, `~/Projects/ChoiceVoice`) and the Grok/xAI voice path (**Voice-actor**; its code is not on
-   GitHub or this Mac, but the owner's **Readback** app at `~/readback` has the working Swift `XAIProvider`).
+   GitHub or this Mac, but the owner's **Readback** app at `~/Projects/readback` has the working Swift `XAIProvider`).
 
 Owner decisions (2026-09-22): plan 014 = finish its open items; Needle demos = **SOAP fields and medications** and
 **dictation voice commands** (not the MARCH card); voices = **ChoiceVoice on the Mac** and **Grok (xAI)**, no Apple
@@ -33,7 +33,7 @@ voices; Parakeet is never submitted to the App Store, so App Review is not a con
   /v1/api-key` validates a key — as implemented in Readback `Sources/TTS/XAIProvider.swift`.
 - **mlx-audio 0.4.3** (ChoiceVoice's runtime) ships a FastAPI server with OpenAI-style `POST /v1/audio/speech`,
   `GET/POST /v1/models`; it runs Qwen3-TTS (0.6B/1.7B; preset speakers such as Ryan; a style instruction) and
-  Kokoro-82M (`~/Kokoro-82M`).
+  Kokoro-82M (`~/Projects/_reference/kokoro-82m`).
 
 ## Architecture
 
@@ -57,7 +57,7 @@ are never sent, override or not). Needle runs on the phone, so clinical text may
 A small FastAPI service in `companion/` (uv project, Python 3.12, depends on `mlx-audio` and `yt-dlp`), started on the
 Mac with `scripts/companion.sh` (`uv run --project companion parakeet-companion --host 0.0.0.0`). Contract:
 [`spec/contracts/mac-companion-v1.md`](../../spec/contracts/mac-companion-v1.md). It reuses model weights already in
-the Hugging Face cache (ChoiceVoice's Qwen3-TTS) and `~/Kokoro-82M`. It stores nothing it is sent: text and links are
+the Hugging Face cache (ChoiceVoice's Qwen3-TTS) and `~/Projects/_reference/kokoro-82m`. It stores nothing it is sent: text and links are
 held in memory for one request; audio files are streamed back and deleted. Pairing: a random token printed at start
 (and persisted in `~/Library/Application Support/ParakeetCompanion/token`, 0600); the phone stores it in the Keychain
 and sends `Authorization: Bearer <token>`. ADR-014 records it.

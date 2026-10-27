@@ -69,7 +69,7 @@
 > **Drift check (run first, before each part):**
 >
 > ```bash
-> cd /Users/ama/Documents/GitHub/iChirp
+> cd /Users/ama/Projects/ichirp
 > git log --oneline -20 main
 > git diff --stat 53bc2cc6..HEAD -- ChirpKit/Sources/ChirpCore/Models ChirpKit/Sources/ChirpCore/Pipeline/TranscriptionStoring.swift \
 >   ChirpKit/Sources/ChirpStore ChirpKit/Sources/ChirpText ChirpKit/Sources/ChirpExport ChirpKit/Sources/ChirpFeatures \

@@ -53,7 +53,7 @@ throws `NeedleRuntimeError.notInBuild` ("Needle is not in this build — run scr
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/build_needle.sh
 scripts/check.sh ChirpEngineNeedleTests
 # The real model on this Mac (uses vendor/models/needle3.cact if present, else downloads 35 MB):

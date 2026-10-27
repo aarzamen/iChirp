@@ -6,11 +6,11 @@ source: research subagent run during the iChirp foundation session
 ---
 
 > Inventory of MacParakeet's agent environment (AGENTS/CLAUDE/spec/ADR/contracts/plans/scripts/tests) with adopt/adapt/replace verdicts for iChirp.
-> Paths such as `/Users/ama/Documents/GitHub/iChirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
+> Paths such as `/Users/ama/Projects/ichirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
 
 # MacParakeet agent environment: inventory for replicating it in iChirp
 
-**Scope.** Everything lives under the repo root `/Users/ama/Documents/GitHub/iChirp`, which is upstream `moona3k/macparakeet` at `bbae9e0e`. I left out everything commit `ae5efa53` added or changed: the `Sources/MacParakeetMobile*` targets, the `IOS*` sources and tests, the two `Mobile*Tests` files, `scripts/dev/deploy_ios.sh`, and its rewrites of `README.md`, `LICENSE` and `Package.swift`. Where I needed the upstream version of a file, I read it with `git show ae5efa53^:<path>`. I didn't modify anything.
+**Scope.** Everything lives under the repo root `/Users/ama/Projects/ichirp`, which is upstream `moona3k/macparakeet` at `bbae9e0e`. I left out everything commit `ae5efa53` added or changed: the `Sources/MacParakeetMobile*` targets, the `IOS*` sources and tests, the two `Mobile*Tests` files, `scripts/dev/deploy_ios.sh`, and its rewrites of `README.md`, `LICENSE` and `Package.swift`. Where I needed the upstream version of a file, I read it with `git show ae5efa53^:<path>`. I didn't modify anything.
 
 **Verdict key.** **Adopt** means copy nearly as-is. **Adapt** means keep the shape and change the content. **Replace** means iOS or SideStore needs a different mechanism. **Skip** means leave it out.
 
@@ -18,7 +18,7 @@ source: research subagent run during the iChirp foundation session
 
 ## 1. Root instruction files
 
-### `/Users/ama/Documents/GitHub/iChirp/AGENTS.md` (193 lines): Adapt
+### `/Users/ama/Projects/ichirp/AGENTS.md` (193 lines): Adapt
 
 This is the canonical startup guide for all agents. Its sections are: Project Shape → Commands → Worktrees → Code Boundaries → Product Rules → Working Method → Review And Commit → Where To Look. It encodes these conventions:
 
@@ -45,7 +45,7 @@ This is the canonical startup guide for all agents. Its sections are: Project Sh
 
 Link to the spec release table instead of restating the sideload version, and stay under about 150 lines.
 
-### `/Users/ama/Documents/GitHub/iChirp/CLAUDE.md` (43 lines): Adopt nearly verbatim
+### `/Users/ama/Projects/ichirp/CLAUDE.md` (43 lines): Adopt nearly verbatim
 
 It contains `@AGENTS.md` (an import), then Claude-specific rules:
 - Memory, chat and plans are leads; verify release, PR, CI and current code state live.
@@ -62,16 +62,16 @@ It ends with local-state cautions: preserve dirty worktrees; never delete databa
 
 | Path | What it encodes | iChirp |
 |---|---|---|
-| `/Users/ama/Documents/GitHub/iChirp/.no-mistakes.yaml` | Gate config for the third-party `no-mistakes` tool. `allow_repo_commands: false` means code-executing fields come from the default-branch copy. `test: "swift test"`. Lint is report-only (`… \|\| true`) because the tree carries warnings. Ignores generated and private paths. `auto_fix.review: 0`. `intent.enabled: false`, so agents pass explicit intent. Evidence is kept out of the repo. | Optional: only if you install no-mistakes. Point it at the package tests and make lint a hard gate. |
-| `/Users/ama/Documents/GitHub/iChirp/.swift-format` | Line length 120, 4-space indent, at most 1 blank line, `respectsExistingLineBreaks`. Disables `AllPublicDeclarationsHaveDocumentation`, `AlwaysUseLowerCamelCase`, `NoBlockComments`, `OrderedImports`, `UseLetInEveryBoundCaseVariable`. | Adopt |
-| `/Users/ama/Documents/GitHub/iChirp/.editorconfig` | utf-8, LF, final newline, trim trailing whitespace (not in `.md`). Swift 4 spaces; yml/yaml/json 2 spaces. | Adopt |
-| `/Users/ama/Documents/GitHub/iChirp/.gitignore` | Agent and private state: `MEMORY.md`, `journal/`, `.claude/`, `.codex/`, `.no-mistakes/evidence/`. Build output: `.build*`, `DerivedData/`, `/dist/`, `xcuserdata`, `.swiftpm/`. Artifacts: `*.ipa`, `*.dSYM`. Data: `*.db*`, `.env`, `*.pem`. Also `logs/`, `diagnostics/`, `/references/`, `*.profraw`. | Adapt: add `*.xcodeproj/` (XcodeGen output), the generated build-identity xcconfig, and `.remember/` |
-| `/Users/ama/Documents/GitHub/iChirp/.gitattributes` | `*.swift text eol=lf` | Adopt |
-| `/Users/ama/Documents/GitHub/iChirp/.git-blame-ignore-revs` | SHAs of mechanical repo-wide commits (four line-ending normalizations) with a `git config blame.ignoreRevsFile` note | Adopt the practice at your first mass reformat |
+| `/Users/ama/Projects/ichirp/.no-mistakes.yaml` | Gate config for the third-party `no-mistakes` tool. `allow_repo_commands: false` means code-executing fields come from the default-branch copy. `test: "swift test"`. Lint is report-only (`… \|\| true`) because the tree carries warnings. Ignores generated and private paths. `auto_fix.review: 0`. `intent.enabled: false`, so agents pass explicit intent. Evidence is kept out of the repo. | Optional: only if you install no-mistakes. Point it at the package tests and make lint a hard gate. |
+| `/Users/ama/Projects/ichirp/.swift-format` | Line length 120, 4-space indent, at most 1 blank line, `respectsExistingLineBreaks`. Disables `AllPublicDeclarationsHaveDocumentation`, `AlwaysUseLowerCamelCase`, `NoBlockComments`, `OrderedImports`, `UseLetInEveryBoundCaseVariable`. | Adopt |
+| `/Users/ama/Projects/ichirp/.editorconfig` | utf-8, LF, final newline, trim trailing whitespace (not in `.md`). Swift 4 spaces; yml/yaml/json 2 spaces. | Adopt |
+| `/Users/ama/Projects/ichirp/.gitignore` | Agent and private state: `MEMORY.md`, `journal/`, `.claude/`, `.codex/`, `.no-mistakes/evidence/`. Build output: `.build*`, `DerivedData/`, `/dist/`, `xcuserdata`, `.swiftpm/`. Artifacts: `*.ipa`, `*.dSYM`. Data: `*.db*`, `.env`, `*.pem`. Also `logs/`, `diagnostics/`, `/references/`, `*.profraw`. | Adapt: add `*.xcodeproj/` (XcodeGen output), the generated build-identity xcconfig, and `.remember/` |
+| `/Users/ama/Projects/ichirp/.gitattributes` | `*.swift text eol=lf` | Adopt |
+| `/Users/ama/Projects/ichirp/.git-blame-ignore-revs` | SHAs of mechanical repo-wide commits (four line-ending normalizations) with a `git config blame.ignoreRevsFile` note | Adopt the practice at your first mass reformat |
 
 ---
 
-## 3. CI: `/Users/ama/Documents/GitHub/iChirp/.github/workflows/ci.yml`: Adapt
+## 3. CI: `/Users/ama/Projects/ichirp/.github/workflows/ci.yml`: Adapt
 
 - **Job:** one job, `swift-test`, on `macos-14` with Xcode 16.1 and a 90-minute timeout.
 - **Triggers:** pushes to `main`, all tags, PRs and `workflow_dispatch`. `paths-ignore: docs/**, plans/**`. A concurrency group cancels superseded PR runs.
@@ -100,7 +100,7 @@ It ends with local-state cautions: preserve dirty worktrees; never delete databa
 
 ## 4. `spec/`
 
-### `/Users/ama/Documents/GitHub/iChirp/spec/README.md`: Adapt
+### `/Users/ama/Projects/ichirp/spec/README.md`: Adapt
 
 The structure:
 1. A status header.
@@ -124,26 +124,26 @@ The flag mechanism, in the upstream `AppFeatures.swift`: an `enum` of `static le
 
 | Path | Purpose |
 |---|---|
-| `/Users/ama/Documents/GitHub/iChirp/spec/00-vision.md` | North star, principles, positioning (with a pricing guardrail) |
-| `/Users/ama/Documents/GitHub/iChirp/spec/01-data-model.md` | GRDB schema and migrations (`DatabaseManager` is authoritative; YAGNI tables) |
-| `/Users/ama/Documents/GitHub/iChirp/spec/02-features.md` | Feature behavior by version; availability defers to the release table |
-| `/Users/ama/Documents/GitHub/iChirp/spec/03-architecture.md` | Implementation map (audited 2026-09-07) |
-| `/Users/ama/Documents/GitHub/iChirp/spec/04-ui-patterns.md` | UI surface and component contract |
-| `/Users/ama/Documents/GitHub/iChirp/spec/05-audio-pipeline.md` | Capture, processing, storage |
-| `/Users/ama/Documents/GitHub/iChirp/spec/06-stt-engine.md` | STT engines and scheduler |
-| `/Users/ama/Documents/GitHub/iChirp/spec/07-text-processing.md` | Deterministic cleanup pipeline |
-| `/Users/ama/Documents/GitHub/iChirp/spec/08-error-handling.md` | Never lose user data; actionable errors; `os.Logger` |
-| `/Users/ama/Documents/GitHub/iChirp/spec/09-testing.md` | Test categories, what's skipped, CI policy, agent test loop, quality rules |
-| `/Users/ama/Documents/GitHub/iChirp/spec/10-ai-coding-method.md` | Agent working method: source-of-truth precedence, context zone, plans, review, Definition of Done |
-| `/Users/ama/Documents/GitHub/iChirp/spec/11-llm-integration.md` | LLM providers (IMPLEMENTED; partly superseded) |
-| `/Users/ama/Documents/GitHub/iChirp/spec/12-processing-layer.md` | Prompt library and multi-summary contract |
-| `/Users/ama/Documents/GitHub/iChirp/spec/13-agent-workflows.md` | PROPOSAL: actions, voice control, App Intents |
-| `/Users/ama/Documents/GitHub/iChirp/spec/14-per-prompt-inference-settings.md` | IMPLEMENTED: per-prompt LLM settings |
-| `/Users/ama/Documents/GitHub/iChirp/spec/15-shareable-transcripts.md` | Encrypted sharing, behind a flag |
+| `/Users/ama/Projects/ichirp/spec/00-vision.md` | North star, principles, positioning (with a pricing guardrail) |
+| `/Users/ama/Projects/ichirp/spec/01-data-model.md` | GRDB schema and migrations (`DatabaseManager` is authoritative; YAGNI tables) |
+| `/Users/ama/Projects/ichirp/spec/02-features.md` | Feature behavior by version; availability defers to the release table |
+| `/Users/ama/Projects/ichirp/spec/03-architecture.md` | Implementation map (audited 2026-09-07) |
+| `/Users/ama/Projects/ichirp/spec/04-ui-patterns.md` | UI surface and component contract |
+| `/Users/ama/Projects/ichirp/spec/05-audio-pipeline.md` | Capture, processing, storage |
+| `/Users/ama/Projects/ichirp/spec/06-stt-engine.md` | STT engines and scheduler |
+| `/Users/ama/Projects/ichirp/spec/07-text-processing.md` | Deterministic cleanup pipeline |
+| `/Users/ama/Projects/ichirp/spec/08-error-handling.md` | Never lose user data; actionable errors; `os.Logger` |
+| `/Users/ama/Projects/ichirp/spec/09-testing.md` | Test categories, what's skipped, CI policy, agent test loop, quality rules |
+| `/Users/ama/Projects/ichirp/spec/10-ai-coding-method.md` | Agent working method: source-of-truth precedence, context zone, plans, review, Definition of Done |
+| `/Users/ama/Projects/ichirp/spec/11-llm-integration.md` | LLM providers (IMPLEMENTED; partly superseded) |
+| `/Users/ama/Projects/ichirp/spec/12-processing-layer.md` | Prompt library and multi-summary contract |
+| `/Users/ama/Projects/ichirp/spec/13-agent-workflows.md` | PROPOSAL: actions, voice control, App Intents |
+| `/Users/ama/Projects/ichirp/spec/14-per-prompt-inference-settings.md` | IMPLEMENTED: per-prompt LLM settings |
+| `/Users/ama/Projects/ichirp/spec/15-shareable-transcripts.md` | Encrypted sharing, behind a flag |
 
 **For iChirp:** keep 00, 01, 02, 03, 04, 08 and 09, and copy 10 nearly verbatim.
 
-### ADRs: `/Users/ama/Documents/GitHub/iChirp/spec/adr/`: Adopt, and add a template
+### ADRs: `/Users/ama/Projects/ichirp/spec/adr/`: Adopt, and add a template
 
 - **Count and naming:** 33 ADRs, named `NNN-kebab-slug.md` (`001-parakeet-stt.md` … `033-explicit-voice-control.md`). The folder has no README or template; the index lives in the spec README.
 - **Status vocabulary:** Accepted, ACCEPTED (direction), IMPLEMENTED, PARTIAL IMPLEMENTATION, HISTORICAL, DORMANT, and "Accepted; implemented behind a default-off release flag".
@@ -183,7 +183,7 @@ ADR-027 header (verbatim; body trimmed):
 ```
 **For iChirp:** add `spec/adr/000-template.md` so headers stay uniform. Seed ADRs: local-first boundary; SideStore and free-provisioning distribution; XcodeGen plus local package; min iOS; persistence; STT engine.
 
-### Contracts: `/Users/ama/Documents/GitHub/iChirp/spec/contracts/`: Adopt
+### Contracts: `/Users/ama/Projects/ichirp/spec/contracts/`: Adopt
 
 `README.md` defines the format: **Purpose, Producers, Consumers, Stable fields, Non-stable fields, Versioning and compatibility, Tests that enforce this, When this changes.** Its rules:
 - A PR that changes a boundary updates the doc and focused tests together.
@@ -212,7 +212,7 @@ Contract skeleton, from `file-transcription-audio-tracks.md` (verbatim headings)
 
 ### Governance and workflow docs
 
-- **`/Users/ama/Documents/GitHub/iChirp/docs/agent-memory-governance.md`: Adopt; rewrite the promotion map.**
+- **`/Users/ama/Projects/ichirp/docs/agent-memory-governance.md`: Adopt; rewrite the promotion map.**
   - The model: keep a small always-loaded layer and make everything else pull-only.
   - Claude loading facts: `CLAUDE.md` should stay under 200 lines; auto memory loads only the first 200 lines or 25 KB of `MEMORY.md`; Claude reads `CLAUDE.md`, not `AGENTS.md`, hence the `@AGENTS.md` import.
   - A **surface table** saying what goes in `AGENTS.md`, `CLAUDE.md`, specs/ADRs, subsystem READMEs, the review doc, skills and auto memory, and what must not.
@@ -224,7 +224,7 @@ Contract skeleton, from `file-transcription-audio-tracks.md` (verbatim headings)
     5. Cross-cutting safety rail → keep.
   - The bar for startup context: an entry must "change a likely next decision in nearly every session".
   - A promotion map (subsystem → doc) and a maintenance command (`wc -l CLAUDE.md AGENTS.md`).
-- **`/Users/ama/Documents/GitHub/iChirp/docs/pr-review-workflow.md`: Adapt.**
+- **`/Users/ama/Projects/ichirp/docs/pr-review-workflow.md`: Adapt.**
   - The merge bar is *convergence*, not a green check.
   - **Three tiers:**
     - Trivial: commit directly.
@@ -234,21 +234,21 @@ Contract skeleton, from `file-transcription-audio-tracks.md` (verbatim headings)
   - **Comment triage:** valid → fix; wrong → refute with evidence; lateral → decide and own it. Reply "addressed in `<sha>`" or "declining because X" to every comment.
   - A merge-ready checklist, plus anti-patterns: ship-then-review, bot obedience, bikeshedding past convergence, ceremony on trivia, vague PRs.
   - For iChirp, drop the Greptile, no-mistakes and HTML-walkthrough steps unless you use those tools.
-- **`/Users/ama/Documents/GitHub/iChirp/docs/commit-guidelines.md`: Adopt.**
+- **`/Users/ama/Projects/ichirp/docs/commit-guidelines.md`: Adopt.**
   - Commits are project memory. The test: a future `git blame` reader with no context should understand the change.
   - Default scaffold for significant work: What Changed / Root Intent / **Seed Prompt** (the architect's brief from which the diff could be rebuilt) / ADRs Applied (or "None — …") / **Author's Notes** (candid doubts and debt) / Files Changed.
   - The shape scales with the change; a typo gets one paragraph.
   - Depth bar: give a quantitative "why this specifically", name internal patterns, and record refuted alternatives and out-of-scope items.
   - Rule: adding, removing or renaming files in a subsystem with a README updates that README in the same commit.
   - **Decide the trailer policy explicitly.** Upstream forbids assistant `Co-authored-by` trailers, while this Claude Code harness appends one by default. A CLAUDE.md rule overrides the harness.
-- **`/Users/ama/Documents/GitHub/iChirp/docs/pr-description-guidelines.md`: Adopt.**
+- **`/Users/ama/Projects/ichirp/docs/pr-description-guidelines.md`: Adopt.**
   - Summary / Design / How it works: one Mermaid diagram or a before→after table, at most about 12 nodes, "diagram the change, not the system".
   - Risk surface / Test evidence: replayable commands, plus what is *not* covered / Author's Notes.
-- **`/Users/ama/Documents/GitHub/iChirp/docs/human-qa-guide.md`: Adopt.**
+- **`/Users/ama/Projects/ichirp/docs/human-qa-guide.md`: Adopt.**
   - Every feature PR carries a "Human QA checklist".
   - The dev build is isolated by a separate bundle ID and state directory.
   - Destructive QA runs only on verified throwaway data.
-- **`/Users/ama/Documents/GitHub/iChirp/docs/distribution.md` (718 lines): Replace.** It is the Developer ID → notarize → R2 → Sparkle → Homebrew runbook. Its reusable rules:
+- **`/Users/ama/Projects/ichirp/docs/distribution.md` (718 lines): Replace.** It is the Developer ID → notarize → R2 → Sparkle → Homebrew runbook. Its reusable rules:
   - `VERSION` must be explicit; the default `0.0.0` is non-release.
   - The build number is a UTC timestamp, so it is monotonic.
   - Release steps run in exact order, and the uploaded bytes must equal the signed bytes.
@@ -261,7 +261,7 @@ Contract skeleton, from `file-transcription-audio-tracks.md` (verbatim headings)
 
 ### `docs/solutions/`: Adopt
 
-It contains only 2 docs, in one category: `/Users/ama/Documents/GitHub/iChirp/docs/solutions/workflow-issues/notarytool-crash-incomplete-upload.md` and `…/reliable-noninteractive-external-final-reviews.md`. The layout is `docs/solutions/<category>/<slug>.md`. The `ce-*` names used elsewhere (`/ce-plan`, `ce-unified-plan/v1`, `ce-review`) suggest this comes from the compound-engineering plugin. Frontmatter (verbatim):
+It contains only 2 docs, in one category: `/Users/ama/Projects/ichirp/docs/solutions/workflow-issues/notarytool-crash-incomplete-upload.md` and `…/reliable-noninteractive-external-final-reviews.md`. The layout is `docs/solutions/<category>/<slug>.md`. The `ce-*` names used elsewhere (`/ce-plan`, `ce-unified-plan/v1`, `ce-review`) suggest this comes from the compound-engineering plugin. Frontmatter (verbatim):
 ```yaml
 ---
 title: Treat crashed notarytool submits as incomplete uploads
@@ -281,11 +281,11 @@ tags: [release, notarization, notarytool, sparkle, github-releases, r2]
 ```
 Body sections are Context / Problem / Solution / Why this works / Prevention, or Guidance / Why This Matters / When to Apply / Examples / Related. For iChirp, start with categories build-errors, xcodegen, sideloading, simulator, concurrency and workflow-issues, and write an entry whenever a problem costs more than about 30 minutes.
 
-### `/Users/ama/Documents/GitHub/iChirp/docs/agents/`: Skip the content, keep the idea
+### `/Users/ama/Projects/ichirp/docs/agents/`: Skip the content, keep the idea
 
 `README.md` is a dated research index (snapshot 2026-05-03) with three standing principles: notes go stale, so reverify; curate, don't catalog; favour building blocks you already have. `qa-agents.md` is a native-Mac QA landscape proposing four layers: the CLI as the main verification surface, snapshot tests on a pinned runner, an accessibility-tree MCP for exploration, and Hammerspoon for hotkeys. `demo-agents.md` is a scripted demo-video recipe.
 
-### `/Users/ama/Documents/GitHub/iChirp/docs/research/coding-agent-instructions-2026-06.md`: the key conclusions
+### `/Users/ama/Projects/ichirp/docs/research/coding-agent-instructions-2026-06.md`: the key conclusions
 
 It cites Anthropic and OpenAI Codex guidance, agents.md, and papers (Lost in the Middle, SWE-agent, ReAct, Reflexion, SWE-bench contamination). Its conclusions:
 1. Keep always-loaded instructions short (about one screen per file), concrete and verification-oriented. Long context isn't free, and rules buried mid-prompt get used less reliably.
@@ -304,22 +304,22 @@ This doc is fully generic. Copy it verbatim.
 
 | Path | Purpose |
 |---|---|
-| `/Users/ama/Documents/GitHub/iChirp/docs/README.md` | Documentation map ("Need → Read") plus precedence rules. **Adopt.** |
-| `/Users/ama/Documents/GitHub/iChirp/docs/audits/` | 37 dated audits (codebase, telemetry, release readiness, doc alignment) |
-| `/Users/ama/Documents/GitHub/iChirp/docs/qa/` | Dated QA packages bound to exact SHAs, notarization IDs and hashes (`2026-09-07-0.8.0/README.md`) |
-| `/Users/ama/Documents/GitHub/iChirp/docs/research/` | 48 dated research notes or folders; proposals, not decisions |
-| `/Users/ama/Documents/GitHub/iChirp/docs/plans/` | Second plan set (ce-plan YAML frontmatter) plus HTML previews |
-| `/Users/ama/Documents/GitHub/iChirp/docs/planning/` | Older planning packs and a risk register (mostly HISTORICAL) |
-| `/Users/ama/Documents/GitHub/iChirp/docs/design/` | Dated design notes and HTML/PNG studies |
-| `/Users/ama/Documents/GitHub/iChirp/docs/brainstorms/` | `/ce-brainstorm` requirements doc |
-| `/Users/ama/Documents/GitHub/iChirp/docs/historical/` | Retired `requirements-legacy.yaml` (`REQ-*`), kept for old references |
-| `/Users/ama/Documents/GitHub/iChirp/docs/assets/`, `…/blog/`, `…/discovery/` | Doc images, one historical post, private exploratory notes |
+| `/Users/ama/Projects/ichirp/docs/README.md` | Documentation map ("Need → Read") plus precedence rules. **Adopt.** |
+| `/Users/ama/Projects/ichirp/docs/audits/` | 37 dated audits (codebase, telemetry, release readiness, doc alignment) |
+| `/Users/ama/Projects/ichirp/docs/qa/` | Dated QA packages bound to exact SHAs, notarization IDs and hashes (`2026-09-07-0.8.0/README.md`) |
+| `/Users/ama/Projects/ichirp/docs/research/` | 48 dated research notes or folders; proposals, not decisions |
+| `/Users/ama/Projects/ichirp/docs/plans/` | Second plan set (ce-plan YAML frontmatter) plus HTML previews |
+| `/Users/ama/Projects/ichirp/docs/planning/` | Older planning packs and a risk register (mostly HISTORICAL) |
+| `/Users/ama/Projects/ichirp/docs/design/` | Dated design notes and HTML/PNG studies |
+| `/Users/ama/Projects/ichirp/docs/brainstorms/` | `/ce-brainstorm` requirements doc |
+| `/Users/ama/Projects/ichirp/docs/historical/` | Retired `requirements-legacy.yaml` (`REQ-*`), kept for old references |
+| `/Users/ama/Projects/ichirp/docs/assets/`, `…/blog/`, `…/discovery/` | Doc images, one historical post, private exploratory notes |
 
 ---
 
 ## 6. `plans/`: Adopt, with one plan system
 
-**`/Users/ama/Documents/GitHub/iChirp/plans/README.md`** is a status board:
+**`/Users/ama/Projects/ichirp/plans/README.md`** is a status board:
 - A reconciliation-date header.
 - The layout: `active/` (51 files, including 2 "advisor-index" audit narratives), `completed/` (85, "not necessarily the stable DMG") and `deferred/` (2, each with "Trigger conditions / When to revisit").
 - A **status vocabulary:** TODO, EXECUTOR-READY, PR OPEN, IMPLEMENTED (ON MAIN / QA REMAINDER), PARTIAL (PRODUCT GATE / OWNER GATE), ON HOLD, DECISION, PROPOSED, VERIFY-THEN-ARCHIVE.
@@ -327,7 +327,7 @@ This doc is fully generic. Copy it verbatim.
 - "Execute next (recommended order)", dependency notes, a dated archive log with PR and SHA evidence, and "Findings considered and not re-opened".
 - Plan files are named `YYYY-MM[-DD]-slug.md`.
 
-**Executor-plan header** (`/Users/ama/Documents/GitHub/iChirp/plans/active/2026-06-12-june-churn-regression-tests.md`, verbatim with the file list elided):
+**Executor-plan header** (`/Users/ama/Projects/ichirp/plans/active/2026-06-12-june-churn-regression-tests.md`, verbatim with the file list elided):
 ```markdown
 # Plan: Regression tests for the June audio/STT hardening (mic self-heal + Nemotron live dictation)
 
@@ -355,7 +355,7 @@ The rest of the file: Why this matters / Current state / Commands you will need 
 
 **Lighter plans** (`…/plans/active/2026-09-17-issue-1079-wrapping-up.md`) carry `**Status:** / **Issue:** / **Audit:** / **Base:** origin/main`, then `## Context zone` with **In scope / Must not change / Out of scope**.
 
-**ce-plans** in `/Users/ama/Documents/GitHub/iChirp/docs/plans/` start with YAML (`title`, `type: feat`, `date`, `artifact_contract: ce-unified-plan/v1`). Their sections: Goal Capsule (Objective / Means / Authority / Execution / Stop conditions / Qualification gate) → Product Contract → Implementation Units U1…Un → Verification Contract → Definition of Done.
+**ce-plans** in `/Users/ama/Projects/ichirp/docs/plans/` start with YAML (`title`, `type: feat`, `date`, `artifact_contract: ce-unified-plan/v1`). Their sections: Goal Capsule (Objective / Means / Authority / Execution / Stop conditions / Qualification gate) → Product Contract → Implementation Units U1…Un → Verification Contract → Definition of Done.
 
 **For iChirp:** keep one location (`plans/`), the status board and the executor template. The template is the best tool here for handing work to cheaper or parallel agents.
 
@@ -365,30 +365,30 @@ The rest of the file: Why this matters / Current state / Commands you will need 
 
 | Path | Purpose |
 |---|---|
-| `/Users/ama/Documents/GitHub/iChirp/scripts/check-readme-references.sh` | CI: every backticked `Foo.swift` in `Sources/**/README.md` must still exist |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/ci/check-telemetry-allowlist.sh` | CI: every telemetry event must be in the website Worker's allowlist (skips without a token) |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/check.sh` | Fast inner loop: debug build, optional filtered test, report-only lint |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/format.sh` | Manual in-place swift-format of Sources/Tests (not in CI) |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/ci_local.sh` | Local CI parity: clean, release build, parallel full tests with type-check budgets |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/greptile_review.sh` | Agent-readable Greptile review of committed branch changes |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/run_app.sh` | Build, wrap, sign and launch an isolated Dev app |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/stop_app_processes.sh` + `.swift`; `test_stop_app_processes*.sh/.swift` | Gracefully quit only this worktree's dev executables (AppKit helper), plus its tests |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/reset_and_run_fresh.sh` | Reset permissions and onboarding to simulate a fresh install (onboarding QA) |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/release_demo_smoke.sh` | CLI smoke: version, `health --json`, synthesized WAV transcription into an isolated DB, export |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/benchmark_stt_engines.sh` | STT engine benchmark through the release CLI |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/benchmark_qwen_models.sh`, `quality_eval_qwen.sh` | Historical local-LLM benchmarks |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/query_audio_diagnostics.py` (+ `tests/test_query_audio_diagnostics.py`) | Read a bounded local audio-log tail as JSON |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/tests/crash_signal_probe_harness.c` | Child-process harness compiled by a Swift crash-handler test |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/verify_share_crypto.mjs` | Web Crypto check against the Swift contract fixture |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/verify_whisper_language_smoke.sh` | Whisper language smoke using synthesized `say` clips |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dev/voice-control/` | Voice Control qualification probes and fixture app (+ README) |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/build_app_bundle.sh` | Release build, `.app` assembly, Info.plist identity stamping, helper bundling |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/sign_notarize.sh` | Developer ID sign, notarize (safe flags), staple, DMG |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/verify_release_version.sh` | Refuse signing `0.0.0`, `dev` or non-`X.Y.Z` versions |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/verify_app_privacy_surface.sh` | Check bundle ID, team, authority, privacy strings and entitlements |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/prepare_/verify_meeting_echo_assets.sh`, `meeting_echo_asset_defaults.sh`, `macho_min_version.sh` | Native echo-suppression assets and Mach-O min-OS checks |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/test_*.sh` | Shell regression tests for the dist scripts (run in CI) |
-| `/Users/ama/Documents/GitHub/iChirp/scripts/dist/*.entitlements`, `homebrew-tap-scaffold/` | Entitlements; reference copy of the Homebrew tap |
+| `/Users/ama/Projects/ichirp/scripts/check-readme-references.sh` | CI: every backticked `Foo.swift` in `Sources/**/README.md` must still exist |
+| `/Users/ama/Projects/ichirp/scripts/ci/check-telemetry-allowlist.sh` | CI: every telemetry event must be in the website Worker's allowlist (skips without a token) |
+| `/Users/ama/Projects/ichirp/scripts/dev/check.sh` | Fast inner loop: debug build, optional filtered test, report-only lint |
+| `/Users/ama/Projects/ichirp/scripts/dev/format.sh` | Manual in-place swift-format of Sources/Tests (not in CI) |
+| `/Users/ama/Projects/ichirp/scripts/dev/ci_local.sh` | Local CI parity: clean, release build, parallel full tests with type-check budgets |
+| `/Users/ama/Projects/ichirp/scripts/dev/greptile_review.sh` | Agent-readable Greptile review of committed branch changes |
+| `/Users/ama/Projects/ichirp/scripts/dev/run_app.sh` | Build, wrap, sign and launch an isolated Dev app |
+| `/Users/ama/Projects/ichirp/scripts/dev/stop_app_processes.sh` + `.swift`; `test_stop_app_processes*.sh/.swift` | Gracefully quit only this worktree's dev executables (AppKit helper), plus its tests |
+| `/Users/ama/Projects/ichirp/scripts/dev/reset_and_run_fresh.sh` | Reset permissions and onboarding to simulate a fresh install (onboarding QA) |
+| `/Users/ama/Projects/ichirp/scripts/dev/release_demo_smoke.sh` | CLI smoke: version, `health --json`, synthesized WAV transcription into an isolated DB, export |
+| `/Users/ama/Projects/ichirp/scripts/dev/benchmark_stt_engines.sh` | STT engine benchmark through the release CLI |
+| `/Users/ama/Projects/ichirp/scripts/dev/benchmark_qwen_models.sh`, `quality_eval_qwen.sh` | Historical local-LLM benchmarks |
+| `/Users/ama/Projects/ichirp/scripts/dev/query_audio_diagnostics.py` (+ `tests/test_query_audio_diagnostics.py`) | Read a bounded local audio-log tail as JSON |
+| `/Users/ama/Projects/ichirp/scripts/dev/tests/crash_signal_probe_harness.c` | Child-process harness compiled by a Swift crash-handler test |
+| `/Users/ama/Projects/ichirp/scripts/dev/verify_share_crypto.mjs` | Web Crypto check against the Swift contract fixture |
+| `/Users/ama/Projects/ichirp/scripts/dev/verify_whisper_language_smoke.sh` | Whisper language smoke using synthesized `say` clips |
+| `/Users/ama/Projects/ichirp/scripts/dev/voice-control/` | Voice Control qualification probes and fixture app (+ README) |
+| `/Users/ama/Projects/ichirp/scripts/dist/build_app_bundle.sh` | Release build, `.app` assembly, Info.plist identity stamping, helper bundling |
+| `/Users/ama/Projects/ichirp/scripts/dist/sign_notarize.sh` | Developer ID sign, notarize (safe flags), staple, DMG |
+| `/Users/ama/Projects/ichirp/scripts/dist/verify_release_version.sh` | Refuse signing `0.0.0`, `dev` or non-`X.Y.Z` versions |
+| `/Users/ama/Projects/ichirp/scripts/dist/verify_app_privacy_surface.sh` | Check bundle ID, team, authority, privacy strings and entitlements |
+| `/Users/ama/Projects/ichirp/scripts/dist/prepare_/verify_meeting_echo_assets.sh`, `meeting_echo_asset_defaults.sh`, `macho_min_version.sh` | Native echo-suppression assets and Mach-O min-OS checks |
+| `/Users/ama/Projects/ichirp/scripts/dist/test_*.sh` | Shell regression tests for the dist scripts (run in CI) |
+| `/Users/ama/Projects/ichirp/scripts/dist/*.entitlements`, `homebrew-tap-scaffold/` | Entitlements; reference copy of the Homebrew tap |
 
 **Close reads:**
 - **`check.sh`:** runs from the repo root; `swift build` → `swift test --filter "$1"` if an argument is given → `swift-format lint … || true`. **For iChirp, adapt it:** add `xcodegen generate` when `project.yml` has changed, and make lint hard.
@@ -409,9 +409,9 @@ The rest of the file: Why this matters / Current state / Commands you will need 
 
 ## 8. `integrations/`: Skip for now
 
-- `/Users/ama/Documents/GitHub/iChirp/integrations/README.md` (955 lines) is for *external* agents calling `macparakeet-cli`. It covers: scope in and out ("not a GUI mirror"), a health probe at agent start, safe automation and isolation, the command vocabulary, and conventions. The conventions: exit codes 0/1/2/130; stdout for machines and stderr for humans; `--json` vs `--format json`; lookup by UUID prefix; API keys via environment variables; a list of network surfaces; four telemetry opt-outs; concurrency.
-- `/Users/ama/Documents/GitHub/iChirp/integrations/skill/macparakeet-stt/SKILL.md` (64 lines) has frontmatter `name` plus a trigger-style `description`, and three sections: "Discover before acting" (`--version`, `spec --json`, `health --json`), "Retrieve evidence, then generate only when asked", and "Preserve data and parse the actual contract".
-- Supporting pieces: `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/README.md` (maintainer conventions plus a 6-step "adding a command" checklist) and `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/CHANGELOG.md` (semver policy). `CLIVersionTests` pins `cliVersion` to the latest released changelog header.
+- `/Users/ama/Projects/ichirp/integrations/README.md` (955 lines) is for *external* agents calling `macparakeet-cli`. It covers: scope in and out ("not a GUI mirror"), a health probe at agent start, safe automation and isolation, the command vocabulary, and conventions. The conventions: exit codes 0/1/2/130; stdout for machines and stderr for humans; `--json` vs `--format json`; lookup by UUID prefix; API keys via environment variables; a list of network surfaces; four telemetry opt-outs; concurrency.
+- `/Users/ama/Projects/ichirp/integrations/skill/macparakeet-stt/SKILL.md` (64 lines) has frontmatter `name` plus a trigger-style `description`, and three sections: "Discover before acting" (`--version`, `spec --json`, `health --json`), "Retrieve evidence, then generate only when asked", and "Preserve data and parse the actual contract".
+- Supporting pieces: `/Users/ama/Projects/ichirp/Sources/CLI/README.md` (maintainer conventions plus a 6-step "adding a command" checklist) and `/Users/ama/Projects/ichirp/Sources/CLI/CHANGELOG.md` (semver policy). `CLIVersionTests` pins `cliVersion` to the latest released changelog header.
 
 **For iChirp:** reuse this pattern only if App Intents, Shortcuts or a URL scheme become a public automation surface. That would mean a contract doc, a semver changelog, and a test that pins the version to the changelog.
 
@@ -420,7 +420,7 @@ The rest of the file: Why this matters / Current state / Commands you will need 
 ## 9. Subsystem READMEs: Adopt the pattern and the CI check
 
 These are the READMEs, with line counts:
-- `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Audio/README.md` (521)
+- `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Audio/README.md` (521)
 - `…/Calendar/README.md` (79)
 - `…/Database/README.md` (224)
 - `…/Licensing/README.md` (71)
@@ -428,8 +428,8 @@ These are the READMEs, with line counts:
 - `…/TextProcessing/README.md` (129)
 - `…/Services/System/README.md` (61)
 - `…/Services/VoiceControl/README.md` (41)
-- `/Users/ama/Documents/GitHub/iChirp/Sources/CLI/README.md` (104)
-- `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeet/Resources/BrandGlyphs/README.md` (16)
+- `/Users/ama/Projects/ichirp/Sources/CLI/README.md` (104)
+- `/Users/ama/Projects/ichirp/Sources/MacParakeet/Resources/BrandGlyphs/README.md` (16)
 
 Standard skeleton (Database, verbatim headings):
 ```markdown
@@ -452,18 +452,18 @@ System Services uses the same order. Its bolded rules include "Services are inst
 
 ## 10. `Tests/`: Adopt the structure
 
-- **Targets:** `/Users/ama/Documents/GitHub/iChirp/Tests/MacParakeetTests` (394 files) and `/Users/ama/Documents/GitHub/iChirp/Tests/CLITests` (26).
+- **Targets:** `/Users/ama/Projects/ichirp/Tests/MacParakeetTests` (394 files) and `/Users/ama/Projects/ichirp/Tests/CLITests` (26).
 - **Folders:** about 40 subfolders mirror source domains (Audio, Database, STT, Services/…, ViewModels, Views/Settings, …), plus `Integration/` (end-to-end flows with mocks), `QA/` (fixture seeding, skipped without a state directory), `Benchmarks/` (env-gated) and `TestSupport/`.
 - **Count:** about **7,160 XCTest methods** in about 400 `XCTestCase` classes, plus 30 Swift Testing `@Test`s in 3 files. AGENTS.md's "4,300+" is stale.
 - **Naming:** files are `{Feature}Tests.swift`; methods describe scenario and outcome (`testStopRecordingUsesLiveNemotronResultWhenAvailable`).
-- **Test doubles:** services are injected through protocols. Doubles are mostly **actors**: `Mock*` (45), `Stub*` (19), `Recording*` (18), `Fake*` (15), `Spy*`/`Capturing*` (2 each). Shared doubles such as `/Users/ama/Documents/GitHub/iChirp/Tests/MacParakeetTests/STT/MockSTTClient.swift` expose settable results and errors, call counters, recorded arguments and "hang" toggles.
+- **Test doubles:** services are injected through protocols. Doubles are mostly **actors**: `Mock*` (45), `Stub*` (19), `Recording*` (18), `Fake*` (15), `Spy*`/`Capturing*` (2 each). Shared doubles such as `/Users/ama/Projects/ichirp/Tests/MacParakeetTests/STT/MockSTTClient.swift` expose settable results and errors, call counters, recorded arguments and "hang" toggles.
 - **Helpers:**
-  - `/Users/ama/Documents/GitHub/iChirp/Tests/MacParakeetTests/TestSupport/StateSignal.swift`: an actor with `wait(for:timeout:)`, used instead of sleeps.
+  - `/Users/ama/Projects/ichirp/Tests/MacParakeetTests/TestSupport/StateSignal.swift`: an actor with `wait(for:timeout:)`, used instead of sleeps.
   - `TemporaryManagedMeetingFolder.swift`.
   - Per-file `waitUntil` helpers.
   - In-memory GRDB via `DatabaseQueue()`.
   - Hardware and benchmark tests are gated with `XCTSkipUnless` on environment variables (`MACPARAKEET_HARDWARE_TESTS`, `MACPARAKEET_SLOW_HARDWARE_TESTS`, …).
-- **Testing policy** (`/Users/ama/Documents/GitHub/iChirp/spec/09-testing.md`): skip SwiftUI view tests and snapshots (test view models instead); no flaky tests; no `sleep()`; individual tests under 1 second.
+- **Testing policy** (`/Users/ama/Projects/ichirp/spec/09-testing.md`): skip SwiftUI view tests and snapshots (test view models instead); no flaky tests; no `sleep()`; individual tests under 1 second.
 
 **For iChirp:** keep the package tests runnable on the macOS host (platform-neutral core, iOS APIs behind protocols). Use simulator-hosted tests only for UIKit and AVAudioSession integration, and gate device tests behind an environment variable. Choose XCTest or Swift Testing for new tests and stick with it.
 
@@ -471,7 +471,7 @@ System Services uses the same order. Its bolded rules include "Services are inst
 
 ## 11. `benchmarks/`: Skip unless you're choosing on-device models
 
-- `/Users/ama/Documents/GitHub/iChirp/benchmarks/asr/` defines a "benchmark contract":
+- `/Users/ama/Projects/ichirp/benchmarks/asr/` defines a "benchmark contract":
   - `manifest.json` is the benchmark API, validated by `manifest_tool.py` and `test_manifest.py`.
   - One canonical normalizer and scorer for every engine.
   - Runners use the shipping CLI path.
@@ -490,13 +490,13 @@ System Services uses the same order. Its bolded rules include "Services are inst
 
 ## 13. Build identity: Replace the mechanism, adopt the UX
 
-- **Struct:** `/Users/ama/Documents/GitHub/iChirp/Sources/MacParakeetCore/Services/BuildIdentity.swift` defines `BuildIdentity.current`.
+- **Struct:** `/Users/ama/Projects/ichirp/Sources/MacParakeetCore/Services/BuildIdentity.swift` defines `BuildIdentity.current`.
 - **Where each value comes from:**
   - `version`: `CFBundleShortVersionString`, falling back to `dev`.
   - `buildNumber`: `CFBundleVersion`.
   - `gitCommit`, `buildDateUTC`, `buildSource`: the Info.plist keys `MacParakeetGitCommit`, `MacParakeetBuildDateUTC` and `MacParakeetBuildSource`, then the environment variables `MACPARAKEET_GIT_COMMIT`, `…_BUILD_DATE_UTC` and `…_BUILD_SOURCE`.
   - If neither is set, `buildSource` is derived from the executable or bundle path: `swiftpm-debug`, `applications-bundle`, `dist-bundle` or `app-bundle`.
-- **Release stamping:** `/Users/ama/Documents/GitHub/iChirp/scripts/dist/build_app_bundle.sh` writes the Info.plist values:
+- **Release stamping:** `/Users/ama/Projects/ichirp/scripts/dist/build_app_bundle.sh` writes the Info.plist values:
   - `VERSION` defaults to `0.0.0` with a warning.
   - `BUILD_NUMBER` defaults to a UTC `%Y%m%d%H%M%S` timestamp.
   - `BUILD_GIT_COMMIT` is `git rev-parse --short=12 HEAD`.

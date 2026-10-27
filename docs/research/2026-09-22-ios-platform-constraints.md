@@ -6,7 +6,7 @@ source: research subagent run during the iChirp foundation session
 ---
 
 > iOS platform constraints for iChirp (SideStore/free provisioning, XcodeGen, background audio + ML incl. iOS 27 ANE restriction, memory, keyboard mic, YouTube/podcast ingest, documents, App Intents/Live Activities).
-> Paths such as `/Users/ama/Documents/GitHub/iChirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
+> Paths such as `/Users/ama/Projects/ichirp/Sources/...` in this snapshot predate the restructure; the same files now live under `upstream/macparakeet/Sources/...`.
 
 # iChirp iOS platform research (checked online 2026-09-22)
 
@@ -69,7 +69,7 @@ No repo files were modified. I cloned SideStore, SideSign and youtube-transcript
 Sketch below; I have not run it, and the iOS project doesn't exist yet, so adjust the paths:
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp/iOS && xcodegen generate
+cd /Users/ama/Projects/ichirp/iOS && xcodegen generate
 xcodebuild -project iChirp.xcodeproj -scheme iChirp -configuration Release \
   -destination 'generic/platform=iOS' -archivePath build/iChirp.xcarchive CODE_SIGNING_ALLOWED=NO archive
 APP=build/iChirp.xcarchive/Products/Applications/iChirp.app

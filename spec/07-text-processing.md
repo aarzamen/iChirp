@@ -181,7 +181,7 @@ document read as described in the section above.
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/check.sh ChirpTextTests
 scripts/check.sh ChirpExportTests
 ```

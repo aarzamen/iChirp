@@ -71,7 +71,7 @@ An entry earns startup context only if it changes a likely next decision in near
 Run when agent behavior starts drifting or a memory file gets noisy:
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 wc -l CLAUDE.md AGENTS.md
 git diff -- CLAUDE.md AGENTS.md docs/agent-memory-governance.md
 ```

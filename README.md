@@ -46,7 +46,7 @@ not built yet say "Not built yet — milestone Mx" in the app; nothing is simula
 On a Mac with Xcode 26 or later and [Homebrew](https://brew.sh):
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 scripts/bootstrap.sh      # checks Xcode, XcodeGen, swift-format; offers the signing config; generates the project
 scripts/run_sim.sh        # builds and launches Parakeet in the iPhone simulator
 scripts/run_device.sh     # builds, installs and launches on the paired iPhone (Developer Mode on, unlocked)

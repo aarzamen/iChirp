@@ -26,7 +26,7 @@
 > **Drift check (run first, from the repo root):**
 >
 > ```bash
-> cd /Users/ama/Documents/GitHub/iChirp
+> cd /Users/ama/Projects/ichirp
 > git log --oneline -1
 > git diff --stat 53bc2cc6..HEAD -- \
 >   ChirpKit/Sources/ChirpCore/Models/Deliverable.swift ChirpKit/Sources/ChirpCore/Pipeline \
@@ -441,7 +441,7 @@ the end), as plan 024's Global constraints 3-4 describe.
 ## Git workflow
 
 - Worktree and branch from `main` (AGENTS.md §7):
-  `git -C /Users/ama/Documents/GitHub/iChirp worktree add ../iChirp-templates -b lane/your-own-templates main`, then
+  `git -C /Users/ama/Projects/ichirp worktree add ../iChirp-templates -b lane/your-own-templates main`, then
   work in `/Users/ama/Documents/GitHub/iChirp-templates`.
 - Commit after every step with a message that states what now exists. **No `Co-authored-by` trailers** (project
   rule). **Do not push.** Merge back into `main` locally only when the owner asks.

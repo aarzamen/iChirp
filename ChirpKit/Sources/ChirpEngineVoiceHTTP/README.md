@@ -3,7 +3,7 @@
 Text-to-speech engines reached over HTTP (plan 020): **Grok voices** on xAI (`XAIVoice`, cloud) and the owner's
 voices on the **Mac companion** (`CompanionVoice`, home network). Both conform to ChirpCore's `SpeechSynthesizing`
 (contract [`speech-synthesis-plugin-v1`](../../../spec/contracts/speech-synthesis-plugin-v1.md)). The wire code is
-ported from the owner's macOS read-aloud app **Readback** (`~/readback`, `Sources/TTS/`), with the provenance header
+ported from the owner's macOS read-aloud app **Readback** (`~/Projects/readback`, `Sources/TTS/`), with the provenance header
 `// Ported from Readback (owner's project): <path> @ <sha>`. Depends on ChirpCore only.
 
 ## Entry point
@@ -47,7 +47,7 @@ ported from the owner's macOS read-aloud app **Readback** (`~/readback`, `Source
 ## How to verify
 
 ```bash
-cd /Users/ama/Documents/GitHub/iChirp
+cd /Users/ama/Projects/ichirp
 swift test --package-path ChirpKit --filter ChirpEngineVoiceHTTPTests
 ```
 
