@@ -1188,6 +1188,36 @@ Regression
 Screenshots to attach
 - [ ] The find bar with matches, the post-replace banner, the Fixes from your corrections section.
 
+## Share a link checklist (plan 029)
+
+> Preconditions: a build of `feat/share-links` (or `main` after it merges) installed with `scripts/run_device.sh`; the
+> share extension's profile exists (the owner's one Xcode build, 2026-10-27). Synthetic or public videos only.
+> Results from 2026-10-27 on the iPhone 17 Pro are ticked.
+
+Happy path
+- [x] YouTube app → a video → Share → Parakeet: Parakeet opens on Paste a link with the link filled in and starts on
+      its own (cold and warm).
+- [x] Safari → a captioned YouTube page (`R6MlUcmOul8`) → Share → Parakeet: "Captions saved", Open shows the transcript.
+- [x] The same video shared again within 10 minutes opens its transcript instead of starting again.
+- [x] Files → an audio file or PDF → Share → Parakeet: imports as before (the scene delegate now routes files).
+
+Honest refusals
+- [x] A video without captions, no Mac companion: the error card says so and how to set one up; nothing is sent.
+- [ ] A video without captions with the Mac companion set up: "Send this link to your Mac?" appears; nothing is sent
+      before the tap.
+- [ ] An X or TikTok link shared to Parakeet: "Can’t use this link" with the reason; nothing is fetched.
+
+Rules
+- [ ] Settings → Capture → "Start shared links right away" off: sharing fills in the link and waits for Transcribe.
+- [ ] Share a link while dictating: the Dictating screen says "Link received. It opens when you finish."; Paste a link
+      opens after Done.
+- [ ] Share a link while Paste a link holds typed text: the text stays; "Shared link · Start" waits above the field.
+- [ ] Safari address bar `ichirp://share-link?url=https%3A%2F%2Fyoutu.be%2FR6MlUcmOul8&v=1`: Paste a link opens with
+      the link but does not start (no token).
+
+Known gap
+- [ ] Voice Memos → Share → Parakeet does nothing (never worked, before or after plan 029); follow-up open.
+
 ## Writing a checklist (for agents)
 
 Keep items concrete and user-facing: a **user action** and an **observable result** ("Import a 3-minute Voice Memo

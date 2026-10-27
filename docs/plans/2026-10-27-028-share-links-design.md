@@ -1,6 +1,11 @@
 # Plan 028 (design): Share a YouTube link to Parakeet and it starts transcribing
 
-> Status: **DRAFT for owner review** (2026-10-27). The owner asked for the design without a question round
+> Status: **IMPLEMENTED** 2026-10-27 by plan 029 on `feat/share-links` (approved by the owner the same day). Step 0
+> outcome: the responder-chain open works on iOS 26, but `sourceApplication` is nil, so section 5's fallback was taken
+> in the owner's choice of form: a one-time token in a keychain group shared by the app and its extension (a named
+> pasteboard was tried first and is not shared). See
+> [docs/research/2026-10-27-share-extension-open-app.md](../research/2026-10-27-share-extension-open-app.md).
+> Original status line: **DRAFT for owner review** (2026-10-27). The owner asked for the design without a question round
 > ("skip the questions, just write the design"); every choice below that the owner did not state is marked
 > **(designer's call)**. No executor plan exists yet; one follows only after the owner approves this file.
 > Supersedes plan 010 Step 5 ("Share extension with an App Group inbox") for links; files keep plan 010's

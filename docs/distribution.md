@@ -174,9 +174,13 @@ Install: copy the IPA to the phone (AirDrop or Files), open SideStore, tap +, ch
 
 ### Extension budget
 
-Keep the app to itself plus at most two extensions (the keyboard, and one widget extension that holds the Live
-Activity and the Controls) so a SideStore install fits the free App ID budget. The M1.5 share extension is weighed
-against this budget in its plan.
+Plan 029 (ADR-008, amended 2026-10-27): the paid team builds the app with the widget extension and the share
+extension `iChirpShare` (`com.aarzamen.ichirp.share`). The share extension's profile came from the owner's one
+automatic-signing build in the Xcode app (open `iChirp.xcodeproj`, scheme iChirp, the iPhone, Run); later
+`scripts/run_device.sh` builds reuse it with no provisioning flags. Both targets carry `keychain-access-groups` for the
+share token (`<team>.com.aarzamen.ichirp.share-token`); the existing development profiles already allow `<team>.*`, so
+that needed no account change. The old two-extension limit was for SideStore free accounts: an IPA for SideStore would
+need it re-checked.
 
 ## Memory and special entitlements
 

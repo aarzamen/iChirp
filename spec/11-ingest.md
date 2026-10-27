@@ -2,8 +2,8 @@
 
 > Status: ACTIVE — how things get into Parakeet beyond M1's file picker. Built: the Share sheet (M1.5), and in M5
 > links (Apple Podcasts, feeds, direct media, YouTube captions) and documents (PDF with OCR, TXT, Markdown, RTF, HTML,
-> DOCX), and (plan 019) YouTube audio for videos without captions through the owner's Mac companion. Still a proposal:
-> the share extension (gated).
+> DOCX), (plan 019) YouTube audio for videos without captions through the owner's Mac companion, and (plan 029) web
+> links shared to Parakeet through its share extension.
 > Source research: [`docs/research/2026-09-22-ios-platform-constraints.md`](../docs/research/2026-09-22-ios-platform-constraints.md)
 > sections 6 and 7.
 
@@ -12,8 +12,9 @@
 | Input | Milestone | `sourceType` | Path into the pipeline |
 |---|---|---|---|
 | Audio/video file from Files | M1 | `file` | File picker → copy into `media/<id>/` → normalize → transcribe |
-| Share sheet (Voice Memos, Files, other apps) | M1.5 | `file` | "Open in Parakeet": iOS copies the file into `Documents/Inbox/` and opens the app → `.onOpenURL` → the same import → same pipeline. (A share extension with an App Group inbox is gated, below.) |
-| Voice Memos | M1.5 | `file` | Through the Share sheet (no public Voice Memos API) |
+| Share sheet (Voice Memos, Files, other apps) | M1.5 | `file` | "Open in Parakeet": iOS copies the file into `Documents/Inbox/` and opens the app → `SceneDelegate` → `IncomingLinkRouter.receiveFile` → `RootTabView` → the same import (plan 029; was `.onOpenURL`) → same pipeline. (A share extension with an App Group inbox is gated, below.) |
+| Voice Memos | M1.5 | `file` | Through the Share sheet (no public Voice Memos API). **Not working on the phone** (2026-10-27, iOS 26: the Parakeet icon in Voice Memos does nothing, before and after plan 029); Files → Share → Parakeet works. Open follow-up |
+| A web link shared to Parakeet (YouTube app, Safari, Messages) | Plan 029 | as for a pasted link | Share → Parakeet: the `iChirpShare` extension opens the app with `ichirp://share-link?url=…&t=<token>&v=1`; Paste a link opens with the link and starts on its own when the token matches (below) |
 | Apple Podcasts episode link | M5 | `podcast` | iTunes lookup → episode audio URL → download → pipeline |
 | Direct media URL (`.mp3`, `.m4a`, `.mp4`, …) | M5 | `url` | Download to a file → pipeline |
 | YouTube link | M5 | `url` | Captions first; without captions, audio from the Mac companion (below) → pipeline |
@@ -54,14 +55,27 @@ M4 template (summary, meeting notes, SOAP note, …). It has no player and no SR
   `IncomingFileInbox.kind(of:)`: documents (and any other plain text) go to `DocumentImportPipeline`, audio and video
   to the file pipeline; the Inbox copy is deleted once the import settles, as before.
 
-**Gated (plan 010 Step 5): a share extension with an App Group inbox.** Needs an explicit App ID with the App Groups
-capability, an account change the owner must approve.
+**Built (plan 029): a share extension for web links.** `iChirpShare` (`ShareExtension/`) appears in the share sheet's
+app row for a web link or text holding one, and never for a share that carries a file, audio, video or a PDF (those
+stay with "Open in Parakeet"; `ShareExtensionActivationTests`). It finds the first http or https link
+(`SharedLink.firstWebLink`), opens Parakeet with `ichirp://share-link?url=…&t=<token>&v=1` through the responder chain
+(unsupported by Apple, fine for the owner's own developer builds; proven on iOS 26 in
+[`docs/research/2026-10-27-share-extension-open-app.md`](../docs/research/2026-10-27-share-extension-open-app.md)) and
+closes. No UI, no network, no models, no App Group.
 
-- One share extension (counts as one App ID). It receives audio, video and URLs through `NSItemProvider`, writes
-  the file plus a small JSON manifest into the App Group container, and signals the app (salvage candidate:
-  `ShareExtensionHandler.swift` and `DarwinNotificationBroadcaster.swift` in `legacy/gemini-ios/`).
-- The extension loads **no models** (share extensions have roughly 120 MB of memory).
-- App Group and background-task identifiers are derived at run time from the bundle id, never hard-coded.
+- **Who may auto-start.** iOS reports no source application for the extension's open, and a named pasteboard is not
+  shared with the app, so the extension writes a one-time token to the keychain group
+  `<team>.com.aarzamen.ichirp.share-token` (both targets' `keychain-access-groups`; the app lists its own app-ID group
+  first) and puts it in the URL. `IncomingLinkRouter` starts on its own only when the token matches within 60 s
+  (`ShareTokenKeychain`) and Settings → Capture → "Start shared links right away" is on (default). Any other
+  `ichirp://` opener (a web page, another app) only fills in Paste a link (`ShareLinkUITests`).
+- **Delivery.** The custom `SceneDelegate` takes every opened URL (it also replaces SwiftUI's `onOpenURL`, so file
+  URLs go through the router too). Links wait for the root view (cold launch), for the Dictating or Meeting screen to
+  close ("Link received. It opens when you finish."), and for Create to close (hidden first, its draft kept). A repeat
+  share of the same video within 10 minutes opens its row. `LinkSheetHost` takes the link at once when Paste a link is
+  idle and empty; otherwise it waits in a "Shared link · Start" row.
+- **Unchanged rules.** A video without captions still asks "Send this link to your Mac?" per link; sharing never
+  answers it. The row keeps the shared link on the phone; only the video id goes to YouTube.
 
 ## Podcasts and direct media (M5)
 
