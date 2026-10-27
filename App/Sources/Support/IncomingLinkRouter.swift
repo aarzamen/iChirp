@@ -46,7 +46,7 @@ extension LinkSheetHost: SharedLinkReceiving {}
 
     /// Auto-start only for the owner's own share (the token matched) with "Start shared links right away" on. A link
     /// opened by anything else (a web page, another app, a typed `ichirp://` URL) never starts work.
-    static func decide(_ share: IncomingShare, startRightAway: Bool) -> SharedLinkStart {
+    static func startChoice(for share: IncomingShare, startRightAway: Bool) -> SharedLinkStart {
         share.fromOwnShare && startRightAway ? .autoStart : .prefill
     }
 
@@ -105,7 +105,7 @@ extension LinkSheetHost: SharedLinkReceiving {}
             return
         }
         pending = nil
-        let start = Self.decide(share, startRightAway: state.startRightAway)
+        let start = Self.startChoice(for: share, startRightAway: state.startRightAway)
         logger.notice("share_link_delivered start=\(start == .autoStart ? "auto" : "prefill", privacy: .public)")
         receiver.deliver(share.link, start: start)
     }

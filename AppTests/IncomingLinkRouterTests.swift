@@ -17,15 +17,15 @@ final class IncomingLinkRouterTests: XCTestCase {
     }
 
     func testOwnShareAutoStarts() {
-        XCTAssertEqual(IncomingLinkRouter.decide(share(fromOwnShare: true), startRightAway: true), .autoStart)
+        XCTAssertEqual(IncomingLinkRouter.startChoice(for: share(fromOwnShare: true), startRightAway: true), .autoStart)
     }
 
     func testOtherSourceNeverAutoStarts() {
-        XCTAssertEqual(IncomingLinkRouter.decide(share(fromOwnShare: false), startRightAway: true), .prefill)
+        XCTAssertEqual(IncomingLinkRouter.startChoice(for: share(fromOwnShare: false), startRightAway: true), .prefill)
     }
 
     func testSettingOffPrefills() {
-        XCTAssertEqual(IncomingLinkRouter.decide(share(fromOwnShare: true), startRightAway: false), .prefill)
+        XCTAssertEqual(IncomingLinkRouter.startChoice(for: share(fromOwnShare: true), startRightAway: false), .prefill)
     }
 
     func testReceiveChecksTheTokenOnce() {
