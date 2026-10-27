@@ -63,7 +63,8 @@ enum SharedLinkStart: Sendable, Equatable {
             "share_link_received cold=\(coldLaunch, privacy: .public) own_share=\(fromOwnShare, privacy: .public)")
         #if DEBUG
         Self.writeDebugRecord(
-            sourceApplication: sourceApplication, link: handOff.link, coldLaunch: coldLaunch, fromOwnShare: fromOwnShare)
+            sourceApplication: sourceApplication, link: handOff.link, coldLaunch: coldLaunch, fromOwnShare: fromOwnShare
+        )
         #endif
     }
 
