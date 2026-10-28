@@ -119,8 +119,9 @@ Full rules: [`spec/12-privacy.md`](spec/12-privacy.md).
 
 ## License
 
-GPL-3.0, the same as MacParakeet: see [`LICENSE`](LICENSE). iChirp is a derivative work, so it must stay GPL-3.0
-and keep the original copyright notices. Personal installs and sideloading are fine. Distribution through the App
+GPL-3.0, the same as MacParakeet: [`LICENSE`](LICENSE) is the unmodified GPL-3.0 text and
+[`NOTICE`](NOTICE) holds the copyright notices. iChirp is a derivative work, so it must stay GPL-3.0 and keep the
+original copyright notices. Personal installs and sideloading are fine. Distribution through the App
 Store would need permission from MacParakeet's copyright holder. Third-party components:
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
 
