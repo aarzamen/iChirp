@@ -29,7 +29,7 @@ walked yet. The authoritative per-milestone table (plans, commits, what was veri
 |---|---|---|
 | M0 | Foundation: XcodeGen project, `ChirpKit` package, scripts, specs, agent docs | Built (`e232b62d`) |
 | M1 | Parakeet v3 file transcription: import, speaker labels, Library, Transcript with player, export, model management, device smoke test | Built: device smoke passes on iPhone 17 Pro and iPhone 15 Pro (`a6cd8f2d`) |
-| M1.5 | Finish long files in the background; import from the Share sheet and Voice Memos | Built; device QA pending |
+| M1.5 | Finish long files in the background; import from the Share sheet (Files → Open in Parakeet works; Voice Memos does not yet) | Built; Files → Open in Parakeet verified on the phone 2026-10-27; Voice Memos → Share → Parakeet does nothing (never worked; follow-up open); other device QA pending |
 | M2 | Dictation (Action Button, Live Activity, live preview, final pass, copy) | Built; device QA pending |
 | M3 | Meeting recording with crash recovery, Notes tab | Built; device QA pending |
 | M4 | Language models and deliverables: summaries, meeting notes, agendas, SOAP notes, Ask | Built; device QA pending |

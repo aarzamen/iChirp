@@ -100,7 +100,8 @@ Screenshots to attach
 
 Share sheet ("Open in Parakeet")
 - [ ] Voice Memos → the memo → Share → the app row shows **Parakeet** → tap it: Parakeet opens on Capture and a
-      Recent row appears at once, then completes with a sensible title.
+      Recent row appears at once, then completes with a sensible title. **Known gap (2026-10-27): the tap does nothing
+      on the phone, before and after plan 029; leave this unchecked until the follow-up lands.**
 - [ ] Files → `long-20min.m4a` → Share → Parakeet works the same way (the row starts "Transcribing · NN%").
 - [ ] Share while Parakeet is on another tab (Library or Settings): it switches to Capture.
 

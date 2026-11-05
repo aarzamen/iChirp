@@ -73,7 +73,7 @@ structured documents, including clinical notes. That sets the bar:
 | Mode | What the user does | Milestone |
 |---|---|---|
 | Transcribe a file | Capture → Import audio → pick a Voice Memo or file → it appears in Recent with real progress → open the transcript, play, tap timestamps, share | M1 |
-| Share into Parakeet | Share sheet from Voice Memos or Files → Parakeet → transcribed in the background | M1.5 |
+| Share into Parakeet | Share sheet from Files → Parakeet → transcribed in the background (Voice Memos → Parakeet does not work yet; follow-up open) | M1.5 |
 | Dictate | Press the Action Button (or tap Dictate) → speak → stop → clean text on the clipboard | M2 |
 | Record a meeting | Record Meeting → notes while recording → stop → speaker-labelled transcript, then notes | M3 |
 | Make a document | Transcript → Transform → Meeting notes / SOAP note / Agenda / Summary → edit, copy, share | M4 |
