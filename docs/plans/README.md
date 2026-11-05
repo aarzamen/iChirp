@@ -59,6 +59,9 @@ commands, steps, done criteria and STOP conditions.
 > Still true on 2026-10-01: item 1 (Needle round 4) is open and `fix/needle-round4` has no commits; item 2 (the Copy
 > flattener fixes) is now [plan 024](2026-10-01-024-review-fixes.md) Task 4; items 3–5 are unchanged. The
 > `ichirp/foundation` branch named below was retired at `47eeefb1`; `main` is the working branch.
+>
+> 2026-11-05: item 2 is done. Plan 024 Task 4 (K1, K2 and the K3 ruling) and Task 10 (the document screen shows the
+> effective class) merged on `main` on 2026-10-02; `fix/flattener` still has no commits and is the owner's to delete.
 
 `ichirp/foundation` = `main` after this push. Everything below is merged, gated (package + app-hosted tests, strict
 lint, secret scan) and installed where the phones had room.
@@ -75,9 +78,14 @@ decisions (documents in the Library, Capture recipes, formatted documents with p
    review (its report is in the owner's local notes, not in this repository) found 78 of 168 new phrasings clean and
    wrong, and probed closed-list rules (R1–R7, W1-narrow, S1–S3) that gave 0 clean-and-wrong over 441 phrases. Branch
    `fix/needle-round4` exists but has no commits. **Until then: do not use Extract fields on real clinical dictation.**
-2. **Copy flattener fixes** (`review-flattener.md`): "# of doses given: 3" loses its "#", "2) item" becomes "2.",
-   HTML entities decode; and the document screen should show the effective privacy class like the Library row.
-   Branch `fix/flattener` exists, no commits. No number was ever changed on Copy.
+2. ~~**Copy flattener fixes**~~ **Done 2026-10-02** ([plan 024](2026-10-01-024-review-fixes.md) Task 4, merged on
+   `main`): below the document's first line a single "#" keeps its "#" ("# of doses given: 3"; `MarkdownBlockParser.headingLine`),
+   a numbered item keeps its own delimiter ("2)" stays "2)", `MarkdownListItem.marker`), and an HTML entity decodes on
+   Copy exactly as the screen shows it (known item K3: a deliberate ruling, not a bug; `&#8805;` copies as "≥"). The
+   document screen shows the effective privacy class like the Library row (Task 10). Pinned by `PlainTextFlattenerTests`
+   (`testSingleHashLineKeepsItsHash`, `testCloseParenNumberKeepsItsDelimiter`, `testHTMLEntitiesDecodeOnCopyAsOnScreen`).
+   The `review-flattener.md` note was never in git; branch `fix/flattener` has no commits and is the owner's to delete.
+   No number was ever changed on Copy.
 3. **Phone checks, blocked by storage:** iPhone 17 Pro ~6 GB free and iPhone 15 Pro ~3 GB free are needed to run
    `scripts/device_benchmark.sh whisper-turbo` and `scripts/device_llm_smoke.sh qwen3.5-2b` / `qwen3-4b` (numbers go
    into the two research docs), re-run Apple Speech, and check the 15 Pro's 2.3–2.5 GB Parakeet launch peak.
