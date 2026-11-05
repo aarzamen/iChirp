@@ -87,8 +87,15 @@ spec/              vision, architecture, pipelines, data model, testing, privacy
 docs/              plans, reviews, research, design canvas, solutions, workflows
 scripts/           bootstrap, gen, check, check_scripts, test, run_sim, run_device, device_*, build_needle, build_llamacpp, …
 vendor/            gitignored: the Needle and llama.cpp runtimes built by the two build scripts
-upstream/          MacParakeet at a pinned commit, read-only, for porting
+upstream/          a byte-for-byte reference copy of MacParakeet at a pinned commit: read-only, never built, never
+                   linked; kept for porting and diffing only, and most of the repo's weight (about 118 MB)
 ```
+
+`upstream/macparakeet/` stays in the tree on purpose rather than as a git submodule: `scripts/sync_upstream.sh` relies
+on it to show what upstream changed between two syncs as one ordinary `git diff`, every provenance header names a path
+in this tree, and a plain clone needs no `--recurse-submodules`. Its marketing GIFs, screenshots and benchmark dumps
+come along and are never used. A clone that will never port can leave the folder out (the two commands are in
+[`upstream/README.md`](upstream/README.md)).
 
 ## Engines
 

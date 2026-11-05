@@ -32,6 +32,30 @@ against `git rev-parse bbae9e0e^{tree}`.
   After a sync to a newer ref, the header of a re-ported file carries the new SHA.
   `grep -rl "Ported from MacParakeet" ChirpKit App` lists every ported file.
 
+## In the tree, not a submodule (decided 2026-11-05)
+
+This folder is about 118 MB (2,125 files), most of the repository's weight, and it carries MacParakeet's marketing
+GIFs, screenshots and benchmark dumps along with the sources; none of it is built, linked or shipped. It stays a plain
+in-tree copy rather than a git submodule at the pinned SHA because:
+
+- `scripts/sync_upstream.sh` records each sync as one commit, so `git diff <old-sync>..<new-sync> -- upstream/macparakeet/`
+  is an ordinary diff in this repository. With a submodule the same question becomes a diff inside another repository
+  and a pointer change here.
+- The byte-for-byte contract is verifiable with `git write-tree --prefix=upstream/macparakeet/` against upstream's
+  tree id; a submodule only points at a commit.
+- Every provenance header (`// Ported from MacParakeet (GPL-3.0): <path> @ <sha>`) names a path that exists in this
+  tree, and a plain `git clone` needs no `--recurse-submodules` for the reference to be there.
+
+The cost is clone size. A clone that will never port can skip the folder's contents:
+
+```bash
+git clone --filter=blob:none https://github.com/aarzamen/iChirp    # file contents fetched on first read
+git -C iChirp sparse-checkout set --no-cone '/*' '!/upstream'      # or leave the folder out of the working tree
+```
+
+Revisit the decision if the folder grows past what a phone-tethered clone tolerates, or if GitHub's repository size
+guidance becomes a problem; a submodule would then also need `scripts/sync_upstream.sh` and this file rewritten.
+
 ## How to sync
 
 ```bash
