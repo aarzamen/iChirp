@@ -29,6 +29,9 @@ macOS-only (FFmpeg subprocesses, AppKit, ScreenCaptureKit, Core Audio HAL), so i
   implementation, not a line port.").
 - Ported tests keep upstream's test names where the feature was ported.
 - `legacy/gemini-ios/` holds the earlier attempt for salvage only; it is not built and shrinks to nothing.
+  *Amended 2026-11-05:* it shrank to nothing. Every salvage item was superseded by an iChirp implementation or
+  rejected ([salvage closed](../../docs/reviews/2026-11-05-gemini-ios-salvage-closed.md)); the folder was removed and
+  its files stay in git history before `963b3122`.
 
 ## Alternatives considered
 

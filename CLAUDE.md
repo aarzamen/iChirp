@@ -34,7 +34,7 @@
   discard flow.
 - Ignored paths such as `.claude/`, `.superpowers/`, `.remember/`, `.build*`, `DerivedData/`, `dist/`, `logs/`,
   `*.xcodeproj/`, `Config/Signing.local.xcconfig` and key material are not review scope unless the task names them.
-- `upstream/macparakeet/` is read-only; `legacy/gemini-ios/` is never built.
+- `upstream/macparakeet/` is read-only.
 
 ## References
 

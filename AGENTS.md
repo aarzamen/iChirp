@@ -107,7 +107,9 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
   without the GUI. Read a module's `README.md` before editing it and update it in the same commit.
 - **`upstream/macparakeet/`** is MacParakeet, byte-for-byte, as a read-only reference. Never edit it; port from it
   (section 6). See [`upstream/README.md`](upstream/README.md).
-- **`legacy/gemini-ios/`** is salvage-only: never built, deleted item by item once each salvage lands or is rejected.
+- **`legacy/gemini-ios/`** is gone (salvage closed 2026-11-05: every item was superseded or rejected,
+  [`docs/reviews/2026-11-05-gemini-ios-salvage-closed.md`](docs/reviews/2026-11-05-gemini-ios-salvage-closed.md));
+  the files stay in git history before `963b3122`.
 
 ## 4. Product rules
 

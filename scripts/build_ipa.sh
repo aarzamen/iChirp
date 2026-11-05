@@ -19,9 +19,9 @@ LOG_DIR=".build/ipa-logs"
 IPA="dist/iChirp-sidestore.ipa"
 mkdir -p "$LOG_DIR" dist
 
-# Finds <name>.entitlements in the repo's own sources (never upstream/, legacy/ or build output).
+# Finds <name>.entitlements in the repo's own sources (never upstream/ or build output).
 find_entitlements() {
-  find . \( -path ./upstream -o -path ./legacy -o -path ./.build -o -path ./dist -o -path ./.git -o -path ./.claude \) \
+  find . \( -path ./upstream -o -path ./.build -o -path ./dist -o -path ./.git -o -path ./.claude \) \
     -prune -o -type f -name "$1.entitlements" -print | head -1
 }
 

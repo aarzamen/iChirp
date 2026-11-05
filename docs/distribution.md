@@ -114,7 +114,7 @@ the iPhone 17 Pro had tested.
 | `No profiles for 'com.aarzamen.ichirp' were found` or a stale profile | The Mac lacks a matching profile | **Owner:** `scripts/gen.sh`, open `iChirp.xcodeproj` in Xcode, target iChirp → Signing & Capabilities → Team "Aaron Arzamendi (XM6E4PUXTU)", Automatic; choose the phone and press Run once. Then rerun the script |
 | `No profiles for 'com.aarzamen.ichirp.widgets' were found` (M2) | The widget extension has no matching profile on this Mac | **Owner:** the same one-time Xcode GUI Run as above; Automatic signing also covers target iChirpWidgets. Agents never register the App ID |
 | `No Account for Team "434HG698U6"` | Wrong team value somewhere | Use `XM6E4PUXTU` in `Config/Signing.local.xcconfig` |
-| "ambiguous" signing identity | Two Apple Development certificates share one name | Sign by SHA-1 (see the warning file); ask the owner before changing build settings |
+| "ambiguous" signing identity | Two Apple Development certificates share one name | Sign by SHA-1 (the fingerprints are in the owner's gitignored `Config/AppleDeveloper.local.md`, not in the repo); ask the owner before changing build settings |
 | A new capability or entitlement is needed | Profiles must change on the developer account | Stop; the owner decides and does it |
 
 ## Device smoke test

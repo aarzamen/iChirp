@@ -72,7 +72,7 @@ decisions (documents in the Library, Capture recipes, formatted documents with p
 
 **Open, in priority order (resume here):**
 1. **Needle round 4 — clinical safety, do first before anyone relies on Extract fields.** The round-3 adversarial
-   review (`.superpowers/sdd/milestones/fix-needle3-rereview.md`, outside git) found 78 of 168 new phrasings clean and
+   review (its report is in the owner's local notes, not in this repository) found 78 of 168 new phrasings clean and
    wrong, and probed closed-list rules (R1–R7, W1-narrow, S1–S3) that gave 0 clean-and-wrong over 441 phrases. Branch
    `fix/needle-round4` exists but has no commits. **Until then: do not use Extract fields on real clinical dictation.**
 2. **Copy flattener fixes** (`review-flattener.md`): "# of doses given: 3" loses its "#", "2) item" becomes "2.",
@@ -110,4 +110,4 @@ decisions (documents in the Library, Capture recipes, formatted documents with p
 
 | Date | Plan | Outcome |
 |---|---|---|
-| 2026-09-22 | Gemini iOS port (commit `ae5efa53`) | Reviewed and rebuilt; see [review](../reviews/2026-09-22-gemini-ios-review.md). Salvage items tracked in `legacy/gemini-ios/README.md` |
+| 2026-09-22 | Gemini iOS port (commit `ae5efa53`) | Reviewed and rebuilt; see [review](../reviews/2026-09-22-gemini-ios-review.md). Salvage closed 2026-11-05: every item superseded or rejected ([disposition](../reviews/2026-11-05-gemini-ios-salvage-closed.md)); `legacy/gemini-ios/` removed, files in git history before `963b3122` |

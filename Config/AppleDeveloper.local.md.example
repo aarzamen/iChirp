@@ -1,0 +1,25 @@
+# Apple Developer: machine-specific notes (local only)
+
+Copy this file to `Config/AppleDeveloper.local.md` (gitignored, like `Config/Signing.local.xcconfig`) and fill it in.
+Never commit the filled-in file: it names certificate fingerprints and paths on one Mac, which a public repository
+should not carry. The tracked `APPLE_DEVELOPER_WARNING.md` keeps the facts and rules that apply to every clone.
+
+## Certificates (sign by SHA-1 when two identities share one name)
+
+- Apple Development: <name> (<certificate user ID>): SHA-1 <40 hex>, valid to <date>
+- Apple Distribution: SHA-1 <40 hex>, valid to <date>
+- Developer ID Application: SHA-1 <40 hex>, valid to <date>; notarytool keychain profile <name>
+
+## Account
+
+- Team ID <team id>, membership renews <date>; App Store Connect state and any support ticket.
+
+## Local paths
+
+- Project root: <path>
+- Canonical account notes: <path>/APPLE_DEVELOPER_ACCOUNT.md; status script: <path>/scripts/apple-dev-status.sh
+
+## Generated scan (apple-developer-kit)
+
+Paste the generated "signing footprint", "alerts" and "bundle identifiers seen" sections here, with the regenerate
+commands. Point the generator at this file, not at the tracked warning.

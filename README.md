@@ -88,7 +88,6 @@ docs/              plans, reviews, research, design canvas, solutions, workflows
 scripts/           bootstrap, gen, check, check_scripts, test, run_sim, run_device, device_*, build_needle, build_llamacpp, …
 vendor/            gitignored: the Needle and llama.cpp runtimes built by the two build scripts
 upstream/          MacParakeet at a pinned commit, read-only, for porting
-legacy/gemini-ios/ an earlier iOS attempt kept only for salvage; not built
 ```
 
 ## Engines

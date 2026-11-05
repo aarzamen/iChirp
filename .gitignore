@@ -10,6 +10,7 @@ xcuserdata/
 .swiftpm/
 Config/Signing.local.xcconfig
 Config/Device.local
+Config/AppleDeveloper.local.md
 # Agent / private state
 .claude/
 .codex/
