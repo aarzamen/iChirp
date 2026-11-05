@@ -6,6 +6,7 @@ Start with [`AGENTS.md`](../AGENTS.md) (commands, boundaries, rules) and the [sp
 | Need | Read |
 |---|---|
 | Product direction and behavior | [Vision](../spec/00-vision.md), [features](../spec/02-features.md), [ADRs](../spec/README.md#architecture-decision-records) |
+| What v1.0 is and is not (the owner's decision) | [Scope](SCOPE.md) |
 | Architecture, modules, data flow | [Architecture](../spec/03-architecture.md), module READMEs under `ChirpKit/Sources/<Module>/README.md` |
 | Stored data and public boundaries | [Data model](../spec/01-data-model.md), [contracts](../spec/contracts/README.md) |
 | Speech engines and the FluidAudio pin | [Speech engines](../spec/06-speech-engines.md) |
