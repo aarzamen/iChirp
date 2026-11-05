@@ -74,7 +74,7 @@ Everyday commands for contributors and coding agents are in [`AGENTS.md`](AGENTS
 ## Layout
 
 ```
-README.md  AGENTS.md  CLAUDE.md  LICENSE  THIRD_PARTY_LICENSES.md  APPLE_DEVELOPER_WARNING.md
+README.md  ARCHITECTURE.md  CHANGELOG.md  AGENTS.md  CLAUDE.md  LICENSE  NOTICE  THIRD_PARTY_LICENSES.md  APPLE_DEVELOPER_WARNING.md
 project.yml        XcodeGen spec; the .xcodeproj is generated and gitignored
 Config/            xcconfigs (Shared, Debug, Release, Signing.local.xcconfig.example, Device.local.example)
 App/               iOS app target: composition root, screens, resources, the privacy manifest
