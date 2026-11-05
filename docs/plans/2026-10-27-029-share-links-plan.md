@@ -168,11 +168,11 @@ This task is the spec's Step 0 (§8). Its code is kept if the phone test passes.
   and your iPhone 17 Pro, keep Automatic signing with team XM6E4PUXTU, and press Run once. That registers the share
   extension and makes its profile." Run `say "Parakeet needs one build in Xcode"`. Wait for the owner's reply.
 - [ ] **Step 6: Install and run the Step 0 checks with the owner on the phone.**
-  - Run `DEVICE_ID=4FC3C1DC-B809-552A-B60F-B1723ADB45B8 scripts/run_device.sh`.
+  - Run `scripts/run_device.sh` with `$DEVICE_ID` set to the iPhone 17 Pro (or pinned in `Config/Device.local`).
   - The owner shares a YouTube video from the YouTube app and from Safari, with Parakeet cold (force-quit) and warm.
     In DEBUG, the router also writes the last share it received to `Documents/share-debug.json` as
     `{ sourceApplication, kind, coldLaunch, receivedAt }`, never the URL. Read it with
-    `xcrun devicectl device copy from --device 4FC3C1DC-B809-552A-B60F-B1723ADB45B8 --domain-type appDataContainer
+    `xcrun devicectl device copy from --device $DEVICE_ID --domain-type appDataContainer
     --domain-identifier com.aarzamen.ichirp --source Documents/share-debug.json --destination <scratchpad>/`, the same
     way `scripts/device_smoke.sh` reads `smoke-result.json`.
   - Record the four §8 answers. Record the exact `sourceApplication` value: the extension's id, the app's id, or nil.

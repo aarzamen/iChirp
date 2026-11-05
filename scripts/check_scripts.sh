@@ -147,7 +147,8 @@ fi
 
 # 5. scan_secrets.sh (R8-6): it must flag a recording, caption, keychain, signing-request or SQLite -wal/-shm file committed
 #    outside the synthetic-fixture folders, accept the synthetic ones, report a broken trufflehog instead of dying
-#    silently, and allow MacParakeet's placeholder-URL test only at its real paths. The copy runs in a throwaway git
+#    silently, allow MacParakeet's placeholder-URL test only at its real paths, and flag a device identifier in the
+#    current files. The copy runs in a throwaway git
 #    repository with a stub trufflehog; nothing is scanned for real and nothing leaves the machine.
 mkdir -p "$SANDBOX/ss/bin"
 cat >"$SANDBOX/ss/bin/trufflehog" <<'STUB'
@@ -312,6 +313,51 @@ if [ "$status" = "1" ]; then
 else
   fail "scan_secrets.sh allows a link that merely starts like a placeholder (exit $status)"
 fi
+
+# Device identifiers: a phone's UDID anywhere, or a UUID on a line about a device, in any file git would commit. The
+# values are assembled from parts so that this file holds none of its own (the scanner reads it too). The history is not
+# searched: it keeps old identifiers and cannot be rewritten, so a removed one must not fail every later scan.
+fake_uuid="C0FFEE12-3456-5789-ABCD-""0123456789AB"
+fake_udid="00008150-""0123456789ABCDEF"
+repo=$(sandbox_repo devices README.md)
+note="$repo/notes.md"
+expect_device_finding() { # expect_device_finding <what it is> <text of notes.md>
+  printf '%s\n' "$2" >"$note"
+  status=$(scan_in "$repo")
+  if [ "$status" = "1" ] && grep -q "Device identifiers" "$SANDBOX/out" && grep -q "notes.md:1" "$SANDBOX/out" \
+    && ! grep -qE "$fake_uuid|$fake_udid" "$SANDBOX/out"; then
+    pass "scan_secrets.sh flags $1, with the value redacted"
+  else
+    fail "scan_secrets.sh misses $1 or prints its value (exit $status): $(tail -2 "$SANDBOX/out" | tr '\n' ' ' | cut -c1-160)"
+  fi
+}
+expect_no_device_finding() { # expect_no_device_finding <what it is> <text of notes.md>
+  printf '%s\n' "$2" >"$note"
+  status=$(scan_in "$repo")
+  if [ "$status" = "0" ]; then
+    pass "scan_secrets.sh does not flag $1"
+  else
+    fail "scan_secrets.sh flags $1 (exit $status): $(tail -2 "$SANDBOX/out" | tr '\n' ' ' | cut -c1-160)"
+  fi
+}
+expect_device_finding "a pinned DEVICE_ID" "Run \`DEVICE_ID=$fake_uuid scripts/run_device.sh\`."
+expect_device_finding "a devicectl --device value" "--device $fake_uuid --domain-type appDataContainer"
+expect_device_finding "a lower-case device UUID" "udid: $(printf '%s' "$fake_uuid" | tr 'A-F' 'a-f')"
+expect_device_finding "an iPhone UDID with no device word near it" "id $fake_udid"
+expect_no_device_finding "a UUID on a line that is not about a device" "id: uuid(\"$fake_uuid\"),"
+expect_no_device_finding "a placeholder device id" "# DEVICE_ID=00000000-0000-0000-0000-000000000000"
+expect_no_device_finding "the variable itself" "--device \$DEVICE_ID --domain-type appDataContainer"
+mkdir -p "$repo/upstream/macparakeet/diagnostics"
+printf '%s\n' "input_device_started session=$fake_uuid" >"$repo/upstream/macparakeet/diagnostics/audio.log"
+expect_no_device_finding "a session UUID in the upstream mirror's diagnostics" "nothing here"
+printf '%s\n' "DEVICE_ID=$fake_uuid" >"$note"
+(
+  cd "$repo"
+  env -u GIT_DIR -u GIT_WORK_TREE git add notes.md
+  env -u GIT_DIR -u GIT_WORK_TREE git -c user.name=check -c user.email=check@example.invalid -c commit.gpgsign=false \
+    -c core.hooksPath=/dev/null commit -q -m "an identifier, later removed"
+)
+expect_no_device_finding "an identifier that only the history still holds" "DEVICE_ID=\$DEVICE_ID"
 
 # 6. stamp_build_identity.sh (R8-24): the app and its widget extension get the same build date and CFBundleVersion even
 #    when the build crosses a minute boundary between their two script phases. The clock is a stub `date`; the targets'

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Secret scan before a merge or a push: TruffleHog over the full git history (every branch) and over the working
-# tree (including lane worktrees under .claude/worktrees), plus two checks on every file name ever committed:
+# tree (including lane worktrees under .claude/worktrees), a search of the current files for device identifiers (the
+# repository is public), plus two checks on every file name ever committed:
 #   - no key, certificate, signing request, provisioning profile, keychain, .env or database file (SQLite's -wal and
 #     -shm files included);
 #   - no recording, video or caption/transcript file (m4a, wav, mp3, mp4, srt, vtt, ...) outside the folders that hold
@@ -101,6 +102,37 @@ for path in sys.argv[1:]:
 PY
 )
 
+# Device identifiers, in every file git would commit (tracked or new, not ignored): an iPhone's UDID anywhere, or a UUID
+# on a line about a device (a devicectl identifier is a plain UUID, and the repo is full of UUIDs that are not devices).
+# Not the history: it keeps old identifiers and cannot be rewritten, so a removed one would fail every later scan.
+DEVICES=$(python3 - <<'PY'
+import os, re, subprocess
+uuid = re.compile(r"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b")
+udid = re.compile(r"\b0000[0-9A-Fa-f]{4}-[0-9A-Fa-f]{16}\b")
+device_word = re.compile(r"device|udid|iphone|ipad", re.IGNORECASE)
+placeholders = {
+    "00000000-0000-0000-0000-000000000000",  # Config/Device.local.example and the device-log fixtures
+    "AAAAAAAA-0000-0000-0000-000000000001",  # check_scripts.sh's stub devicectl
+    "11111111-2222-3333-4444-555555555555",  # check_scripts.sh's pinned phone
+}
+listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                        check=True, capture_output=True).stdout
+for path in os.fsdecode(listed).split("\0"):
+    # The read-only MacParakeet mirror: its diagnostic logs put session UUIDs on lines about audio devices.
+    if path.startswith("upstream/macparakeet/") or not os.path.isfile(path):
+        continue
+    with open(path, "rb") as file:
+        data = file.read()
+    if b"\0" in data:
+        continue
+    for number, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
+        values = udid.findall(line) + (uuid.findall(line) if device_word.search(line) else [])
+        for value in values:
+            if value.upper() not in placeholders:
+                print(f"{path}:{number} | {value[:4]}…({len(value)} chars)")
+PY
+)
+
 ALL_FILES=$(git log --all --name-only --format= | sort -u)
 
 FILES=$(grep -Ei \
@@ -114,11 +146,12 @@ ALLOWED_MEDIA='^(App/Resources/(Samples|Benchmark)/|ChirpKit/Tests/[^/]+/Fixture
 MEDIA=$(grep -Ei '\.(m4a|wav|caf|aif|aiff|aac|flac|mp3|mp4|mov|ogg|opus|srt|vtt)$' <<<"$ALL_FILES" \
   | grep -Ev "$ALLOWED_MEDIA" || true)
 
-if [ -z "$FINDINGS" ] && [ -z "$FILES" ] && [ -z "$MEDIA" ]; then
-  echo "SECRET SCAN CLEAN: no credentials in history or working tree; no key, profile, keychain, .env or database file committed; no recording or transcript outside the synthetic-fixture folders."
+if [ -z "$FINDINGS" ] && [ -z "$DEVICES" ] && [ -z "$FILES" ] && [ -z "$MEDIA" ]; then
+  echo "SECRET SCAN CLEAN: no credentials in history or working tree; no device identifier in the working tree; no key, profile, keychain, .env or database file committed; no recording or transcript outside the synthetic-fixture folders."
   exit 0
 fi
 [ -n "$FINDINGS" ] && { echo "Possible secrets:"; echo "$FINDINGS"; }
+[ -n "$DEVICES" ] && { echo "Device identifiers (use \$DEVICE_ID or Config/Device.local):"; echo "$DEVICES"; }
 [ -n "$FILES" ] && { echo "Sensitive file types committed:"; echo "$FILES"; }
 [ -n "$MEDIA" ] && { echo "Recordings, videos or captions committed outside the synthetic-fixture folders:"; echo "$MEDIA"; }
 exit 1

@@ -52,7 +52,7 @@ Run everything from the repo root. Use the scripts; do not hand-copy their `xcod
 | `scripts/check_transcript_text_reads.sh` | Fails when code reads a transcript's text fields outside the one accessor (`Transcription.text`), which carries corrections (plan 025); `check.sh` runs it |
 | `scripts/check_scripts.sh` | Checks the scripts themselves (bash 3.2 syntax, the `run_device.sh` failure classifier, the secret scanner, the build stamp, the privacy manifest checker's rules); CI runs it |
 | `scripts/check_privacy_manifest.sh [--app <built .app>]` | Fails when the Swift sources, the vendored runtimes (`nm -u`) or a built app import a required-reason API that `App/PrivacyInfo.xcprivacy` does not declare; CI runs it with `--app` after the app build |
-| `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off), plus committed key/profile/keychain/.env/database files and recordings outside the synthetic-fixture folders; run before merging a lane or pushing |
+| `scripts/scan_secrets.sh` | TruffleHog over all git history and the working tree (verification off), device identifiers in the current files, plus committed key/profile/keychain/.env/database files and recordings outside the synthetic-fixture folders; run before merging a lane or pushing |
 | `scripts/format.sh` | swift-format in place; review the diff afterwards |
 | `scripts/companion.sh [--download <model>]` | Runs the Parakeet companion on the Mac (local voices, YouTube audio; `companion/README.md`); prints the URL and pairing token |
 
