@@ -29,7 +29,7 @@ walked yet. The authoritative per-milestone table (plans, commits, what was veri
 |---|---|---|
 | M0 | Foundation: XcodeGen project, `ChirpKit` package, scripts, specs, agent docs | Built (`e232b62d`) |
 | M1 | Parakeet v3 file transcription: import, speaker labels, Library, Transcript with player, export, model management, device smoke test | Built: device smoke passes on iPhone 17 Pro and iPhone 15 Pro (`a6cd8f2d`) |
-| M1.5 | Finish long files in the background; import from the Share sheet and Voice Memos | Built; device QA pending |
+| M1.5 | Finish long files in the background; import from the Share sheet (Files → Open in Parakeet works; Voice Memos does not yet) | Built; Files → Open in Parakeet verified on the phone 2026-10-27; Voice Memos → Share → Parakeet does nothing (never worked; follow-up open); other device QA pending |
 | M2 | Dictation (Action Button, Live Activity, live preview, final pass, copy) | Built; device QA pending |
 | M3 | Meeting recording with crash recovery, Notes tab | Built; device QA pending |
 | M4 | Language models and deliverables: summaries, meeting notes, agendas, SOAP notes, Ask | Built; device QA pending |
@@ -74,7 +74,7 @@ Everyday commands for contributors and coding agents are in [`AGENTS.md`](AGENTS
 ## Layout
 
 ```
-README.md  AGENTS.md  CLAUDE.md  LICENSE  THIRD_PARTY_LICENSES.md  APPLE_DEVELOPER_WARNING.md
+README.md  ARCHITECTURE.md  CHANGELOG.md  AGENTS.md  CLAUDE.md  LICENSE  NOTICE  THIRD_PARTY_LICENSES.md  APPLE_DEVELOPER_WARNING.md
 project.yml        XcodeGen spec; the .xcodeproj is generated and gitignored
 Config/            xcconfigs (Shared, Debug, Release, Signing.local.xcconfig.example, Device.local.example)
 App/               iOS app target: composition root, screens, resources, the privacy manifest
@@ -87,9 +87,15 @@ spec/              vision, architecture, pipelines, data model, testing, privacy
 docs/              plans, reviews, research, design canvas, solutions, workflows
 scripts/           bootstrap, gen, check, check_scripts, test, run_sim, run_device, device_*, build_needle, build_llamacpp, …
 vendor/            gitignored: the Needle and llama.cpp runtimes built by the two build scripts
-upstream/          MacParakeet at a pinned commit, read-only, for porting
-legacy/gemini-ios/ an earlier iOS attempt kept only for salvage; not built
+upstream/          a byte-for-byte reference copy of MacParakeet at a pinned commit: read-only, never built, never
+                   linked; kept for porting and diffing only, and most of the repo's weight (about 118 MB)
 ```
+
+`upstream/macparakeet/` stays in the tree on purpose rather than as a git submodule: `scripts/sync_upstream.sh` relies
+on it to show what upstream changed between two syncs as one ordinary `git diff`, every provenance header names a path
+in this tree, and a plain clone needs no `--recurse-submodules`. Its marketing GIFs, screenshots and benchmark dumps
+come along and are never used. A clone that will never port can leave the folder out (the two commands are in
+[`upstream/README.md`](upstream/README.md)).
 
 ## Engines
 

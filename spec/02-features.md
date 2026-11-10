@@ -85,7 +85,7 @@ Each opens a shared "Not built yet — milestone Mx" sheet with one sentence on 
 
 | Milestone | Feature behavior |
 |---|---|
-| M1.5 | Long files keep transcribing after you leave the app (`BGContinuedProcessingTask` with a system progress Live Activity). Share sheet and Voice Memos send audio straight into Parakeet. |
+| M1.5 | Long files keep transcribing after you leave the app (`BGContinuedProcessingTask` with a system progress Live Activity). Files → Share → Open in Parakeet sends audio straight into Parakeet; Voice Memos → Parakeet does not work yet (phone QA 2026-10-27; follow-up open). |
 | M2 | Dictation: Action Button or tap starts a Live Activity and records; live preview text is display-only; the final Parakeet pass over the recording is what gets copied; optional clean-up; custom words and snippets editor. |
 | M3 | Meeting recording in the background with crash-safe files and recovery after a kill; live transcript preview; notes while recording; final pass plus speaker labels; Notes tab. |
 | M4 | Deliverables from any transcript: summary, meeting notes, action items, agenda, SOAP note, and the Transforms (Polish, Distill, Decide, Brief). Ask with timestamp citations. On-device, home-network and cloud providers behind the privacy router; keys in the Keychain. |

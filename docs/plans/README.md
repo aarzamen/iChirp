@@ -33,7 +33,7 @@ commands, steps, done criteria and STOP conditions.
 | [001](2026-09-22-001-feat-iphone-app-design-handoff.md) | iPhone app design handoff (text version of the canvas) | **REFERENCE** | Update when the owner changes the canvas |
 | [002](2026-09-22-002-feat-ichirp-foundation-design.md) | iChirp foundation and M1 design | **APPROVED** 2026-09-22 | Amendments: FluidAudio exact 0.16.1; Clean-up default Raw; iOS 27 background Neural Engine restriction; SideStore specifics. Device scripts use existing profiles only ([ADR-008](../../spec/adr/008-distribution-and-build-identity.md)) |
 | [003](2026-09-22-003-feat-m0-m1-implementation-plan.md) | M0 + M1 implementation plan (Tasks 1–14) | **IMPLEMENTED** `a6cd8f2d`, on `main` — full package suite (381, 2 opt-in real-model tests skipped) and simulator app tests (18) green, lint clean; `scripts/device_smoke.sh` SMOKE PASS on iPhone 17 Pro and iPhone 15 Pro ([benchmarks](../research/2026-09-22-device-benchmarks.md)); final whole-branch review fixed in one round (scoped re-review in progress) | Nothing; carried review items live in plans 010–012 |
-| [010](2026-09-22-010-m1.5-share-and-background.md) | M1.5: background file jobs, Share sheet, Voice Memos | **IN PROGRESS** — built and merged on `main` (`m1.5/share-and-background` `1ad81930`; integrated at `5cf6aa86` with 829 package tests, 34 app tests + 3 signed-only Keychain skips, lint and secret scan clean; `device_smoke.sh` SMOKE PASS on iPhone 17 Pro and 15 Pro, both running that build); plan Step 3 device checks (Voice Memos share, locked-phone long file) pending | Owner device QA: `docs/human-qa-guide.md` → M1.5 checklist |
+| [010](2026-09-22-010-m1.5-share-and-background.md) | M1.5: background file jobs, Share sheet, Voice Memos | **IN PROGRESS** — built and merged on `main` (`m1.5/share-and-background` `1ad81930`; integrated at `5cf6aa86` with 829 package tests, 34 app tests + 3 signed-only Keychain skips, lint and secret scan clean; `device_smoke.sh` SMOKE PASS on iPhone 17 Pro and 15 Pro, both running that build); plan Step 3 device checks: Voice Memos share does nothing on the phone (2026-10-27, never worked, follow-up open), locked-phone long file pending | Owner device QA: `docs/human-qa-guide.md` → M1.5 checklist |
 | [011](2026-09-22-011-m2-dictation.md) | M2: dictation | **IN PROGRESS** — Steps 1–8 built and merged on `main` (`m2/dictation` `085d13f7`; integrated at `5cf6aa86` with 829 package tests, 34 app tests + 3 signed-only Keychain skips, lint and secret scan clean; `device_smoke.sh` SMOKE PASS on iPhone 17 Pro and 15 Pro, both running that build) | Owner device QA: Action Button, Lock Screen, calls, AirPods (M2 checklist) |
 | [012](2026-09-22-012-m3-meetings.md) | M3: meeting recording | **IN PROGRESS** — built and merged on `main` (`m3/meetings` `78211054`; integrated at `5cf6aa86` with 829 package tests, 34 app tests + 3 signed-only Keychain skips, lint and secret scan clean; `device_smoke.sh` SMOKE PASS on iPhone 17 Pro and 15 Pro, both running that build) | Owner device QA: 60-min locked meeting, kill → Recover (M3 checklist) |
 | [013](2026-09-22-013-m4-language-models-and-deliverables.md) | M4: language models and deliverables | **IN PROGRESS** — core (`m4/language-models-core` `dd2ddb29`) and screens (`m4/language-models-ui` `5db5fd30`) built and merged on `main`; integrated at `5cf6aa86` with 829 package tests, 34 app tests + 3 signed-only Keychain skips, lint and secret scan clean; `device_smoke.sh` SMOKE PASS on iPhone 17 Pro and 15 Pro, both running that build | Owner device QA: Apple Intelligence, LAN Ollama/LM Studio, clinical SOAP → cloud confirmation (M4 checklist) |
@@ -59,6 +59,9 @@ commands, steps, done criteria and STOP conditions.
 > Still true on 2026-10-01: item 1 (Needle round 4) is open and `fix/needle-round4` has no commits; item 2 (the Copy
 > flattener fixes) is now [plan 024](2026-10-01-024-review-fixes.md) Task 4; items 3–5 are unchanged. The
 > `ichirp/foundation` branch named below was retired at `47eeefb1`; `main` is the working branch.
+>
+> 2026-11-05: item 2 is done. Plan 024 Task 4 (K1, K2 and the K3 ruling) and Task 10 (the document screen shows the
+> effective class) merged on `main` on 2026-10-02; `fix/flattener` still has no commits and is the owner's to delete.
 
 `ichirp/foundation` = `main` after this push. Everything below is merged, gated (package + app-hosted tests, strict
 lint, secret scan) and installed where the phones had room.
@@ -72,12 +75,17 @@ decisions (documents in the Library, Capture recipes, formatted documents with p
 
 **Open, in priority order (resume here):**
 1. **Needle round 4 — clinical safety, do first before anyone relies on Extract fields.** The round-3 adversarial
-   review (`.superpowers/sdd/milestones/fix-needle3-rereview.md`, outside git) found 78 of 168 new phrasings clean and
+   review (its report is in the owner's local notes, not in this repository) found 78 of 168 new phrasings clean and
    wrong, and probed closed-list rules (R1–R7, W1-narrow, S1–S3) that gave 0 clean-and-wrong over 441 phrases. Branch
    `fix/needle-round4` exists but has no commits. **Until then: do not use Extract fields on real clinical dictation.**
-2. **Copy flattener fixes** (`review-flattener.md`): "# of doses given: 3" loses its "#", "2) item" becomes "2.",
-   HTML entities decode; and the document screen should show the effective privacy class like the Library row.
-   Branch `fix/flattener` exists, no commits. No number was ever changed on Copy.
+2. ~~**Copy flattener fixes**~~ **Done 2026-10-02** ([plan 024](2026-10-01-024-review-fixes.md) Task 4, merged on
+   `main`): below the document's first line a single "#" keeps its "#" ("# of doses given: 3"; `MarkdownBlockParser.headingLine`),
+   a numbered item keeps its own delimiter ("2)" stays "2)", `MarkdownListItem.marker`), and an HTML entity decodes on
+   Copy exactly as the screen shows it (known item K3: a deliberate ruling, not a bug; `&#8805;` copies as "≥"). The
+   document screen shows the effective privacy class like the Library row (Task 10). Pinned by `PlainTextFlattenerTests`
+   (`testSingleHashLineKeepsItsHash`, `testCloseParenNumberKeepsItsDelimiter`, `testHTMLEntitiesDecodeOnCopyAsOnScreen`).
+   The `review-flattener.md` note was never in git; branch `fix/flattener` has no commits and is the owner's to delete.
+   No number was ever changed on Copy.
 3. **Phone checks, blocked by storage:** iPhone 17 Pro ~6 GB free and iPhone 15 Pro ~3 GB free are needed to run
    `scripts/device_benchmark.sh whisper-turbo` and `scripts/device_llm_smoke.sh qwen3.5-2b` / `qwen3-4b` (numbers go
    into the two research docs), re-run Apple Speech, and check the 15 Pro's 2.3–2.5 GB Parakeet launch peak.
@@ -110,4 +118,4 @@ decisions (documents in the Library, Capture recipes, formatted documents with p
 
 | Date | Plan | Outcome |
 |---|---|---|
-| 2026-09-22 | Gemini iOS port (commit `ae5efa53`) | Reviewed and rebuilt; see [review](../reviews/2026-09-22-gemini-ios-review.md). Salvage items tracked in `legacy/gemini-ios/README.md` |
+| 2026-09-22 | Gemini iOS port (commit `ae5efa53`) | Reviewed and rebuilt; see [review](../reviews/2026-09-22-gemini-ios-review.md). Salvage closed 2026-11-05: every item superseded or rejected ([disposition](../reviews/2026-11-05-gemini-ios-salvage-closed.md)); `legacy/gemini-ios/` removed, files in git history before `963b3122` |

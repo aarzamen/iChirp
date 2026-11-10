@@ -114,7 +114,7 @@ the iPhone 17 Pro had tested.
 | `No profiles for 'com.aarzamen.ichirp' were found` or a stale profile | The Mac lacks a matching profile | **Owner:** `scripts/gen.sh`, open `iChirp.xcodeproj` in Xcode, target iChirp → Signing & Capabilities → Team "Aaron Arzamendi (XM6E4PUXTU)", Automatic; choose the phone and press Run once. Then rerun the script |
 | `No profiles for 'com.aarzamen.ichirp.widgets' were found` (M2) | The widget extension has no matching profile on this Mac | **Owner:** the same one-time Xcode GUI Run as above; Automatic signing also covers target iChirpWidgets. Agents never register the App ID |
 | `No Account for Team "434HG698U6"` | Wrong team value somewhere | Use `XM6E4PUXTU` in `Config/Signing.local.xcconfig` |
-| "ambiguous" signing identity | Two Apple Development certificates share one name | Sign by SHA-1 (see the warning file); ask the owner before changing build settings |
+| "ambiguous" signing identity | Two Apple Development certificates share one name | Sign by SHA-1 (the fingerprints are in the owner's gitignored `Config/AppleDeveloper.local.md`, not in the repo); ask the owner before changing build settings |
 | A new capability or entitlement is needed | Profiles must change on the developer account | Stop; the owner decides and does it |
 
 ## Device smoke test
@@ -138,7 +138,7 @@ The first run downloads about 0.5 GB of models on the phone; keep it on Wi-Fi an
 
 ```bash
 cd /Users/ama/Projects/ichirp
-scripts/build_ipa.sh          # writes dist/iChirp-sidestore.ipa
+scripts/build_ipa.sh          # writes dist/Parakeet-<version>-<commit>.ipa ("-dirty" appended for an uncommitted tree)
 ```
 
 What it does:
@@ -147,7 +147,10 @@ What it does:
 2. **Ad-hoc signs** each extension and then the app **with its entitlements** before zipping. SideStore reads
    entitlements from the binary's code signature; an unsigned IPA silently loses App Groups and other entitlements.
    Entitlement files must contain literal group IDs (SideStore rejects `$(...)` placeholders).
-3. Zips `Payload/iChirp.app` into `dist/iChirp-sidestore.ipa` and prints the path plus the notes below.
+3. Zips `Payload/iChirp.app` into `dist/Parakeet-<version>-<commit>.ipa`, named from the build stamp in the app's
+   Info.plist (the values Settings → About shows: `MARKETING_VERSION` and the commit `scripts/stamp_build_identity.sh`
+   wrote; `-dirty` is appended when the working tree had uncommitted changes), and prints the path plus the notes
+   below. One file per build, so the file you attach to a release says which build it is.
 
 Install: copy the IPA to the phone (AirDrop or Files), open SideStore, tap +, choose the file.
 

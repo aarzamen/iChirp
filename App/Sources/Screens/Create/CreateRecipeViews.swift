@@ -15,7 +15,9 @@ enum RecipeWords {
         case .dictate?: return polishAfter ? "Clean text on copy" : "Action Button or tap"
         case .typeOrPaste?: return "Notes, any text"
         case .pasteLink?: return "Podcast, YouTube, web link"
-        case .importFile?: return "Voice Memos, audio, PDF, Word"
+        // "Voice Memos" left this line on 2026-11-05: Voice Memos → Share → Parakeet does nothing on the phone (QA
+        // 2026-10-27, follow-up open). Name it again when the follow-up lands.
+        case .importFile?: return "Audio, PDF, Word"
         case nil: break
         }
         let cue: String =

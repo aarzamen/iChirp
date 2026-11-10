@@ -22,7 +22,7 @@ final class CaptureRecipesAppTests: XCTestCase {
         XCTAssertEqual(RecipeWords.subtitle(.starter(.dictate), polishAfter: true), "Clean text on copy")
         XCTAssertEqual(RecipeWords.subtitle(.starter(.typeOrPaste), polishAfter: false), "Notes, any text")
         XCTAssertEqual(RecipeWords.subtitle(.starter(.pasteLink), polishAfter: false), "Podcast, YouTube, web link")
-        XCTAssertEqual(RecipeWords.subtitle(.starter(.importFile), polishAfter: false), "Voice Memos, audio, PDF, Word")
+        XCTAssertEqual(RecipeWords.subtitle(.starter(.importFile), polishAfter: false), "Audio, PDF, Word")
         XCTAssertEqual(RecipeWords.systemImage(.starter(.importFile)), "square.and.arrow.down")
         XCTAssertTrue(RecipeWords.hint(.starter(.dictate)).hasPrefix("Starts dictating."))
     }

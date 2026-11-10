@@ -107,7 +107,9 @@ of truth; the `.xcodeproj` is generated, gitignored, and never edited by hand. A
   without the GUI. Read a module's `README.md` before editing it and update it in the same commit.
 - **`upstream/macparakeet/`** is MacParakeet, byte-for-byte, as a read-only reference. Never edit it; port from it
   (section 6). See [`upstream/README.md`](upstream/README.md).
-- **`legacy/gemini-ios/`** is salvage-only: never built, deleted item by item once each salvage lands or is rejected.
+- **`legacy/gemini-ios/`** is gone (salvage closed 2026-11-05: every item was superseded or rejected,
+  [`docs/reviews/2026-11-05-gemini-ios-salvage-closed.md`](docs/reviews/2026-11-05-gemini-ios-salvage-closed.md));
+  the files stay in git history before `963b3122`.
 
 ## 4. Product rules
 
@@ -191,7 +193,7 @@ equivalent (see the pipeline map, section 10). Update the provenance SHA when yo
 | Need | Read |
 |---|---|
 | Product intent, milestones, locked decisions, ADR index | [`spec/README.md`](spec/README.md), [`spec/00-vision.md`](spec/00-vision.md) |
-| Architecture and module graph | [`spec/03-architecture.md`](spec/03-architecture.md) |
+| Architecture and module graph | [`spec/03-architecture.md`](spec/03-architecture.md); the one-page walkthrough map for a first read: [`ARCHITECTURE.md`](ARCHITECTURE.md) (draft) |
 | Speech engines, FluidAudio pin, MacParakeet ↔ iChirp map | [`spec/06-speech-engines.md`](spec/06-speech-engines.md) |
 | Data model and on-disk layout | [`spec/01-data-model.md`](spec/01-data-model.md), [`spec/contracts/`](spec/contracts/README.md) |
 | UI, tokens, screens | [`spec/04-ui.md`](spec/04-ui.md), [design handoff](docs/plans/2026-09-22-001-feat-iphone-app-design-handoff.md) |

@@ -6,7 +6,8 @@ Start with [`AGENTS.md`](../AGENTS.md) (commands, boundaries, rules) and the [sp
 | Need | Read |
 |---|---|
 | Product direction and behavior | [Vision](../spec/00-vision.md), [features](../spec/02-features.md), [ADRs](../spec/README.md#architecture-decision-records) |
-| Architecture, modules, data flow | [Architecture](../spec/03-architecture.md), module READMEs under `ChirpKit/Sources/<Module>/README.md` |
+| What v1.0 is and is not (the owner's decision) | [Scope](SCOPE.md) |
+| Architecture, modules, data flow | [Architecture](../spec/03-architecture.md), module READMEs under `ChirpKit/Sources/<Module>/README.md`; the one-page walkthrough map [`ARCHITECTURE.md`](../ARCHITECTURE.md) (draft) |
 | Stored data and public boundaries | [Data model](../spec/01-data-model.md), [contracts](../spec/contracts/README.md) |
 | Speech engines and the FluidAudio pin | [Speech engines](../spec/06-speech-engines.md) |
 | UI and the design canvas | [UI spec](../spec/04-ui.md), [design handoff](plans/2026-09-22-001-feat-iphone-app-design-handoff.md), [canvas files](design/2026-09-21-iphone-canvas/canvas.json) |

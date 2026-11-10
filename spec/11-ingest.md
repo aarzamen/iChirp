@@ -12,7 +12,7 @@
 | Input | Milestone | `sourceType` | Path into the pipeline |
 |---|---|---|---|
 | Audio/video file from Files | M1 | `file` | File picker → copy into `media/<id>/` → normalize → transcribe |
-| Share sheet (Voice Memos, Files, other apps) | M1.5 | `file` | "Open in Parakeet": iOS copies the file into `Documents/Inbox/` and opens the app → `SceneDelegate` → `IncomingLinkRouter.receiveFile` → `RootTabView` → the same import (plan 029; was `.onOpenURL`) → same pipeline. (A share extension with an App Group inbox is gated, below.) |
+| Share sheet (Files, other apps; Voice Memos: next row) | M1.5 | `file` | "Open in Parakeet": iOS copies the file into `Documents/Inbox/` and opens the app → `SceneDelegate` → `IncomingLinkRouter.receiveFile` → `RootTabView` → the same import (plan 029; was `.onOpenURL`) → same pipeline. (A share extension with an App Group inbox is gated, below.) |
 | Voice Memos | M1.5 | `file` | Through the Share sheet (no public Voice Memos API). **Not working on the phone** (2026-10-27, iOS 26: the Parakeet icon in Voice Memos does nothing, before and after plan 029); Files → Share → Parakeet works. Open follow-up |
 | A web link shared to Parakeet (YouTube app, Safari, Messages) | Plan 029 | as for a pasted link | Share → Parakeet: the `iChirpShare` extension opens the app with `ichirp://share-link?url=…&t=<token>&v=1`; Paste a link opens with the link and starts on its own when the token matches (below) |
 | Apple Podcasts episode link | M5 | `podcast` | iTunes lookup → episode audio URL → download → pipeline |
